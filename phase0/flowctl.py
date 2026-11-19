@@ -24,7 +24,7 @@ from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
-from phrases import UNTIL_ASK, BRIEF_SORRY, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
+from phrases import LISTED_ASK, UNTIL_ASK, BRIEF_SORRY, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
 from phrases import YES_LEADS, YES_RECEIVE, fixed_words, yes_line
 from phrases import ACQUIRE_SPECIAL, LISTEN_TIME, NAME_FORMS, PAIN_TOLD
 from phrases import AGAIN_LEAD, LEAD_PIECES, OTHERS_HEAD, again_fit, back_fit, closes, drop_receipt, head_join, head_word, heads_said
@@ -2016,6 +2016,8 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          # 同じ項目を2度聞き違えた（名前の読みの3つ目の確かめ）：「申し訳ございません、」（重いほう）＋「改めまして…」
          "misheard_again": ("聞き違いのあと", "お詫びのあとの言い直し", "moushiwake_heavy"),
          "restated": ("言い直しのあと", "言い直しを受けて", "shouchi"),
+         # お客様リストに分かっている連絡先を、こちらから言って確かめる（Flow._listed_ask＝伺い66 ア）：頭は次の質問へ進む返事と同じ「承知しました。」（受けの言葉の1か所）
+         "listed": ("ふつう", None, "shouchi"),
          # 言い直さない質問への、会話がつながらない答えの意味合いを尋ねる（Flow._check_again。phrases.SENSE_ASK）：「はい、」＋「それで結構ですとおっしゃったのは、
          # 電話で大丈夫という意味合いでしょうか？」（✅ 2026-11-05 日本時間23時56分48秒 ユーザー「ア」）
          "sense": ("会話がつながらない答えのあと", None, "hai"),
@@ -3518,7 +3520,7 @@ def stops_connect(value) -> bool:
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
 INTERNAL_KEYS = {"ack", "ack_pause_s", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
                  "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s", "hold_wait_kept", "ahead_offer", "ahead_closed", "form_reason",
-                 "started_over", "silence_s", "silence_scene", "hurried", "brief_sorry", "unheard", "transfer", "owner", "neither",
+                 "started_over", "silence_s", "silence_scene", "hurried", "brief_sorry", "unheard", "transfer", "owner", "neither", "listed_no",
                  "drop_short", "yes_ack"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values())
@@ -5621,6 +5623,9 @@ class Item:
     until_held: tuple | None = None
     # お客様から折り返していただく日の2択（伺い67 ア＝Flow._theirs_begin）を伺っている間の、伺う前の値と質問（Flow._theirs_take が外す）
     theirs_held: tuple | None = None
+    # お客様リストに分かっている連絡先で、伺う所でこちらから言って確かめるもの（伺い66＝(連絡先, いまお電話している番号か)。Flow._wish_contact が置き、_next_question が伺う）
+    listed: tuple | None = None
+    listed_asked: bool = False   # その確かめを伺った（いいえのお返事は、こちらの聞き違いではない＝_denied_again）
     ambiguous_asked: bool = False     # 曖昧な答えの意味を確かめたか（そのあとの「結構です」は、確かめへの返事として受け取る）
     tried_readings: list = field(default_factory=list)  # 名前の読みの確かめで、これまでに言った読み（同じ読みを2度言わない）
     told: bool = False                # その答えのあとに伝える一言（Question.tell_words）を、もう言った
@@ -5691,7 +5696,7 @@ class Flow:
                  filler_after: float = 2.0, swap_after: float = SWAP_AFTER_S,
                  earlier_when: str | None = None, dialed_mobile: bool = False, now=None, call_days: tuple = (), purpose: str = "",
                  personal: bool = False, call_type: str | None = None, yes_asks: tuple = (), special: str = "", pains: tuple = (), meeting_time: str = "",
-                 call_free: tuple = (), accept_free: tuple = ()):
+                 call_free: tuple = (), accept_free: tuple = (), listed_contacts: tuple = ()):
         """call_type・yes_asks：電話の型（CALL_TYPES。無ければ確認の電話＝今の型）と、顧客獲得型の Yes の質問の材料（instruction.Business の同じ欄。並びの順が伺う順）。
         special・pains・meeting_time：顧客獲得型の本題の段の材料（特別感の条件・悩みと事例の組の並び・お時間＝instruction.Business の同じ欄。分身 K2）。
         confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
@@ -5914,6 +5919,9 @@ class Flow:
         # 空いている予定（伺い60＝日時の2択の候補の材料の1か所 _ladder_ctx が読む。形は free_slots＝CL-2 から受ける仮の形）：call_free＝電話をかけられる日時の空き（こちらが
         # かけ直す日時の2択）・accept_free＝依頼者が受けられる日時の空き（アポ・お客様に日時を選んでいただく業務の質問＝伺い62）。無ければ今の候補の作り
         self.call_free, self.accept_free = tuple(call_free), tuple(accept_free)
+        # お客様リストに分かっている連絡先（伺い66＝CL-2 から受ける仮の形：{"kind": 連絡先を伺う役目（email・mobile など）, "value": 連絡先, "source": 出どころ（customer＝お客様
+        # から伺った・company＝お客様の会社の方から伺った・ほか＝こちらが無断で取った）, "dialed": いまお電話している番号か}）。読むのは _listed_contact の1か所
+        self.listed_contacts = tuple(listed_contacts)
         self.lead_counts: dict[str, int] = {}
         self.ack_count = 0               # 次の質問の前に流す相づちを、順番に回す（_ack_choice が選び、進めるのは流したときだけ＝_ack の1か所）
         # 直前の返事の頭の受けの言葉の文（相づち・言い直しの頭。同じ受けの言葉を続けないように＝_fresh_receipt。書くのは返事の相づちを決める1か所 _ack）
@@ -8034,6 +8042,8 @@ class Flow:
             # 「おかだ」様で大丈夫でしょうか？」」）。3回目からは何も流さずに待つ（答えの段の「聞き返しを使い切って先へ進む「はい、」」は、先へ進む質問の無いお呼びする段には
             # 当たらない）。⛔ 894b082f まで、1回目から何も流さなかった（伺い54 のア＝9e49f606）
             return ask_sorry(reply) if reply.get("ask_n") else None
+        if reply.get("listed_no"):
+            return "shouchi"   # 分かっている連絡先に「いいえ」：今の伺い方の頭は「承知しました。」（伺い66 ア。こちらの聞き違いの「失礼いたしました。」ではない）
         if reply.get("repeat"):
             # もう一度言ってほしいと頼まれ、伺ったことを流し直す（Flow._repeat_now）：「失礼いたしました。」＋「それでは（質問）」（✅ 2026-11-06 日本時間
             # 15時20分30秒 ユーザー「(1)…OK」）
@@ -10000,6 +10010,13 @@ class Flow:
         rv120/X/asks.md の伺い55 の「いいえ」の形）"""
         it = self.items[qid]
         self.awaiting_confirm = None
+        if it.listed_asked and it.listed is not None:
+            # こちらから言って確かめた分かっている連絡先（_listed_ask）に「いいえ」：こちらの聞き違いではない＝今の伺い方で伺う（受けは「承知しました。」＝伺い66 ア の伺いの文の
+            # 「いいえ」の行。回数には数えない）
+            it.listed = None
+            it.condition = it.value = None
+            it.set("empty", "分かっている連絡先を違うと言われた：今の伺い方で伺う")
+            return self._continue([], "", repeat=True) | {"listed_no": True}
         if it.corrections >= self.limits.after_correction:
             it.set("unresolved", "訂正のあとも合わない（言い直しを違うと言われ、直した値はいただけなかった）")
             return self._dash(qid)
@@ -16256,6 +16273,10 @@ class Flow:
             phrase = NAME_READING_ASK[q.reading_kind].format(v=shown)
         elif after == "sense":
             phrase = sense_ask(self.heard_said, shown)   # 「（お客様の言葉）とおっしゃったのは、（候補の言葉）という意味合いでしょうか？」
+        elif after == "listed":
+            # お客様リストに分かっている連絡先をこちらから言って確かめる（_listed_ask＝伺い66 ア。いまお電話している番号へは番号を言わない形）
+            dialed = bool(it.listed and it.listed[1])
+            phrase = LISTED_ASK[q.callback + ("_dialed" if dialed else "")].format(v=it.value)
         elif after == "final_do":
             # 迷っている方への最終の確かめ：こちらがすることの言葉（「〜させていただきます」）を「〜させていただきましょうか？」で伺う（_final_check）
             phrase = confirm_phrase((shown if choice else said_as + "とさせていただきます").removesuffix("ます"), situation, n, meaning=True)
@@ -17087,10 +17108,34 @@ class Flow:
         # 伺い方（C11）を選んでいただいたあとの一言は、伺い方の一言の「恐れ入りますが」を重ねない（callback_question の chosen＝phrases.CALLBACK_ASK_CHOSEN）
         self._new_item(callback_question(role, again=again, chosen=after == CALLBACK_IDS["line_how"], means=w.get("means"),
                                          announced=bool(w.get("announce"))))
+        # お客様リストに分かっている連絡先（お客様・お客様の会社の方から伺ったもの）は、伺わずにこちらから言って確かめる（伺い66 ア＝_listed_contact・_listed_ask）
+        self.items[did].listed = self._listed_contact(role)
         if again:
             self._put_first(did)
         else:
             self._insert_after(after, did)
+
+    def _listed_contact(self, role: str) -> "tuple[str, bool] | None":
+        """お客様リストに分かっている連絡先のうち、その役目の連絡先を伺う所でこちらから言って確かめるもの（唯一の決まり＝_wish_contact）：(連絡先, いまお電話している番号か)。
+        出どころがお客様・お客様の会社の方から伺ったもの（source の customer・company）で、言い方のある役目（phrases.LISTED_ASK＝メール・SMS の携帯電話の番号）だけ。
+        携帯電話の番号は、携帯電話の番号の形のもの（is_mobile）。こちらが無断で取った連絡先（ほかの出どころ）・無ければ None（今のまま伺う）。✅ 2026-11-20 日本時間
+        4時44分42秒 ユーザー「伺い66：ア(お客様から伺ったものや会社の方から伺ったもの)、こちらが無断で取ったメールならウ 伺い直す。」"""
+        for c in self.listed_contacts:
+            if c.get("kind") != role or c.get("source") not in ("customer", "company") or not (c.get("value") or "").strip() or role not in LISTED_ASK:
+                continue
+            if role == "mobile" and not is_mobile(c["value"]):
+                continue
+            return c["value"].strip(), bool(c.get("dialed"))
+        return None
+
+    def _listed_ask(self, qid: str) -> dict:
+        """お客様リストに分かっている連絡先（Item.listed）を、こちらから言って確かめる返事（唯一の場所＝その連絡先の質問を初めて伺う _next_question）：その連絡先を値として、
+        言い直して確かめる1か所（_ask_confirm の after「listed」＝文は phrases.LISTED_ASK）。お返事は言い直しへのお返事の今の1か所：はい＝その連絡先・別の連絡先＝今の言い直し・
+        いいえ＝今の伺い方（_denied_again の listed）。"""
+        it = self.items[qid]
+        (value, _), it.listed_asked = it.listed, True
+        it.value, it.condition = value, VALUE_CHOICE
+        return self._ask_confirm(qid, after="listed")
 
     def _wish_known(self, known: "tuple[str, str | None]", proc: dict | None = None) -> None:
         """もう伺った連絡先（_known_contact の答え）で、連絡先の段を終える唯一の場所（伺わない＝_wish_contact・いま言われたことに無かった＝_resume）。"""
@@ -17804,6 +17849,9 @@ class Flow:
         決め (g)：「お気遣いありがとうございます。…お電話させていただきます。それでは恐れ入りますが何時ごろお戻りになられますでしょうか？」（⛔ 2e5986f5 まで、直前に
         伺った「恐れ入りますが何時ごろ…」を同じ言い方でくり返した）"""
         again = self.items[q.id].played
+        if self.items[q.id].listed is not None and not again:
+            self.items[q.id].played = True
+            return self._listed_ask(q.id)   # お客様リストに分かっている連絡先は、こちらから言って確かめる（伺い66 ア）
         if (it := self.items[q.id]).ladder is not None and not again and it.ladder == it.ladder_start and q.ladder == "accept":
             # お客様に日時を選んでいただく業務の質問（伺い62）：初めて伺うときに、いまの電話の日・時刻で最初の2択を作り直す（Flow の初めに始めた段＝電話の日が後から入る）
             if self._ladder_set(q.id) is None:

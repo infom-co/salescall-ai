@@ -88,7 +88,10 @@ CL2_PENDING = frozenset({
                          # 言い直して確かめた時刻の24時間の値（通話の事実 clock24＝Flow.clock24_facts。伺い68 ア・CL-1.md 4-199 の鍵の名前と形のご相談）
                          "clock24",
                          # 携帯電話の持ち主の確かめの名乗りの部分（instruction.Target.mobile_owner＝名前の部分＋続く言葉 target_individual の録音。伺い65 イ）
-                         "mobile_owner"})
+                         "mobile_owner",
+                         # 空いている予定（伺い60・62）：業務設定の欄「依頼者が受けられる日時の空き」accept_free（instruction.CL2_SCHEDULE_FIELDS）と、電話ごとの暦から受ける
+                         # 「電話をかけられる日時の空き」call_free（flowctl.Flow の引数）。お客様リストの分かっている連絡先と出どころ listed_contacts（伺い66＝Flow の引数）
+                         "accept_free", "call_free", "listed_contacts"})
 # CL-2 の読み手がまだ受けない値（CL2_PENDING の値の版）：{(通話の事実の種類, 欄): (CL-2 の call_report の組の名前, まだ入っていない値)}。FlowWatch は、読み手に通す前に、
 # その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
 # CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
@@ -42585,3 +42588,103 @@ class ChooseWhenLadderTest(unittest.TestCase):
             g = OtherCompanyClueSendWayTest()
             r = g.turn(f, "はい、しています。", g.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
             self.assertTrue(heard_words(r).endswith(self.ASK), (free, fact, heard_words(r)))
+
+
+class ListedContactTest(unittest.TestCase):
+    """伺い66（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い66：ア(お客様から伺ったものや会社の方から伺ったもの)、こちらが無断で取ったメールならウ 伺い直す。」）：
+    お客様リストに分かっている連絡先（いまお電話している番号も）があり、その出どころがお客様・お客様の会社の方から伺ったもの（CL-2 から受ける仮の形 Flow(listed_contacts=…)
+    の source＝customer・company）なら、その連絡先を伺う所で、こちらから言って確かめる（言い直して確かめる1か所 _ask_confirm の after「listed」）：
+    メール＝「それではメールは（アドレス）宛にお送りしてもよろしいでしょうか？」・SMS をいまお電話している携帯電話の番号へ＝「それではSMSはいまお電話しているこちらの番号に
+    お送りしてもよろしいでしょうか？」（決まった言い方なので言葉の途中の読点は外す＝10-15）。お返事：はい＝その連絡先・いいえ＝今の伺い方「承知しました。それでは恐れ入りますが
+    メールアドレスを…」・別の連絡先＝今の言い直し。こちらが無断で取った連絡先（出どころがそれ以外）は今のまま伺う。⛔ f1c0af7e まで、どの連絡先も伺い直した"""
+    EMAIL = "okada@example.co.jp"
+    ASK_EMAIL = "それではメールはokada@example.co.jp宛にお送りしてもよろしいでしょうか？"
+    ASK_SMS = "それではSMSはいまお電話しているこちらの番号にお送りしてもよろしいでしょうか？"
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+
+    def flow(self, way, listed):
+        import dataclasses
+        from flowctl import CALLBACK_IDS, NONE, wish_label
+        b = OtherCompanyClueSendWayTest().business()
+        qs = list(b.questions)
+        if way == "email":
+            qs[1] = dataclasses.replace(qs[1], text="ご案内はお電話とご訪問のどちらがよろしいでしょうか？", conditions=("お電話", "ご訪問"), topic="ご案内の方法")
+        b = dataclasses.replace(b, questions=qs, phone_e164="+819012345678")
+        f = b.flow(play_recordings=True, listed_contacts=tuple(listed))
+        f.on_connect(); f.on_callee(); f.on_heard("はい、株式会社〇〇でございます。")
+        f.apply("report_party", {"party": "person"}); f.on_activity(False)
+        self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        w1 = CALLBACK_IDS["other_wish"]
+        if way == "email":
+            self.turn(f, "いえ、電話も訪問もいらないです。", self.rd(NONE), "record_answer", question_id="Q2", condition_id=NONE)
+            return f, self.turn(f, "資料をメールで送ってもらえれば見ますよ。", self.rd(wish_label("email")), "record_answer", question_id=w1,
+                                condition_id=wish_label("email"), value="メール")
+        self.turn(f, "いえ、電話もメールもいらないです。", self.rd(NONE), "record_answer", question_id="Q2", condition_id=NONE)
+        self.turn(f, "LINEならいいですよ。", self.rd(wish_label("line")), "record_answer", question_id=w1, condition_id=wish_label("line"), value="LINE")
+        return f, self.turn(f, "SMSで送ってください。", self.rd("SMS"), "record_answer", question_id=CALLBACK_IDS["line_how"], condition_id="SMS")
+
+    def test_listed_email_is_confirmed(self):
+        f, r = self.flow("email", [{"kind": "email", "value": self.EMAIL, "source": "customer"}])
+        self.assertEqual((r["result"], heard_words(r)), ("confirm_required", "承知しました。" + self.ASK_EMAIL))
+        qid = f.awaiting_confirm
+        r = self.turn(f, "はい、お願いします。", self.rd("affirmed"), "confirm_field", question_id=qid, result="affirmed")
+        self.assertEqual(f.facts["other_wish"][-1].get("contact"), self.EMAIL)
+
+    def test_listed_email_replies(self):
+        # いいえ（連絡先を言わない）：今の伺い方に戻る（受けは「承知しました。」＝こちらの聞き違いではない）
+        f, r = self.flow("email", [{"kind": "email", "value": self.EMAIL, "source": "company"}])
+        qid = f.awaiting_confirm
+        from flowctl import JUDGMENTS
+        f.on_callee(); f.on_heard("いえ、そちらはもう使っていないんです。")
+        for k in JUDGMENTS:
+            f.on_check(k, self.rd("corrected"))
+        f.on_decided()
+        self.assertIsNone(f.judged_turn(voiced=False))
+        # 会話AIに直した値を頼み（差し戻し）、同じ発話でも値が無い＝値の無い「違います」（_denied_again の1か所）
+        self.assertEqual(f.apply("confirm_field", {"question_id": qid, "result": "corrected"})["result"], "rejected")
+        r = f.apply("confirm_field", {"question_id": qid, "result": "corrected"})
+        self.assertTrue(heard_words(r).endswith("メールアドレスをお伺いしてもよろしいでしょうか？"), heard_words(r))
+        # 頭は受けの言葉（「承知しました。」＝続けば「かしこまりました。」＝受けの言葉の1か所 _fresh_receipt）・こちらの聞き違いの「失礼いたしました。」ではない
+        self.assertTrue(heard_words(r).startswith(("承知しました。", "かしこまりました。")), heard_words(r))
+        # 別の連絡先：今の言い直し
+        f, r = self.flow("email", [{"kind": "email", "value": self.EMAIL, "source": "customer"}])
+        r = self.turn(f, "いえ、okada2@example.co.jp にお願いします。", self.rd("corrected"), "confirm_field", question_id=f.awaiting_confirm, result="corrected",
+                      correction="okada2@example.co.jp")
+        self.assertIn("okada2@example.co.jp", heard_words(r))
+
+    def test_sms_to_the_dialed_number(self):
+        f, r = self.flow("mobile", [{"kind": "mobile", "value": "090-1234-5678", "source": "customer", "dialed": True}])
+        self.assertEqual((r["result"], heard_words(r).endswith(self.ASK_SMS)), ("confirm_required", True), heard_words(r))
+        self.assertNotIn("、", self.ASK_SMS)
+
+    def test_collected_or_none_is_asked_as_now(self):
+        for listed in ([{"kind": "email", "value": self.EMAIL, "source": "collected"}], []):
+            f, r = self.flow("email", listed)
+            self.assertEqual((r["result"], heard_words(r)), ("next", "承知しました。それでは恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"), listed)
+
+
+class KnownTimeAsIsTest(unittest.TestCase):
+    """伺い61（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い61：ア」）：お戻りの時刻など、電話口の方がもうご存じの時刻は2択にしない（今のまま「恐れ入りますが何時ごろ
+    お戻りになられますでしょうか？」）。日時の2択の段に入るのは、こちらがかけ直す日時を選んでいただく質問（LADDER_ROLES）と、お客様に日時を選んでいただく業務の質問
+    （chooses_when＝依頼者が受けられる日時の空きのある業務）だけ。今の作りがそうなっていることを確かめる"""
+
+    def test_known_times_are_not_pairs(self):
+        from flowctl import LADDER_ROLES, THEIRS_ROLES, callback_question
+        from phrases import CALLBACK_ASK
+        for role in ("back_time", "back_date", "next_workday", "transfer_time", "reachable_time", *sorted(THEIRS_ROLES)):
+            q = callback_question(role)
+            self.assertFalse(q.ladder, role)
+            self.assertNotIn(role, LADDER_ROLES)
+        self.assertEqual(callback_question("back_time").text, CALLBACK_ASK["back_time"])
+        self.assertEqual(CALLBACK_ASK["back_time"], "恐れ入りますが何時ごろお戻りになられますでしょうか？")
+
+    def test_in_the_call(self):
+        # 受付の方に「外出しております」と言われたら、お戻りの時刻を2択にせず伺う（お呼びする段＝OfferTest の業務）
+        o = OfferTest()
+        f, _ = o.flow()
+        DateTimePairsTest().dated(f)
+        o.heard(f, "あいにく岡田は外出しております。", away_reading("absent"))
+        r = CallbackTimeAheadTest.joined(f, f.apply("request_callback", {"why": "absent"}))
+        self.assertTrue(heard_words(r).endswith("恐れ入りますが何時ごろお戻りになられますでしょうか？"), heard_words(r))
+        self.assertIsNone(f.items[f.current].ladder)
