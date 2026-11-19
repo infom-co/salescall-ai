@@ -161,6 +161,14 @@ def replies_to(call: dict, *wav_names: str) -> list[str]:
     return [e["reply"] for t in call["turns"] if any(_line_of(t).endswith(f"_{w}.wav") for w in wav_names) for e in t.get("tool_events") or []]
 
 
+def confirms_to(call: dict, *wav_names: str) -> int:
+    """その台詞へのAIのターンで、流れの制御が目的の人かを確かめた数（確かめる一言）。お呼びする段の聞き返しで流した確かめる一言（携帯電話の番号の2回目＝
+    flowctl.Flow._calling_ask_back の印 ask_n。✅ 2026-11-19 日本時間14時18分13秒 伺い54 のイ）は聞き返しなので数えない（分身 O の書き置き rv105/O/notes.md の
+    4. の (3)：数えると、携帯電話の番号を渡す場面で「確かめは1人に1回」が外れる）。"""
+    return sum(1 for t in call["turns"] if any(_line_of(t).endswith(f"_{w}.wav") for w in wav_names)
+               for e in t.get("tool_events") or [] if e.get("reply") == "confirm_target" and not e.get("ask_n"))
+
+
 def not_the_target(*wav_names: str):
     """目的の人ではない方（wav_names の台詞の方）が出たあと、取り次がれて岡田様が出る場面の確かめ（DESIGN.md 4-3・Flow._calling_reported）。
     ✅ 2026-10-21 ユーザー：「二つ以上揃わなかった場合に関しても正しく設計できているんですか？」⇒ 別の方には繋がない・同じ方を2回確かめない・
@@ -168,7 +176,7 @@ def not_the_target(*wav_names: str):
     def check(c: dict) -> dict:
         got_replies = replies_to(c, *wav_names)
         return {"別の方には繋がない": not any(r in ("next", "confirm_required") for r in got_replies),
-                "お呼びし直した": "call_target" in got_replies, "確かめは1人に1回": got_replies.count("confirm_target") <= 1,
+                "お呼びし直した": "call_target" in got_replies, "確かめは1人に1回": confirms_to(c, *wav_names) <= 1,
                 "番号違いにしない": end_reason(c) != "wrong_party",
                 "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}
     return check

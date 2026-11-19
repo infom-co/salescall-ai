@@ -247,6 +247,20 @@ def mobile_confirm(name: str) -> str:
     return MOBILE_CONFIRM.format(who=f"{name}様") if name else ""
 
 
+# 呼ぶ一言を同じ方に2回使い切ったあとも、その方に別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（名前の録音の台帳の「（呼び名）」＋続く言葉
+# 「のお取り次ぎをお願いできますでしょうか？」・頭の「恐れ入りますが」は引き継ぎを確かめる一言 CARRIED_FROM と同じ形。頭のお詫び「大変失礼いたしました。」は相づちの録音
+# taihen_shitsurei＝流れの制御の相づちの1か所）。流すのは flowctl.Flow._call_target の1か所。✅ 2026-11-19 日本時間15時10分27秒 ユーザー「伺い51：イ（会社の代表電話なら
+# これでいい、しかし、携帯番号なら、取次ぎはおかしい）」（伺いの文＝帳面 2026-11-16_week.md の伺い51 のイ「大変失礼いたしました。恐れ入りますが営業部部長の「おかだ」様の
+# お取り次ぎをお願いできますでしょうか？」。「様に」ではなく「様の」＝名前の録音の続く言葉は「は・で・と・の」の4つの形）。会社・お店の中の方をお呼びする法人の業務だけ
+# （個人のお客様はご本人のお電話＝取り次ぎの言い方は合わない）。後任のご担当者様は共通の一言の録音（SUCCESSOR）。決まった言い方なので言葉の途中に読点を入れない（10-15）
+TARGET_TRANSFER = "恐れ入りますが{who}のお取り次ぎをお願いできますでしょうか？"
+
+
+def target_transfer(kind: str, name: str, role: str = "") -> str:
+    """お取り次ぎをお願いし直す一言（法人だけ。個人のお客様は空の文＝作らない）。呼び名は呼ぶ一言と同じ（target_who）。"""
+    return TARGET_TRANSFER.format(who=target_who(kind, name, role)) if kind == "法人" else ""
+
+
 # 読みが決まらない相手の名前を、会話の中で確かめる言い方（流れの制御の reading_question の質問の文と、直していただいたあとの言い直し）。
 # ✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。それは会話の中で失礼のないように語るか、場合によっては
 #    聞き出す」。言い方（2回目の指示）：法人「お名前の読みの方は、（相手の名前）様で、よろしかったでしょうか？」・個人「お名前の方は、
@@ -796,6 +810,9 @@ ACK = {
     # ですか」。⚠️ お詫び（「失礼いたしました。」）のあと・相手の質問を受ける頭には使わない（✅ 2026-10-14・10-23 ユーザー＝LEAD_IN・OWN_FALLBACK の注釈）
     "kashikomari": "かしこまりました。",
     "shitsurei": "失礼いたしました。",     # 言い直した値が違っていた（相手に言い直させた）
+    # 呼ぶ一言を使い切ったあとも別の方だと言われ続け、お取り次ぎをお願いし直す一言（TARGET_TRANSFER）の頭のお詫び（flowctl.Flow._ack_choice の call_target の transfer）。
+    # ✅ 2026-11-19 日本時間15時10分27秒 ユーザー「伺い51：イ」（伺いの文の言い方「大変失礼いたしました。恐れ入りますが…」）
+    "taihen_shitsurei": "大変失礼いたしました。",
     # 続きの電話の始めに、ご納得いただけなかった点を「覚えていない」「分からない」と言われたときの振り返りの一言（RECAP）の頭（flowctl.Flow._ack の1か所）。
     # ✅ 2026-11-05 日本時間4時16分52秒 ユーザー：「たとえは、こちら「ごもっともです。前回は、『（前回、説明した内容）』。とお話したところでお電話が切れて
     # しまいました。」などと伝える方が自然な流れですよね。」
@@ -1070,9 +1087,11 @@ def unavailable_confirm(name: str, role: str = "") -> str:
 SUCCESSOR = {"target": "恐れ入りますが後任のご担当者様はいらっしゃいますでしょうか？",
              "target_confirm": "後任のご担当者様でいらっしゃいますでしょうか？",
              "target_reconfirm": "後任のご担当者様でお間違えなかったでしょうか？",
-             "unavailable_confirm": UNAVAILABLE_CONFIRM.format(who="後任のご担当者様")}
+             "unavailable_confirm": UNAVAILABLE_CONFIRM.format(who="後任のご担当者様"),
+             # お取り次ぎをお願いし直す一言（TARGET_TRANSFER）の後任のご担当者様の形（伺い51 イと同じ理由＝後任のご担当者様をお呼びする電話も、通話の中で切り替えたあとも）
+             "target_transfer": TARGET_TRANSFER.format(who="後任のご担当者様")}
 SUCCESSOR_IDS = {"target": "successor_call", "target_confirm": "successor_confirm", "target_reconfirm": "successor_reconfirm",
-                 "unavailable_confirm": "successor_unavailable"}
+                 "unavailable_confirm": "successor_unavailable", "target_transfer": "successor_transfer"}
 # 前の電話で、お呼びした方が在籍していないと言われた会社への次の電話（予約証の successor）：その方の後任のご担当者様をお呼びする一言（依頼主の単位の
 # 録音＝前任の方のお名前が入る）。✅ 2026-10-24 ユーザー「まだ会話に入っていない言い方5つOK」（CL-2 の連絡帳 4-140：「（前任の方のお名前）様の後任の
 # ご担当者様」をお呼びする）。確かめる一言・聞き返しは、通話の中で後任の方へ切り替えたときと同じ（SUCCESSOR＝共通の一言の録音）
