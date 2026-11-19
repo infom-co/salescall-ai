@@ -1465,8 +1465,23 @@ def ask_sorry(reply: dict) -> str:
     """聞き返しの頭のお詫びの録音（唯一の決まり＝答えの段の聞き返し ask_back と、お呼びする段の聞き取れないお返事の聞き返し＝Flow._calling_unheard の印 unheard の
     どちらも Flow._ack_choice がここを読む）：1回目の聞き返し＝軽いお詫び（moushiwake）／2回目から・最後の1回＝重いお詫び（moushiwake_heavy）。何回目かは返事の ask_n・
     最後の1回は ask_last。✅ 2026-10-14 ユーザー（それでも駄目なら「申し訳ございません。もう一回、よろしいでしょうか？」と申し訳なさそうに）・2026-10-16 ユーザー（「02だと軽薄に
-    聞こえる」場面は重いほう）・2026-11-19 日本時間14時18分13秒（伺い54：イ＝お呼びする段も同じ言い方）"""
-    return "moushiwake" if reply.get("ask_n") == 1 and not reply.get("ask_last") else "moushiwake_heavy"
+    聞こえる」場面は重いほう）・2026-11-19 日本時間14時18分13秒（伺い54：イ＝お呼びする段も同じ言い方）。軽い・重いの名前は weighted の1か所"""
+    return weighted("moushiwake", reply.get("ask_n") == 1 and not reply.get("ask_last"))
+
+
+# 軽い・重い（深刻）の2本がある共通の一言の録音（言葉は同じ・読み方が違う）：お詫び「申し訳ございません、」（moushiwake・moushiwake_heavy）と、待っていただく一言
+# 「少々お待ちいただいてもよろしいでしょうか？」（wait・wait_heavy）。✅ 2026-10-16 ユーザー：「申し訳ございません、02軽いお詫びの時、04重大なお詫びの時」「こちらの誤りや
+# クレーム、かけ直しなどは04の方が適している。02だと軽薄に聞こえる」・「02は軽い時、04は深刻な時で使い分けでOK」（待ってもらう一言は、お詫びと同じ分け方＝設計書 6-13：
+# 短く待っていただく＝軽い／こちらの不手際・長くお待たせ・クレームのあと＝深刻）
+WEIGHTED = ("moushiwake", "wait")
+
+
+def weighted(base: str, light: bool) -> str:
+    """軽い・重いの2本のどちらを流すかの名前（唯一の決まり＝聞き返しのお詫び ask_sorry・会話AIが黙ったときに待っていただく一言 Flow.on_silence）：1回目（軽い）なら
+    base・重ねたとき・こちらの不手際のあとなら base_heavy。どちらが軽いかを決めるのは呼ぶ所（お詫び＝聞き返しの何回目か・最後の1回か／待っていただく一言＝この電話で
+    前にも待っていただいたか・会話AIを張り替えたか）。"""
+    assert base in WEIGHTED, base
+    return base if light else f"{base}_heavy"
 
 
 def ask_again_text(q: "Question", heard: "dict[str, int]") -> str:
@@ -1686,11 +1701,24 @@ WAIT_ANSWERS = {WAIT_NOW: HOLD_BACK, CALL_LATER: LATER}
 # 伺いのあとも無言が続いた
 QUIET_ASK = "wait_or_later"
 QUIET_LAST = ("wait_ask_after", QUIET_ASK)
+# こちらの声が出ていない場面（OUR_SCENE＝"ours"。お客様が黙っている場面とは別。入口は同じ Flow.on_silence に ours=True）：お客様の言葉が出揃ってから（会話AIに話させる
+# 返事なら、その相づち・録音を流し終えてから）会話AIの声が流れ始めるまで、お客様に何も聞こえない時間が続いた。1つ目の秒は、お客様の発話の知らせ（Flow.on_callee）の
+# 返り値・2つ目からは前の一言の返事の silence_s（数えるのは、その一言を流し終えてから）。並び：つなぎの「はい、」（相づちの録音 hai）→ 待っていただく一言
+# （QUIET_WAIT＝wait・wait_heavy のどちらかを weighted で選ぶ）→ 張り替え（QUIET_SWAP＝Flow.on_ai_failed の1か所。張り替えて送り直したあとも戻らなければ、同じ1か所が
+# 「AIの異常」で終える）。秒の名前＝filler_after（業務設定 call.filler_after＝CL-2 の表の作り 0024・初め2秒）・swap_after（張り替えるまでの秒＝SWAP_AFTER_S）。
+# ✅ 2026-10-16 ユーザー（帳面 CL-1.md 0-2「つなぎの一言」）：「相手に何も聞こえない時間が2秒続いたら「はい、」、さらに2秒で「少々お待ちいただいてもよろしいでしょうか？」
+# （軽いほう）」「つなぎありの方が自然、2秒でOK」・設計書 6-15（相づちのあとAIの声が始まらなければ待っていただく一言）・6-7（さらに10秒＝案の値で張り替え・会話AIへは
+# 合図を送らない）。⛔ d8d03a78 まで、この一言を流す所がどこにも無かった（試作の電話接続側は12秒黙って張り替えるだけ＝分身 AA の書き置きの穴 (P)）
+OUR_SCENE = "ours"
+QUIET_WAIT = "wait_line"
+QUIET_SWAP = "swap"
+SWAP_AFTER_S = 10.0   # 設計書 6-7 の案の値（待っていただく一言のあと、張り替えるまで。⏳ フェーズ1で、ふつうの返事の遅さの分布から決める＝6-7）
 QUIET_STEPS = {"thinking": (("silence_prompt_after", THINKING_PROMPT_IDS[0]), ("silence_prompt_after", THINKING_PROMPT_IDS[1]), QUIET_LAST),
                "wait": (("silence_prompt_after", CONCERN_PROMPT_IDS[0]), QUIET_LAST),
                "announce": (("silence_prompt_after", CONCERN_PROMPT_IDS[0]), ("silence_prompt_after", CONCERN_PROMPT_IDS[1]), QUIET_LAST),
                "reply": (("silence_prompt_after", CONCERN_PROMPT_IDS[0]), ("silence_prompt_after", CONCERN_PROMPT_IDS[1]), QUIET_LAST),
-               "asked": (("silence_prompt_after", ASKED_PROMPT_IDS[0]), ("silence_prompt_after", ASKED_PROMPT_IDS[1]), QUIET_LAST)}
+               "asked": (("silence_prompt_after", ASKED_PROMPT_IDS[0]), ("silence_prompt_after", ASKED_PROMPT_IDS[1]), QUIET_LAST),
+               OUR_SCENE: (("filler_after", "hai"), ("filler_after", QUIET_WAIT), ("swap_after", QUIET_SWAP))}
 
 
 def as_wait(reading, asking_wait: bool):
@@ -2101,6 +2129,12 @@ def answer_wait(how: str = "相手が答えたら record_answer で報告しま�
        （指示文では、急いでいる＝request_end）まで、3つの声とも request_callback にした＝どの言葉にどの操作かの正本は指示文の1か所。
        ⇒ ここは場面を挙げて、指示文のとおりにすることだけを言う（操作の名前を書かない）"""
     return how + NOT_WAITED[phase] + "はじめの指示のとおりに、それに合う操作を呼びます。"
+
+
+def voiceless(reply: dict) -> bool:
+    """流れの制御の返事が、会話AIに話させない返事か（唯一の決まり＝電話接続側へ話させない形を返す Flow.handle_call・こちらの声を待つ見張りを終える
+    Flow._silence_watch）：録音を流す（会話AIが続けて話す番 speak でなければ）・話さずに切る・話させない印（silent）。"""
+    return (bool(reply.get("play")) and not reply.get("speak")) or bool(reply.get("hang_up")) or bool(reply.get("silent"))
 
 
 def played_note(text: str, head: str = "") -> str:
@@ -3148,7 +3182,8 @@ def stops_connect(value) -> bool:
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
 INTERNAL_KEYS = {"ack", "ack_pause_s", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
                  "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s", "hold_wait_kept", "ahead_offer", "ahead_closed", "form_reason",
-                 "started_over", "silence_s", "silence_scene", "hurried", "unheard", "transfer"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
+                 "started_over", "silence_s", "silence_scene", "hurried", "unheard", "transfer",
+                 "drop_short"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values())
            | set(CALLBACK_LABEL.values()) | set(OFFER_LABEL.values()) | {VALUE_CHOICE})
@@ -5195,6 +5230,7 @@ class Flow:
                  apology_call: str | None = None, apology_when: str | None = "later", client_does: str = "", apology_text: str | None = None,
                  earliest_day=None, today=None, handoff_ways: tuple = (), close_offer: "CloseOffer | None" = None,
                  way_words: dict | None = None, handover: bool = False, silence_prompt_after: float = 5, wait_ask_after: float = 20,
+                 filler_after: float = 2.0, swap_after: float = SWAP_AFTER_S,
                  earlier_when: str | None = None, dialed_mobile: bool = False, now=None, call_days: tuple = (), purpose: str = "",
                  personal: bool = False):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
@@ -5242,6 +5278,16 @@ class Flow:
         # call.wait_ask_after＝CL-2 の表の作り 0224・初め20秒＝✅ 2026-11-15 日本時間23時08分40秒 ユーザー「伺い28：ア」）。業務の入口から渡す1か所は
         # instruction.CALL_SETTINGS（Business.with_call_settings・Business.flow）
         self.silence_prompt_after, self.wait_ask_after = silence_prompt_after, wait_ask_after
+        # こちらの声が出ていない場面（QUIET_STEPS の OUR_SCENE）の秒：つなぎの「はい、」・待っていただく一言までの秒（業務設定 call.filler_after＝CL-2 の表の作り 0024・
+        # 初め2秒＝✅ 2026-10-16 ユーザー「つなぎありの方が自然、2秒でOK」）と、待っていただく一言のあと張り替えるまでの秒（SWAP_AFTER_S＝設計書 6-7 の案の値）
+        self.filler_after, self.swap_after = filler_after, swap_after
+        # いま見張っている、こちらの声が出ていない場面（場面を始めたお客様の発話の番号・次に流す並びの番号・その発話のあとにお客様に何か流したか sounded）。始めるのは
+        # お客様の発話の知らせ on_callee・進めるのは on_silence(ours=True)・終えるのは会話AIに話させない返事（_silence_watch）
+        self.ours: dict | None = None
+        # 「はい、」（つなぎの「はい、」・判定を待つ間の「はい、」＝hold_ack）を流したお客様の発話の番号：同じ発話の返事の「はい、」「はい。」は重ねない（_ack）
+        self.hai_turn: int | None = None
+        # この電話で、待っていただく一言を流した回数（2回目からは重いほう＝weighted。会話AIを張り替えたあとも重いほう＝resent_turn）
+        self.ours_waits = 0
         # いま見張っている黙ったときの場面（場面の名前・次に流す並びの番号・場面を始めたお客様の発話の番号）。決めるのは _silence_watch・進めるのは on_silence・
         # お客様が話したら消す（on_callee）
         self.silence: dict | None = None
@@ -5848,8 +5894,10 @@ class Flow:
         self.answering = False
         return self._opening_reply()
 
-    def on_silence(self) -> dict | None:
-        """お客様が黙ったままだった（電話接続側が呼ぶ、黙ったときの唯一の入口）：流れの制御の返事に silence_s があったら、電話接続側はその返事の音（相づち・録音・
+    def on_silence(self, ours: bool = False) -> dict | None:
+        """ours＝こちらの声が出ていない（会話AIの声を待つ間に、お客様に何も聞こえない時間が silence_s 秒続いた＝on_callee の返り値・前の一言の返事の秒）：
+        こちらの声が出ていない場面（QUIET_STEPS の OUR_SCENE。_our_silence）。ours でなければ、お客様が黙っている（下）。
+        お客様が黙ったままだった（電話接続側が呼ぶ、黙ったときの唯一の入口）：流れの制御の返事に silence_s があったら、電話接続側はその返事の音（相づち・録音・
         会話AIの声）を流し終えてから数え始め、お客様が何も話さないまま silence_s 秒たったら呼ぶ（返事にまた silence_s があれば、同じく数える）。お客様が話し始めたら
         数えるのをやめる。None なら何もしない（見張りを終える）。どの場面で・何秒で・何を流すかは流れの制御が決める（電話接続側は秒を数えて呼ぶだけ）：
         第一声を待つ段＝「もしもし」で確かめる（_start_silence）／答えの段＝黙ったときの一言の表 QUIET_STEPS のいまの場面の次の一言（流すのは共通の一言の録音・
@@ -5858,6 +5906,8 @@ class Flow:
         数え直さない＝待つ上限は、場面を始めた返事＝待つと応えた・考えている方に「はい。」と応えた・お知らせした・応えた時から。どの場面も同じ＝_silence_watch）。
         ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い23・24）。⛔ それまでは、考えている方の返事・お知らせの印
         （silence_prompt）を見て、電話接続側が一言（phrases.THINKING_PROMPT）を選んで流していた"""
+        if ours:
+            return self._our_silence()
         if self.answering:
             return self._log_signal({"start_silence": True}, self._start_silence())
         q = self.silence
@@ -5895,6 +5945,69 @@ class Flow:
         while step < len(steps) and steps[step][1] != QUIET_ASK and (steps[step][1], at) in self.quiet_said:
             step += 1
         return step
+
+    def _our_silence(self) -> dict | None:
+        """こちらの声が出ていない（on_silence(ours=True) の中身。こちらの声が出ていない場面 QUIET_STEPS の OUR_SCENE の唯一の進め方）：会話AIの声を待っているお客様の
+        発話（on_callee が始めた見張り＝ours）で、まず報告の無いターンの入口（judged_turn）に判定の読みで応じられるかを聞く（待つように言われた・電話を終える言葉・
+        考えている途中など＝応じれば、つなぎの一言の代わりにその返事。✅ CL-1.md 4-95＝つなぎの一言を流す前にも呼ぶ）。応じなければ、並びの次の段：
+        - つなぎの「はい、」（相づちの録音 hai）：その発話のあと、まだお客様に何も流していなければ（返事の相づち・録音・判定を待つ間の「はい、」を流したなら飛ばす＝
+          「お客様が話し終えてから何も流れていなければ「はい、」」・設計書 6-15）
+        - 待っていただく一言（QUIET_WAIT）：その発話で1回。軽い・重いは weighted の1か所（この電話で初めて＝軽い wait＝✅ 2026-10-16「（軽いほう）」／前にも待っていただいた・
+          会話AIを張り替えたあと＝重い wait_heavy＝こちらの不手際・長くお待たせのあと）。会話AIの声が流れ始めるまでのお客様の短い声は相づち＝会話AIへ送らずに捨てる
+          （返事の印 drop_short＝設計書 6-15「6-13 の「録音を流している間の相手の短い声（相づち）は捨てる」を、この一言の直後まで広げる」）
+        - 張り替え（QUIET_SWAP）：Flow.on_ai_failed の1か所（その発話でまだ張り替えていなければ張り替え＝送り直したあと、同じ秒で同じ段・張り替えたあとも戻らなければ
+          「AIの異常」で終える）。電話を時間で締めない（10-24）。
+        会話AIへは何も知らせない（返事に message が無い＝6-7「AIへは合図を送らない」。⛔ G-19：合図を送ると会話が1つずれた）。流した一言は、ほかの録音と同じく流し終えたら
+        on_played。会話AIの声を待たない所（第一声を聞く段・待っている・締めたあと・お客様が新しく話した）では None。"""
+        q = self.ours
+        if (q is None or q["turn"] != self.callee_turns or self.answering or self.holding or self.phase == "closing"
+                or self.end_reason is not None or self.trouble is not None):
+            return None
+        if (reply := self.judged_turn(voiced=False)) is not None:
+            return reply
+        if self.ours is not q:
+            return None
+        steps = QUIET_STEPS[OUR_SCENE]
+        at = self._our_step(q["step"])
+        do = steps[at][1]
+        if do == QUIET_SWAP:
+            q["step"] = at
+            reply = self.on_ai_failed("会話AIの声も受け付けた報告も無いまま、お客様に何も聞こえない時間が続いた")
+            if reply.get("result") == "swap":
+                reply["silence_s"] = getattr(self, steps[at][0])   # 送り直したあとも同じ段（戻らなければ、同じ1か所が終える）
+            return reply
+        if do == QUIET_WAIT:
+            name = weighted("wait", self.ours_waits == 0 and self.resent_turn is None)
+            self.ours_waits += 1
+            q["waited"] = True
+            reply = {"result": "wait", "silent": True, "play": [{"kind": "recorded", "id": name, "text": RECORDED[name]}], "drop_short": True}
+        else:
+            self.hai_turn = self.callee_turns
+            reply = {"result": "wait", "silent": True, "ack": do, "ack_pause_s": ack_pause_s(do)}
+        q["sounded"], q["step"] = True, at + 1
+        reply["silence_s"] = getattr(self, steps[self._our_step(q["step"])][0])
+        return self._log_signal({"silence": OUR_SCENE}, reply)
+
+    def _our_step(self, step: int) -> int:
+        """こちらの声が出ていない場面（OUR_SCENE）で、段 step から先で次に流す段（唯一の決まり＝_our_silence）：つなぎの「はい、」は、その発話のあとお客様にもう何か
+        流したなら飛ばす・待っていただく一言は、その発話でもう流したら飛ばす。張り替えの段（最後）は飛ばさない（張り替えるか終えるかは on_ai_failed が決める）。"""
+        steps, q = QUIET_STEPS[OUR_SCENE], self.ours
+        while steps[step][1] != QUIET_SWAP and ((steps[step][1] == QUIET_WAIT and q.get("waited"))
+                                                or (steps[step][1] != QUIET_WAIT and (q["sounded"] or self.hai_turn == self.callee_turns))):
+            step += 1
+        return step
+
+    def hold_ack(self) -> str | None:
+        """会話AIの報告を待たせて判定を待つ間に先に流す相づち（電話接続側が、報告を待たせ始めたときに聞く唯一の入口＝設計書 1-2「届いていなければ「はい、」を先に流し、
+        報告から2秒まで待つ」）：この発話にまだ「はい、」を流していなければ "hai"（流したことを覚える＝その返事の相づちの「はい、」・つなぎの「はい、」を重ねない）、
+        もう流していれば None（何も流さずに待つ）。新しい方へのあいさつを流すとき（hold_play）は聞かない。⛔ d8d03a78 まで、この「はい、」は電話接続側だけが決めて
+        いて、流れの制御は知らなかった（つなぎの「はい、」と重なりえた＝設計書 1-2「両方が遅れても、同じ見張りの中で扱う（待ちが重ならない）」）"""
+        if self.hai_turn == self.callee_turns:
+            return None
+        self.hai_turn = self.callee_turns
+        if self.ours is not None and self.ours["turn"] == self.callee_turns:
+            self.ours["sounded"] = True
+        return "hai"
 
     def _start_silence(self) -> dict | None:
         """繋がってから（「もしもし」のあとも）第一声が無いまま silence_s 秒（on_silence の第一声を待つ段）：「もしもし」で、回線が繋がっているか・留守番電話では
@@ -5996,8 +6109,19 @@ class Flow:
         どちらでも、流すのは確かめる一言（違っていても、確かめへの返事で決める＝_calling_reported）。"""
         return self.party == "target" or TARGET_IS_THERE in self._judged_now().values()
 
-    # ── 相手の発話が届いた（本番では、相手の音声の発話の検出で数える）
-    def on_callee(self) -> None:
+    # ── 相手の発話が届いた（本番では、相手の音声の発話の検出で数える）。返り値＝こちらの声を待つ秒（{"silence_s": 秒}。会話AIの声を待たない所＝第一声を聞く段・
+    #    締めたあと、では None）：電話接続側は、お客様の言葉が出揃ってから、会話AIの声が流れ始めるまで（会話AIの報告を待たせて判定を待つ間は数えない・会話AIに話させない
+    #    返事なら、その音を流し終えたら見張りを終える）、お客様に何も聞こえない時間がこの秒続いたら on_silence(ours=True) を呼び、返ったものを流す（返事にまた silence_s が
+    #    あれば、それを流し終えてから同じく数える）。こちらの声が出ていない場面＝QUIET_STEPS の OUR_SCENE
+    def on_callee(self) -> dict | None:
+        self._callee()
+        if self.answering or self.phase == "closing" or self.end_reason is not None or self.trouble is not None:
+            self.ours = None
+            return None
+        self.ours = {"turn": self.callee_turns, "step": 0, "sounded": False}
+        return {"silence_s": getattr(self, QUIET_STEPS[OUR_SCENE][0][0])}
+
+    def _callee(self) -> None:
         if (self.judging and self.end_reason is None and self.end_due is None and self.end_used_turn != self.callee_turns
                 and (end := self._end_now()) in END_REASON and not self._hurry_told(end, self._wait_now())):
             self.end_due = END_REASON[end]   # この発話の判定が電話を終える言葉と読んだのに、まだ当てていない（次の報告で締める＝_end_due_now）
@@ -6813,7 +6937,7 @@ class Flow:
         last = self.log[-1]["reply"]
         # 話させない返事：録音を流す（AIは続けて話さない）・話さずに切る・取り次ぎを待つ（⛔ 2026-10-19 G-57：受付の方の「少々お待ちください」の
         # 報告に、話させる形で返していたので、3本中2本でAIが話した＝相手の言葉の真似・ありもしない用件「マンションの共用部修繕工事の…」を7秒）
-        return reply, (bool(last.get("play")) and not last.get("speak")) or bool(last.get("hang_up")) or bool(last.get("silent"))
+        return reply, voiceless(last)
 
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
@@ -7126,7 +7250,8 @@ class Flow:
         「質問に戻る」を9回呼んだ（AIからは答えたつもり）"""
         # まだ考えている途中と読んで「はい。」で待っている（_thinking）のも、相手に聞こえた返事（報告し直させると、同じ確かめの一言をくり返す＝⛔ 2026-11-06 日本時間
         # 10時台に見つけた）
-        heard = any(x["callee_turns"] == self.callee_turns and x["reply"].get("result") != "rejected"
+        # 会話AIが黙ったときのつなぎ・待っていただく一言（_our_silence が残す知らせ）は、お客様を待たせた一言＝数えない
+        heard = any(x["callee_turns"] == self.callee_turns and x["reply"].get("result") != "rejected" and x["args"].get("silence") != OUR_SCENE
                     and (x["reply"].get("play") or x["reply"].get("say") or x["reply"].get("speak") or x["reply"].get("result") == "thinking")
                     for x in self.log)
         return "さきほどのあなたの声は、相手に流していません（録音と、操作の返事で渡した言い方だけを流します）。" if muted and not heard else ""
@@ -7180,6 +7305,10 @@ class Flow:
                 ack, src = "arigatou", "own" if ack == "arigatou" else "carried"
             elif carried in RECEIPTS:
                 ack, src = carried, "carried"
+        if ack in ("hai", "aizuchi") and self.hai_turn == self.callee_turns:
+            # この発話に「はい、」をもう流した（会話AIが黙ったときのつなぎ＝_our_silence・判定を待つ間＝hold_ack）：返事の「はい、」「はい。」は重ねない（設計書 1-2
+            # 「返事の相づちも「はい、」なら重ねない」・6-15。ほかの相づちは続けて流す＝「はい、承知しました、」）
+            ack, src = None, None
         picked, counted = picks.get(src, (None, count0))
         self.ack_count = counted if ack is not None and ack == picked else count0
         if ack is not None and ack != "arigatou":
@@ -11178,6 +11307,14 @@ class Flow:
         流し終えてから数え直す）。
         quiet＝黙ったときの一言・伺いの返事（on_silence から _log_signal）：数え直さない。会話の側の待つ所すべてに上限＝11-04 日本時間4時54分・止まらない＝10-14。
         ⛔ 9e707d0a まで、伺ったあと何も言わずに黙られると、上限も一言も無く無言が続いた（帳面 1 の (6) の (B)）"""
+        if (o := self.ours) is not None and o["turn"] == self.callee_turns and reply.get("result") not in ("wait", "rejected"):
+            # こちらの声が出ていない場面（OUR_SCENE）：会話AIに話させない返事（録音・相づちで応じた・待つ・締めた＝voiceless）なら、もう会話AIの声を待たない（見張りを
+            # 終える）。会話AIに話させる返事は、その相づち・録音を流したことだけ覚える（会話AIの声が始まらなければ、次は待っていただく一言＝_our_step）。判定を待つ・
+            # 差し戻し（result wait・rejected）は、まだ会話AIの返事を待っている
+            if voiceless(reply) or self.phase == "closing" or self.end_reason is not None:
+                self.ours = None
+            elif reply.get("ack") or reply.get("play"):
+                o["sounded"] = True
         if "silence_s" in reply:
             return
         talked = reply.get("play") or reply.get("say") or reply.get("speak") or reply.get("ack")

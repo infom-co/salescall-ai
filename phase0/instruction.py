@@ -141,7 +141,7 @@ class Target:
 # 読むのは CL-2 の conversation_io.call_setting（会話の処理が読める名前の頭＝CL-2 の CALL_SETTING_PREFIXES。callee. は CL-2 に足していただく＝CL-2 の連絡帳 4-405 の (1)
 # への答え）。RANGE_SETTINGS＝時間の組の欄（CL-2 の設定の形 daily_range＝["HH:MM", "HH:MM"]）
 CALL_SETTINGS = {"callee.business_hours": "business_hours", "callee.designated_limit": "designated_limit", "call.hold_wait": "hold_wait_s",
-                 "call.silence_prompt_after": "silence_prompt_after", "call.wait_ask_after": "wait_ask_after"}
+                 "call.silence_prompt_after": "silence_prompt_after", "call.wait_ask_after": "wait_ask_after", "call.filler_after": "filler_after"}
 RANGE_SETTINGS = ("business_hours", "designated_limit")
 
 
@@ -241,6 +241,9 @@ class Business:
     # （伺い24「それでもしばらく黙られていたら」）・11-18 日本時間21時00分23秒（伺い43「ウ」＝どの場面の並びも最後は伺う））
     silence_prompt_after: float = 5
     wait_ask_after: float = 20
+    # 会話AIが声も報告も出さずに、お客様に何も聞こえない時間がこの秒続いたら、つなぎの「はい、」・さらにこの秒で待っていただく一言（流れの制御の
+    # こちらの声が出ていない場面＝flowctl.QUIET_STEPS の OUR_SCENE。CL-2 の設定 call.filler_after＝表の作り 0024・初め2秒＝✅ 2026-10-16 ユーザー「つなぎありの方が自然、2秒でOK」）
+    filler_after: float = 2
     # お客様の営業時間・お客様指定の歯止め時間（CL-2 の設定 callee.business_hours・callee.designated_limit。業務ごと。("HH:MM", "HH:MM") か時の数の組。日をまたいで
     # よい）：言われた時刻に午前・午後が無いときに補う・伺うかを決める（flowctl.fill_ampm・日時の2択の段＝flowctl.Flow の business_hours・designated_limit）。
     # 初めの値は流れの制御と同じ（flowctl.DEFAULT_BUSINESS_HOURS＝会社 9:00〜19:00・DEFAULT_DESIGNATED_LIMIT＝7:00〜22:00）。⛔ 66eb3d76 まで、業務の入口に欄が無く、
@@ -380,6 +383,7 @@ class Business:
                     promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again, handover=self.handover,
                     # 業務設定の会話の秒と時間（CALL_SETTINGS の1か所＝with_call_settings が CL-2 の設定から入れる）
                     hold_wait_s=self.hold_wait_s, silence_prompt_after=self.silence_prompt_after, wait_ask_after=self.wait_ask_after,
+                    filler_after=self.filler_after,
                     business_hours=tuple(self.business_hours), designated_limit=tuple(self.designated_limit),
                     apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
                     earlier_when=self.earlier_when, dialed_mobile=is_mobile(self.phone_e164),

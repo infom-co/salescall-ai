@@ -29906,7 +29906,10 @@ class QuietLinesTest(unittest.TestCase):
         from phrases import CALLBACK_ASK, RECORDED
         h2 = CALLBACK_IDS["wait_or_later"]
         # どの場面の並びも、最後は「しばらく」の秒で待つかかけ直すかの伺い（表の1か所）
-        self.assertEqual({k: v[-1] for k, v in QUIET_STEPS.items()}, {k: ("wait_ask_after", QUIET_ASK) for k in QUIET_STEPS})
+        # （お客様が黙っている場面。こちらの声が出ていない場面 OUR_SCENE の最後は張り替え＝分身 AD の OurSilenceTest）
+        from flowctl import OUR_SCENE
+        callee = [k for k in QUIET_STEPS if k != OUR_SCENE]
+        self.assertEqual({k: QUIET_STEPS[k][-1] for k in callee}, {k: ("wait_ask_after", QUIET_ASK) for k in callee})
         for name, make in self.quiet_scenes().items():
             f, r, q = make()
             ids, secs = [], [r.get("silence_s")]
@@ -38354,12 +38357,12 @@ class Cl2Answers1119Test(unittest.TestCase):
         from g22_opening import BUSINESS
         from instruction import CALL_SETTINGS
         values = {"callee.business_hours": ["10:00", "02:00"], "callee.designated_limit": ["08:00", "21:30"], "call.hold_wait": 120,
-                  "call.silence_prompt_after": 4, "call.wait_ask_after": 15}
+                  "call.silence_prompt_after": 4, "call.wait_ask_after": 15, "call.filler_after": 3}
         self.assertEqual(set(CALL_SETTINGS), set(values))
         b = BUSINESS.with_call_settings(values.__getitem__)
         f = b.flow(play_recordings=True)
-        self.assertEqual((f.business_hours, f.designated_limit, f.hold_wait_s, f.silence_prompt_after, f.wait_ask_after),
-                         (("10:00", "02:00"), ("08:00", "21:30"), 120, 4, 15))
+        self.assertEqual((f.business_hours, f.designated_limit, f.hold_wait_s, f.silence_prompt_after, f.wait_ask_after, f.filler_after),
+                         (("10:00", "02:00"), ("08:00", "21:30"), 120, 4, 15, 3))
         # 午前・午後を決めるのは、その業務の営業時間と歯止め時間（10時〜翌2時・8時〜21時半の業務の「7時」は、朝の7時がどちらの外＝午後。初めの値の業務では
         # 朝の7時が歯止め時間の端・夜の7時が営業時間の端で、どちらも入る＝伺う）
         from flowctl import fill_ampm
@@ -39562,8 +39565,6 @@ class HolesAATest(unittest.TestCase):
 
 # 試験の全部で流れない録音の表の名前のうち、流れの制御の外で流すもの（名前ごとの理由。唯一の表＝RecordedWatchTest が読む。分身 AA＝穴 (C)）
 UNPLAYED_RECORDED: dict[str, str] = {
-    "wait": "電話接続側が流す（会話AIが声も報告も出さずに2秒のつなぎ＝DESIGN.md 6-7・6-15・✅ 2026-10-16 ユーザー確定の2本の軽い方）。流れの制御の返事には出ない",
-    "wait_heavy": "電話接続側が流す（同じつなぎの深刻なとき＝✅ 2026-10-16 ユーザー確定）。流れの制御の返事には出ない",
     "line_trouble_ask": "CL-2 の電話接続（link/phone.py）が流す（流れの制御は call.end_for_trouble を頼むだけ＝通信の不具合の2つの一言の1つ目）",
     "line_trouble_bye": "CL-2 の電話接続（link/phone.py）が流す（同じ2つの一言の2つ目）",
 }
@@ -39583,3 +39584,219 @@ class RecordedWatchTest(unittest.TestCase):
         self.assertEqual(sorted(set(RECORDED) - heard - set(UNPLAYED_RECORDED)), [], "録音の表にあって、どの試験でも流れない名前")
         self.assertEqual(sorted(set(UNPLAYED_RECORDED) & heard), [], "流れの制御が流した名前は、UNPLAYED_RECORDED から外す")
         self.assertEqual(sorted(set(UNPLAYED_RECORDED) - set(RECORDED)), [], "表に無い名前は、UNPLAYED_RECORDED から外す")
+
+
+class OurSilenceTest(unittest.TestCase):
+    """分身 AD（枝 cl1-our-silence）：会話AIが声も報告も出さずに、お客様に何も聞こえない間のつなぎ（分身 AA の書き置き rv129/AA/notes.md の穴 (P)）。
+    ✅ 2026-10-16 ユーザー（帳面 CL-1.md 0-2「つなぎの一言」）：「相手に何も聞こえない時間が2秒続いたら「はい、」、さらに2秒で「少々お待ちいただいてもよろしいでしょうか？」
+    （軽いほう）」「つなぎありの方が自然、2秒でOK」。さらに10秒（設計書 6-7 の案の値）で張り替え（Flow.on_ai_failed の1か所）、張り替えたあとも戻らなければ「AIの異常」で
+    終える（同じ1か所）。何秒で何を流すかは、お客様が黙っているときと同じ表（flowctl.QUIET_STEPS の場面 "ours"＝こちらの声が出ていない）・同じ入口（Flow.on_silence(ours=True)）・
+    返事の秒（silence_s）。最初の秒は、お客様の発話の知らせ（Flow.on_callee）の返り値（業務設定 call.filler_after）。つなぎの一言の前に、報告の無いターンの入口
+    （judged_turn）で判定の読みに応じる（CL-1.md 4-95）。同じ発話に「はい、」を重ねない（つなぎの「はい、」・判定を待つ間の「はい、」＝Flow.hold_ack・返事の相づち）。
+    待っていただく一言の軽い・重いは、お詫びと同じ1か所（flowctl.weighted）。会話AIへは合図を送らない（6-7）。"""
+
+    Q1 = "15日の午後2時でお願いします。"
+    SAY = "ありがとうございます。15日の14時、午後2時でよろしいでしょうか？"
+
+    def asked(self, play=True, **kw):
+        """Q1（日時）を伺い、お客様が答えたところ（会話AIはまだ何も返していない）。返り値＝(流れの制御, お客様の発話の知らせ on_callee の返り値)。"""
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",), topic="ご希望の日時"),
+                  Question("Q2", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",), topic="ご来店の人数")], play_recordings=play, **kw)
+        r = f.on_callee()
+        f.on_heard(self.Q1)
+        return f, r
+
+    def report(self, f):
+        return f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の午後2時"})
+
+    @staticmethod
+    def ids(r):
+        return [p["id"] for p in (r or {}).get("play") or []]
+
+    def test_the_scene_is_one_row_of_the_table(self):
+        from flowctl import QUIET_STEPS, QUIET_SWAP, QUIET_WAIT, SWAP_AFTER_S
+        from phrases import RECORDED, WAIT
+        self.assertEqual(QUIET_STEPS["ours"], (("filler_after", "hai"), ("filler_after", QUIET_WAIT), ("swap_after", QUIET_SWAP)))
+        f, r = self.asked()
+        self.assertEqual((f.filler_after, f.swap_after, SWAP_AFTER_S), (2.0, 10.0, 10.0))
+        self.assertEqual(r, {"silence_s": 2.0})   # お客様の言葉が出揃ってから、お客様に何も聞こえない時間を数える秒（こちらの声を待つ場面の1つ目）
+        self.assertEqual((RECORDED["wait"], RECORDED["wait_heavy"]), (WAIT, WAIT))   # 新しい録音は無い（2本とも今の録音＝10-16）
+        g, r = self.asked(filler_after=3)
+        self.assertEqual(r, {"silence_s": 3})
+        self.assertEqual([g.on_silence(ours=True)["silence_s"] for _ in range(3)], [3, 10.0, 10.0])
+
+    def test_hai_then_the_wait_line_then_swap_then_trouble(self):
+        from phrases import WAIT
+        for play in (True, False):   # 録音で流す通話も、会話AIが話す通話も同じ
+            f, _ = self.asked(play)
+            s = f.on_silence(ours=True)
+            self.assertEqual((s["result"], s["ack"], s.get("play"), s["silence_s"], "message" in s, s.get("drop_short")),
+                             ("wait", "hai", None, 2.0, False, None), play)
+            s = f.on_silence(ours=True)
+            self.assertEqual(([(p["id"], p["text"]) for p in s["play"]], s["silence_s"], s.get("drop_short"), "message" in s, s.get("ack")),
+                             ([("wait", WAIT)], 10.0, True, False, None), play)
+            s = f.on_silence(ours=True)
+            self.assertEqual((s["result"], s["silence_s"]), ("swap", 10.0), play)
+            f.on_resend()
+            r = f.on_silence(ours=True)   # 張り替えて送り直したあとも戻らない：AIの異常で終える（on_ai_failed の1か所）。「はい、」も待っていただく一言も重ねない
+            self.assertEqual((r["result"], r["reason"], f.trouble["reason"], f.phase), ("end_trouble", "ai_malfunction", "ai_malfunction", "closing"), play)
+            self.assertIsNone(f.on_silence(ours=True))
+            self.assertIsNone(f.on_silence())   # お客様が黙ったときの一言は流れない
+            # 張り替えたら戻った：そのあとはふつうの返事（「はい、」はもう流した＝重ねない）
+            g, _ = self.asked(play)
+            for _ in range(3):
+                g.on_silence(ours=True)
+            g.on_resend()
+            r = self.report(g)
+            self.assertEqual((r["result"], r.get("ack"), g.trouble), ("confirm_required", None, None), play)
+
+    def test_a_hai_already_heard_is_not_stacked(self):
+        # (a) つなぎの「はい、」のあとに届いた報告：返事の相づちが「はい、」なら重ねない（設計書 6-15・1-2「返事の相づちも「はい、」なら重ねない」）
+        f, _ = self.asked()
+        f.on_silence(ours=True)
+        r = self.report(f)
+        self.assertEqual((r["result"], r.get("ack"), r["say"]), ("confirm_required", None, self.SAY))
+        # 「はい、」でない相づちは続けて流す（「はい、承知しました、」＝設計書 6-15）
+        f.on_callee()
+        f.on_heard("はい。")
+        f.on_silence(ours=True)
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.assertEqual((r["result"], r["ack"]), ("next", "shouchi"))
+        # (b) 判定を待つ間の「はい、」（設計書 1-2。電話接続側が会話AIの報告を待たせ始めたときに聞く Flow.hold_ack）：同じ発話に1回だけ。流したら返事の「はい、」・
+        #     つなぎの「はい、」は重ねない（会話AIの声が始まらなければ、次は待っていただく一言）
+        g, _ = self.asked()
+        self.assertEqual((g.hold_ack(), g.hold_ack()), ("hai", None))
+        r = self.report(g)
+        self.assertEqual((r["result"], r.get("ack")), ("confirm_required", None))
+        self.assertEqual(self.ids(g.on_silence(ours=True)), ["wait"])
+        h, _ = self.asked()
+        h.on_silence(ours=True)
+        self.assertIsNone(h.hold_ack())
+        # (c) 返事の相づちが流れたあと、会話AIの声が始まらない：次は待っていただく一言（「相づちのあとAIの声が始まらなければ」＝設計書 6-15）
+        k, _ = self.asked()
+        self.assertEqual(self.report(k)["ack"], "hai")
+        self.assertEqual(self.ids(k.on_silence(ours=True)), ["wait"])
+
+    def test_the_judged_reply_comes_before_the_filler(self):
+        # CL-1.md 4-95：つなぎの一言の前に、報告の無いターンの入口（judged_turn）で判定の読みに応じる。待つように言われていたら「はい、」で待ち（つなぎは流さない）、
+        # 会話AIの声はもう待たない（こちらの声を待つ場面は終わり・お客様が黙ったときの場面「理由を言わずに待つ」へ）
+        from flowctl import THINKING, WAIT_PLAIN
+        q = QuietAfterAskTest()
+        f = q.flow()
+        f.on_callee()
+        f.on_heard("ちょっと待ってもらえますか。")
+        f.on_check("judge", q.rd(WAIT_PLAIN))
+        r = f.on_silence(ours=True)
+        self.assertEqual((r["result"], r.get("ack")), ("hold", "hai"))
+        self.assertIsNone(f.on_silence(ours=True))
+        self.assertEqual(f.silence["scene"], "wait")
+        # 読みが遅れて届いた（つなぎの「はい、」を流したあと）：考えている方への「はい。」は重ねない（同じ発話に「はい」を2つ流さない）
+        g = q.flow()
+        g.on_callee()
+        g.on_heard("うーん、そうですねえ。")
+        self.assertEqual(g.on_silence(ours=True)["ack"], "hai")
+        g.on_check("judge", q.rd(THINKING))
+        r = g.on_silence(ours=True)
+        self.assertEqual((r["result"], r.get("ack"), self.ids(r)), ("thinking", None, []))
+        self.assertIsNone(g.on_silence(ours=True))
+        self.assertEqual(g.silence["scene"], "thinking")
+
+    def test_the_wait_line_is_heavy_after_we_made_the_customer_wait(self):
+        # お詫びと同じ分け方（設計書 6-13 の 10-16「待ってもらう一言も2本」：短く待っていただく＝軽い／こちらの不手際・長くお待たせのあと＝深刻）：
+        # この電話で1回目＝軽い・前にも待っていただいた（待っていただく一言を流した）・こちらの不手際（会話AIを張り替えた）のあと＝重い
+        from flowctl import ask_sorry, weighted
+        f, _ = self.asked()
+        got = []
+        for turn in range(2):
+            if turn:
+                f.on_callee()
+                f.on_heard("はい。")
+            f.on_silence(ours=True)
+            got.append(self.ids(f.on_silence(ours=True)))
+            if not turn:
+                self.report(f)
+        self.assertEqual(got, [["wait"], ["wait_heavy"]])
+        g, _ = self.asked()
+        g.on_ai_failed("会話AIのつなぎが通話の途中で切れた")
+        g.on_resend()
+        self.report(g)
+        g.on_callee()
+        g.on_heard("はい。")
+        g.on_silence(ours=True)
+        self.assertEqual(self.ids(g.on_silence(ours=True)), ["wait_heavy"])
+        # お詫びの軽い・重いも同じ1か所（聞き返しの1回目＝軽い・2回目から・最後の1回＝重い＝今のまま）
+        self.assertEqual([ask_sorry({"ask_n": 1}), ask_sorry({"ask_n": 2}), ask_sorry({"ask_n": 1, "ask_last": True}), ask_sorry({})],
+                         ["moushiwake", "moushiwake_heavy", "moushiwake_heavy", "moushiwake_heavy"])
+        self.assertEqual((weighted("wait", True), weighted("wait", False), weighted("moushiwake", False)), ("wait", "wait_heavy", "moushiwake_heavy"))
+
+    def test_no_filler_where_we_are_not_waiting_for_the_ai(self):
+        from g22_opening import BUSINESS
+        # (1) 第一声を聞く段（まだ名乗っていない＝会話AIは声を出さない）：秒を返さず、入口も何も流さない
+        g = BUSINESS.flow(play_recordings=True)
+        g.on_connect()
+        self.assertIsNone(g.on_callee())
+        self.assertIsNone(g.on_silence(ours=True))
+        # (2) 録音で質問を流した返事のあと（会話AIは話さない）：もう会話AIの声を待たない。お客様が黙れば、お客様の場面（「もしもし？」）
+        f = QuietAfterAskTest().flow()
+        self.assertIsNone(f.on_silence(ours=True))
+        self.assertEqual(self.ids(f.on_silence()), ["moshimoshi"])
+        # (3) 締めたあと（お客様が話しても、会話AIの声を待たない）
+        h, _ = self.asked()
+        self.report(h)
+        h.on_callee()
+        h.on_heard("はい。")
+        h.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        h.on_callee()
+        h.on_heard("3人です。")
+        h.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "3人"})
+        h.on_callee()
+        h.on_heard("はい。")
+        self.assertEqual(h.apply("confirm_field", {"question_id": "Q2", "result": "affirmed"})["result"], "end")
+        self.assertIsNone(h.on_callee())
+        self.assertIsNone(h.on_silence(ours=True))
+        # (4) お客様が新しく話したら、前の発話の見張りは終わり（新しい発話の1つ目から）
+        k, _ = self.asked()
+        k.on_silence(ours=True)
+        self.assertEqual(k.on_callee(), {"silence_s": 2.0})
+        self.assertEqual(k.on_silence(ours=True)["ack"], "hai")
+
+    def test_the_hold_ack_reaches_the_phone_side(self):
+        # 試作の電話接続側（convo.check_handler）：判定を待つ間の「はい、」は流れの制御に聞く（Flow.hold_ack）＝つなぎの「はい、」を流したあとは流さない
+        import asyncio
+        from types import SimpleNamespace
+        from convo import check_handler
+        from flowctl import ARG_LABEL, PART_LABEL, TALK_LABEL
+        from grounding import NO_FACT
+        o = OwnWordsTest()
+        args = {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: "本当に暑い日が続いておりますね。",
+                ARG_LABEL["fallback"]: TALK_LABEL["talk_agree_light"]}
+        got = []
+        for filler in (False, True):
+            f, _ = o.flow()
+            o.heard(f, "今日は暑いですねえ。")
+            if filler:
+                self.assertEqual(f.on_silence(ours=True)["ack"], "hai")
+
+            async def grounder(knowledge, said, draft, release=None):
+                await asyncio.sleep(0.01)
+                return o.verdict(NO_FACT)
+
+            async def main(f=f):
+                pending = []
+                handle, _, info, _ = check_handler(f, tasks=pending, grounder=grounder)
+                await handle(SimpleNamespace(name="replay_opening", args=dict(args)))
+                if pending:
+                    await asyncio.wait(pending, timeout=1)
+                return info
+            got.append(asyncio.run(main())["held_ack"])
+        self.assertEqual(got, ["hai", None])
+
+    def test_the_filler_seconds_are_a_call_setting(self):
+        # 業務設定 call.filler_after（CL-2 の表の作り 0024・初め2秒＝✅ 2026-10-16）を、業務の入口の1か所（instruction.CALL_SETTINGS）から流れの制御へ
+        from g22_opening import BUSINESS
+        from instruction import CALL_SETTINGS
+        self.assertEqual(CALL_SETTINGS["call.filler_after"], "filler_after")
+        self.assertEqual((BUSINESS.filler_after, BUSINESS.flow().filler_after), (2, 2))
+        import dataclasses
+        self.assertEqual(dataclasses.replace(BUSINESS, filler_after=3).flow().filler_after, 3)
