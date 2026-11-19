@@ -994,10 +994,23 @@ AMPM_ASK = "恐れ入ります。午前と午後どちらになりますでし�
 # 待ってもらう一言（6-7・6-15）。✅ 2026-10-15 ユーザー：「『少々お待ちください。』は、電話での接客では強制的で不向き。『少々お待ちいただいても
 # よろしいでしょうか。』にすると、接客では柔らかい、相手に同意を取れる接客話法になる」
 WAIT = "少々お待ちいただいてもよろしいでしょうか？"
+# 待っていただく一言へのお返事が、待つことへの迷い（「えー、待つんですか、どうしようかなあ。」）のときに1つの電話で1回だけ添える一言（共通の一言の録音 wait_soon。流すのは
+# flowctl.Flow._wait_again の1か所）。前のお話への会話AIの返事を待ち続ける（前のお話の答えは受け取ったまま）。お詫びで始まる＝頭に相づち・お詫びを重ねない（お詫びは1つの
+# 発話に1回）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い76：ウ」
+WAIT_SOON = "申し訳ございません。すぐにご案内いたしますね。"
+# 待っていただく一言（WAIT・WAIT_SOON）を流したあと、待っていただいたお話への会話AIの返事の頭に1回だけ流す一言（共通の一言の録音 omatase。付けるのは
+# flowctl.Flow._omatase の1か所）。そのあとに「～ました」で終わる受けの言葉（「承知しました。」「かしこまりました。」）を続けない＝この一言が受けの言葉の代わり（お客様の
+# 言葉は待っていただく前に「はい、」で受けている）。申し出を受けていただいたお礼「ありがとうございます。」だけは残す（11-12 日本時間13時40分05秒の (5)）。
+# ✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い74：アだが、お待たせいたしました。承知しました。と「～ました」が続くのはおかしい。」
+OMATASE = "お待たせいたしました。"
+# 答えの段（目的のお客様のいない業務・繋いだあと）で、判定の組の1つだけが番号違いと読んだ（割れた）ときに1つの電話で1回だけ伺う一言（共通の一言の録音
+# wrong_number_ask。頭のお詫び「大変失礼いたしました。」は相づちの録音 taihen_shitsurei＝お取り次ぎをお願いし直す一言と同じ分け方。決まった言い方なので言葉の途中に
+# 読点を入れない＝10-15。伺うのは flowctl.Flow._ask_again の1か所）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い72：エ」
+WRONG_NUMBER_ASK = "番号を間違えてお掛けしてしまいましたでしょうか？"
 # 黙ったときに流れの制御が流す一言のすべて（流し終えた知らせ Flow.on_played で「質問のあとにこちらが言った一言」として覚える唯一の並び）：お客様が黙ったときの一言
 # （flowctl.QUIET_STEPS のお客様の場面）と、こちらの声が出ていないときの待っていただく一言（同じ表の場面 ours の WAIT＝録音 wait・wait_heavy。分身 AF＝まとめ役の頼み
 # rv144/AF の (1)：お客様のお返事が、この一言へのお返事だけか、前のお話の続きかを判定が分かって読む。⛔ a5699306 まで入れておらず、判定はこの一言を知らなかった）
-QUIET_LINES = frozenset((*THINKING_PROMPT, *CONCERN_PROMPT, *ASKED_PROMPT, WAIT))
+QUIET_LINES = frozenset((*THINKING_PROMPT, *CONCERN_PROMPT, *ASKED_PROMPT, WAIT, WAIT_SOON))   # 待つことへの迷いに添える一言も（伺い76 ウ）
 # 締めの言葉（質問が全部終わったとき）。✅ 2026-10-15 ユーザー：「『お忙しいところ、お時間をいただきまして、ありがとうございました。』⇒
 # 『お忙しいところお時間をいただきましてありがとうございました。』」「『それでは、失礼いたします。』⇒『それでは失礼いたします。』」（ユーザーが直した形）
 CLOSING = "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
@@ -1202,6 +1215,18 @@ SUCCESSOR = {"target": "恐れ入りますが後任のご担当者様はいら�
              "target_transfer": TARGET_TRANSFER.format(who="後任のご担当者様")}
 # 共通の一言の録音で流す形（流れの制御が流しうるものだけ＝録音の表 RECORDED の名前）。⛔ 2026-11-19（分身 AA＝穴 (C)）まで、流れないはっきりしない返事への
 # 聞き返しの後任の方の形 successor_reconfirm を録音の表に入れていた（文 SUCCESSOR["target_reconfirm"] は 2026-11-20 の分身 L まで残っていた＝上の TARGET_RECONFIRM）
+# 後任の方もいらっしゃらないと言われ、その役職の方をお呼びするときの名乗りの部分（流れの制御の部分 → 業務の名乗りの部分。唯一の表＝作る instruction.Business.replay_parts・
+# 切り替える flowctl.Flow._to_role）。文は役職だけでお呼びする業務の一言と同じ1か所（instruction.Target の役職だけの形＝target_call・target_confirm・unavailable_confirm・
+# target_transfer の名前の無い形「部長様はいらっしゃいますでしょうか？」など）。録音は名前の録音の台帳の、役職の呼び方の名前の部分（役職だけの目的のお客様と同じ鍵＝役職）＋
+# 今ある続く言葉（target・target_confirm・unavailable_confirm・target_transfer）＝新しい文・続く言葉は作らない（CL-2 は、名前と役職のある法人の行にも役職の呼び方の名前の
+# 部分を要る録音に入れる＝分身 M の書き置きの CL-2 へ知らせるもの）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいないときは、該当の役職の方」
+ROLE_PARTS = {"target": "target_role", "target_confirm": "target_role_confirm", "unavailable_confirm": "target_role_unavailable",
+              "target_transfer": "target_role_transfer"}
+# 名乗りの部分の名前のうち、続く言葉の名前と違うもの → その続く言葉の名前（唯一の表＝お名前の前の言葉を流す flowctl.name_plays・続く言葉の試験。CL-2 の
+# recordings.name_needs と同じ組み方）：フルネームでお呼びし直す一言は呼ぶ一言と同じ続く言葉・携帯電話の持ち主の確かめ mobile_owner（伺い65 イ＝分身 N）は個人の呼ぶ一言と
+# 同じ続く言葉・役職の方の部分（ROLE_PARTS）は今ある続く言葉
+NAME_PART_TAILS = {"target_full": "target", "target_successor_full": "target_successor", "mobile_owner": "target_individual",
+                   **{v: k for k, v in ROLE_PARTS.items()}}
 SUCCESSOR_IDS = {"target": "successor_call", "target_confirm": "successor_confirm",
                  "unavailable_confirm": "successor_unavailable", "target_transfer": "successor_transfer"}
 # 前の電話で、お呼びした方が在籍していないと言われた会社への次の電話（予約証の successor）：その方の後任のご担当者様をお呼びする一言（依頼主の単位の
@@ -1524,6 +1549,9 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "moshimoshi": MOSHIMOSHI, **{f"callback_{k}_pending": PENDING_LINE.format(t=t) for k, t in CALLBACK_PENDING.items()},
             **{f"callback_carried_talked_{k}": v for k, v in CARRIED_TALKED.items()}, "start_over": START_OVER, "brief_go": BRIEF_GO,
             CALL_AGAIN_TAKEN: CALL_AGAIN_DONE,
+            # 待つことへの迷いに添える一言・待っていただいたお話への返事の頭の一言・答えの段で番号違いが割れたときに伺う一言（✅ 2026-11-20 日本時間3時55分24秒
+            # 伺い76 ウ・伺い74 ア・伺い72 エ）
+            "wait_soon": WAIT_SOON, "omatase": OMATASE, "wrong_number_ask": WRONG_NUMBER_ASK,
             # 顧客獲得型の Yes の質問の段の受け止め・「手短に」への一言（どの業務でも同じ文＝共通の一言。言葉の途中の読点は外す＝10-15）
             **{f"yes_received_{k}": fixed_words(v) for k, v in YES_RECEIVE.items()}, "yes_brief": fixed_words(YES_BRIEF),
             # 顧客獲得型の本題の段の、どの業務でも同じ文・お名前の分からない方への形（分身 K2）

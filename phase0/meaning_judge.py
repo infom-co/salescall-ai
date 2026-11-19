@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
-                     restates, side_items, WRONG, wrong_choices)
+                     restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -122,6 +122,11 @@ KIND_DESC = {HOLD: "この電話の間に、取り次ぐ・確かめてくるあ
 TALK_UNDECIDED = ("この言葉と、前の会話からは決められない（聞き違いもありうるので、近い言葉に読み替えない。待つように言った・代わった人が"
                   "話し始めた、に当たるときは、そちら）")
 CONFIRM_DESC = {"affirmed": "こちらが言い直した値で合っていると認めた", "corrected": "違う・直した（別の値を言った）"}
+# 選ぶ質問（choice）の言い直しへの「違う」（判定に見せる名前, 説明）。中の名前は値を伺う型の言い直しへの「違う・直した」と同じ corrected（流れの制御は同じ1か所
+# Flow._denied_again＝「失礼いたしました。」＋「それでは（いまの質問）」）。選べるもう一方を言ったなら、その選択肢（今の訂正の道）・迷い・どれとも決まらないなら
+# 「決められない」（「はい、いかがなさいますか？」）。✅ 決まりで決めた＝伺い70 の (1)（10-14「値を直されたあと：こちらの聞き違い＝録音「失礼いたしました。」」・
+# 11-06 日本時間15時20分30秒 (1)・11-01 日本時間18時11分53秒）。はい・いいえの質問（yes_no）は打ち消し＝もう一方なので並べない（今のまま）
+CHOICE_DENIED = ("違う", "こちらの言い直しを打ち消しただけで、ほかの選択肢は言っていない（言い直した答えが違う、とだけ言った）")
 
 # 言い切っているか（✅ 2026-10-18 ユーザー：「『急ぎと言えば急ぎですが』『まあ、できれば早くとは思います』『さらっとは見たんですが』
 #    『していないはずですが…』『5万円くらいかなとは思いますが』なんかは、『yes,but 曖昧』のような返答にしておけばいいんじゃないですか？」）。
@@ -359,9 +364,15 @@ def calling_rules(q) -> tuple[str, str]:
         return "電話でお呼びする方を、質問の言葉でお呼びして、電話に出ている方が話しました。", ""
     P, _ = called_words(getattr(q, "seeks_successor", False))
     return ("電話でお呼びする方のことを、質問の言葉で伺って、電話に出ている方が話しました。",
-            f"質問は、{P}のご様子を、こちらが言葉にして伺ったものです。質問に「はい」「そうです」と答えた言葉は、伺ったとおりだと、いまの言葉で伝えたもの"
-            "として読み、「いいえ」「違います」と答えた言葉は、そうではないと、いまの言葉で伝えたものとして読みます（言葉の頭の「はい」が、質問への答えではなく"
-            "相づちだけのときは、これに当たりません）")
+            f"質問は、{P}のご様子を、こちらが言葉にして伺ったものです。" + as_asked("質問"))
+
+
+def as_asked(asked: str) -> str:
+    """こちらが言葉にして伺った一言（asked＝判定に見せる行の名前）への「はい」「いいえ」のお返事の読み方の一文（唯一の場所＝お呼びする段のご事情を伺う一言 calling_rules・
+    答えの段で番号違いかを伺った一言 WRONG_ASK_NOTE）：「はい」「そうです」は伺ったとおりだと、「いいえ」「違います」はそうではないと、いまの言葉で伝えたもの。
+    ⚠️ お呼びする段の文（asked＝「質問」）は分身 M が1か所にする前と1文字も同じ（G-59 の指紋が変わらない）"""
+    return (f"{asked}に「はい」「そうです」と答えた言葉は、伺ったとおりだと、いまの言葉で伝えたものとして読み、「いいえ」「違います」と答えた言葉は、"
+            f"そうではないと、いまの言葉で伝えたものとして読みます（言葉の頭の「はい」が、{asked}への答えではなく相づちだけのときは、これに当たりません）")
 
 
 def facet_rules(q) -> str:
@@ -564,6 +575,10 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
                              "この意味の答え" if name != label(c) else choice_desc(q, c), c))
             elif not talk_question(q):   # 電話のやり取りを読む問い合わせには、お客様の答えの「わからない」「答えたくない」を並べない
                 head.append((label(c), system_desc(q, c), c))
+        if (asked is not None and q.type == "choice" and not getattr(q, "named", False) and not talk_question(q)
+                and CHOICE_DENIED[0] not in {n for n, _, _ in head} | taken):
+            # 選ぶ質問の言い直しへの返事だけ：言い直しを打ち消しただけ（CHOICE_DENIED。並びは答えでない言葉の前）
+            head.append((*CHOICE_DENIED, "corrected"))
     else:
         head = [(CONFIRM_LABEL[k], d, k) for k, d in CONFIRM_DESC.items()]
     kinds = answer_kinds(q)
@@ -616,16 +631,27 @@ HEARD_NOTE = (f"（{PROMPTED}は、お客様が黙っていたので、こちら
 WAIT_NOTE = (f"（{PROMPTED}は、お客様のお話にこちらがお返事する前に、お待ちいただくようにお願いした言葉です。お客様の言葉が、そのお願いへのお返事だけ（「はい」"
              f"「大丈夫ですよ」「どうぞ」など＝待ってよいということ）で、質問への答えをはっきり言い直していなければ「{UNDECIDED}」を選び、"
              f"{PROMPT_REPLY_HEADING}（{PROMPT_REPLY}）は「{PROMPT_REPLY_YES}」を選びます。このお願いへの「はい」は、質問への「はい」ではありません。"
+             f"お願いに、待つかどうかを迷っている・ためらっているだけ（質問への答えの迷いではない）なら、答えは「{UNDECIDED}」、{PROMPT_REPLY}は"
+             f"「{PROMPT_REPLY_WAVER}」を選びます。"
              f"質問への答えを新しく言ったときは、その答えを選びます。急いでいる・ご事情などのお話をしたときは、お願いへのお返事だけではありません）")
+
+
+# 質問のあとにこちらが言った一言が、答えの段で判定の組の1つだけが番号違いと読んだ（割れた）ときに伺った一言（「番号を間違えてお掛けしてしまいましたでしょうか？」＝
+# flowctl.asks_wrong の1か所・流すのは Flow._ask_again）のときの読み方：お客様のお返事の「はい、そうです。」は、言葉そのものに番号の言葉が無くても、伺ったとおり
+# （番号違い）だと伝えたもの（読み方の一文はお呼びする段のご事情を伺う一言と同じ1か所 as_asked）。番号違いを読む項目は答えとは別の項目（flowctl.WRONG）。声かけへの
+# お返事だけかの項目は読ませない（answer_items）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い72：エ」
+WRONG_ASK_NOTE = (f"（{PROMPTED}は、お客様の言葉を受けて、こちらがかけた電話番号を間違えたかどうかを、こちらが言葉にして伺ったものです。" + as_asked(PROMPTED)
+                  + f"。{WRONG_HEADING}（{WRONG}）も、このお返事で読みます）")
 
 
 def prompted_note(line: str) -> str:
     """質問のあとにこちらが言った一言（Question.prompted）の読み方の注意書きを選ぶ唯一の場所（prompt_parts）：黙ったあとの一言（flowctl.QUIET_LINES）なら声かけの
     読み方（声が届いているかを確かめた「もしもし？」＝flowctl.hearing_check の1か所なら HEARD_NOTE・こちらの声が出ていないときの待っていただく一言＝
-    flowctl.waiting_line の1か所なら WAIT_NOTE・ほかは PROMPTED_NOTE）、ほかは尋ねられた答え・受け答えの読み方（REPLIED_NOTE）。"""
-    from flowctl import QUIET_LINES, hearing_check, waiting_line
-    return (HEARD_NOTE if hearing_check(line) else WAIT_NOTE if waiting_line(line) else PROMPTED_NOTE if line in QUIET_LINES
-            else REPLIED_NOTE)
+    flowctl.waiting_line の1か所なら WAIT_NOTE・ほかは PROMPTED_NOTE）、番号違いかを伺った一言（flowctl.asks_wrong）なら WRONG_ASK_NOTE、ほかは尋ねられた答え・受け答えの
+    読み方（REPLIED_NOTE）。"""
+    from flowctl import QUIET_LINES, asks_wrong, hearing_check, waiting_line
+    return (HEARD_NOTE if hearing_check(line) else WAIT_NOTE if waiting_line(line) else WRONG_ASK_NOTE if asks_wrong(line)
+            else PROMPTED_NOTE if line in QUIET_LINES else REPLIED_NOTE)
 
 
 def scene(q, text: str, asked: str | None = None, before: str | None = None) -> dict:
@@ -794,7 +820,7 @@ def answer_items(q, asked: str | None = None) -> dict:
     # こちらがかけた電話番号が違うと伝えたか（WRONG）の番号違いの説明は、かけた番号がお呼びした方ご本人の電話か（判定に見せる質問の own_phone＝flowctl.Flow.for_judge の
     # 1か所）で替える（表 SIDE_ITEMS の既定は会社・お店の電話。ほかの項目・質問の文は変えない。分身 AC＝まとめ役 CL-1 の頼み rv140/AC の (1)）
     own = {WRONG: wrong_choices(False, True)} if getattr(q, "own_phone", False) else {}
-    return (side_items(False) | purpose | own | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
+    return (side_items(False) | purpose | own | ({PROMPT_REPLY: prompt_reply_choices(False, q.prompted)} if getattr(q, "prompted", "") and not asks_wrong(q.prompted) else {})
             | ({AWAY: away_choices(False, True)} if away_fits(q, bool(asked)) else {}))
 
 

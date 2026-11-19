@@ -30,8 +30,9 @@ from phrases import ACQUIRE_SPECIAL, LISTEN_TIME, NAME_FORMS, PAIN_TOLD
 from phrases import AGAIN_LEAD, LEAD_PIECES, OTHERS_HEAD, again_fit, back_fit, closes, drop_receipt, head_join, head_word, heads_said
 from phrases import OFFER_ACCEPTED, APOLOGY_FIRST, APOLOGY_SAME_DAY, CALL_AGAIN_TAKEN, OFFER_DONE, OFFER_TAKEN, WISH_WAY_TOPIC, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OFFER_THANKS_AGAIN, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import NOT_ASKED_AGAIN, RECORDED, STANDARD_PARTS, THINKING_PROMPT, ack_pause_s, ask_again as ask_again_phrase
-from phrases import NAME_HEAD_IDS, NAME_HEADS
+from phrases import NAME_HEAD_IDS, NAME_HEADS, NAME_PART_TAILS
 from phrases import ASKED_PROMPT_IDS, CONCERN_PROMPT_IDS, QUIET_LINES, THINKING_PROMPT_IDS, WAIT, WAIT_ASK_PLAIN_ID
+from phrases import OMATASE, ROLE_PARTS, WAIT_SOON, WRONG_NUMBER_ASK
 from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
@@ -1853,12 +1854,20 @@ OUR_SCENE = "ours"
 QUIET_WAIT = "wait_line"
 QUIET_SWAP = "swap"
 SWAP_AFTER_S = 10.0   # 設計書 6-7 の案の値（待っていただく一言のあと、張り替えるまで。⏳ フェーズ1で、ふつうの返事の遅さの分布から決める＝6-7）
+# 第一声を聞く段のこちらの声が出ていない場面（FIRST_SCENE＝"first"。入口は同じ Flow.on_silence(ours=True)・進め方は Flow._first_silence の1か所）：出た方が名乗り終えても
+# 会話AIが人か留守番電話かを知らせない（Flow.party が無い）まま、お客様に何も聞こえない時間が続いた。名乗りの初めのあいさつ（名乗りの部分 greeting＝今ある録音
+# 「お忙しいところ恐れ入ります。」）だけを1つの電話で1回流す（社名・お名前は流さない＝留守番電話の案内のあとにも残らない）。そのあと会話AIが「人」と知らせたら、
+# あいさつを除いた残りを流す（あいさつを流したかの1か所 Flow._greeted＝Flow._opening_reply）。秒は、こちらの声を待つ場面の1つ目と同じ置き方（お客様の発話の知らせ
+# Flow.on_callee の返り値＝業務設定 call.filler_after。何秒にするかは電話接続側が本物の電話で測る）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い75：エ」。
+# ⛔ 470f320c まで、第一声を聞く段は何も流さず、試作の電話接続側が12秒で会話AIを張り替えるまで、名乗った方に何も聞こえなかった（伺い75 のア）
+FIRST_SCENE = "first"
 QUIET_STEPS = {"thinking": (("silence_prompt_after", THINKING_PROMPT_IDS[0]), ("silence_prompt_after", THINKING_PROMPT_IDS[1]), QUIET_LAST),
                "wait": (("silence_prompt_after", CONCERN_PROMPT_IDS[0]), QUIET_LAST),
                "announce": (("silence_prompt_after", CONCERN_PROMPT_IDS[0]), ("silence_prompt_after", CONCERN_PROMPT_IDS[1]), QUIET_LAST),
                "reply": (("silence_prompt_after", CONCERN_PROMPT_IDS[0]), ("silence_prompt_after", CONCERN_PROMPT_IDS[1]), QUIET_LAST),
                "asked": (("silence_prompt_after", ASKED_PROMPT_IDS[0]), ("silence_prompt_after", ASKED_PROMPT_IDS[1]), QUIET_LAST),
-               OUR_SCENE: (("filler_after", "hai"), ("filler_after", QUIET_WAIT), ("swap_after", QUIET_SWAP))}
+               OUR_SCENE: (("filler_after", "hai"), ("filler_after", QUIET_WAIT), ("swap_after", QUIET_SWAP)),
+               FIRST_SCENE: (("filler_after", "greeting"),)}
 
 
 def as_wait(reading, asking_wait: bool):
@@ -1964,8 +1973,21 @@ def waiting_line(line: str | None) -> bool:
     場面 ours の QUIET_WAIT）か（唯一の見分け＝判定の注意書き meaning_judge.prompted_note・そのあとのお返事だけの受け方 Flow._wait_answered）。その一言へのお返事だけ
     （「はい、大丈夫ですよ。」「どうぞ。」）は、待ってよいということ＝前のお話の答えでも新しいお話でもない（前のお話への会話AIの返事を待ち続ける）。
     分身 AF（まとめ役の頼み rv144/AF の (1)＝分身 AD の伺い A の (ア)）。決まり＝✅ 2026-11-13 日本時間20時06分19秒「「あ、はい、分かりました。」は、こちら：
-    「何か気になる点が…」に対して答えてる可能性があるので、気をつけないといけないよ」と同じ理由"""
-    return line == WAIT
+    「何か気になる点が…」に対して答えてる可能性があるので、気をつけないといけないよ」と同じ理由。待つことへの迷いに添えた一言（WAIT_SOON＝「申し訳ございません。
+    すぐにご案内いたしますね。」）も、お待ちいただくようにお願いした一言として同じ（その一言へのお返事だけ・もう一度言ってほしいも同じ受け方＝伺い76 ウ）"""
+    return line in (WAIT, WAIT_SOON)
+
+
+def asks_wrong(line: str | None) -> bool:
+    """質問のあとにこちらが言った一言が、答えの段で判定の組の1つだけが番号違いと読んだときに伺った一言（「番号を間違えてお掛けしてしまいましたでしょうか？」＝
+    phrases.WRONG_NUMBER_ASK・流すのは Flow._ask_again）か（唯一の見分け＝判定の注意書き meaning_judge.prompted_note・項目の選び meaning_judge.answer_items・流し終えた知らせ
+    Flow.on_played）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い72：エ」"""
+    return line == WRONG_NUMBER_ASK
+
+
+# 待っていただく一言の録音の名前（こちらの声が出ていない場面 ours で流す wait・wait_heavy と、待つことへの迷いに添える wait_soon＝Flow._wait_again）：その一言そのものを
+# 流す返事には「お待たせいたしました。」を付けない（Flow._omatase）
+WAITING_LINES = ("wait", "wait_heavy", "wait_soon")
 
 
 def prompt_replied(readings) -> bool:
@@ -1977,6 +1999,13 @@ def prompt_replied(readings) -> bool:
     （prompt_used）、資料の申し出への「いえ、大丈夫です。」を判定が「いいえ」とも読むとお断りで締めた（見直し (12) の B-4）"""
     got = [q for r in readings if r is not None and (q := getattr(r, PROMPT_REPLY, None)) is not None]
     return bool(got) and all(q == PROMPT_REPLY_YES for q in got)
+
+
+def prompt_wavered(readings) -> bool:
+    """お客様の言葉が、お待ちいただくようにお願いした一言への、待つかどうかの迷いだけか（唯一の決まり＝Flow._wait_answered）：項目（PROMPT_REPLY）を読んだ判定がそろって
+    PROMPT_REPLY_WAVER（読んでいない読みは数えない・1つも無い・割れた ⇒ 偽＝今の道）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い76：ウ」"""
+    got = [q for r in readings if r is not None and (q := getattr(r, PROMPT_REPLY, None)) is not None]
+    return bool(got) and all(q == PROMPT_REPLY_WAVER for q in got)
 
 
 def hesitates(readings) -> bool:
@@ -2815,6 +2844,12 @@ WHO_SUCCESSOR, WHO_BOSS, WHO_CAN, WHO_CANNOT, WHO_PROXY = ("代理の方（後�
 PROXIES = (WHO_SUCCESSOR, WHO_BOSS, WHO_CAN, WHO_CANNOT, WHO_PROXY)
 WHO_CHOICES = (TARGET_IS_THERE, WHO_RECEPTION, *PROXIES, WHO_OTHER, UNDECIDED)   # 第2層・第3層（どの場面でも同じ選べるもの。説明だけが場面で違う）
 PHONE_NONE, ABOUT_NONE, ABOUT_DEPARTED = "何もない", "言っていない", "在籍していない"
+# 会社やお店の電話で、はじめにお呼びした方を「そういう者はおりませんが。」とだけ言われた（退職・異動・担当が替わったとは言っていない＝名簿の誤り・受付の方の聞き違い・同じ名字の方が
+# 多い、もありうる）。在籍していない（ABOUT_DEPARTED）と同じ「お呼びした方の事情」の項目の選べるもの（1つの事実は1つの項目）。流れの制御は、まだなら部署・フルネームで1回だけ
+# お呼びし直し（Flow._recall_full）、それでもいらっしゃらなければ在籍していないと同じ道（Flow._departed）。ご本人の電話（携帯電話の番号・個人のお客様）の「そういう方はいない」は
+# 番号違い（wrong_number_choice）・後任の方の場面は在籍していないの説明のまま（後任の方はいない）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいないときは、
+# 該当の役職の方」（エ＝辞めた・異動したとはっきり言われたときは今のまま後任の方）
+ABOUT_NO_SUCH = "そういう方はいない"
 # お呼びした方の事情の「番号違い」（かけた電話番号が、お呼びした方の電話ではない＝そういう方はもともといない）。はじめの場面だけ（後任の方をお呼びしているときは、
 # 番号はもう合っている＝選べるものに出さない）。番号違いかは、この項目の判定の組の読みだけで決める（Flow._away の1か所＝在籍していないと同じ所。会話AIの「番号違い」の
 # 報告は判定を待つきっかけだけ）。✅ 2026-11-08 日本時間12時11分40秒 ユーザー「そもそも会話 AI がなぜ判定に加わっているんですか？…」・本書 9-5 の 6.・10-30 (6)
@@ -2829,7 +2864,8 @@ def wrong_number_choice(own_phone: bool) -> str:
     """選べるもの「番号違い」（ABOUT_WRONG）の説明の唯一の場所（お呼びする段の項目「お呼びした方の事情」＝target_facets・答えの段の項目「こちらがかけた電話番号が
     違うと伝えたか」＝wrong_choices。どちらの段も同じ文＝同じ言葉を同じ選べるものに読ませる）。own_phone＝かけた番号がお呼びした方ご本人の電話か（Flow._own_phone の
     1か所）：ご本人の電話（個人のお客様・携帯電話の番号）なら「そういう方はいない」＝その方の電話ではない＝番号違い。会社・お店の電話（と、どなたもお呼びしない業務）では、
-    番号の間違い・そういう会社やお店ではないと言ったときだけ番号違いで、「そういう方はいない」は在籍していない（お呼びする段＝後任の方を伺う道）。
+    番号の間違い・そういう会社やお店ではないと言ったときだけ番号違いで、「そういう方はいない」は同じ項目の別の選べるもの ABOUT_NO_SUCH（お呼びする段＝まだなら部署・
+    フルネームでお呼びし直し、それでもいらっしゃらなければ在籍していないと同じ後任の方を伺う道＝伺い69 エ）。
     ⛔ d8d03a78 まで、この文は target_facets の中だけにあり、答えの段には番号違いを読む項目が無かった（分身 Z の書き置き rv124/Z/notes.md の 4 の (b)）"""
     return ("いまの言葉で、こちらがかけた電話番号は、お呼びした方の電話ではない（そういう方はいない・番号の間違いではないか、と伝えた）"
             if own_phone else
@@ -3005,14 +3041,21 @@ def query_choices(calling: bool) -> dict:
 # お言葉を無視している）。⛔ 20349614（分身 A1）は、一言のあとの「決められない」をどれも最終の確かめにし、お話にもひとこと応えずに押す形だった
 PROMPT_REPLY, PROMPT_REPLY_HEADING = "prompt_reply", "こちらの声かけへのお返事だけか"
 PROMPT_REPLY_YES, PROMPT_REPLY_NO = "声かけへのお返事だけ", "声かけへのお返事だけではない"
+# お待ちいただくようにお願いした一言（waiting_line）へのお返事が、待つかどうかの迷いだけか（流れの制御は前のお話への会話AIの返事を待ち続け、1つの電話で1回だけ
+# 「申し訳ございません。すぐにご案内いたしますね。」を添える＝Flow._wait_again）。質問の答えへの迷いとは別（判定が読み分ける＝お待ちいただく一言を流したときだけの選べるもの。
+# ほかの一言の文は変えない）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い76：ウ」
+PROMPT_REPLY_WAVER = "待つかどうかの迷いだけ"
 
 
-def prompt_reply_choices(calling: bool, prompted: bool = False) -> dict:
-    """黙ったあとの一言へのお返事だけかの選べるもの（{中の名前: 説明}）。一言を流したときの答えの段だけ（ほかは {}＝段ごとの項目 side_items には出ない）。"""
+def prompt_reply_choices(calling: bool, prompted: "bool | str" = False) -> dict:
+    """黙ったあとの一言へのお返事だけかの選べるもの（{中の名前: 説明}）。一言を流したときの答えの段だけ（ほかは {}＝段ごとの項目 side_items には出ない）。prompted＝流した
+    一言の文（お待ちいただくようにお願いした一言＝waiting_line なら、待つかどうかの迷いだけ PROMPT_REPLY_WAVER も並べる）。"""
     if calling or not prompted:
         return {}
     return {PROMPT_REPLY_YES: "こちらの声かけへのお返事だけ（気になる点は無い・分かった、と言っただけ）で、質問への答えも、ほかのお話・気がかり・ご事情も言っていない",
             PROMPT_REPLY_NO: "声かけへのお返事だけではない（質問に答えた・気になる点やご事情などのお話をした・こちらに尋ねた など）",
+            **({PROMPT_REPLY_WAVER: "お待ちいただくようにお願いしたことに、待つかどうかを迷っている・ためらっている、と言っただけ（質問への答えの迷いではない。"
+                                    "質問への答えも、ほかのお話・ご事情も言っていない）"} if waiting_line(prompted if isinstance(prompted, str) else None) else {}),
             UNDECIDED: "この言葉からは、声かけへのお返事だけかどうか決められない"}
 
 
@@ -3414,8 +3457,11 @@ def target_facets(asked: bool = False, seeks_successor: bool = False, own_phone:
                         f"また出てそう伝えたときも・{P}ご本人が、いまは手が離せないと言ったときも）",
         ABOUT_DEPARTED: ("いまの言葉で、後任の方はいない・後任の方ももういない、と伝えた（はじめにお呼びした方が在籍していないことは、もう分かっているので、"
                          "こちらにしない）" if s else
-                         "いまの言葉で、お呼びした方は、退職・異動などで、もうその会社・部署にいない（担当が替わったときも）"
-                         + ("" if own_phone else "・そういう方はいない") + "、と伝えた"),
+                         "いまの言葉で、お呼びした方は、退職・異動などで、もうその会社・部署にいない（担当が替わったときも）、と伝えた"),
+        # 会社・お店の電話のはじめの場面だけ：退職・異動とは言わずに「そういう方はいない」とだけ伝えた（ABOUT_NO_SUCH の注。ご本人の電話は番号違い・後任の方の場面は
+        # 在籍していないの説明のまま）
+        **({} if s or own_phone else {ABOUT_NO_SUCH: "いまの言葉で、お呼びした方は、そういう方はいない（その名前の方に心当たりがない）、とだけ伝えた（退職・異動・"
+                                                     "担当が替わったとは言っていない）"}),
         # 番号違い（ABOUT_WRONG の注）の説明は、かけた番号がお呼びした方ご本人の電話か（own_phone＝Flow._own_phone の1か所）で分ける：ご本人の電話（個人のお客様・
         # 携帯電話の番号）なら「そういう方はいない」＝その方の電話ではない＝番号違い。会社・お店の電話では、番号の間違い・そういう会社やお店ではないと言ったときだけ
         # 番号違いで、「そういう方はいない」は在籍していない（後任の方を伺う道。何と言うかは伺う＝⏳ 帳面 1 の (6)）。⛔ 586a2871（分身 Z）は、どの電話でも
@@ -3440,7 +3486,7 @@ def facts_reading(facts: dict, seeks_successor: bool = False) -> tuple[str, bool
     unsure = (UNDECIDED, TARGET_IS_THERE, WHO_PROXY) if seeks_successor else (UNDECIDED,)
     person = TARGET_IS_THERE if who == sought else UNDECIDED if who in unsure else TARGET_IS_NOT
     new = facts[SPEAKER] == SPEAKER_NEW
-    about = TARGET_IS_AWAY if facts[ABOUT] in (TARGET_IS_AWAY, ABOUT_DEPARTED, ABOUT_WRONG) else ABOUT_NONE
+    about = TARGET_IS_AWAY if facts[ABOUT] in (TARGET_IS_AWAY, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_WRONG) else ABOUT_NONE
     value, away, _ = target_reading(person, HOLD if facts[PHONE] == HOLD else HANDOVER if new else PHONE_NONE, about)
     return value, away, new, not seeks_successor and who == WHO_SUCCESSOR
 
@@ -4281,7 +4327,7 @@ def name_plays(part: str, text: str) -> list[dict]:
     台帳＝役職・名前・続く言葉）には頭を入れない（CL-2 の連絡帳 4-443。流す順は返した並びのまま＝電話接続側）。並びの文をつなげると text のまま（会話AIへの「プログラムが
     流す録音」の知らせ played_note・判定に見せる一言・お呼びする段で最後に聞いた一言 Flow._calling_heard も、つなげた文）。頭の無い形・頭で始まらない文（試験で手で
     渡した名乗り）は、その部分だけ。⛔ 2026-11-20（分身 L）まで、頭は名乗りの部分の文に入ったまま流していた"""
-    head = NAME_HEADS.get(part, "")
+    head = NAME_HEADS.get(NAME_PART_TAILS.get(part, part), "")   # 名乗りの部分の名前 → 続く言葉の名前（役職の方の部分 target_role_transfer も target_transfer の頭）
     if head and text.startswith(head) and len(text) > len(head):
         return [{"kind": "recorded", "id": NAME_HEAD_IDS[head], "text": head}, {"kind": "opening", "part": part, "text": text[len(head):]}]
     return [{"kind": "opening", "part": part, "text": text}]
@@ -5688,7 +5734,7 @@ class Flow:
                  voicemail_message: str | None = None, target: dict | None = None, answers: dict | None = None,
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
                  name_readings: dict[str, str] | None = None, judge_names: dict[str, str] | None = None,
-                 promised: bool = False, apology: tuple = (), successor: bool = False,
+                 promised: bool = False, apology: tuple = (), successor: bool = False, role_call: bool = False,
                  voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None, hold_wait_s: int = 300,
                  apology_call: str | None = None, apology_when: str | None = "later", client_does: str = "", apology_text: str | None = None,
                  earliest_day=None, today=None, handoff_ways: tuple = (), close_offer: "CloseOffer | None" = None,
@@ -5760,6 +5806,14 @@ class Flow:
         # 待っていただく一言をもう一度言ってほしいと頼まれ（_wait_answered の again）、まだ応じていないお客様の発話：報告の無いターンなら同じ一言を言い直す
         # （_wait_again）・言い直す前に会話AIの報告が届いたら言い直さずに受ける。どちらでも、その発話への最初の返事の頭はお詫び「失礼いたしました。」（_ack の1か所）
         self.wait_repeat_turn: int | None = None
+        # 待っていただく一言へのお返事が、待つことへの迷い（判定の項目 PROMPT_REPLY がそろって PROMPT_REPLY_WAVER＝_wait_answered）で、まだ応じていないお客様の発話：
+        # 報告の無いターンなら「申し訳ございません。すぐにご案内いたしますね。」を流して前のお話への会話AIの返事を待ち続ける（_wait_again。1つの電話で1回＝wait_soon_said）・
+        # 流す前に会話AIの報告が届いたら、流さずに受ける（_ack）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い76：ウ」
+        self.wait_waver_turn: int | None = None
+        self.wait_soon_said = False
+        # 答えの段で、判定の組の1つだけが番号違いと読み、番号違いかを伺う一言を流した（_ask_kind の wrong＝_ask_again。1つの電話で1回）。✅ 2026-11-20 日本時間3時55分24秒
+        # ユーザー「伺い72：エ」
+        self.wrong_asked = False
         # いま見張っている黙ったときの場面（場面の名前・次に流す並びの番号・場面を始めたお客様の発話の番号）。決めるのは _silence_watch・進めるのは on_silence・
         # お客様が話したら消す（on_callee）
         self.silence: dict | None = None
@@ -5853,6 +5907,9 @@ class Flow:
         # お呼びした方が在籍しておらず、後任の方をお呼びしている（_to_successor）：呼ぶ一言・確かめる一言は後任の方の録音（共通の一言）。
         # target_from＝切り替えたあとの最初の相手の発話の番号（それより前の読み・回数は、前にお呼びした方のもの＝数えない）
         self.successor = False
+        # 後任の方もいらっしゃらないと言われ、その役職の方をお呼びしている（_to_role。1つの電話で1回）：役職の方は、お呼びした方ではない方（繋いだ方は後任の方と同じ扱い＝
+        # _connect の who）。後任の方の印 successor は下ろす（判定は役職だけでお呼びする業務と同じ問いで読む＝_calling_questions）
+        self.role_called = False
         self.first_called = ""  # 後任の方へ切り替えたときの、はじめにお呼びした言葉（判定に見せる＝_calling_questions。次の電話の後任の方は空）
         self.target_from = 0
         self.system_parts: dict[str, str] = {}  # 名乗りの部分のうち、共通の一言の録音で流すもの（部分 → 録音の中の名前。_part_play）
@@ -6170,6 +6227,12 @@ class Flow:
                     d["target_full"] = d["target_successor_full"]
                 else:
                     d.pop("target_full", None)   # 後任の方の形が無ければ、お呼びし直さない（前任の方をフルネームでお呼びしない）
+        if role_call:
+            # 前の電話で後任の方もいらっしゃらず、その役職の方をお呼びした会社への次の電話（予約証の role_call＝仮の名前。CL-2 が通話の事実 departed の to_role から立てる＝
+            # 後任の方の電話 successor と同じ考え）：最初から役職の方が目的の人。お呼びする形は通話の中で切り替えるときと同じ1か所（_role_parts）。✅ 決まりで決めた（CL-1 の
+            # 続きの頼み (2)）
+            assert not successor, "後任の方の電話と役職の方の電話は、どちらか1つです"
+            self._role_parts()
         if apology_call:
             # お詫びの電話には業務の用件を流さない（どの道でも＝名乗りの流し直し・まだ届いていない部分・代わりの方の申し出。「ご用件は？」には
             # お詫びの録音＝_op_replay_opening）。⛔ 2026-10-24 の見直し（調べ役）：繋いだときだけ用件を外していたので、ほかの道では業務の用件が流れた
@@ -6382,7 +6445,9 @@ class Flow:
         お詫びの録音を流すように頼んだ瞬間に「伝えられた」としていた＝お詫びの途中で切られても、伝えたと報告した。電話に出た方の第一声と
         名乗りの録音の順は決めていないので、相手が話し始めたことからは推し量らない（どこまで届いたかは、流した電話接続側だけが知っている）。"""
         self.heard_lines.update(done)
-        if (line := next((t for t in reversed(done) if t in QUIET_LINES), None)) is not None and not self.answering and self.phase in ("asking", "rechecking"):
+        if ((line := next((t for t in reversed(done) if t in QUIET_LINES or asks_wrong(t)), None)) is not None and not self.answering
+                and self.phase in ("asking", "rechecking")):
+            # （番号違いかを伺った一言＝_ask_again の wrong も、質問のあとにこちらが言った一言として判定に見せる＝伺い72 エ）
             # お客様が黙ったあとに流した一言（黙ったときの一言の表 QUIET_STEPS の録音＝on_silence が返したもの）：その質問のあとにこちらが言った一言として覚える
             # （判定に渡す＝judge_context・そのあとのお返事の受け方＝_prompt_due）。⛔ 2026-11-12 まとめ役の (1)：流れの制御も判定も、この一言を知らなかった
             self.prompted = {"line": line, "turn": self.callee_turns, "at": self._place()}
@@ -6491,7 +6556,9 @@ class Flow:
         - 張り替え（QUIET_SWAP）：Flow.on_ai_failed の1か所（その発話でまだ張り替えていなければ張り替え＝送り直したあと、同じ秒で同じ段・張り替えたあとも戻らなければ
           「AIの異常」で終える）。電話を時間で締めない（10-24）。
         会話AIへは何も知らせない（返事に message が無い＝6-7「AIへは合図を送らない」。⛔ G-19：合図を送ると会話が1つずれた）。流した一言は、ほかの録音と同じく流し終えたら
-        on_played。会話AIの声を待たない所（第一声を聞く段・待っている・締めたあと・お客様が新しく話した）では None。"""
+        on_played。会話AIの声を待たない所（待っている・締めたあと・お客様が新しく話した）では None。第一声を聞く段は _first_silence の1か所。"""
+        if self.answering:
+            return self._first_silence()
         self._wait_answered()   # 待っていただく一言へのお返事だけ：前のお話の見張りの続き（kept）
         q = self.ours
         if (q is None or q["turn"] != self.callee_turns or self.answering or self.holding or self.phase == "closing"
@@ -6527,6 +6594,27 @@ class Flow:
         reply["silence_s"] = getattr(self, steps[self._our_step(q["step"])][0])
         return self._log_signal({"silence": OUR_SCENE}, reply)
 
+    def _first_greeting_due(self) -> bool:
+        """第一声を聞く段で、名乗りの初めのあいさつだけを先に流せるか（唯一の決まり＝秒を返す on_callee・流す _first_silence）：会話AIがまだ人か留守番電話かを知らせて
+        いない（party が無い）・留守番電話の案内のあとに人を待つ間ではない・名乗りの録音にあいさつがある・この電話でまだあいさつを流していない（_greeted＝1つの電話で
+        1回）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い75：エ」"""
+        return (self.answering and not self.voicemail_waiting and self.party is None and self.phase != "closing" and self.end_reason is None
+                and self.trouble is None and bool(self.opening.get("greeting")) and not self._greeted())
+
+    def _first_silence(self) -> dict | None:
+        """第一声を聞く段のこちらの声が出ていない場面（QUIET_STEPS の FIRST_SCENE の唯一の進め方＝on_silence(ours=True) の入口から）：出た方が名乗り終えた（言葉が
+        出揃った）のに、会話AIが人か留守番電話かを知らせないまま、お客様に何も聞こえない時間が続いた ⇒ 名乗りの初めのあいさつ（名乗りの部分 greeting＝今ある録音）
+        だけを流す（流したら、その方はあいさつを聞いた＝greeted_at。判定を待つ間に流すあいさつ hold_play と同じ1か所。このあとの名乗り _opening_reply はあいさつを
+        除く）。会話AIへは何も知らせない（こちらの声が出ていない場面と同じ＝6-7）。流せない（知らせが届いた・もう流した・言葉の途中・発話が替わった）なら None。"""
+        q = self.ours
+        if (q is None or q["turn"] != self.callee_turns or not self._first_greeting_due() or self.callee_turns == 0
+                or not (self.callee_said or "").strip() or not self.words_complete):
+            return None
+        self.ours = None
+        self.greeted_at = self.callee_turns
+        line = self._part_play("greeting") if self.target else {"kind": "opening", "part": "greeting", "text": self.opening["greeting"]}
+        return self._log_signal({"silence": FIRST_SCENE}, {"result": "wait", "silent": True, "play": [line]})
+
     @staticmethod
     def _wait_line_reply(name: str) -> dict:
         """待っていただく一言（録音 name＝wait・wait_heavy）を流す返事（唯一の形＝初めて流す _our_silence・もう一度言ってほしいと頼まれて言い直す _wait_again）：
@@ -6542,18 +6630,29 @@ class Flow:
         決まり＝✅ 2026-11-06 日本時間15時20分30秒「(1)…プログラムが「失礼いたしました。」＋「それでは（質問）」を流します。OK」・11-08 の A-3（直前にこちらが
         言ったことをもう一度言ってほしいなら、それをそのまま言い直す）と同じ理由（お客様はこちらの言ったことを聞き取れていない）・11-13 日本時間20時06分19秒
         （一言へのお返事を前のお話の答えと決めつけない＝前のお話は捨てない）。⛔ 72dbd454 まで、新しいお話として「失礼いたしました。それではご予約はされて
-        いますでしょうか？」と前の質問を伺い直し、前のお話の「いいえ」を捨てた（伺い76）"""
-        if self.wait_repeat_turn != self.callee_turns:
+        いますでしょうか？」と前の質問を伺い直し、前のお話の「いいえ」を捨てた（伺い76）。
+        待つかどうかの迷い（印 wait_waver_turn＝_wait_answered）にも、同じ1か所で応じる：共通の一言「申し訳ございません。すぐにご案内いたしますね。」（wait_soon）を1つの電話で
+        1回流し、前のお話への会話AIの返事を待ち続ける（前のお話の答えは受け取ったまま＝もう答えていただいた質問を伺い直さない）。流した一言は、待っていただく一言として
+        覚える（waited＝もう一度言ってほしいと頼まれたら、この一言を言い直す・判定に見せる一言もこの一言＝on_played）。この一言はお詫びで始まる＝頭にお詫びを重ねない
+        （言い直すときも。印 led＝_ack）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い76：ウ」。⛔ 470f320c まで、待つことへの迷い（「えー、待つんですか、
+        どうしようかなあ。」）を新しいお話として読み、「はい、恐れ入ります。ご予約はされていますでしょうか？」ともう答えていただいた質問を伺い直した（伺い76 のア）"""
+        waver = self.wait_waver_turn == self.callee_turns
+        if self.wait_repeat_turn != self.callee_turns and not waver:
             return None
         if voiced:
-            self.wait_repeat_turn = None
+            self.wait_repeat_turn = self.wait_waver_turn = None
             return None
         q = self.ours
         if (q is None or q["turn"] != self.callee_turns or self.answering or self.holding or self.phase == "closing"
                 or self.end_reason is not None or self.trouble is not None):
             return None
         q.pop("kept", None)   # 黙ったままなら、言い直したあとは今の秒で張り替え（_our_silence）
+        if waver:
+            self.wait_waver_turn, self.wait_soon_said = None, True
+            q["waited"] = "wait_soon"
         reply = self._wait_line_reply(q["waited"])
+        if q["waited"] == "wait_soon":
+            reply["led"] = True   # お詫びで始まる一言（相づち・頭のお詫びを重ねない＝_ack の wait_repeat_turn・_ack_choice の led）
         reply["ack"] = self._ack("judged_turn", {}, reply)
         if reply["ack"]:
             reply["ack_pause_s"] = ack_pause_s(reply["ack"])
@@ -6628,9 +6727,10 @@ class Flow:
     def _opening_reply(self) -> dict:
         """第一声のあとに流す名乗り（唯一の場所。並びは instruction.Business.opening_parts と同じ＝試験で比べる）：あいさつ・名乗りのあと、
         目的の人のある業務は呼ぶ一言（第一声でお呼びする方ご本人が名乗ったなら確かめる一言＝✅ 2026-10-24 ユーザー「OK」）、ない業務は
-        お詫び（前の電話の事情・お詫びの電話）・用件・最初の質問（番号を伺い直す電話は伺い直す一言）。"""
+        お詫び（前の電話の事情・お詫びの電話）・用件・最初の質問（番号を伺い直す電話は伺い直す一言）。会話AIの知らせを待つ間にあいさつだけを先に流していれば
+        （_first_silence。あいさつを流したかの1か所 _greeted）、あいさつを除いた残り（✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い75：エ」）。"""
         lines = [self._part_play(k) if self.target else {"kind": "opening", "part": k, "text": self.opening[k]}
-                 for k in ("greeting", "intro") if self.opening.get(k)]
+                 for k in ("greeting", "intro") if self.opening.get(k) and not (k == "greeting" and self._greeted())]
         if self.target and not self.number_again:
             self.called_at = self.callee_turns   # こちらがはじめにお呼びした（このあとの相手の言葉から、判定に渡す前の言葉＝_called_words）
             if self._first_words_named_target():
@@ -6687,6 +6787,11 @@ class Flow:
     #    あれば、それを流し終えてから同じく数える）。こちらの声が出ていない場面＝QUIET_STEPS の OUR_SCENE
     def on_callee(self) -> dict | None:
         self._callee()
+        if self.answering and self._first_greeting_due():
+            # 第一声を聞く段で、まだ名乗りのあいさつを流していない：会話AIが人か留守番電話かを知らせないまま、お客様に何も聞こえない時間を数える（場面 FIRST_SCENE＝
+            # _first_silence の1か所。秒の置き方は下のこちらの声を待つ場面と同じ）
+            self.ours = {"turn": self.callee_turns, "step": 0, "sounded": False}
+            return {"silence_s": getattr(self, QUIET_STEPS[FIRST_SCENE][0][0])}
         if self.answering or self.phase == "closing" or self.end_reason is not None or self.trouble is not None:
             self.ours = None
             return None
@@ -7114,9 +7219,22 @@ class Flow:
         読めばご予約は「済み」で依頼者へ（逆の答え）・決められないと読めば「はい、恐れ入ります。ご予約はされていますでしょうか？」と伺い直した"""
         st = self.story
         again = Flow._meaning_of(self.heard_check) == REPEAT
-        if (st is None or st["turn"] != self.callee_turns - 1 or not waiting_line(self._prompt_now())
-                or not (again or self._prompt_only([self.heard_check[k] for k in JUDGMENTS if k in self.heard_check]))
-                or self._replied_now()):
+        readings = [self.heard_check[k] for k in JUDGMENTS if k in self.heard_check]
+        # 待つかどうかの迷いだけ（判定がそろって PROMPT_REPLY_WAVER＝伺い76 ウ）：お返事だけと同じく前のお話に戻し、まだならこの電話で1回だけ添える一言を流す（_wait_again）
+        waver = not again and prompt_wavered(readings)
+        if st is None or st["turn"] != self.callee_turns - 1 or not waiting_line(self._prompt_now()) or self._replied_now():
+            return False
+        if not (again or waver or self._prompt_only(readings)):
+            if readings and self.words_complete:
+                # 待っていただく一言へのお返事ではない、新しいお話（別のお話・ご事情など）：前のお話は捨てない＝判定が前のお話を伺っていた質問の答えと読んでいれば、その言葉と
+                # 読みを覚えておく（answer_held＝答えと世間話を一緒に言われたときと同じ1か所 _held_words。会話AIが新しいお話に応えたあとに前のお話の答えを報告すれば、その
+                # 答えで受け取る＝もう答えていただいた質問を伺い直さない）。✅ 2026-11-13 日本時間20時06分19秒（前のお話は捨てない）・本書 9-3「取得済みのことを重ねて
+                # 聞かない」。⛔ d4e3a6c0 まで、前のお話の答えの報告を差し戻し、答えは空のままだった（控え rv174/R/notes.md の 4 の (3)）
+                self.story = None
+                q = self.questions.get(self.current) if self.current else None
+                if (q is not None and st["for"] in (None, q.id) and self.awaiting_confirm is None and self.items[q.id].state not in GOT
+                        and any(st["check"].get(k) in q.all_conditions for k in JUDGMENTS)):
+                    self.answer_held = {"turn": st["turn"], "qid": q.id, "said": st["said"], "check": st["check"]}
             return False
         old, now = st["turn"], self.callee_turns
         self.story = None
@@ -7137,6 +7255,8 @@ class Flow:
         self.ours = o
         if again:
             self.wait_repeat_turn = now   # 一言をもう一度言ってほしい：まだ応じていなければ言い直す（_wait_again）・最初の返事の頭はお詫び（_ack）
+        elif waver and not self.wait_soon_said:
+            self.wait_waver_turn = now    # 待つかどうかの迷い：まだ応じていなければ添える一言を流す（_wait_again）。この電話でもう流していれば、お返事だけと同じく待ち続ける
         return True
 
     def for_judge(self, q: "Question | None") -> "Question | None":
@@ -7967,15 +8087,32 @@ class Flow:
             # 同じ理由）。お詫びは1つの発話に1回（apology_turn＝不快な様子へのお詫びと同じ印）。申し出を受けていただいた答えは必ず「ありがとうございます。」
             # （11-12 日本時間13時40分05秒の (5)＝伺い38 ア と同じ順）・締めは締めの決まった言い方のまま（上の不快な様子と同じ）
             self.wait_repeat_turn = None
-            if reply.get("result") != "end" and not self._taken_now() and self.apology_turn != self.callee_turns:
+            # 言い直す一言がお詫びで始まる（待つことへの迷いに添えた一言 wait_soon＝_wait_again の印 led）なら、頭にお詫びを重ねない（下でその一言をお詫びに数える）
+            if (not self._sorry_led(reply) and reply.get("result") != "end" and not self._taken_now()
+                    and self.apology_turn != self.callee_turns):
                 ack, src = "shitsurei", None
                 self.apology_turn = self.callee_turns
+        if self.wait_waver_turn == self.callee_turns and reply.get("result") != "rejected":
+            # 待つかどうかの迷いに、添える一言を流す前に会話AIの報告（前のお話の答え）が届いた：添えずに、その返事で受ける（返事の頭は「お待たせいたしました。」＝_omatase）
+            self.wait_waver_turn = None
+        if self._sorry_led(reply):
+            self.apology_turn = self.callee_turns   # 添えた一言そのものがお詫び（お詫びは1つの発話に1回）
         if ack in ("hai", "aizuchi") and self.hai_turn == self.callee_turns:
             # この発話に「はい、」をもう流した（会話AIが黙ったときのつなぎ＝_our_silence・判定を待つ間＝hold_ack）：返事の「はい、」「はい。」は重ねない（設計書 1-2
             # 「返事の相づちも「はい、」なら重ねない」・6-15。ほかの相づちは続けて流す＝「はい、承知しました、」）
             ack, src = None, None
+        if ack == "aizuchi" and reply.get("result") != "rejected":
+            # 考えている途中の方への「はい。」を流した発話も、同じ印（このあと同じ発話の返事に「はい、」を重ねない＝本書 9-7 の1つの発話に相づちは1回）。⛔ 35042abf で
+            # 見つけた：考えている途中の「はい。」のあと、覚えておいた前のお話の答え（_wait_answered の answer_held）の報告に「はい、続きまして…」と重ねた
+            self.hai_turn = self.callee_turns
+        heard_ack = ack   # お客様に聞こえる相づち（順番に回す数を進めるか＝下）
+        if self._omatase(reply, ack):
+            # 待っていただいたお話への返事の頭に「お待たせいたしました。」を流した（_omatase の1か所）：受けの言葉の代わり＝相づちは流さない。申し出を受けていただいた
+            # お礼だけは、その一言のあとに返事の録音として流した（_omatase）＝聞こえた相づちとして数える
+            heard_ack = ack if ack == "arigatou" and self._taken_now() else None
+            ack = None
         picked, counted = picks.get(src, (None, count0))
-        self.ack_count = counted if ack is not None and ack == picked else count0
+        self.ack_count = counted if heard_ack is not None and heard_ack == picked else count0
         if ack is not None and ack != "arigatou":
             ack = self._fresh_receipt(ack)   # お礼の相づちは、順番に回すものだけ替える（_ack_choice）
         if reply.get("result") != "rejected" and (ack is not None or reply.get("play") or reply.get("say")):
@@ -7994,6 +8131,35 @@ class Flow:
         ⛔ 8aa3b4ef まで、相づち（直前の相づちだけと比べる SAME_RECEIPT）と言い直しの頭（LEAD_IN を別に順番で回す）が別々で、「ありがとうございます。いつ頃
         おかけ直し…」→「はい、ありがとうございます。17時以降…」とお礼が続いた（まとめ役の確かめ）"""
         return SAME_RECEIPT.get(word, word) if ACK.get(word, word) == self.last_receipt else word
+
+    @staticmethod
+    def _sorry_led(reply: dict) -> bool:
+        """返事の録音が、お詫びで始まる共通の一言（待つことへの迷いに添えた一言 wait_soon＝_wait_again が印 led を付けた返事）から始まるか（唯一の見分け＝_ack）。"""
+        return bool(reply.get("led")) and any(p.get("id") == "wait_soon" for p in reply.get("play") or [])
+
+    def _omatase(self, reply: dict, ack: str | None) -> bool:
+        """待っていただく一言（WAIT・WAIT_SOON＝こちらの声が出ていない場面 ours で流した一言 waited）を流したあと、待っていただいたお話（その一言を流した発話か、その一言への
+        お返事だけで戻した前のお話＝_wait_answered の kept）への最初の聞こえる返事の頭に、1回だけ「お待たせいたしました。」（共通の一言の録音 omatase）を流す唯一の場所
+        （相づちの1か所 _ack が呼ぶ）。流したら真＝相づちの受けの言葉は流さない（_ack。お客様のお話は待っていただく前に「はい、」で受けている＝1つの発話に相づちは
+        1回・本書 9-7。この一言が受けの言葉の代わり＝「お待たせいたしました。承知しました。」と「～ました」を続けない）。申し出を受けていただいたお礼「ありがとう
+        ございます。」だけは残す（11-12 日本時間13時40分05秒の (5)「必ず」・伺い38 ア＝_ack）。お客様が新しく話したお話への返事（その発話の見張りに一言が無い）・待つ・
+        差し戻し・待つように言われた・考えている途中の返事・待っていただく一言そのものの言い直しには付けない。頭がお詫び（もう一度言ってほしいと頼まれた・不快な様子・
+        聞き取れない）なら、お詫びを先にして付けない（お詫びは1つの発話に1回・「～ました」を続けない）＝その発話の「1回」は使った。
+        ✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い74：アだが、お待たせいたしました。承知しました。と「～ました」が続くのはおかしい。」"""
+        o = self.ours
+        if (o is None or o["turn"] != self.callee_turns or not o.get("waited") or o.get("omatase")
+                or reply.get("result") in ("wait", "rejected", "hold", "thinking")
+                or not (ack or reply.get("play") or reply.get("say") or reply.get("speak"))
+                or any(p.get("id") in WAITING_LINES for p in reply.get("play") or [])):
+            return False
+        o["omatase"] = True
+        if ack in ("shitsurei", "taihen_shitsurei", "moushiwake", "moushiwake_heavy"):
+            return False
+        lines = [{"kind": "recorded", "id": "omatase", "text": OMATASE}]
+        if ack == "arigatou" and self._taken_now():
+            lines.append({"kind": "recorded", "id": ack, "text": ACK[ack]})   # 申し出を受けていただいたお礼は、この一言のあとに（「お待たせいたしました。ありがとうございます。」）
+        self._led(lines, "", reply)
+        return True
 
     @staticmethod
     def _head_receipt(ack: str | None, reply: dict) -> str | None:
@@ -8159,6 +8325,8 @@ class Flow:
             # 理由を添えて伺い直す一言（_ask_again の form_reason。「恐れ入りますがSMSは…」）も、何回目でも「はい、」（お詫びを重ねない）
             # 最後の1回でも、答えが質問に合わない（お声は聞き取れている＝"form"）なら「はい、」（「恐れ入りますが…もう一度だけ…」＝phrases.ask_again の last。締めの前の
             # 念のための確認の recheck と同じ）
+            if reply.get("ask_reason") == "wrong":
+                return "taihen_shitsurei"   # 番号違いかを伺う一言の頭のお詫び（_ask_again の wrong＝伺い72 エ。お取り次ぎをお願いし直す一言と同じ相づちの録音）
             first_form = (reply.get("ask_reason") == "form" and (reply.get("ask_n") == 1 or reply.get("ask_last"))) or reply.get("form_reason")
             # 午前・午後を聞く：お詫びではなく「はい、」（続けてAIが「恐れ入ります、午前と午後、どちらになりますでしょうか？」）
             if first_form or reply.get("ask_reason") == "ampm":
@@ -9025,7 +9193,13 @@ class Flow:
         聞き返しの種類を決める唯一の場所（_ask_again に渡す）：聞き取れている（_heard_clearly）なら、お電話のせいにせず "form"＝「はい、」＋「恐れ入ります。
         （聞くこと）をもう一度…」（本書 9-5 の (3)「お客様ははっきり話しているので、電話のせいにする聞き返しは合わない」＝G-14）・聞き取れていなければ
         "unclear"＝「申し訳ございません、」＋「お電話が少し遠いようでして…」。会話AIが聞き取れないと報告したとき（report_unclear）は、ここを通らない（聞き取りの
-        問題）。⛔ 2026-11-08 日本時間0時台（K-13）は最初の答えの1か所だけ・11時台（F1 の設計で流れの制御に通して見つけた）に確かめ直しの1か所の2つも通した"""
+        問題）。⛔ 2026-11-08 日本時間0時台（K-13）は最初の答えの1か所だけ・11時台（F1 の設計で流れの制御に通して見つけた）に確かめ直しの1か所の2つも通した。
+        答えの段（目的のお客様のいない業務・繋いだあと）で、いまの言葉の判定の組の1つだけが番号違いと読んだ（割れた＝wrong_split）なら、1つの電話で1回だけ "wrong"＝
+        「大変失礼いたしました。番号を間違えてお掛けしてしまいましたでしょうか？」（✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い72：エ」。お呼びする段は伺い50 イのまま＝
+        _away。⛔ 470f320c まで「はい、恐れ入ります。（質問）」と、番号違いと言った方に何もなかったように伺い直した＝伺い72 のア）"""
+        if (self.judging and self.phase != "calling" and not self.answering and not self.wrong_asked
+                and wrong_split(self._judged_now().values())):
+            return "wrong"
         return "form" if self._heard_clearly() else "unclear"
 
     def _hesitate_now(self, voiced: bool = False) -> dict:
@@ -9956,7 +10130,9 @@ class Flow:
           報告すれば「わからない」の答え（理由は判定の読み）で、会話AIの報告の置き方で道と業務の決まり（理由ごとの次の動き）が変わる形だった"""
         q, it = self.questions[qid], self.items[qid]
         choice = q.type in CHOICE_TYPES
-        if judged not in ((it.condition, "affirmed", *q.all_conditions) if choice else ("affirmed", "corrected", *SYSTEM_CONDITIONS)):
+        # 選ぶ質問（choice）の言い直しへの「違う」（打ち消しただけ＝meaning_judge.CHOICE_DENIED。中の名前は値の型と同じ corrected）も、この質問の言い直しへの返事
+        denied = ("corrected",) if q.type == "choice" else ()
+        if judged not in ((it.condition, "affirmed", *denied, *q.all_conditions) if choice else ("affirmed", "corrected", *SYSTEM_CONDITIONS)):
             judged = UNDECIDED   # この質問の言い直しへの返事に無い読み＝答えを決められない読みと同じ（会話AIの報告へ戻して決めない）
         if (self._trouble_declined(qid) and judged not in (it.condition, "affirmed")
                 and not (choice and judged in q.all_conditions and judged not in SYSTEM_CONDITIONS)):
@@ -9982,6 +10158,11 @@ class Flow:
                 return "affirmed", None
             if judged in (it.condition, "affirmed"):
                 return "affirmed", None
+            if judged == "corrected":
+                # 選ぶ質問の言い直しを打ち消しただけ（ほかの選択肢は言っていない）：こちらの聞き違い＝値の型の「違います」と同じ1か所（_denied_again＝「失礼いたしました。」＋
+                # 「それでは（いまの質問）」・回数は訂正のあとの復唱）。✅ 決まりで決めた＝伺い70 の (1)。⛔ d4e3a6c0 まで選べるものが無く、「決められない」と読まれて
+                # 迷っている方への「はい、いかがなさいますか？」を当てていた（このあと別のお話をされると、打ち消された言い直しへ戻った）
+                return self._denied_again(qid)
             return ("corrected", label(judged)) if judged in q.all_conditions else None
         if judged == "affirmed":
             return "affirmed", correction if result == "affirmed" else None
@@ -10668,6 +10849,16 @@ class Flow:
         fb = TALK_FALLBACK[pick][0] if said is None else None
         self._note("talk", answer=said or fb, **({"fallback": pick} if said is None else {}), **drafts, **checked)
         self._mark_answered()
+        if self._held_now() is not None:
+            # 前のお話の答えを覚えている（待っていただく一言のあとの別のお話＝_wait_answered が answer_held に置いた）：もう答えていただいた質問を「ところで」で伺い
+            # 直さない（本書 9-3「取得済みのことを重ねて聞かない」・11-01 日本時間18時11分53秒）。ひとことのあと、その答えの報告か質問に戻るかを会話AIが選ぶ（応えたあとの
+            # 戻りの1か所 _return_note＝答えと世間話を一緒に言われたときと同じ）。伺い直していない＝伺い直しの回数・戻りに数えない
+            note = self._return_note()
+            if said is not None:
+                return {"result": "replayed", "say": said, "speak": True, "quiet": True, "message": f"{say_note(said)}そのあと、{note}"}
+            if self.play_recordings:
+                return {"result": "replayed", "play": [{"kind": "recorded", "id": pick, "text": fb}], "quiet": True, "message": played_note(fb) + note}
+            return {"result": "replayed", "say": fb, "speak": True, "quiet": True, "message": f"{say_note(fb)}そのあと、{note}"}
         # 伺い直しは1項目1回。数えるのは別のお話の伺い直しの回数（Item.talk_backs）：その場の回数（10-14）は聞き返しと合わせた数（_on_spot_left の1か所。
         # ✅ 2026-11-14 日本時間14時31分38秒「●伺い13」）。聞き返しの回数（Item.ask_backs）には数えない：お客様の言葉は聞き取れている（数えると、伺い直しへの答えを
         # 聞き取れなかったあとの言い方「（値）とおっしゃいましたでしょうか？」で確かめる＝お言葉の外の選べる形は ie/ に出した）。このあとのお返事は今の道
@@ -12325,7 +12516,7 @@ class Flow:
             お呼びした方ではないと言ったときは、確かめずにお呼びし直す）／確かめたあと ⇒ はっきりしなければ1回だけ聞き返し、ほかはお詫びのあとお呼びし直す（本書 9-4 の
             (5)）。名乗りから流すかは、新しい方の印の1か所（_new_person_read＝判定の組の「前と同じ方か」）"""
         j = self.meaning_said if self.words_complete else None
-        if self.successor and ai == "successor":
+        if (self.successor or self.role_called) and ai == "successor":
             # 後任の方へ切り替えたあと（_to_successor）は、後任の方が目的の人：AIの「後任の方」は「目的の人」の報告（⛔ 2026-10-22 G-57 tc33
             # （在籍していない・S4）：お呼びした後任の田中様の「お電話代わりました。田中です。」を、AIが「後任の方」と報告し、在籍していないと
             # 同じに扱って締めた）
@@ -13010,8 +13201,8 @@ class Flow:
             words = (self.callee_said or "").strip()[:30]
             if (back := self._calling_ask_back(f"相手の言葉（「{words}」）は、番号違いと言ったのか、意味の判定で決められませんでした。")) is not None:
                 return back
-        if about == ABOUT_DEPARTED:
-            why = "departed"
+        if about in (ABOUT_DEPARTED, ABOUT_NO_SUCH):
+            why = "departed"   # そういう方はいない（ABOUT_NO_SUCH）も在籍していないと同じ道（まだならお呼びし直すかは _departed の1か所）
         elif self.judging:
             # 判定を使う通話：理由は判定の組の読み（_absent_why＝読みが届かない・割れたら不在で伺う）。why は判定の読みの申し出（ほかの手段）だけ
             # （_calling_reply）＝会話AIに理由を報告させて待たない（⛔ 4e94ba37 まで、報告の無いターンは会話AIに理由の報告を頼んで黙った）
@@ -13019,7 +13210,7 @@ class Flow:
         elif about == TARGET_IS_AWAY and why == "departed":
             why = "absent"
         if why or party in STANDIN_PARTIES:
-            told = {"ai"} if why and about != ABOUT_DEPARTED and not self.judging else set()   # 理由を会話AIが選んだ（通話の事実に残す読み）
+            told = {"ai"} if why and about not in (ABOUT_DEPARTED, ABOUT_NO_SUCH) and not self.judging else set()   # 理由を会話AIが選んだ（通話の事実に残す読み）
             return self._not_available(party, why, offer, told | self._target_readings()[2])
         if any(x["reply"].get("away") and self.target_from <= x["callee_turns"] < self.callee_turns for x in self.log):
             # 前の発話でかけ直しへ進むように伝えたのに、AIはまた別の報告をした：プログラムが「不在」として進める（同じ発話の報告し直しは待つ＝
@@ -13038,6 +13229,10 @@ class Flow:
         ABOUT_DEPARTED・そろって不在 TARGET_IS_AWAY・決まらない（食い違う・項目ごとに答えない読み）None。読む言葉は、いまの言葉が不在と読まれて
         いればその言葉、なければこの段の前の言葉（_target_readings の不在と同じ区切り）。"""
         abouts = {(getattr(v, "facts", None) or {}).get(ABOUT) for v in self._away_got()}
+        if abouts == {ABOUT_DEPARTED, ABOUT_NO_SUCH}:
+            # 在籍していない（退職・異動）とそういう方はいないに割れた：どちらも、お呼びした方はいないと伝えた＝在籍していない（はっきり辞めた・異動したと読んだ判定がある
+            # ＝お呼びし直さない側。⛔ 分けて読む前の在籍していないの道のまま）
+            return ABOUT_DEPARTED
         return next(iter(abouts)) if len(abouts) == 1 else None
 
     def _away_got(self, every: bool = False) -> list:
@@ -13160,7 +13355,7 @@ class Flow:
         """はじめの場面で、いまの言葉（出揃ったもの）を「電話に出ている方は後任の方」と読んだ判定の名前（唯一の場所）。どれか1つでも「ご本人」と
         読んでいれば空（後任の方の道へは進まない＝取り消せない側へは1つの読みで止める）。後任の方をお呼びしたあとは、後任の方かは読みそのもの
         （facts_reading）なので空。"""
-        now = self._judged_now() if self.words_complete and not self.successor else {}
+        now = self._judged_now() if self.words_complete and not (self.successor or self.role_called) else {}
         return set() if TARGET_IS_THERE in now.values() else {k for k, v in now.items() if says_successor(v)}
 
     def _handed(self) -> set[str]:
@@ -13220,7 +13415,8 @@ class Flow:
         下＝on_unsure の値。繋ぐのを止める側だけの読み）も同じ所に残す（確かな読みがあれば確かな読み）＝弱い読みが「ご本人」を止めたのに伺い直したあとで繋いだ
         （伺い50 イ＝_calling_reply）通話も、通話のあとで確かめ直す印が付く。who＝繋いだ方（目的の人 target・後任の方 successor・代わりの方 substitute。依頼主へ渡す
         答えが、誰の答えか＝✅ 2026-10-22 ユーザー：代わりの方とも話す）。"""
-        who = "successor" if who == "target" and self.successor else who
+        # 後任の方もいらっしゃらずにお呼びした役職の方（_to_role）も、お呼びした方ではない方＝後任の方と同じ（お名前の読みは伺わない・続きの電話の引き継ぎの確かめ）
+        who = "successor" if who == "target" and (self.successor or self.role_called) else who
         self._note("connect", read=sorted(read), judging=self.judging, who=who,
                    **({"turn_reads": r} if (r := {**self._weak_now(), **self._judged_now()}) else {}))
         if who != "target":
@@ -13244,7 +13440,7 @@ class Flow:
             # なりますでしょうか？」）。11-13 まで、前の答えが代わりの方の答えだけのご本人・混ざった答えの後任の方には、代わりの方の「いいえ」のまま同じ一言を伺った・
             # 代わりの方には伺わず、いつも営業の最初から伺った
             self.resume_due = False
-            form = carried_ask(self.earlier_all, who, self.handover, self.successor, self.earlier_when)
+            form = carried_ask(self.earlier_all, who, self.handover, self.successor or self.role_called, self.earlier_when)
             # お呼びした方のお名前の文は名乗りの部分（業務の部分を渡していない流れ＝試験で手で渡した名乗りでは「前のご担当者様から」）
             named = (self.target or {}).get(CARRIED_PART, "") if form == "target" else ""
             q = callback_question("carried", talked=form if form in CARRIED_TALKED else None, named=named)
@@ -13421,23 +13617,48 @@ class Flow:
           「退職いたしまして、後任の田中に代わります。…」のあとに出た田中様に「そうでしたか。大変失礼いたしました。」を流した）
         - お礼を言って終える（end）：同じお詫びのあと、ふつうの締め。後任の方へ切り替えたあとにまた在籍していないと言われたときも終える"""
         policy = self.policies["departed"]
-        self._note("departed", policy=policy, read=sorted(read), successor=self.successor)
+        if (not agreed and not self.successor and not self.role_called and self._away_about() == ABOUT_NO_SUCH
+                and (r := self._recall_full()) is not None):
+            # はじめにお呼びした方を「そういう者はおりませんが。」とだけ言われた（退職・異動とは言っていない＝ABOUT_NO_SUCH）：まだお伝えしていない部署・フルネームで1回だけ
+            # お呼びし直す（お名前だけでは分からないと言われたときと同じ1か所 _recall_full）。在籍していないとは決めない（通話の事実 departed を残さない）。このあとのお言葉は
+            # 新しい呼ぶ一言へのお返事＝前の「そういう方はいない」の読みを数えない区切り（target_from＝後任の方へ切り替えるときと同じ考え）。✅ 2026-11-20 日本時間3時55分24秒
+            # ユーザー「伺い69：エ…」。⛔ 35042abf まで、辞めた・異動したと言われたときと同じに後任の方をお呼びした（伺い69 のア）
+            self._keep_calling_turn()
+            self.target_from = self.callee_turns + 1
+            return r
+        to_role = bool(self.successor and policy != "end" and not self.role_called and (self.target or {}).get(ROLE_PARTS["target"]))
+        # 通話の事実 departed（唯一の書き場所）：successor＝後任の方・役職の方をお呼びしているときに在籍していないと言われた（お呼びできる方がもういない＝行を終える。
+        # 役職の方は後任の方のあと＝CL-2 の call_report.departed_end の読みのまま）。to_role（仮の名前・CL2_PENDING）＝この在籍していないのあと、その役職の方をお呼びした
+        # （行を終えない＝役職の方が外出中などなら今のかけ直しの道で戻りの時刻を伺う・次の電話は予約証の role_call＝はじめから役職の方）。役職の方へ切り替えた記録にだけ付ける
+        # （ほかの記録は今のまま）。✅ 決まりで決めた（CL-1 の続きの頼み (2)＝本書 9-4 の「担当者が不在」・2026-11-04 日本時間3時15分47秒「通常は、いない場合、終えるではなく、
+        # いつ戻られるのかを確認するのがセオリーですよ！」）。⛔ 3ad40c6e〜547c67f8 は印が無く、役職の方が外出中でも CL-2 の読みで行が終わった（伺った戻りの時刻が宙に浮く）
+        self._note("departed", policy=policy, read=sorted(read), successor=self.successor or self.role_called, **({"to_role": True} if to_role else {}))
         now = self._judged_now()
         told = why == "departed" or not now or any(says_away(v) for v in now.values())
         self._keep_calling_turn()
         lead = [{"kind": "recorded", "id": "departed", "text": DEPARTED_ACK}] if told else []
-        if policy == "end" or self.successor:
+        if to_role:
+            # 後任の方もいらっしゃらない（後任の方をお呼びしたどの道でも＝はじめから後任の方をお呼びする電話も）：その役職の方をお呼びする（役職だけでお呼びする業務の呼ぶ一言と
+            # 同じ1か所＝名乗りの部分 ROLE_PARTS・_to_role）。頭は後任の方をお呼びするときと同じ（在籍していないことを伝えられたときのお詫びの録音＝下の呼ぶ所）。
+            # ✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいないときは、該当の役職の方」（名簿に役職が無ければ今のお礼の締め＝下）
+            self._to_role()
+            return self._departed_call(lead, "後任の方もいらっしゃいません。ここからは、その役職の方（役職だけでお呼びする方）が目的の人です。")
+        if policy == "end" or self.successor or self.role_called:
             return self._led(lead, "", self._close("departed")) | {"led": True}
         self._to_successor()
         if agreed:
             return self._led(lead, "お呼びした方は在籍しておらず、電話口の方が後任の方だと伺いました（読みがそろいました）。", self._connect(read)) | {"led": True}
         if confirm:
             return self._led(lead, "お呼びした方は在籍しておらず、電話口の方が後任の方だと伺いました。", self._ask_target(new_person=False)) | {"led": True}
+        return self._departed_call(lead, "お呼びした方は在籍していません（退職・異動）。ここからは後任の方が目的の人です。")
+
+    def _departed_call(self, lead: list[dict], note: str) -> dict:
+        """在籍していないと言われたあと、切り替えた目的の人（後任の方＝_to_successor・その役職の方＝_to_role）をお呼びする唯一の返事（_departed）：お詫びの録音 lead
+        （在籍していないことを、いま電話口の方が伝えたときだけ）のあと、まだ名乗りを聞いていない方ならあいさつ・名乗りから、呼ぶ一言（その方の形の名乗りの部分 target）。"""
         keys = [k for k in ("greeting", "intro") if self._new_ears() and self.target.get(k) and not (k == "greeting" and self._greeted())]
         self.passed_on = False
         self.target_called.append(self.callee_turns)
-        return self._speak_lines(lead + [self._part_play(k) for k in keys + ["target"]], "call_target",
-                                 "お呼びした方は在籍していません（退職・異動）。ここからは後任の方が目的の人です。") | {"led": True}
+        return self._speak_lines(lead + [self._part_play(k) for k in keys + ["target"]], "call_target", note) | {"led": True}
 
     def _to_successor(self) -> None:
         """目的の人を、後任の方に切り替える（唯一の場所。_departed）。呼ぶ一言・確かめる一言・聞き返しは後任の方の録音（共通の一言。phrases.SUCCESSOR）
@@ -13456,6 +13677,37 @@ class Flow:
         self.owner_asked = []
         self.target_claimed = False
         self.back_turn = None
+
+    def _to_role(self) -> None:
+        """目的の人を、はじめにお呼びした方の役職の方に切り替える（唯一の場所。後任の方もいらっしゃらないと言われた＝_departed）。呼ぶ一言・確かめる一言・ご事情を伺う一言・
+        お取り次ぎのお願いは、役職だけでお呼びする業務と同じ形（名乗りの部分 ROLE_PARTS＝instruction.Business.replay_parts の名前の無い Target の形）。判定は役職だけで
+        お呼びする業務と同じ問い（後任の方の印 successor を下ろす＝はじめにお呼びした言葉は見せない）。前にお呼びした方への読み・回数は数えない（_to_successor と同じ区切り）。
+        お名前の入る一言（フルネームでお呼びし直す・携帯電話の番号の確かめ）は、役職の方には使わない。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいない
+        ときは、該当の役職の方」"""
+        self._role_parts()
+        self._calling_questions()
+        self.target_from = self.callee_turns + 1
+        self.target_called, self.target_confirmed, self.target_sorry, self.transfer_asked = [], [], [], []
+        self.target_claimed = False
+        self.back_turn = None
+
+    def _role_parts(self) -> None:
+        """役職の方をお呼びする形にする唯一の場所（通話の中で切り替える _to_role・次の電話ではじめから役職の方をお呼びする＝予約証 role_call の始め）：呼ぶ一言・確かめる一言・
+        ご事情を伺う一言・お取り次ぎのお願いを名乗りの部分 ROLE_PARTS（役職だけでお呼びする業務と同じ形の文）にし、お名前の入る一言（フルネームでお呼びし直す・携帯電話の番号の
+        確かめ）は使わない。後任の方の印 successor は下ろす（判定は役職だけでお呼びする業務と同じ問い）。録音の組は、どの電話でも同じ部分（CL-2 の 4-152）＝流す部分の名前だけ
+        替える（part_names）。"""
+        self.successor, self.role_called = False, True
+        for d in {id(d): d for d in (self.target, self.opening) if d}.values():
+            for k, part in ROLE_PARTS.items():
+                if d.get(part):
+                    d[k] = d[part]
+                else:
+                    d.pop(k, None)
+            for k in ("target_full", "mobile_confirm", "mobile_owner"):   # （携帯電話の持ち主の確かめ＝伺い65 イ・後任の方と同じ）
+                d.pop(k, None)
+        for k in ROLE_PARTS:
+            self.system_parts.pop(k, None)   # 後任の方の共通の一言の録音（SUCCESSOR_IDS）は使わない
+        self.part_names.update(ROLE_PARTS)
 
     def _plays_recorded(self, plays: list[dict]) -> bool:
         """決まった言葉 plays（名乗りの部分・申し出に応じる一言など）を、録音で流せる通話か（唯一の場所。⛔ 2026-11-04 に見つけた穴：_led と
@@ -15722,11 +15974,19 @@ class Flow:
             return self._wait_for_words()
         if self._hold_now():
             return self._hold()
+        if (r := self._recall_full()) is not None:
+            return r
+        self._note("who_unclear", recalled=self.full_called)
+        return self._not_transferred()
+
+    def _recall_full(self) -> dict | None:
+        """まだお伝えしていない部署・役職とフルネームの入った呼ぶ一言（名乗りの部分 target_full）で、1回だけお呼びし直す唯一の場所（お名前だけではどの方か分からないと
+        言われた _who_unclear・そういう方はいないと言われた _departed）。頭は「失礼いたしました。」（_call_target の sorry）。お伝えすることが無い・もうお呼びし直した ⇒ None
+        （呼ぶ所が今の道を続ける）。✅ 2026-11-01 日本時間23時59分・11-02 日本時間1時22分・2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エ…」"""
         if (self.target or {}).get("target_full") and not self.full_called:
             self.full_called = True
             return self._call_target(sorry=True, part="target_full")
-        self._note("who_unclear", recalled=self.full_called)
-        return self._not_transferred()
+        return None
 
     def _not_transferred(self) -> dict:
         """受付の方が、営業のお断りではない事情で、目的の人に取り次げないと言った（「担当が分からないのでお繋ぎできません」「個人宛のお電話は
@@ -16077,6 +16337,21 @@ class Flow:
             self.awaiting_confirm = qid
         if reason == "unclear":
             self.unheard_turn = self.callee_turns   # 聞き取れないお返事（頭の相づちを選ぶ1か所 _unheard_now）
+        if reason == "wrong":
+            # 答えの段で判定の番号違いの読みが割れた（_ask_kind）：番号違いかを1回だけ伺う（共通の一言の録音 wrong_number_ask・頭のお詫びは相づち taihen_shitsurei＝_ack_choice）。
+            # 聞き返しの1回に数える（その場の回数・必須かによらず、1つの電話で1回は伺う＝伺い72 エ「1回だけ伺い、お客様ご自身のお返事で決める」）。お返事は伺っていた
+            # 質問（言い直し）のまま受ける（そろって番号違い＝_wrong_due の締め・番号は合っている＝今の質問の道・また割れた＝今の聞き返し）
+            self.wrong_asked = True
+            it.ask_backs += 1
+            it.set("checking" if confirming else "unclear", f"{why}・判定の番号違いの読みが割れた＝番号違いかを伺う（{it.ask_backs}回目の聞き返し）")
+            line = [{"kind": "recorded", "id": "wrong_number_ask", "text": WRONG_NUMBER_ASK}]
+            then = (f"相手の返事を待ってください。{self._confirm_how(qid)}" if confirming else "相手の答えを待ってください。" + answer_wait())
+            if confirming:
+                self.awaiting_confirm, self.confirm_requested_at = qid, self.callee_turns
+            head = {"result": "ask_back", "question_id": q.id, "ask_n": it.ask_backs, "ask_reason": reason, "ask_last": False}
+            if self._plays_recorded(line):
+                return head | {"play": line, "message": f"{shown}{played_note(WRONG_NUMBER_ASK)}{then}"}
+            return head | {"say": WRONG_NUMBER_ASK, "message": f"{shown}{say_note(WRONG_NUMBER_ASK)}{then}"}
         # 形の合わない答えに、理由を添えて伺い直す一言がある質問（システムの質問の役目ごと＝phrases.CALLBACK_ASK_FORM：SMS でご招待する携帯電話の番号に固定電話の
         # 番号）：1回目はその一言（頭は「はい、」＝_ack の form_reason）。理由を添えて伺っても合わなければ、聞き返さずに「-」（その形の答えは無い＝次の段が決める。
         # 携帯電話の番号なら、ほかの方法を伺う＝_line_other_ways）。✅ 2026-11-05 日本時間0時48分 ユーザー「(ア)(イ)ともお勧めの形でOK」。⛔ それまで、理由を言わずに

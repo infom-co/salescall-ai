@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-from flowctl import (ABOUT, ABOUT_DEPARTED, ABOUT_NONE, ABOUT_WRONG, AWAY, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, HESITATING, KEEP_ON, PHONE, PHONE_NONE,
+from flowctl import (ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_NONE, ABOUT_WRONG, AWAY, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, HESITATING, KEEP_ON, PHONE, PHONE_NONE,
                      PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES, REFUSED_LABEL, SPEAKER, SPEAKER_SAME, THINKING, WAIT_NOW, WHO,
                      WHO_RECEPTION, WHY_NOT_SAID, WRONG, WRONG_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question, since_form)
 from grounding import TOUCHED, UNTOUCHED, one_touched
@@ -190,8 +190,9 @@ WRONG_ANSWER_ROWS = [
 # 正解は説明の文と決まりの文の言葉だけから決める（理由は行ごと）
 CALLING_WORDS = [
     ("うちには岡田という者はおりませんが。", {"asked": False, "own_phone": False},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_DEPARTED}},
-     "会社の電話：「在籍していない」の説明に「そういう方はいない」がある・番号違いの説明は番号の間違い・そういう会社やお店ではないだけ。お呼びした方をほかの人として話した"
+     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_NO_SUCH}},
+     "会社の電話：「そういう方はいない」の説明そのもの（退職・異動とは言っていない＝2026-11-20 分身 M が在籍していないから分けた選べるもの。伺い69 エ）・番号違いの説明は"
+     "番号の間違い・そういう会社やお店ではないだけ。お呼びした方をほかの人として話した"
      "はじめに出た方＝受付・取次ぎの方（まとめ役 CL-1 の 11-19 日本時間19時台の直し。⛔ 分身 Z の案 F(同,受,無,番)）"),
     ("うちには岡田という者はおりませんが。", {"asked": False, "own_phone": True},
      {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_WRONG}},
