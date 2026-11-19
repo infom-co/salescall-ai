@@ -678,7 +678,10 @@ LISTEN_TIME = "そのためのお時間、{t}だけよろしくお願いしま�
 COMPANY_WHO = "御社"                                            # お名前の分からない方への文の（お名前）様の所
 BUT_LEAD = "そうですよね。"                                     # (8) 本題のお断りの受け（共通の一言 but_lead。続けて「ただ（会話AIが書いた中身）。」）
 BUT_SAFE = "ただ、" + LISTEN_SAFE                               # (8) 会話AIの中身が使えないとき（(7) のお言葉の文＝共通の一言 but_safe）
-RECEPTION_PURPOSE = "{who}にとって大切なお話がございましてお電話いたしました。"   # 受付の方へ伝える用件の一文（名前の録音の台帳 reception_purpose）
+# 受付の方へ伝える用件の言葉（伺い85＝営業・ご案内の言葉ではなく「大切なお話」）。受付の方への一文と顧客獲得型の決まった伝言（standard_message）の両方がこの1か所を読む
+# （伺い87「大切な」か「お役に立つ」かの答えで両方が一緒に替わる）。分身 P の続き
+IMPORTANT_TALK = "大切なお話"
+RECEPTION_PURPOSE = "{who}にとって" + IMPORTANT_TALK + "がございましてお電話いたしました。"   # 受付の方へ伝える用件の一文（名前の録音の台帳 reception_purpose）
 RECEPTION_WHO = "ご担当者様"                                    # お呼びする方のお名前の無い業務の（お呼びする方）
 # お名前の入る文のうち、名前の分からない方には「御社」の形で流す文（鍵＝名前の録音の台帳の名前・共通の一言は（鍵）_company）
 WHO_LINES = {"pain_ask": PAIN_ASK, "listen_why": LISTEN_WHY, "listen_reason": LISTEN_REASON, "listen_ask": LISTEN_ASK}
@@ -1220,9 +1223,13 @@ MESSAGE_STANDARD = "それでは{who}{about}お電話があったとお伝えい
 MESSAGE_AGAIN = MESSAGE_STANDARD.format(who="", about="")
 
 
-def standard_message(company: str, caller: str, noun: str = "") -> str:
-    """決まった伝言の文を作る唯一の場所（instruction.Business.replay_parts の message）。company・caller は名乗りと同じ声に出す形（Business._said）。"""
-    return MESSAGE_STANDARD.format(who=f"{company}の{caller}から", about=f"{of_matter(noun)}件で" if noun else "")
+def standard_message(company: str, caller: str, noun: str = "", acquire: bool = False) -> str:
+    """決まった伝言の文を作る唯一の場所（instruction.Business.replay_parts の message）。company・caller は名乗りと同じ声に出す形（Business._said）。
+    acquire＝顧客獲得型の業務：用件の所は業務の用件ではなく「大切なお話で」（受付の方への一文と同じ言葉 IMPORTANT_TALK。本書 9-9 の終わり【決まりで決めて入れる】・
+    ✅ 2026-11-20 日本時間2時18分01秒「伺い85：…営業ではなく、○○様にとって、「大切な話」「役に立つ話」としてかけるので、営業では断られない。」）。分身 P の続き。
+    ⛔ 12de0daa まで、顧客獲得型でも「求人広告の掲載の件で」（営業の言葉）が受付の方に伝わった"""
+    about = f"{IMPORTANT_TALK}で" if acquire else f"{of_matter(noun)}件で" if noun else ""
+    return MESSAGE_STANDARD.format(who=f"{company}の{caller}から", about=about)
 
 
 def message_again(text: str) -> str | None:

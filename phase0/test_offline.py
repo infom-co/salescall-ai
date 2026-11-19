@@ -43687,3 +43687,47 @@ class PReceptionWhoTest(unittest.TestCase):
         # はじめの方（お名前のある方）は今のまま
         r = self.purpose(self.flow(t))
         self.assertEqual(heard_words(r), "失礼いたしました。「おかだ」様にとって大切なお話がございましてお電話いたしました。採用ご担当の「おかだ」様はいらっしゃいますでしょうか？")
+
+
+class PAcquireMessageTest(unittest.TestCase):
+    """分身 P の続き（頼みの文から落ちていた1つ）：顧客獲得型の決まった伝言のお願い（伝言を残さない業務で、お礼の一言のあとに伝言を重ねて申し出られたときにお願いする文＝
+    依頼主の単位の録音 message）の用件の所は「大切なお話で」（本書 9-9 の終わり【決まりで決めて入れる】「顧客獲得型の決まった伝言の用件は「大切なお話で」（伺い85）」・
+    ✅ 2026-11-20 日本時間2時18分01秒「伺い85：…営業ではなく、○○様にとって、「大切な話」「役に立つ話」としてかけるので、営業では断られない。」）。「大切なお話」の言葉は受付の方
+    への一文（RECEPTION_PURPOSE）と同じ1か所（phrases.IMPORTANT_TALK＝伺い87 の答えで両方が一緒に替わる）。確認の電話の伝言は今のまま。業務が自分で書いた伝言の文は今のまま
+    （取込の決まり）。⛔ 12de0daa まで、顧客獲得型でも業務の用件「求人広告の掲載の件で」が受付の方に伝わった（担当 W の控え rv175/W/notes.md の (b-追加)）。"""
+    MSG = "それでは株式会社「アオバ」の「佐藤」から大切なお話でお電話があったとお伝えいただけますでしょうか？"
+
+    def test_the_message_has_the_important_talk(self):
+        from instruction import Target
+        from phrases import IMPORTANT_TALK, RECEPTION_PURPOSE
+        t = Target(name="岡田", reading="おかだ", role="採用ご担当")
+        self.assertEqual(acquire_business(target=t).replay_parts()["message"], self.MSG)
+        self.assertIn(IMPORTANT_TALK, RECEPTION_PURPOSE)
+        self.assertIn(IMPORTANT_TALK, self.MSG)
+        # 業務が書いた伝言の文は今のまま
+        written = "それでは株式会社アオバの佐藤からお電話があったとお伝えください。"
+        self.assertEqual(acquire_business(target=t, message=written).replay_parts()["message"], written)
+
+    def test_confirm_type_message_as_before(self):
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import Target
+        b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+        self.assertEqual(b.replay_parts()["message"], "それでは株式会社「アオバ物流」の「佐藤」からお電話があったとお伝えいただけますでしょうか？")
+        b = dataclasses.replace(b, purpose_noun="ご予約の確認")
+        self.assertEqual(b.replay_parts()["message"], "それでは株式会社「アオバ物流」の「佐藤」からご予約の確認の件でお電話があったとお伝えいただけますでしょうか？")
+
+    def test_in_the_call(self):
+        """受付の方の伝言の申し出をお礼で断ったあと、また伝言を申し出られた（2回目の好意＝伺い7 イ）：お言葉に甘え「ありがとうございます。」＋決まった伝言のお願い。"""
+        from flowctl import OFFER, OFFER_OF, UNDECIDED
+        from g59_flow_check import facts
+        from instruction import Target
+        f = _p_acquire(Target(name="岡田", reading="おかだ", role="採用ご担当"))
+        o = {v: k for k, v in OFFER_OF.items()}
+        fc_heard = __import__("g59_flow_check").heard
+        fc_heard(f, "岡田はいま席を外しておりまして、ご伝言でしたら承りますが。", facts("同受x在") | {OFFER: o["message"]})
+        r = f.apply("request_callback", {"why": "absent", "offer": "message"})
+        self.assertEqual(heard_words(r), "お気遣いありがとうございます。お手数ですので改めてこちらからお電話させていただきます。")
+        f.apply("replay_opening", {"part": "resume"})
+        r = _p_turn(f, "いえいえ、お伝えしておきますよ。", _p_rd(UNDECIDED), "request_callback", why="absent", offer="message")
+        self.assertEqual(heard_words(r), "ありがとうございます。" + self.MSG)
