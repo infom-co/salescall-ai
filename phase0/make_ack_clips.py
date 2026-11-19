@@ -258,6 +258,9 @@ MAX_S["brief_sorry"] = 9.0
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})
 HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
+# お客様リストに分かっている連絡先を、いまお電話している番号へ SMS で送ってよいかを伺う一言（phrases.LISTED_DIALED_ID＝伺い66 の値の入らない一言の共通の一言の録音。
+# 分身 P の (9)）：連絡先を伺う一言と同じ長い問いの読み方
+HOW_OF["listed_mobile_dialed"] = "question_long"
 # お名前の前の言葉（phrases.NAME_HEAD_IDS。名前の録音の前に流す共通の一言＝flowctl.name_plays）の読み方：言葉ごとの役目の唯一の表（頭の言葉 → 読み方の鍵）。どれも
 # 言い切らずに後ろの名前の録音へ続く調子で（つなぎの言葉の録音と同じく短い）。「恐れ入りますが」＝お願い・お尋ねの前に添える（分身 L・CL-2 の連絡帳 4-443）／
 # 「じゃあ」＝話を前へ進める切り替え／「ただですね」「理由はですね」＝誠実に言葉を選んで続ける前置き／「そういった意味で」＝ここまでをまとめてお願いへつなぐ前置き
@@ -417,6 +420,8 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
+    import dataclasses
+    from flowctl import chooses_when, ladder_opening
     from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, accepted_line, brief_left_counts, brief_left_line, brief_sorry_line, offer_questions, DAY_VARIANTS, approval_explanation, callback_question, day_question, day_recording_id, fill_day, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer, wish_ways,
                          taken_line, tell_recording_id)
     from instruction import reading_variants
@@ -452,6 +457,13 @@ def script_table(business) -> tuple[dict, dict]:
             items += [(question_clip(p["id"], p["lead"]), p["text"], question_how(p["text"])) for p in question_forms(qs, q.id)]
         # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
         items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
+        if getattr(business, "accept_free", ()) and chooses_when(q):
+            # お客様に日時を選んでいただく質問（伺い62）を2択で伺い始める形（文・録音の名前は flowctl.ladder_opening の1か所＝聞くことを頭に入れた値の入らない2択の録音
+            # 「（番号）_ladder_kind」「（番号）_ladder_half」。頭のつなぎの言葉の形ごとの名前は業務の質問と同じ question_forms。値の入る2択は会話AIの声＝録音にしない）。分身 P の (5)
+            for step in ("kind", "half"):
+                lq = ladder_opening(dataclasses.replace(q, ladder="accept"), step, (), {})
+                items += [(question_clip(p["id"], p["lead"]), p["text"], question_how(p["text"]))
+                          for p in question_forms([lq if x.id == q.id else x for x in business.questions], q.id)]
         if (taken := taken_line(q)) is not None:
             # 業務の申し出の質問を受けていただいて、そのまま締めるときの、こちらがすることの言い切り（名前と文は flowctl.taken_line の1か所＝「（番号）_taken」・
             # 「パンフレットをお送りさせていただきますね。」）：確かにすることを言う一言＝申し伝える一言（wish_told_）と同じ読み方。✅ 2026-11-17 日本時間2時14分44秒
