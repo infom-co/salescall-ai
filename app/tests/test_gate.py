@@ -1106,8 +1106,11 @@ class CallerNumberAndVoice(Base):
                 got = self.tx(a, lambda tx: self.voice(tx, a, "L4"))
                 self.assertIsInstance(got, gate.Denied)
                 self.assertEqual(got.reason, "voice_not_ready")
-                for wrong in ([recordings.Part(part, "前の文。", "test://Leda/old", "5" * 64)],         # 文が違う
-                              [recordings.Part("intro", "ご予約の確認でお電話いたしました。", "test://Leda/intro", "5" * 64)]):   # 共通の一言の外
+                # 全部の部分がそろった組で、1つだけ文が違う・1つだけ共通の一言の外の名前（足りない組の守りではなく、文と名前の守りで断ることを確かめる）
+                whole = [recordings.Part(p, t, f"test://Leda/{p}", "5" * 64) for p, t in common_phrases.TEXTS.items()]
+                for wrong in ([x if x.part != part else recordings.Part(part, "前の文。", "test://Leda/old", "5" * 64) for x in whole],   # 文が違う
+                              whole + [recordings.Part("intro", "ご予約の確認でお電話いたしました。", "test://Leda/intro", "5" * 64)]):   # 共通の一言の外
+                    wrong = sorted(wrong, key=lambda x: x.part != part and x.part != "intro")
                     with self.subTest(wrong=wrong[0].part), self.assertRaises(ValueError):
                         self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(tx, unit="contractor", voice_name="Leda", parts=wrong))
                 old_hai = self.w.a.in_system(ADMIN, lambda tx: tx.one(

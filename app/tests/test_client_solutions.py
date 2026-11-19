@@ -92,9 +92,10 @@ class Solutions(Base):
             with self.subTest(index=index), self.assertRaises(client_solutions.SolutionInvalid):
                 self.tx(s, lambda tx: client_solutions.add(tx, aid, index, text, origin="dashboard",
                                                            name_answer=self.namer("料金"), find_names=NO_NAMES), OPERATOR)
-        with self.assertRaises(Rejected):
+        with self.assertRaises(Rejected) as e:   # 断るのは解決策の守り（0184）の1か所（ほかの所の断りで通ったことにしない）
             self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
                                                        name_answer=self.namer("料金"), find_names=NO_NAMES), SYSTEM)
+        self.assertEqual(e.exception.constraint, "client_solution_by_person")
 
     def test_a_solution_that_needs_the_contractor_to_confirm_a_reading_is_held(self):
         """取込と同じ確かめに通らなければ（検証モードで、解決策の文の名前の AI の読みを契約者が確かめていない）、版を作らずに理由を

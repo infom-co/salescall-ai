@@ -84,13 +84,10 @@ RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "
                           "E5",   # ほかの会社に困りごとは無いと言われたときに、お選びになった決め手を伺うシステムの質問（CL-1 の連絡帳 4-195 の (a)）
                           "H3",   # 手短になら聞くと言われたときの「後ほどお時間のある時にかけ直しさせていただきましょうか？」のシステムの質問（同じ 4-173 の (3)）
                           "greeting", "intro",
-                          "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
-                          "target_full", "target_successor_full", "unavailable_confirm",
-                          # 続きの電話で判断いただける代わりの方に、お呼びした方から引き継いでいるかを伺う一言（お名前が入る名乗りの部分。流すのは名前の録音の
-                          # 台帳から＝target と同じ。CL-1 の連絡帳 4-151 の伺い11）
-                          "carried_target",
-                          # 名前の録音の台帳の続く言葉の名前（名乗りの部分の名前。mobile_confirm・target_transfer ほか。写しの1か所 common_phrases.NAME_TAILS＝
-                          # CL-1 の連絡帳 4-192 の (b) の (2)・4-197 の (a)。続く言葉を足しても、ここを書き足し忘れない）
+                          "purpose", "ai", "target_full", "target_successor_full",
+                          # 名前の録音の台帳の続く言葉の名前（名乗りの部分の名前＝target・target_confirm・target_reconfirm・promise_again・target_successor・
+                          # unavailable_confirm・carried_target・mobile_confirm・target_transfer ほか）。名前の1か所は写し common_phrases.NAME_TAILS（CL-1 の正本
+                          # phrases.NAME_TAILS から道具で作る）。⛔ 2026-11-19 まで、ここにも名前を手で並べていた（二重。片方を外しても守りが変わらなかった）
                           *common_phrases.NAME_TAILS,
                           "voicemail", "message", "busy",   # busy＝引き止めの一言の業務の録音の部分（CL-1 の連絡帳 4-75。ai・voicemail・message と同じ）
                           # 手短になら聞くと言われたときの「（要約）の件でお電話させていただきましたが…かけ直しさせていただきましょうか？」の業務の録音の部分（CL-1 の

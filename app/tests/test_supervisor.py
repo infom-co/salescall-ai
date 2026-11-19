@@ -2994,6 +2994,9 @@ class Review26c(SupervisorBase):
             self.w.a.in_tenant(SYSTEM, t["tenant"], lambda tx: tx.execute(
                 "DO $$ BEGIN RAISE EXCEPTION '試験' USING ERRCODE = 'check_violation'; END $$"))
         self.assertEqual(leases.left_why(refused.exception), leases.BROKEN)                       # ＝プログラムの誤り
+        with self.assertRaises(Exception) as typo:      # 文の誤り（無い関数を呼んだ＝プログラムの誤り。読み書きの層は包まずに返す）
+            self.w.a.in_tenant(SYSTEM, t["tenant"], lambda tx: tx.one("SELECT salescall.no_such_function_for_the_test() AS x"))
+        self.assertEqual(leases.left_why(typo.exception), leases.BROKEN)                          # データベースの誤りでも、書き込みの止まりではない
         self.assertEqual(leases.left_why(access_mod.PoolBusy("試験")), leases.LEFT)                # 共有のつなぎの混雑（データベースに届かない側）
 
     def test_a_call_that_could_not_be_written_is_the_storages_fault(self):

@@ -145,6 +145,7 @@ def _view_edited(migration: str, start: str, old: str, new: str) -> str:
 # 落ちることを確かめていない見張りは、見張っていないのと同じ）。守りを足したら、ここにも足す。
 _M139 = "0139_ring_hours_gaps_and_our_troubles.sql"
 _M172 = "0172_approval_belongs_to_content.sql"
+_M256 = "0256_reward_terms_per_business.sql"
 _CONTENT = "tests.test_gate.CallerNumberAndVoice.test_an_approval_belongs_to_the_content_of_the_recording"
 _VOICE_COMMON = "tests.test_gate.CallerNumberAndVoice.test_a_voice_is_used_only_when_its_common_set_holds_every_common_part"
 _T139 = "tests.test_troubles.OurTroubles."
@@ -439,8 +440,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # システムの管理者（CL-3 の 4-1f の3）
     ("システムの値を管理者だけにする仕掛けを外す", "DROP TRIGGER setting_values_system_by_admin ON salescall.setting_values",
      ("tests.test_settings.SystemValuesByAdmin.test_only_admin",)),
-    ("全体の範囲の停止を、人では管理者だけにする仕掛けを外す", "DROP TRIGGER system_scope_by_admin ON salescall.stop_events",
-     ("tests.test_watch.TenantAiStopsAndChecks.test_manual_stop_is_not_resumed_by_checks",)),
+    # ⛔ 2026-11-19 に外した壊し試し「全体の範囲の停止を、人では管理者だけにする仕掛けを外す」（0019）：0251 の範囲の確かめ（salescall.check_scope）が、
+    # 契約者を全体の取引に入れないので、この守りに届く道が無くなった（外しても結果が変わらない）。守るのは check_scope の壊し試し（0251）。
     ("契約者の共通の発信禁止を、管理者か契約者だけにする仕掛けを外す",
      "DROP TRIGGER contractor_dnc_guard ON salescall.contractor_dnc_entries",
      ("tests.test_dnc.Register.test_contractor_ledger_applies_to_every_client_of_that_contractor",)),
@@ -485,10 +486,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_usage.CostRatio.test_deficit_warns_and_reminds_once_but_never_stops",)),
     ("赤字の警告の確認を、システムの処理にもさせる", "DROP TRIGGER deficit_warning_guard ON salescall.deficit_warnings",
      ("tests.test_usage.CostRatio.test_a_confirmed_deficit_is_not_reminded",)),
+    # ⛔ 2026-11-19：前は 0115 の形（返す欄2つ）を写して持っていて、0256 で業務の欄が足されたあとは関数を作り直せなかった（壊し試しが走らなかった）。
+    # 今の形（0256）から作る
     ("時給の時間を数えない",
-     "CREATE OR REPLACE FUNCTION salescall.work_seconds(p_from timestamptz, p_to timestamptz)"
-     " RETURNS TABLE (at timestamptz, seconds numeric) LANGUAGE sql STABLE SECURITY DEFINER"
-     " SET search_path = salescall, pg_temp AS $$ SELECT NULL::timestamptz, NULL::numeric WHERE false $$",
+     _edited(_M256, "CREATE FUNCTION salescall.work_seconds(", "  WHERE a.client_id = salescall.cur_client()", "  WHERE false AND a.client_id = salescall.cur_client()",
+             end="\n$$"),
      ("tests.test_usage.CostRatio.test_hourly_counts_like_a_person_would",)),
     ("契約者の今日の金額を数えない（いつも0）",
      "CREATE OR REPLACE FUNCTION salescall.spent_today_tenant() RETURNS numeric"
@@ -609,10 +611,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "DROP TRIGGER calendar_loads_by_system ON salescall.calendar_loads",
      ("tests.test_foundation.TenantTransactions.test_other_contractors_and_shared_things_are_out_of_reach",)),
     ("時給の数え方で、ほかの契約者の依頼者の通話を数える",
-     "CREATE OR REPLACE FUNCTION salescall.work_seconds(p_from timestamptz, p_to timestamptz)"
-     " RETURNS TABLE (at timestamptz, seconds numeric) LANGUAGE sql STABLE SECURITY DEFINER"
-     " SET search_path = salescall, pg_temp AS $$ SELECT a.claimed_at, extract(epoch FROM a.ended_at - a.claimed_at)"
-     " FROM salescall.attempts a WHERE a.client_id = salescall.cur_client() AND a.ended_at IS NOT NULL $$",
+     _edited(_M256, "CREATE FUNCTION salescall.work_seconds(", "    AND a.tenant_id = salescall.cur_tenant()\n", "", end="\n$$"),
      ("tests.test_foundation.TenantTransactions.test_other_contractors_and_shared_things_are_out_of_reach",)),
     # 「かけない」の例外と、営業として新しくかける電話か（3-4-2・5-2 の7b・0078。2026-10-18 ユーザー）
     ("「かけない」の行の、お客様と約束したかけ直しを止める",
@@ -1562,7 +1561,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "ALTER TABLE salescall.recording_sets DROP CONSTRAINT recording_sets_name_key",
      ("tests.test_gate.NameLedger.test_the_database_keeps_the_ledger_in_shape",)),
     ("流す名前の録音に、承認していない組も入れる（0132・0173：契約者が聞いていない録音で、お客様のお名前を呼ぶ）",
-     _edited("0173_name_recordings_are_system.sql", "CREATE FUNCTION salescall.current_name_set(", "    AND salescall.set_ready(s.set_id)\n", "", end="\n$$"),
+     _edited("0259_name_tail_texts.sql", "CREATE FUNCTION salescall.current_name_set(", "    AND salescall.set_ready(s.set_id)\n", "", end="\n$$"),
      ("tests.test_gate.NameLedger.test_a_row_is_called_only_in_a_voice_whose_name_recordings_are_all_approved",)),
     # 2026-10-24 夜のご決定（0134）：テスト番号・甚大な問題の電話を終える・名前の録音の台帳のシステムの単位
     ("テスト番号の記録を書き換えられる（0134：鳴らなかったテストを鳴ったことにできる）",
@@ -1609,11 +1608,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "DROP POLICY system_names_read ON salescall.recording_approvals",
      ("tests.test_gate.NameLedger.test_the_systems_names_serve_every_contractor_and_the_businesss_own_come_first",)),
     ("流す名前の録音で、システムのものを業務の録音より先にする（0134・0173：契約者がその業務のために聞いて選び直した録音を流さない）",
-     _edited("0173_name_recordings_are_system.sql", "CREATE FUNCTION salescall.current_name_set(", "ORDER BY (s.tenant_id IS NULL)", "ORDER BY (s.tenant_id IS NOT NULL)", end="\n$$"),
+     _edited("0259_name_tail_texts.sql", "CREATE FUNCTION salescall.current_name_set(", "ORDER BY (s.tenant_id IS NULL)", "ORDER BY (s.tenant_id IS NOT NULL)", end="\n$$"),
      ("tests.test_gate.NameLedger.test_the_systems_names_serve_every_contractor_and_the_businesss_own_come_first",)),
     # 2026-11-04 管理者：「契約者が作った段階では、業務ごとの録音設定と同じ扱いです。管理者が認めて初めてシステムの共通録音に登録されます。」（0173）
     ("業務の名前の録音を、ほかの業務の電話でも流す（0173：同じ依頼者のタブのほかの業務・管理者が認めていない録音で、お客様のお名前を呼ぶ）",
-     _edited("0173_name_recordings_are_system.sql", "CREATE FUNCTION salescall.current_name_set(", "(s.tenant_id IS NULL OR s.business_id = p_business)", "true", end="\n$$"),
+     _edited("0259_name_tail_texts.sql", "CREATE FUNCTION salescall.current_name_set(", "(s.tenant_id IS NULL OR s.business_id = p_business)", "true", end="\n$$"),
      ("tests.test_gate.NameLedger.test_another_business_ledger_is_not_used",)),
     ("契約者が作る名前の録音に、業務が無くてもよい（0173：0134 の形の契約者の組に戻り、どの業務の電話でも流しうる）",
      "ALTER TABLE salescall.recording_sets DROP CONSTRAINT recording_sets_name_owner",
@@ -3063,10 +3062,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
              "WHEN p_same_gap IS NULL THEN a.claimed_at", end="\n$$"),
      (_UNW_SAME + "test_another_call_of_the_client_waits_until_the_next_day_and_the_setting_changes_it",
       "tests.test_gate.Pacing.test_cross_client_interval_tells_same_or_other_tenant_only")),
-    ("お客様が前に聞いた声を、ほかの依頼者の電話だけで見る（0215 の前の形：同じ依頼者のほかの業務の電話と同じ声でかける）",
-     _edited(_M216, "CREATE FUNCTION salescall.number_last_voice_elsewhere(", "a.task_id IS DISTINCT FROM p_task",
-             "a.client_id IS DISTINCT FROM salescall.cur_client()", end="\n$$"),
-     (_UNW_SAME + "test_the_voice_and_the_caller_number_change_between_businesses_of_the_client",)),
+    # ⛔ 2026-11-19 に外した壊し試し「お客様が前に聞いた声を、ほかの依頼者の電話だけで見る」（0215）：0235 の「声は業務ごと（ほかの業務が使った声は
+    # どれも使わない＝salescall.number_voices_of_other_businesses）」がもっと強く守るので、外しても結果が変わらない。守るのは 0235 の壊し試し。
     ("同じ依頼者のほかの業務・実施回の電話の発信番号を見ない（0215 の前の形：同じ発信番号でかける）",
      _edited(_M216, "CREATE FUNCTION salescall.line_called_number_elsewhere(", "      OR coalesce((SELECT a.line_id = p_line",
              "      OR false AND coalesce((SELECT a.line_id = p_line", end="\n$$"),
@@ -4504,7 +4501,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '"S1", "P1", "R1", "D1"', '"S1", "P1", "D1"',
      ("tests.test_gate.NameLedger.test_the_refusal_confirm_cl1_added_on_11_01_is_received",)),
     ("質問の番号に、取り次げないの確かめの一言の名前を使える（会話の側で取り違える）", _BS,
-     '"target_full", "target_successor_full", "unavailable_confirm",', '"target_full", "target_successor_full",',
+     '                          *common_phrases.NAME_TAILS,', '                          *(t for t in common_phrases.NAME_TAILS if t != "unavailable_confirm"),',
      ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_01_are_received",)),
     ("取込で、事実を伺う質問かを AI に聞かない", _BI,
      '    facts = _decided_facts(sorted({q["text"] for q in _fact_questions(raw)}), decide_facts)\n', '    facts = {}\n',
@@ -8107,7 +8104,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '(("target_successor", "target_transfer") if corporate else ())', '(("target_successor",) if corporate else ())',
      ("tests.test_gate.NameLedger.test_what_a_row_needs",)),
     ("質問の番号に、お呼びした方から引き継いでいるかを伺う一言の名前（carried_target）を使える", _BS,
-     '                          "carried_target",\n', "", (_PARTS_1113,)),
+     '                          *common_phrases.NAME_TAILS,', '                          *(t for t in common_phrases.NAME_TAILS if t != "carried_target"),', (_PARTS_1113,)),
     ("予約証に、前の通話の答えを取った電話が今日かを渡さない", "src/salescall/core/gate.py",
      '                 earlier_when=apology.earlier_when(tx, task["task_id"], row["attempt_id"]))', '                 earlier_when=None)',
      (_EARLIER_WHEN,)),
