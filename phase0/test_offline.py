@@ -40935,3 +40935,186 @@ class G59OfferWhyLabelTest(unittest.TestCase):
         for key, why in want.items():
             self.assertEqual(got[key][ABSENT_WHY], why, key)
             self.assertEqual(got[key][OFFER], {OFFER_NOT_SAID}, key)
+
+
+class RefusalMarkOneTest(unittest.TestCase):
+    """発信の拒否の印（通話の事実 do_not_call）を付けるのは、電話の終わりの1か所（Flow._mark_refusals＝こちらが締める Flow._close・まだ締めていないのにお客様が
+    切った Flow.on_line_end・締めたあとに聞いた断りはその場）。お客様の言葉を聞いた時は、発信の拒否を聞いた（根拠の発話と判定のそろいつき）を1か所（Flow._refusal_heard）に
+    取っておく。✅ 2026-11-20 日本時間2時18分01秒 ユーザー（伺い80）「電話の終わりに切られたり、起こっていたらつける。」＝こちらからおかけする営業の電話（顧客獲得型）は、
+    「もうかけないで」と言われても電話を続け、印を電話の終わりで決める（型ごとの尺度の表は CL-2 の業務設定待ち＝まだ作らない。表の1行を読む入口を1つにしておく）。
+    ⛔ それまでは締める直前の4か所（締めの報告の2つの枝・ご遠慮の確かめの「はい」・急いでいる方への伺いの「いいえ」）で別々に付けていた＝型ごとに「いつ付けるか」を
+    変えるときに漏れる。今の確認の電話の型では、印の付く時と中身（turn・said・check）・締め・切れ方の材料は前と同じ（中身の期待値は直す前の作りで出した値）。"""
+
+    @staticmethod
+    def mark(f):
+        return f.facts.get("do_not_call"), list(f.irr_checks)
+
+    def test_do_not_call_is_noted_in_one_place(self):
+        # 通話の事実 do_not_call を残す呼び出し（取り消せない事実の1か所 _note_irreversible・事実の1か所 _note）は、印を付ける1か所の中だけ
+        import ast
+        tree = ast.parse((Path(__file__).resolve().parent / "flowctl.py").read_text(encoding="utf-8"))
+        where = [fn.name for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef)
+                 for node in ast.walk(fn)
+                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("_note", "_note_irreversible")
+                 and node.args and any(isinstance(c, ast.Constant) and c.value == "do_not_call" for c in ast.walk(node.args[0]))]
+        self.assertEqual(where, ["_mark_refusals"])
+
+    def test_close_report_marks_as_before(self):
+        # 締めの報告（直す前の _op_request_end の2つ目の枝）：判定を使わない通話＝none・判定が断ったと読んだ（会話AIは急いでいると報告）＝agreed・報告の無いターン・
+        # 前の発話の判定があとから届いた（根拠の発話は、いまの発話のまま＝前と同じ）
+        from flowctl import END_REFUSED
+        from phrases import CLOSE_DECLINED
+        c, e = CallFactsTest(), EndJudgedTest()
+        f = c.flow()
+        r = c.say(f, "営業の電話ですよね。もうかけてこないでください。", "request_end", reason="callee_refused_call")
+        self.assertEqual((r["say"], self.mark(f), f.end_reason), (CLOSE_DECLINED, ([{"turn": 1, "said": "営業の電話ですよね。もうかけてこないでください。"}], ["none"]),
+                                                                 "callee_refused_call"))
+        self.assertEqual(list(f.facts), ["do_not_call", "end"])   # 印は締めた理由の事実より先（前と同じ並び）
+        self.assertEqual(f.on_line_end(ai_speaking=True, callee_speaking=False),
+                         {"speaker": "ai", "in_closing": True, "callee_refused_last": True, "callee_cannot_hear": False})
+        g = e.flow()
+        e.heard(g, "結構です。もうかけてこないでください。", e.R("いいえ", END_REFUSED))
+        r = g.apply("request_end", {"reason": "callee_hurry"})
+        self.assertEqual(([p["text"] for p in r["play"]], self.mark(g)),
+                         ([CLOSE_DECLINED], ([{"turn": 1, "said": "結構です。もうかけてこないでください。"}], ["agreed"])))
+        h = e.flow()
+        e.heard(h, "もうかけてこないでください。", e.R("いいえ", END_REFUSED))
+        r = h.judged_turn(voiced=False)
+        self.assertEqual((r["result"], self.mark(h)), ("end", ([{"turn": 1, "said": "もうかけてこないでください。"}], ["agreed"])))
+        k = e.flow()
+        k.on_callee(); k.on_heard("もうかけないでって言ってるでしょう。")
+        k.on_callee(); k.on_heard("ちょっと。")
+        k.on_check("judge", e.R("いいえ", END_REFUSED), turn=1)
+        r = k.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+        self.assertEqual((r["result"], self.mark(k), k.on_line_end(ai_speaking=False)["callee_refused_last"]),
+                         ("end", ([{"turn": 2, "said": "ちょっと。"}], ["agreed"]), True))
+
+    def test_after_the_close_a_refusal_is_still_marked_at_once(self):
+        # 締めたあとの「もうかけないで」（直す前の _op_request_end の1つ目の枝）：電話の終わりはもう来ている＝その場で付ける（原則14）。二度締めない
+        from flowctl import END_NONE, END_REFUSED
+        e = EndJudgedTest()
+        f = e.flow()
+        e.heard(f, "結構です。もうかけてこないでください。", e.R("いいえ", END_REFUSED))
+        f.apply("request_end", {"reason": "callee_hurry"})
+        e.heard(f, "いえ、そういうわけでは。", e.R("いいえ", END_NONE))
+        r = f.apply("request_end", {"reason": "callee_refused_call"})
+        self.assertEqual((r["result"], r.get("play"), len(f.facts["end"])), ("end", None, 1))
+        self.assertEqual(self.mark(f), ([{"turn": 1, "said": "結構です。もうかけてこないでください。"}, {"turn": 2, "said": "いえ、そういうわけでは。"}],
+                                        ["agreed", "disagreed"]))
+        self.assertTrue(f.on_line_end(ai_speaking=False)["callee_refused_last"])
+
+    def test_refusal_and_hurry_answers_mark_as_before(self):
+        # ご遠慮の確かめ（R1）への「はい」（直す前の _refusal_decided）・急いでいる方への伺い（H1）への「いいえ」（直す前の _hurry_decided。判定を使う・使わない）・
+        # 受けていただいたあとの取り消し（根拠の発話は取り消しの言葉＝_evidence）
+        from flowctl import CALLBACK_IDS, END_HURRY, END_NONE, END_REFUSED, Flow, Question, UNDECIDED
+        from phrases import CLOSE_DECLINED
+        c, e = CallFactsTest(), EndJudgedTest()
+        f = Flow([Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                           meanings={"はい": "パンフレットをお送りして大丈夫だということ", "いいえ": "パンフレットはお送りしなくて大丈夫だということ"})],
+                 play_recordings=True)
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("いい加減にしてもらえますか。")
+        f.on_check("judge", e.R(UNDECIDED, END_NONE)); f.on_check("judge2", e.R(UNDECIDED, END_REFUSED))
+        self.assertEqual(f.judged_turn(voiced=False)["question_id"], CALLBACK_IDS["refusal"])
+        self.assertNotIn("do_not_call", f.facts)
+        f.on_callee(); f.on_heard("はい、もうかけてこないでください。")
+        f.on_check("judge", e.R("はい", END_NONE)); f.on_check("judge2", e.R("はい", END_NONE))
+        r = f.apply("record_answer", {"question_id": CALLBACK_IDS["refusal"], "condition_id": "はい"})
+        self.assertEqual(([p["text"] for p in r["play"]], self.mark(f), f.end_reason),
+                         ([CLOSE_DECLINED], ([{"turn": 2, "said": "はい、もうかけてこないでください。"}], ["agreed"]), "callee_refused_call"))
+        self.assertTrue(f.on_line_end(ai_speaking=True)["callee_refused_last"])
+        g = e.flow()
+        e.heard(g, "今ちょっとバタバタしてて。", e.R(UNDECIDED, UNDECIDED, (END_HURRY,)))
+        h1 = g.apply("request_end", {"reason": "callee_refused_call"})["question_id"]
+        self.assertNotIn("do_not_call", g.facts)
+        e.heard(g, "いいえ、もう結構です。", e.R("いいえ", END_NONE))
+        r = g.apply("record_answer", {"question_id": h1, "condition_id": "いいえ"})
+        self.assertEqual(([p["text"] for p in r["play"]], self.mark(g)),
+                         ([CLOSE_DECLINED], ([{"turn": 2, "said": "いいえ、もう結構です。"}], ["agreed"])))
+        self.assertTrue(g.on_line_end(ai_speaking=False, callee_speaking=False)["callee_refused_last"])
+        h = c.flow()
+        c.say(h, "すみません、今ちょっと忙しいんですけど。", "request_end", reason="callee_hurry")
+        r = c.say(h, "いえ、結構です。", "record_answer", question_id="H1", condition_id="いいえ")
+        self.assertEqual((r["say"], self.mark(h)), (CLOSE_DECLINED, ([{"turn": 2, "said": "いえ、結構です。"}], ["none"])))
+        k, _ = RecallProposalWithdrawTest().withdrawn("hurry")
+        r = Review13RecallTest.turn(k, "いえ、特に。", Review13RecallTest.rd("hurry", "問題は無い"), "record_answer",
+                                    question_id=CALLBACK_IDS["concern"], condition_id="問題は無い")
+        self.assertEqual((r["result"], self.mark(k), k.facts["end"]),
+                         ("end", ([{"turn": 4, "said": RecallProposalWithdrawTest.WITHDRAW}], ["agreed"]),
+                          [{"turn": 5, "said": "いえ、特に。", "reason": "callee_refused_call"}]))
+        self.assertEqual(list(k.facts), ["party", "do_not_call", "end"])
+
+    def test_late_close_still_has_no_mark(self):
+        # 判定が2回の待ちで届かずに締めた（_end_late）：断ったの理由で締めても、印は付けない（通話のあとの確かめで判定が読んだときだけ）。切れ方の材料も前と同じ
+        from flowctl import Flow, Question
+        for reason in ("callee_hurry", "callee_refused_call", "callee_complaint"):
+            f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True)
+            f.use_checks("judge", "judge2")
+            f.on_callee(); f.on_heard("ごめんなさい、今から出かけるので切りますね。")
+            f.on_judging("judge2", None, f.callee_said)
+            r = f.apply("request_end", {"reason": reason})
+            self.assertEqual((r["result"], f.end_reason, self.mark(f), "complaint" in f.facts, f.on_line_end(ai_speaking=False)["callee_refused_last"]),
+                             ("end", reason, (None, []), False, False), reason)
+
+    def test_a_refusal_heard_before_the_close_is_marked_when_the_line_ends(self):
+        # 電話の終わりの2つ目の入口（まだ締めていないのにお客様が切った＝切れ方を決める所 on_line_end）。今の確認の電話の型では、聞いたら必ずその場で締めるので
+        # この道は通らない（顧客獲得型で、聞いたあとも電話を続けるときの入口）。根拠の発話は聞いた時のもの・切れ方の材料は付けたあとの印で決める
+        f = CallFactsTest().flow()
+        f.on_callee(); f.on_heard("もうかけてこないでください。")
+        f._refusal_heard("none")
+        self.assertNotIn("do_not_call", f.facts)   # 聞いた時には、まだ付けない（電話の終わりで付ける）
+        f.on_callee(); f.on_heard("それでは。")
+        cut = f.on_line_end(ai_speaking=False, callee_speaking=False)
+        self.assertEqual((self.mark(f), cut["in_closing"], cut["callee_refused_last"]),
+                         (([{"turn": 1, "said": "もうかけてこないでください。"}], ["none"]), False, False))
+        g = CallFactsTest().flow()
+        g.on_callee(); g.on_heard("もうかけてこないでください。")
+        g._refusal_heard("agreed")
+        self.assertTrue(g.on_line_end(ai_speaking=False)["callee_refused_last"])
+        self.assertEqual(self.mark(g), ([{"turn": 1, "said": "もうかけてこないでください。"}], ["agreed"]))
+
+
+class DeclinedCloseTableTest(unittest.TestCase):
+    """締めた理由ごとの締め（お礼の締め・断られたときの締めの言葉・急いでいる方の締め＝締めのあと7秒で切ってよい・念のための確認をしない・もうかけない／怒っている）は、
+    1つの表（flowctl.CLOSE_KINDS）から作る。⛔ それまでは、断られたときの締めで終える理由を2つの表（DECLINED_ENDS と Flow._close の中の表 polite）と、Flow._close の
+    中で直に書いた断り・苦情で持ち、番号違い（wrong_party）で食い違った（締めの言葉は断られたときの締め・DECLINED_ENDS には無い＝読む担当 G が見つけ、CL-1 が作りで
+    確かめた）。番号違いは締めの言葉だけ同じ（本書 9-4「番号違いも同じ締めで終える」）・急いでいる方の締めではない（DESIGN.md 6-14 の7秒は「お客様が急いでいる・通話を
+    断られた」＝CL-2 の call_report.HURRIED_ENDS と同じ写しのまま）。"""
+
+    def test_one_table_makes_the_close_sets(self):
+        from flowctl import CLOSE_KINDS, DECLINED_ENDS, END_REASONS, REFUSED_ENDS, THANKS_ENDS
+        self.assertLessEqual(set(CLOSE_KINDS), set(END_REASONS))
+        self.assertEqual(set(CLOSE_KINDS.values()), {"thanks", "declined", "hurried", "refused"})
+        self.assertEqual(THANKS_ENDS, tuple(k for k, v in CLOSE_KINDS.items() if v == "thanks"))
+        self.assertEqual(DECLINED_ENDS, tuple(k for k, v in CLOSE_KINDS.items() if v in ("hurried", "refused")))
+        self.assertEqual(REFUSED_ENDS, tuple(k for k, v in CLOSE_KINDS.items() if v == "refused"))
+        # 今の中身（並べ替えだけ＝前と同じ）
+        self.assertEqual(set(THANKS_ENDS), {"done", "callback", "not_transferred", "departed", "other_means", "goal_refused", "not_agreed"})
+        self.assertEqual(set(DECLINED_ENDS), {"callee_hurry", "callee_refused_call", "callee_complaint"})
+        self.assertEqual(set(REFUSED_ENDS), {"callee_refused_call", "callee_complaint"})
+        self.assertEqual(CLOSE_KINDS["wrong_party"], "declined")
+
+    def test_close_has_no_reason_list_of_its_own(self):
+        # 締めの1か所 Flow._close と、電話を終える言葉を聞いた所は、理由の名前の並びを直に書かない（表から作った並びを読む）
+        import ast
+        tree = ast.parse((Path(__file__).resolve().parent / "flowctl.py").read_text(encoding="utf-8"))
+        names = {"_close", "_op_request_end", "_end_heard"}
+        found = [(fn.name, [c.value for c in node.elts]) for fn in ast.walk(tree) if isinstance(fn, ast.FunctionDef) and fn.name in names
+                 for node in ast.walk(fn) if isinstance(node, ast.Tuple)
+                 and any(isinstance(c, ast.Constant) and c.value in ("callee_complaint", "done") for c in node.elts)]
+        self.assertEqual(found, [])
+
+    def test_each_reason_closes_with_its_words(self):
+        # 表の種類ごとの締めの言葉と hurried（直す前の作りと同じ）：番号違いは断られたときの締めの言葉・急いでいる方の締めではない。目的が果たせなくなった
+        # お断り（goal_refused）は「承知いたしました。」で受けてからのお礼の締め（DESIGN.md 6-14 の 11-04 の行）
+        from flowctl import CLOSE_KINDS
+        from phrases import CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE
+        for reason, kind in CLOSE_KINDS.items():
+            f = CallFactsTest().flow()
+            f.on_callee(); f.on_heard("はい。")
+            r = f._close(reason)
+            words = CLOSE_DECLINED if kind != "thanks" else CLOSING_AFTER_DECLINE if reason == "goal_refused" else CLOSING
+            self.assertEqual((r["say"], f.hurried), (words, kind in ("hurried", "refused")), reason)
+        f = CallFactsTest().flow()
+        r = CallFactsTest.say(f, "番号違いますよ。", "report_party", party="wrong_party")
+        self.assertEqual((r["say"], f.end_reason, f.hurried), (CLOSE_DECLINED, "wrong_party", False))
