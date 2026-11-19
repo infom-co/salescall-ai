@@ -590,11 +590,22 @@ REPLIED_NOTE = (f"（{PROMPTED}は、お客様に尋ねられたことへの答�
                 f"気になる点・ご事情などのお話をしたときは、お返事だけではありません）")
 
 
+# 質問のあとにこちらが言った一言が「もしもし？」（伺ったあと黙られて、こちらの声が届いているかを確かめた一言＝flowctl.QUIET_STEPS の "asked" の1つ目）のときの
+# 読み方。その一言へのお返事（「はい」「もしもし」「聞こえてます」）は聞こえているということ＝質問への「はい」と決めつけない（11-13 20時06分19秒「「あ、はい、
+# 分かりました。」は…一言に対して答えてる可能性があるので、気をつけないといけないよ。」と同じ理由）。上の PROMPTED_NOTE の例（「大丈夫です」＝気になる点は無い）は、
+# 声が届いているかを確かめた一言には当たらない。お返事だけかを読む項目は同じ（PROMPT_REPLY）。✅ 2026-11-19 日本時間15時10分27秒 ユーザー「伺い49：エ」
+HEARD_NOTE = (f"（{PROMPTED}は、お客様が黙っていたので、こちらの声が届いているかを確かめた言葉です。お客様の言葉が、その声かけへのお返事だけ（「はい」「もしもし」"
+              f"「聞こえてます」など＝聞こえているということ）で、質問への答えをはっきり言っていなければ「{UNDECIDED}」を選び、"
+              f"{PROMPT_REPLY_HEADING}（{PROMPT_REPLY}）は「{PROMPT_REPLY_YES}」を選びます。質問への答えをはっきり言っていれば、その答えを選びます。"
+              f"気になる点・ご事情などのお話をしたときは、声かけへのお返事だけではありません）")
+
+
 def prompted_note(line: str) -> str:
     """質問のあとにこちらが言った一言（Question.prompted）の読み方の注意書きを選ぶ唯一の場所（prompt_parts）：黙ったあとの一言（flowctl.QUIET_LINES）なら声かけの
-    読み方（PROMPTED_NOTE）、ほかは尋ねられた答え・受け答えの読み方（REPLIED_NOTE）。"""
-    from flowctl import QUIET_LINES
-    return PROMPTED_NOTE if line in QUIET_LINES else REPLIED_NOTE
+    読み方（声が届いているかを確かめた「もしもし？」＝flowctl.hearing_check の1か所なら HEARD_NOTE・ほかは PROMPTED_NOTE）、ほかは尋ねられた答え・受け答えの
+    読み方（REPLIED_NOTE）。"""
+    from flowctl import QUIET_LINES, hearing_check
+    return HEARD_NOTE if hearing_check(line) else PROMPTED_NOTE if line in QUIET_LINES else REPLIED_NOTE
 
 
 def scene(q, text: str, asked: str | None = None, before: str | None = None) -> dict:
