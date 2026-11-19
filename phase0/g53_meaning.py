@@ -866,8 +866,10 @@ def _quiet(f: Flow) -> None:
 
 
 def prompted_row(it: dict) -> bool:
-    """黙ったあとの一言へのお返事の行か（唯一の見分け）：記録の印（prompted）か、正解に「声かけへのお返事だけか」（PROMPT_REPLY）がある行。"""
-    return bool(it.get("prompted")) or PROMPT_REPLY in (it.get("label") or {})   # 正解の欄は行の label（試しの言葉の表の行）
+    """黙ったあとの一言へのお返事の行か（唯一の見分け）：記録の印（prompted）か、正解に「声かけへのお返事だけか」（PROMPT_REPLY）がある行。場面の印（scene）のある行は、
+    印の場面で組む（黙ったあとの一言の場面ではない＝待っていただく一言のあとの行も PROMPT_REPLY を持つ。⛔ 分身 S（rv176/S）まで、印のある行もここで黙ったあとの一言の
+    行と見て、「もしもし？」のあとの場面に組んでいた＝試験 RereadRowsTest）"""
+    return not it.get("scene") and (bool(it.get("prompted")) or PROMPT_REPLY in (it.get("label") or {}))   # 正解の欄は行の label（試しの言葉の表の行）
 
 
 def _final_scene(q: Question, asked: str | None) -> Flow:
@@ -896,6 +898,11 @@ def flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
 def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
     from flowctl import CALLBACK_IDS, in_aside_form, in_alternatives_form
     from g73_system_words import wish_scenes
+    if it.get("scene") and it["scene"] not in CONNECTED_SCENES:
+        # 場面の印の場面を本番の流れの制御で組む作りがまだ無い行（試しの言葉の表の review_words.UNBUILT_SCENES＝日時の2択の段・番号違いを伺う一言のあと・待っていただく一言の
+        # あと・顧客獲得型の悩みの伺いと本心を伺う一言）：ほかの組み立ての枝（黙ったあとの一言の場面・言い直しの場面など）に落とさず、理由つきで組めないと出す＝送らない・数えない
+        # （分身 S＝まとめ役 CL-1 の頼み rv176/S の (b)(e)(f)。組む作りを足すまで）
+        raise NoScene(f"場面の印の場面を組む作りがまだ無い（{it['scene']}）")
     s = it.get("set")
     if s in ("N1", "N2", "N3"):
         role = {v: k for k, v in CALLBACK_IDS.items()}[s]

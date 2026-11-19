@@ -38357,10 +38357,12 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
         # 見直し (12) の形の質問：その後の形（R3・R4）・「ところで」の形（R5）・選択肢を並べた形（R6）・ご承認のお知らせ（R7）を、本番の流れの制御がその形で
         # 伺う所まで組む（判定に見せる質問は、お客様が聞いた文）。聞き取れなかったお知らせの締めの前の確かめ（R7 の1行）だけは、まだ組めない（理由つき）
         import g53_meaning
-        from review_words import answer_words, questions
+        from review_words import UNBUILT_SCENES, answer_words, questions
         qs = questions()
         missing = []
         for it in answer_words():
+            if it.get("scene") in UNBUILT_SCENES:
+                continue   # 組む作りがまだ無い場面の印の行（分身 S の読み直し待ちの行）は RereadRowsTest が「場面を組めない」と出すことを確かめる
             try:
                 shown, asked, before = g53_meaning.judge_inputs(it, qs[it["qid"]])
             except g53_meaning.NoScene as e:
@@ -40425,6 +40427,83 @@ class WrongNumberAnswerStageTest(unittest.TestCase):
             for key, got in label.items():
                 self.assertTrue(got <= set(facets[key].choices), (text, key, got))
             self.assertTrue(why)
+
+
+class RereadRowsTest(unittest.TestCase):
+    """分身 S（まとめ役 CL-1 の頼み rv176/S）：判定に送る文が 2026-11-20 日本時間4時台〜6時台に変わった所の試しの言葉（review_words.REREAD_ROWS・CALLING_WORDS の印 REREAD）。
+    (1) 場面の印の場面（日時の2択の段・番号違いを伺う一言のあと・待っていただく一言のあと・顧客獲得型の悩みの伺いと本心を伺う一言＝review_words.UNBUILT_SCENES）は、測りの数えで
+        組む作りがまだ無い＝数えの1か所（g53_meaning.step_act・step_wants・flow_miss）も送る所（judge_inputs）も「場面を組めない」と出す（ほかの組み立ての枝＝黙ったあとの一言の
+        場面などに落として、違う場面で送る・数えることをしない）。⛔ 直す前は、待っていただく一言のあとの行（正解に「声かけへのお返事だけか」がある）を、黙ったあとの一言
+        （「もしもし？」など）のあとの場面に組み、判定に違う一言を見せて数えていた
+    (2) 読み直し待ちの印と数
+    (3) 選ぶ質問の言い直しへの「違う」（meaning_judge.CHOICE_DENIED＝中の名前 corrected。分身 M の伺い70 の (1)）は、数えの1か所で、もう一方・決められないと違う動き"""
+
+    def test_1_unbuilt_scenes_are_reported_by_the_one_count(self):
+        import g53_meaning as g
+        from review_words import REREAD_ROWS, UNBUILT_SCENES, answer_words, questions
+        qs = questions()
+        rows = [it for it in answer_words() if it.get("scene") in UNBUILT_SCENES]
+        self.assertEqual({it["scene"] for it in rows}, set(UNBUILT_SCENES))
+        self.assertEqual(rows, [it for it in REREAD_ROWS if it.get("scene") in UNBUILT_SCENES])
+        for it in rows:
+            with self.subTest(text=it["text"], scene=it["scene"]):
+                q = qs[it["qid"]]
+                self.assertFalse(g.prompted_row(it))   # 場面の印のある行は、印の場面（黙ったあとの一言の場面ではない）
+                with self.assertRaises(g.NoScene) as e:
+                    g.judge_inputs(it, q)
+                self.assertIn("場面の印の場面を組む作りがまだ無い", str(e.exception))
+                self.assertIn(it["scene"], str(e.exception))
+                self.assertEqual(g.step_wants(it, q, False), {g.SCENE_MISSING + str(e.exception)})
+                self.assertEqual(g.flow_miss({**it, "j": it["label"]["accept"][0], "j言い切り": True}, q, "j"), "場面を組めない（数えない）")
+
+    def test_2_reread_rows_are_marked_and_counted(self):
+        import review_words as rw
+        from flowctl import ABOUT, ABOUT_NO_SUCH
+        self.assertTrue(rw.REREAD_ROWS)
+        self.assertTrue(all(it["reread"] == rw.REREAD for it in rw.REREAD_ROWS))
+        self.assertTrue(all(it in rw.answer_words() for it in rw.REREAD_ROWS))
+        c = rw.counts()
+        self.assertEqual(c["G-53（読み直し待ち）"], len(rw.REREAD_ROWS))
+        self.assertEqual(c["G-53（場面を組む作りがまだ無い）"], len(rw.REREAD_ROWS))
+        pending = [(text, scene, label) for text, scene, label, why in rw.CALLING_WORDS if why.startswith(rw.REREAD)]
+        self.assertEqual(c["G-59（正解の表へ足す案・読み直し待ち）"], len(pending))
+        # 「そういう方はいない」は会社・お店の電話のはじめの場面だけの選べるもの（ご本人の電話の行には付けない）
+        for text, scene, label in pending:
+            if ABOUT_NO_SUCH in label[ABOUT]:
+                self.assertFalse(scene["own_phone"], text)
+
+    def test_3_choice_denied_is_its_own_move(self):
+        import json
+        from pathlib import Path
+        import g53_meaning as g
+        from meaning_judge import Reading
+        labels = json.loads((Path(g.__file__).parent / "g53_labels.json").read_text(encoding="utf-8"))["labels"]
+        q = g.question_map()["G16"]
+        asked = "念のためお支払いはカードでよろしいでしょうか？"
+        it = {"set": "D", "qid": "G16", "text": "違います。", "asked": asked, "asked_choice": "カード"}
+        self.assertEqual(labels[f"D|G16|違います。|{asked}"]["accept"], ["振込", "corrected"])
+        acts = {c: g.act_of(it, q, Reading(c, True)) for c in ("corrected", "カード", "振込", g.UNDECIDED)}
+        self.assertFalse(acts["corrected"].startswith(g.SCENE_MISSING), acts)
+        self.assertEqual(len(set(acts.values())), len(acts), acts)   # 「違う」はほかの読みと違う動き＝数えで外れを見分けられる
+        self.assertEqual(g.step_wants(it, q, False), {acts["corrected"], acts["振込"]})   # 2択の打ち消し＝もう一方と「違う」の境目（どちらも正解）
+        self.assertIsNone(g.flow_miss({**it, "j": "corrected", "j言い切り": True}, q, "j"))
+        self.assertIsNotNone(g.flow_miss({**it, "j": g.UNDECIDED, "j言い切り": True}, q, "j"))
+
+    def test_4_calling_count_keeps_the_full_name_mark(self):
+        # お呼びする段の「そういう方はいない」（ABOUT_NO_SUCH＝分身 M の伺い69 エ）：フルネームのある業務（行の印 full）なら部署・フルネームでお呼びし直し、在籍していない
+        # （後任の方を伺う）と違う動き。フルネームの無い業務ではお呼びし直せない＝同じ動き（数えの1か所 g59_flow_check.calling_acts＝本番の流れの制御）。⛔ 分身 S（rv176/S）
+        # まで、数えの覚えの鍵に印 full が無く、同じ言葉の印の無い行の動きを、フルネームのある行にも使っていた（先に数えたほうの動き）
+        import g59_flow_check as fc
+        from flowctl import ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH
+        base = {"speaker": "前と同じ方", "who": "受付・取次ぎの方", "phone": "何もない"}
+        row = {"text": "そういう者はおりませんが。", "before": None, "asked": False, "successor": False}
+        fc._ACTS.clear()
+        for full, differ in ((False, False), (True, True)):
+            r = {**row, "full": full}
+            no_such, departed = (fc.calling_acts(r, {**base, ABOUT: a}) for a in (ABOUT_NO_SUCH, ABOUT_DEPARTED))
+            self.assertEqual(no_such != departed, differ, full)
+            if full:
+                self.assertIn("おかだたろう", no_such[0][0])   # 部署・フルネームの呼ぶ一言（target_full）
 
 
 class HolesAGTest(unittest.TestCase):
