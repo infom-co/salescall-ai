@@ -38005,3 +38005,88 @@ class CallingSilentWaitLimitTest(unittest.TestCase):
         f.on_callee(); f.on_heard("えーと")
         self.assertIsNone(f.on_hold_timeout())
         self.assertFalse(r.get("hold_wait_kept"))
+
+
+class MeasureInputsFromFlowTest(unittest.TestCase):
+    """分身 Y（帳面 1 の (13) の D7・F1 の残り）：答えの段の測り（G-53）が判定に送る問い合わせを、記録の言い直しの文・前の言葉ではなく、行の場面の本番の
+    流れの制御が判定に渡すもの（Flow.judge_context＝g53_meaning.judge_inputs の1か所）から作る。黙ったあとの一言へのお返事の行・見直し (12) の形の質問（R3〜R7）も
+    同じ1か所で場面を組む。⛔ f72d31c4 まで、組 D の言い直しの文は記録の文（1,356行中686行が今の本番と違った）・R3〜R7 と黙ったあとの一言の行は場面を組めなかった"""
+
+    def test_a_restatement_row_is_sent_with_the_production_restatement(self):
+        import g53_meaning
+        from flowctl import Flow
+        qmap = g53_meaning.question_map()
+        old = "念のため駐車場はご利用になるということでよろしいでしょうか？"   # 記録の言い直しの文（今の本番の文ではない）
+        it = next(it for it in self.d_rows() if it["asked"] == old)
+        q = qmap[it["qid"]]
+        shown, asked, before = g53_meaning.judge_inputs(it, q)
+        choice = g53_meaning.asked_choice(it, q)
+        f, said = g53_meaning.restated(q, choice)
+        self.assertEqual(said["result"], "confirm_required")
+        self.assertEqual(asked, Flow._judge_text(f, f.awaiting_say))   # 本番の言い直しの1か所（Flow._ask_confirm）の文
+        self.assertNotEqual(asked, old)
+        self.assertEqual(g53_meaning.sent_inputs(it, {q.id: q}, it["text"]), (shown, it["text"], asked, before))
+
+    def test_rows_without_a_production_scene_are_not_sent(self):
+        import g53_meaning
+        from types import SimpleNamespace
+        qmap = g53_meaning.question_map()
+        rows = [it for it in self.d_rows() if it["qid"] in qmap]
+        bad = None
+        for it in rows:
+            try:
+                g53_meaning.judge_inputs(it, qmap[it["qid"]])
+            except g53_meaning.NoScene as e:
+                bad = (it, str(e))
+                break
+        self.assertIsNotNone(bad)
+        args = SimpleNamespace(sets=None, after=None)
+        self.assertFalse(g53_meaning.in_scope(args, bad[0], qmap), bad[1])
+        self.assertEqual(g53_meaning.prior_todo(args, [bad[0]], qmap), [])
+        # 送る所はどこも sent_inputs（judge_inputs の1か所）を通る（記録の言い直し・前の言葉を直に渡さない）
+        import inspect
+        for fn in (g53_meaning.run_judges, g53_meaning.run_group, g53_meaning.prior_todo, g53_meaning.read_priors):
+            src = inspect.getsource(fn)
+            self.assertNotIn('it.get("asked")', src, fn.__name__)
+            self.assertNotIn('it["before"]', src, fn.__name__)
+
+    @staticmethod
+    def d_rows():
+        import glob
+        import json
+        from common import HERE
+        path = sorted(glob.glob(str(HERE / "results" / "G-53d1base_*.json")))[-1]
+        return [it for it in json.loads(open(path, encoding="utf-8").read())["items"] if it["set"] == "D"]
+
+    def test_prompted_rows_are_composed_after_the_silence_line(self):
+        import g53_meaning
+        from phrases import QUIET_LINES
+        from review_words import answer_words, questions
+        qs = questions()
+        rows = [it for it in answer_words() if g53_meaning.prompted_row(it)]
+        self.assertEqual(len(rows), 2)
+        for it in rows:
+            shown, asked, before = g53_meaning.judge_inputs(it, qs[it["qid"]])
+            self.assertIn(shown.prompted, QUIET_LINES, it["text"])   # 判定は、お客様の言葉が黙ったあとの一言へのお返事かを分かって読む
+            f, qid, rep, _ = g53_meaning.flow_reply(it, qs[it["qid"]], None)
+            self.assertEqual(qid, "R7")
+
+    def test_the_review_forms_are_composed_by_the_flow(self):
+        # 見直し (12) の形の質問：その後の形（R3・R4）・「ところで」の形（R5）・選択肢を並べた形（R6）・ご承認のお知らせ（R7）を、本番の流れの制御がその形で
+        # 伺う所まで組む（判定に見せる質問は、お客様が聞いた文）。聞き取れなかったお知らせの締めの前の確かめ（R7 の1行）だけは、まだ組めない（理由つき）
+        import g53_meaning
+        from review_words import answer_words, questions
+        qs = questions()
+        missing = []
+        for it in answer_words():
+            try:
+                shown, asked, before = g53_meaning.judge_inputs(it, qs[it["qid"]])
+            except g53_meaning.NoScene as e:
+                missing.append((it["qid"], str(e)))
+                continue
+            want = qs[it["qid"]].announce or qs[it["qid"]].text
+            self.assertEqual(shown.text, want, it)
+            if it.get("asked"):
+                self.assertEqual(asked, it["asked"], it)   # 最終の確かめは、正解の表の行と同じ本番の1か所（accepted_line）の文
+        self.assertEqual([m[0] for m in missing], ["R7"], missing)
+        self.assertIn("聞き取れなかった", missing[0][1])
