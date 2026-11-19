@@ -195,6 +195,15 @@ HOW["yes_received"] = ("電話で、お客様のお断りやお忙しさを、�
                        "なめらかに、ひと続きで")
 MAX_S["yes_received"] = 9.0
 HOW_OF.update({f"yes_received_{k}": "yes_received" for k in YES_RECEIVE} | {"yes_brief": "yes_received"})
+# 顧客獲得型の本題の段（分身 K2）：特別感・事例・「聞かせてください」の一続き・9-9 の (7) の文は、お客様のことを思って誠実に語りかける読み方（「聞かせてください」の
+# お名前の入らない所＝約150字＝見込み 25秒が入る上限）。「あっ、でしたよね、」はお返事を受けて、ちょうど良かったと喜ぶ読み方。本題のお断りの受け「そうですよね。」は Yes の質問の段の
+# 受け止めと同じ読み方。お名前の分からない方への悩みの伺いは質問の読み方
+HOW["acquire_talk"] = ("電話で、お客様のことを思って、落ち着いた温かい声で、誠実に、自信を持って丁寧に語りかけるように。言葉の途中で区切らずに、なめらかに、ひと続きで")
+MAX_S["acquire_talk"] = 27.0
+HOW["acquire_glad"] = "電話で、お客様のお返事を受けて、ちょうど良かったと心から喜ぶように、親しみを込めて、自然に"
+MAX_S["acquire_glad"] = 2.0
+HOW_OF.update({"acquire_glad_lead": "acquire_glad", "but_lead": "yes_received", "pain_ask_company": "question",
+               **{k: "acquire_talk" for k in ("case_lead", "listen_sure", "but_safe", "listen_why_company", "listen_reason_company", "listen_ask_company")}})
 
 
 def question_how(text: str) -> str:
@@ -243,6 +252,12 @@ MAX_S["brief_left"] = 12.0
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})
 HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
+# お名前の前の言葉（phrases.NAME_HEAD_IDS＝「恐れ入りますが」。名前の録音の前に流す共通の一言＝flowctl.name_plays）：お願い・お尋ねの前に添える言葉として、言い切らずに
+# 後ろの名前の録音へ続く調子で（つなぎの言葉の録音と同じく短い）。分身 L（CL-2 の連絡帳 4-443）
+from phrases import NAME_HEAD_IDS  # noqa: E402
+HOW["name_head"] = "電話で、お願いやお尋ねの前に添える言葉として、丁寧に、柔らかく、短く。言い切らずに、すぐ後ろに言葉が続く調子で"
+MAX_S["name_head"] = 1.4
+HOW_OF.update({rid: "name_head" for rid in NAME_HEAD_IDS.values()})
 HOW_OF["callback_authority"] = "authority"
 # 待つか、かけ直すかを1回伺う一言（phrases.CALLBACK_ASK["wait_or_later"]・約59字）：判断いただけるお立場かの一言と同じ「2つから選んでいただく問い」の形なので、
 # 同じ読み方と長さの上限（✅ 2026-11-05 日本時間23時56分48秒 ユーザー「(ア)」）
@@ -481,6 +496,11 @@ def script_table(business) -> tuple[dict, dict]:
     # 一言は共通の一言（phrases.RECORDED の yes_received_・yes_brief）、2回目の受け止めのお名前は名前の録音の台帳（yes_received）
     from flowctl import yes_forms
     items += [(rid, text, question_how(text)) for rid, text in yes_forms(getattr(business, "yes_asks", ()))]
+    # 顧客獲得型の本題の段の、業務設定の中身が入る文（特別感の条件・悩み・事例・お時間＝依頼者の単位の録音。flowctl.main_forms の1か所＝分身 K2）。問いではない＝語りかける
+    # 読み方（acquire_talk）。お名前の入る文は名前の録音の台帳（phrases.NAME_FORMS）、決まった文・お名前の分からない方への形は共通の一言（phrases.RECORDED）
+    from flowctl import main_forms
+    items += [(rid, text, "acquire_talk") for rid, text in main_forms(getattr(business, "special", ""), getattr(business, "pains", ()),
+                                                                       getattr(business, "meeting_time", ""))]
     table, readings = {}, {}
     for base, text, how in items:
         variants = reading_variants(text, business.names)
