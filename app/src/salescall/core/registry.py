@@ -16,16 +16,35 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import business_settings, health, phone
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Rejected, Tx
 
 CALLER_KINDS = ("mobile", "fixed")   # 発信番号にしてよい番号の種類（Rakuten Link は携帯の番号。固定の回線を足すときも、ここ）
+
+
+class NameTaken(Refused):
+    """同じ名前の依頼者（同じ契約者の中）・業務（同じ依頼者の中）が、もうある（何も書いていない。CL-3 の 44。0248）。"""
+
+
+# 名前が同じかを守るデータベースの一意の約束（0248。比べるのは表記をそろえた形＝salescall.compare_form）→ 断りの文（言い換えはここだけ）
+_SAME_NAME = {"clients_same_name": "同じ名前の依頼者が、もうあります（全角と半角・空白の違いは同じ名前です）。別の名前にしてください",
+              "businesses_same_name": "この依頼者に、同じ名前の業務が、もうあります（全角と半角・空白の違いは同じ名前です）。別の名前にしてください"}
 
 
 def _name(name: str) -> str:
     n = name.strip()
     if not n:
-        raise ValueError("名前が空です")
+        raise Refused("名前が空です")
     return n
+
+
+def _named(tx: Tx, sql: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
+    """名前を書く1か所（依頼者・業務を作る・名前を変える）。同じ名前があれば、データベースの断りを `NameTaken` にする。"""
+    try:
+        return tx.one(sql, params)
+    except Rejected as e:
+        if e.constraint in _SAME_NAME:
+            raise NameTaken(_SAME_NAME[e.constraint]) from e
+        raise
 
 
 def _one(row: dict[str, Any] | None, what: str, key: UUID) -> dict[str, Any]:
@@ -35,14 +54,20 @@ def _one(row: dict[str, Any] | None, what: str, key: UUID) -> dict[str, Any]:
 
 
 # ═════════ 依頼者（契約者の取引で） ═════════
+def tenants(tx: Tx) -> list[dict[str, Any]]:
+    """すべての契約者の一覧（[{tenant_id, name}]。作った順）。読めるのは、全体の取引の管理者だけ（データベースの salescall.admin_tenants の1か所＝
+    ほかは断る。✅ 2026-11-18 管理者「管理者は全てを見れて操作できる」。CL-3 の 9＝管理者が画面で契約者を選ぶ。0247）。"""
+    return tx.all("SELECT tenant_id, name FROM salescall.admin_tenants()")
+
+
 def create_client(tx: Tx, name: str) -> UUID:
     """取引の契約者に、依頼者を作る。"""
-    return tx.one("INSERT INTO salescall.clients (tenant_id, name) VALUES (salescall.cur_tenant(), %s) RETURNING client_id",
+    return _named(tx, "INSERT INTO salescall.clients (tenant_id, name) VALUES (salescall.cur_tenant(), %s) RETURNING client_id",
                   (_name(name),))["client_id"]
 
 
 def rename_client(tx: Tx, client_id: UUID, name: str) -> None:
-    _one(tx.one("UPDATE salescall.clients SET name = %s WHERE client_id = %s RETURNING client_id", (_name(name), client_id)),
+    _one(_named(tx, "UPDATE salescall.clients SET name = %s WHERE client_id = %s RETURNING client_id", (_name(name), client_id)),
          "依頼者", client_id)
 
 
@@ -61,12 +86,12 @@ def set_client_active(tx: Tx, active: bool, *, reason: str) -> None:
 # ═════════ 業務・実施回（依頼者の取引で） ═════════
 def create_business(tx: Tx, name: str) -> UUID:
     """取引の依頼者に、業務を作る（版は、業務設定を置いて作る＝business_settings.save_version・取込）。"""
-    return tx.one("INSERT INTO salescall.businesses (tenant_id, client_id, name)"
+    return _named(tx, "INSERT INTO salescall.businesses (tenant_id, client_id, name)"
                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s) RETURNING business_id", (_name(name),))["business_id"]
 
 
 def rename_business(tx: Tx, business_id: UUID, name: str) -> None:
-    _one(tx.one("UPDATE salescall.businesses SET name = %s WHERE business_id = %s RETURNING business_id",
+    _one(_named(tx, "UPDATE salescall.businesses SET name = %s WHERE business_id = %s RETURNING business_id",
                 (_name(name), business_id)), "業務", business_id)
 
 

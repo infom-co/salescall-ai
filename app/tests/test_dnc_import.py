@@ -116,7 +116,7 @@ class ClientList(Base):
         a, b = fictional_jp_fixed(), fictional_jp_fixed()
         sheet = read("発信禁止.csv", dnc_csv([("", "架空商事", a), ("", "架空工業", b)]))
         plan = self.client_tx(lambda tx: dnc_import.preview(tx, sheet, LIST))
-        self.client_tx(lambda tx: dnc.register(tx, a, "manual"))          # プレビューのあとで台帳が変わった
+        self.client_tx(lambda tx: dnc.register(tx, a, "manual", note="試験：手で入れた"))          # プレビューのあとで台帳が変わった
         with self.assertRaises(dnc_import.PlanChanged):
             self.client_tx(lambda tx: dnc_import.register(tx, sheet, LIST, expected_digest=plan.digest))
         self.assertIsNone(self.blocked(b))                                 # 何も書いていない

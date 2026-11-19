@@ -39,7 +39,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import business_rules, business_settings, readings
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Tx
 from salescall.core.import_files import FileRejected, Sheet, read
 
 # ── 標準のひな形（正本はここ）。役目 → (シートの名前, 列の役目 → 見出し, 必ず要るシートか)
@@ -1343,8 +1343,11 @@ def preview_shaped(tx: Tx, business_id: UUID, raw: Any, *, problems: list[str] |
     （`register_shaped`）にそのまま渡す。方法を申し出の中身に入れる言い方（並べるのは会話の側＝way_pairs）・その後の文の中身（かけ直しうる必須の質問は分岐の
     置き換えのあとで決まる）・言い換えた質問（並べるのは会話の側＝reword_items）・選択肢を並べた文（並べるのは会話の側＝alternatives_items）は、確かめに通った
     中身から1回だけ聞き（`_decided_later`）、決まれば AI の答えに入れて確かめ直す（登録も同じ AI の答えから同じ中身になる）。"""
-    raw, kept, _ = _kept(tx, business_id, raw)
+    from salescall.core import client_solutions   # 解決策の部品が取込を読むので、ここで読む（読み合いにしない）
+    raw, kept, overridden = _kept(tx, business_id, raw)
     ai = ask_ai(raw, **deciders) if isinstance(raw, dict) else {}
+    if isinstance(raw, dict):   # 解決策を置き換えた答えの文の名前も、AI に聞けるいま1回だけ決める（登録が残す。0246）
+        ai["solution_texts"] = client_solutions.replacing_names(tx, business_id, raw, overridden, deciders.get("find_names"))
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     if later := _decided_later(p, decide_way_words=decide_way_words, way_pairs=way_pairs, decide_since=decide_since,
                                decide_rewords=decide_rewords, reword_items=reword_items,
@@ -1374,7 +1377,7 @@ def register_shaped(tx: Tx, business_id: UUID, raw: Any, *, expected_digest: str
     raw, _, overridden = _kept(tx, business_id, raw)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     version = register_reviewed(tx, business_id, p, expected_digest=expected_digest)
-    client_solutions.replaced(tx, overridden, version)
+    client_solutions.replaced(tx, overridden, version, (ai or {}).get("solution_texts") or {})
     return version
 
 
@@ -1414,7 +1417,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
     return p
 
 
-class PreviewChanged(Exception):
+class PreviewChanged(Refused):
     """プレビューのあとで、ファイル・対応付け・名前の確かめが変わった（もう一度プレビューを確かめる）。"""
 
 

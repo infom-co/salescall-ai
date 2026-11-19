@@ -56,6 +56,12 @@ class Actor:
             raise ValueError(f"誰が、の種類は {ACTOR_KINDS} のどれかです：{self.kind!r}")
 
 
+class Refused(ValueError):
+    """理由の文つきの断り（何も書いていない。文は、そのまま管理者・契約者に見せてよい日本語）。core の部品が、人に見せる理由で断るときの例外の
+    共通の元（1か所。画面は、これ1つを受けて文を出す＝CL-3 の連絡帳 4-1b の 21。⛔ 前は部品ごとに別の例外で、画面が一覧を持ち、足し忘れると
+    画面が「誤り」で止まった）。データベースの断りは `Rejected`（別。言い換えは画面の1か所）。"""
+
+
 class Rejected(Exception):
     """データベースが書き込みを拒んだ（約束に反する・読める範囲の外・変えてはいけない記録）。"""
 
@@ -248,24 +254,27 @@ class Access:
         self._max_attempts = max_attempts
 
     def in_client(self, actor: Actor, tenant_id: UUID, client_id: UUID, work: Callable[[Tx], T], *,
-                  read_only: bool = False) -> T:
+                  read_only: bool = False, time_limit: float | None = None) -> T:
         """1つの依頼者のデータを読み書きする取引。依頼者のデータは、すべてこれで扱う（Q14）。
-        read_only＝書かない取引（ある時点の見え方を固定して読むだけ。長く読んでも、ほかの取引をやり直させない。控えの書き出しが使う）。"""
+        read_only＝書かない取引（ある時点の見え方を固定して読むだけ。長く読んでも、ほかの取引をやり直させない。控えの書き出し・画面の読むだけの取引）。
+        time_limit＝読み書き1つずつの長さの上限（秒。`in_tenant` と同じ＝`_run` の1か所が付ける。画面の取引が長く止まらないように。CL-3 の 32）。"""
         if tenant_id is None or client_id is None:
             raise ValueError("契約者IDと依頼者IDは必ず要ります")
-        return self._run(actor, tenant_id, client_id, work, read_only=read_only)
+        return self._run(actor, tenant_id, client_id, work, read_only=read_only, time_limit=time_limit)
 
-    def in_tenant(self, actor: Actor, tenant_id: UUID, work: Callable[[Tx], T], *, time_limit: float | None = None) -> T:
+    def in_tenant(self, actor: Actor, tenant_id: UUID, work: Callable[[Tx], T], *, read_only: bool = False,
+                  time_limit: float | None = None) -> T:
         """契約者のデータ（依頼者の一覧・回線・停止）を扱う取引。依頼者のデータの表は、どの行も見えない。
-        time_limit＝この取引の読み書き1つずつの長さの上限（秒。`_run` の1か所が、取引のいちばん初めに付ける）。超えたら `TimedOut`。"""
+        read_only＝書かない取引（`in_client` と同じ）。time_limit＝この取引の読み書き1つずつの長さの上限（秒。`_run` の1か所が、取引のいちばん
+        初めに付ける）。超えたら `TimedOut`。どちらも、どの取引の入口でも同じ決まり（CL-3 の 32）。"""
         if tenant_id is None:
             raise ValueError("契約者IDは必ず要ります")
-        return self._run(actor, tenant_id, None, work, time_limit=time_limit)
+        return self._run(actor, tenant_id, None, work, read_only=read_only, time_limit=time_limit)
 
-    def in_system(self, actor: Actor, work: Callable[[Tx], T]) -> T:
+    def in_system(self, actor: Actor, work: Callable[[Tx], T], *, read_only: bool = False, time_limit: float | None = None) -> T:
         """システム共通の表（全体の停止・祝日の暦・管理者あての知らせ）だけを扱う取引。契約者・依頼者の行は見えない。
-        （発信禁止の共通の台帳は、2026-10-16 から契約者ごと＝契約者の取引で扱う。0032）"""
-        return self._run(actor, None, None, work)
+        （発信禁止の共通の台帳は、2026-10-16 から契約者ごと＝契約者の取引で扱う。0032）。read_only・time_limit は `in_client` と同じ決まり。"""
+        return self._run(actor, None, None, work, read_only=read_only, time_limit=time_limit)
 
     @contextmanager
     def exclusive(self, key: str) -> Iterator[bool]:

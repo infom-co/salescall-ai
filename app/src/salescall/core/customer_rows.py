@@ -16,10 +16,14 @@ from salescall.core import customer_contacts, next_action
 from salescall.core.access import Tx
 
 
-def progress(tx: Tx, run_id: UUID) -> list[dict[str, Any]]:
+def progress(tx: Tx, run_id: UUID, *, task_id: UUID | None = None) -> list[dict[str, Any]]:
     """その実施回の行ごとの進み具合（一覧の行番号の順）：行・管理番号・会社名・お呼びする方（名前・役職・部署）・かける番号・業務の状態・
     次の予定（かける／判定待ち／終える・時刻・理由）・「かけない」の印・かけた回数・最後の電話（状態・時刻）・連絡先と番号・
-    「さらにかける」の承認ボタンを出すか（more_calls。押すのは core/approval.more_calls。0245）。"""
+    「さらにかける」の承認ボタンを出すか（more_calls。押すのは core/approval.more_calls。0245）。
+    task_id＝その行だけ（同じ1つの問い合わせで1行に絞る。お客様の行の画面＝CL-3 の 30・47。その実施回に無い行なら空）。
+    かける番号の無い行は無い（一覧から消える行は無い。CL-3 の 30 の問い）：かける番号＝salescall.task_dial_contact は、番号を直していれば直した
+    番号、無ければ行の番号。行の番号は、行を作った取引でデータベースが番号の表に書き（task_after_insert）、番号の直しは番号の表の行しか指せず
+    （task_dial_fixes の参照）、番号の表は変えられない（task_numbers_frozen）。"""
     rows = tx.all(
         "SELECT t.task_id, t.source_row, t.client_ref, t.source_name, t.target_name, t.target_role, t.target_department,"
         "       k.phone_e164 AS dial_phone, coalesce(r.business_state::text, 'open') AS business_state,"
@@ -33,7 +37,7 @@ def progress(tx: Tx, run_id: UUID) -> list[dict[str, Any]]:
         " LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id"
         " LEFT JOIN LATERAL (SELECT a.state, a.claimed_at FROM salescall.attempts a WHERE a.task_id = t.task_id AND a.state <> 'released'"
         "                    ORDER BY a.claimed_at DESC LIMIT 1) l ON true"
-        " WHERE t.run_id = %s ORDER BY t.source_row NULLS LAST, t.task_id", (run_id,))
+        " WHERE t.run_id = %s AND (%s::uuid IS NULL OR t.task_id = %s) ORDER BY t.source_row NULLS LAST, t.task_id", (run_id, task_id, task_id))
     # 「さらにかける」の承認ボタンを出すか（決めるのは next_action.more_calls_offered の1か所。終えた行だけを聞く）
     return [{**dict(r), "contacts": customer_contacts.now(tx, r["task_id"]),
              "more_calls": r["next_kind"] == "end" and r["next_end_reason"] in next_action.MORE_CALL_ENDS

@@ -20,14 +20,14 @@ from typing import Literal
 from uuid import UUID
 
 from salescall.core import call_report
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Tx
 
 Outcome = Literal["target", "not_target", "cannot_check"]
 OUTCOMES = ("target", "not_target", "cannot_check")
 UNCONFIRMED = tuple(o for o in OUTCOMES if o != "target")   # 目的のお客様だと確かめられなかった（target 以外。決めるのはデータベースの salescall.call_unconfirmed の1か所＝0234）
 
 
-class RecheckInvalid(Exception):
+class RecheckInvalid(Refused):
     """記録できない確かめ直し（理由は日本語）。"""
 
 

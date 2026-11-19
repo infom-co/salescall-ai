@@ -386,7 +386,7 @@ class Decided(DecidedBase):
             self.w.a.in_tenant(OPERATOR, a["tenant"], lambda tx: settings.set_value(
                 tx, "line.test_number", a["phone"], scope="tenant", tenant_id=a["tenant"], status="decided", rationale="試験", review_when="試験"))
         own = self.numbered(a)
-        self.w.a.in_client(OPERATOR, a["tenant"], a["client"], lambda tx: dnc.register(tx, own, "manual"))   # そのあと発信禁止に入った
+        self.w.a.in_client(OPERATOR, a["tenant"], a["client"], lambda tx: dnc.register(tx, own, "manual", note="試験：手で入れた"))   # そのあと発信禁止に入った
         d = FakeDriver(ring=True)
         self.round_(a, d)
         self.assertEqual(d.rings, [])                                           # 鳴らさない

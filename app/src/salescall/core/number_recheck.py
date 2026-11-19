@@ -17,14 +17,14 @@ from typing import Any, Literal
 from uuid import UUID
 
 from salescall.core import call_report
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Tx
 from salescall.core.phone import normalize
 
 Outcome = Literal["misheard", "as_said", "cannot_check"]
 OUTCOMES = ("misheard", "as_said", "cannot_check")
 
 
-class RecheckInvalid(Exception):
+class RecheckInvalid(Refused):
     """記録できない番号の確かめ（理由は日本語）。"""
 
 
