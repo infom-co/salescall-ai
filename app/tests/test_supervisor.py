@@ -1061,7 +1061,7 @@ class Rounds(SupervisorBase):
                 return self.is_set()
         stop = Stop()
 
-        def one(*args):
+        def one(*args, **kw):   # 回線の流れが渡す前の回の誤り（fell）も受ける
             rounds.append(1)
             return line.Round(pause="line_in_call")
         with mock.patch.object(line, "one_round", one), mock.patch.object(line, "STUCK_AFTER", 0.0):
@@ -2950,6 +2950,22 @@ class Review26c(SupervisorBase):
         self.assertIsNotNone(got.called, got)                                # 次の行へかけた
         self.assertEqual(self.state(s, first.called), "technical_error")     # 残った試行は後始末した
         self.assertEqual(self.trouble(s, first.called), "storage_stuck")     # 書き込みが進まなかった（違う行の数に数えない＝伺い5）
+        # 前の回が、データベースの止まりでなく、こちらのプログラムの誤りで落ちて残った試行は runner_error（違う3行で同じ誤りなら新しい電話を止める＝原則6。
+        # 終える理由は core/leases.left_why の1か所。⛔ 2026-11-18 の8回目の見直しまで：どんな誤りでも storage_stuck にし、「違う3行」の数えから外していた）
+        t = self.ready()
+        self.another_row(t)
+        n["k"] = 0
+        with mock.patch.object(attempts, "end_for_trouble", flaky):
+            left = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(), _NoEnd())
+        line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(), Runner(), fell=ValueError("試験：プログラムの誤り"))
+        self.assertEqual(self.trouble(t, left.called), "runner_error")
+        self.assertEqual(leases.left_why(access_mod.RetryExhausted("試験")), leases.LEFT)
+        self.assertEqual(leases.left_why(None), leases.LEFT)                 # 流れを立ち上げ直した（誤りが分からない）
+        with self.assertRaises(Exception) as refused:   # データベースの守りが断った書き込み（読み書きの層を通った本物の誤り）
+            self.w.a.in_tenant(SYSTEM, t["tenant"], lambda tx: tx.execute(
+                "DO $$ BEGIN RAISE EXCEPTION '試験' USING ERRCODE = 'check_violation'; END $$"))
+        self.assertEqual(leases.left_why(refused.exception), leases.BROKEN)                       # ＝プログラムの誤り
+        self.assertEqual(leases.left_why(access_mod.PoolBusy("試験")), leases.LEFT)                # 共有のつなぎの混雑（データベースに届かない側）
 
     def test_a_call_that_could_not_be_written_is_the_storages_fault(self):
         """話し終えた通話の最後の書き込みがデータベースの誤りで書けずに戻ったら、会話の部品の不具合でなく保存のせい（⛔ 見直し26c の 4：

@@ -180,6 +180,15 @@ def former_numbers(tx: Tx, task_id: UUID, *, as_of_call: UUID | None = None) -> 
         " ORDER BY source = 'callee', added_at, phone_e164", (task_id, as_of_call))]
 
 
+def later_numbers(tx: Tx, task_id: UUID, attempt_id: UUID) -> list[str]:
+    """その通話の担当の期より、あとの担当の方の番号（持ち主の期＝データベースの salescall.task_number_period の1か所が、通話の期より後。最初の期は NULL＝
+    いちばん前）。その通話の断りの範囲から外す（core/dnc.refusal_reach）。"""
+    return [r["phone_e164"] for r in tx.all(
+        "SELECT n.phone_e164 FROM salescall.task_numbers n, salescall.attempts a"
+        " WHERE n.task_id = %s AND a.attempt_id = %s AND salescall.task_number_period(n.task_id, n.contact_id) IS NOT NULL"
+        "   AND (a.person_since IS NULL OR salescall.task_number_period(n.task_id, n.contact_id) > a.person_since)", (task_id, attempt_id))]
+
+
 def old_promise_waiting(tx: Tx, task_id: UUID) -> UUID | None:
     """前の担当の方が新しいかけ直しの約束をして、契約者の選び（前の担当の方との約束を守るか、新しい担当の方へかけるか）を待っている通話
     （無ければ None。1か所＝データベースの salescall.task_old_promise_waiting。0202。✅ 2026-11-07 ユーザー＝計画書 7-1 (23)：「契約者に知らせて

@@ -38,10 +38,26 @@ def of_call(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
 
 
 def correction_of(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
-    """その通話を契約者が直した、いちばん新しい契約者の版（無ければ None。締め直しが直しを保つ＝settle._judge_and_write）。"""
-    return tx.one(
-        "SELECT business_state::text AS business_state, complaint, detail FROM salescall.task_results"
-        " WHERE attempt_id = %s AND kind = 'human' ORDER BY version_no DESC LIMIT 1", (attempt_id,))
+    """その通話にいま効いている契約者の直し（通話のいまの結果＝見方 call_results が契約者の版のとき。無ければ None。1か所）。効いているかを決めるのは、
+    締め直しのたびに版を書く `settle._judge_and_write` の1か所（直しを読めば契約者の版・読まなければ＝「もうかけないで」への直しのあと依頼者の正式な
+    求めで発信禁止を取り消した＝判定し直しの版）。読むのは、締め直し・使う答え（`conversation_io._dropped_by_correction`）。目的のお客様だと
+    確かめられなかった通話かも、同じ版を読む（データベースの salescall.call_unconfirmed＝0242）。
+    corrected＝直しの元（`corrected_by` の形：version＝契約者が直した版・by＝直した方・kind＝その方の種類・wrong_items＝違っていた質問）。
+    ⛔ 2026-11-18 の8回目の見直しまで：いちばん新しい契約者の版を読み、発信禁止を取り消したあとも、使う答えだけ直しを読み続けた。"""
+    row = tx.one(
+        "SELECT version_no, business_state::text AS business_state, complaint, detail, decided_by, snapshot -> 'corrected' AS corrected"
+        " FROM salescall.call_results WHERE attempt_id = %s AND kind = 'human'", (attempt_id,))
+    if row is None:
+        return None
+    c = row.pop("corrected") or {}
+    return {**row, "corrected": corrected_by(version=c.get("version") or row["version_no"], by=c.get("by") or row["decided_by"],
+                                             kind=c.get("kind") or "operator", wrong_items=c.get("wrong_items") or ())}
+
+
+def corrected_by(*, version: int | None, by: str, kind: str, wrong_items: Any) -> dict[str, Any]:
+    """契約者の版に残す直しの元（結果の版の snapshot の corrected。1か所の形）：version＝契約者が直した版（いま直した版は None＝その版そのもの。締め直しの
+    写しの版は、もとの直しの版）・by＝直した方（cur_actor）・kind＝その方の種類（管理者か契約者）・wrong_items＝違っていた項目（質問の番号）。"""
+    return {"version": version, "by": by, "kind": kind, "wrong_items": sorted(set(wrong_items))}
 
 
 def current_state(tx: Tx, task_id: UUID) -> str:

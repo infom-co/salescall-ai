@@ -298,6 +298,7 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "pc_login_decide": frozenset({_CORE + "agents.py"}),
     "pc_login_poll": frozenset({_CORE + "agents.py"}),
     "pc_login_take": frozenset({_CORE + "agents.py"}),
+    "pc_login_issued": frozenset({_CORE + "agents.py"}),
     "lease_line": frozenset({_CORE + "leases.py"}),              # 回線の借用（5-4）
     "return_line": frozenset({_CORE + "leases.py"}),
     "recover_lines": frozenset({_CORE + "leases.py"}),           # 落ちた試行の後始末

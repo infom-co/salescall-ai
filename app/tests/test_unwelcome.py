@@ -12,7 +12,7 @@ from datetime import timedelta
 from unittest import mock
 
 from salescall.core import apology, attempts, business_rules, gate, next_action, notify, quality_stage, recordings, registry, scheduler
-from tests.support import ADMIN, OPERATOR, SYSTEM, callback, make_report, rules_raw, said
+from tests.support import ADMIN, OPERATOR, SYSTEM, callback, fictional_jp_fixed, make_report, rules_raw, said
 from tests.test_apology import ApologyBase
 from tests.test_gate import ALL_DAY
 from tests.test_judge import goal_refused
@@ -399,11 +399,30 @@ class PromiseAndApology(ApologyBase):
         self.assertEqual((c.apology_text, c.apology_call), (self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"], None))
         got = self.settle(s, self.call_claimed(s, c, delivered=True))
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "completed"))   # 約束の用件を続けて果たした
+        # 伝えたので、お詫びだけの電話はもう書かない（行は果たしたまま。伝えた記録＝settle._decide。⛔ 2026-11-18 の8回目の見直しまで：締めのあとに
+        # 同じ案のお詫びだけの電話を書き、2本になった。お客様が新しい約束をしていれば、その予定をお詫びの電話で上書きした）
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((p["kind"], p["end_reason"]), ("end", "completed"))
+        self.assertFalse(self.tx(s, lambda tx: apology.schedule_if_ready(tx, s["task"])))
         notes = self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'apology'"
                                              " AND refs ->> 'task_id' = %s", (str(s["task"]),)))
         self.assertEqual(len(notes), 1)
         self.assertIn("約束した電話の頭で、お詫びを伝えました", notes[0]["summary"])
         self.assertIn("apology", notify.KINDS)
+
+    def test_a_number_fix_keeps_the_head_apology_for_the_same_person(self):
+        """お詫びの印の付いた約束の電話が、決めた日数かけても話せずに終わり、契約者が番号を直した（担当の方は同じ）⇒ 戻した新しい番号の約束の電話の頭でお詫びを
+        伝える（印 forbidden_speech を残す・承認するまで門が通さない）。✅ 計画書 7-1 (12)「同じ相手なら、新しい番号へお詫び」・(14)・7-3 (2)。途中で切れた
+        お詫びは付けない（7-1 (11)）。⛔ 2026-11-18 の8回目の見直しまで：戻すときにお詫びの印をすべて外し、言ってはいけないことのお詫びが伝わらなかった。"""
+        from salescall.core import row_fixes
+        s = self.fresh(stage_cap=20)
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '1 day')::date AS d")["d"])
+        aid, _ = self.promise_call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日の15時")))
+        self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=None, end_reason="callback_exact_unreached", cause="試験：日数を使い切った"))
+        self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((p["kind"], p["promised"], p["apology_reasons"]), ("call", True, ["forbidden_speech"]))
+        self.assertTrue(self.tx(s, lambda tx: gate.apology_unapproved(tx, s["task"])))   # 承認するまで門が通さない
 
     def test_the_head_apology_is_spoken_in_the_apology_recordings_voice(self):
         """約束の電話の頭のお詫び（お詫びの理由 forbidden_speech）も、お詫びだけの電話と同じく、承認したお詫びの録音の声だけで話す（録音の文を流すので声が
@@ -631,7 +650,9 @@ class MonthAhead(SettleBase):
                 s = self.ready()
                 w, d, p = self.passed(s, first(s), last(s), repeat)
                 self.assertEqual((d.kind, d.promised, d.window, d.month_ahead_after), ("call", True, None, None))
-                self.assertEqual(d.at, w.until + timedelta(hours=1))             # 回の終わりから、方針の間隔（1時間）
+                # 回が過ぎてから、方針の間隔で別の日に（範囲の中の最後の電話から数え、同じ日にはかけ直さない＝その日のあと＝next_action._window_over。
+                # ⛔ 2026-11-18 の8回目の見直しまで：回の終わり（0時）から数え、0時から間隔ぶんの夜中の時刻にしていた）
+                self.assertTrue(w.until <= d.at < w.until + timedelta(days=1), (d.at, w.until))
                 self.assertIn("1か月以上先のため、次の回へは回さずに別の日に", d.rule)
                 self.assertEqual((p["kind"], p["promised"], p["window_until"], p["month_ahead_ask"]), ("call", True, None, False))
                 self.assertEqual(tuple(p["apology_reasons"]), ("missed_promise",))
@@ -846,6 +867,12 @@ class MonthAhead(SettleBase):
         self.assertTrue(got[0][1])                                               # 緊急
         self.assertIsInstance(self.claim(s), gate.Denied)                        # 約束の時刻の前はかけない
         self.refused_goes_to_another_day(s)                                      # 知らせを見て止めた
+        # 契約者の承認を待つ行（検証モード）は約束の時刻にもかけないので、「約束の時刻におかけします」と知らせない（承認の1か所 approval.uncleared。
+        # ⛔ 2026-11-18 の8回目の見直しまで：かけない行にも知らせた）
+        held, _ = self.due_and_asked(timedelta(minutes=4))
+        self.put_client(held, "approval.human", True)
+        self.assertFalse(self.tx(held, lambda tx: gate.month_ahead_unanswered(tx, held["task"])))
+        self.assertEqual(self.notices(held, "month_ahead_unanswered"), [])
         self.assertEqual(self.tx(s, gate.month_ahead_notice_rows), [])          # 伺っていない予定は候補に入らない
 
     def test_after_the_time_a_refusal_goes_to_another_day_only_before_it_is_called(self):
@@ -886,21 +913,23 @@ class UrgentNotices(SettleBase):
 class Guards(SettleBase):
     """0216 のデータベースの守り。"""
 
-    def test_a_recovering_deadline_is_only_on_an_exact_promise(self):
-        """取り戻す電話の期限（次の予定の列 window_recover_until）は、時刻ちょうどの約束（お客様が指定した時刻と幅を持つ、かけ直す予定）にだけ
-        付けられる（データベースの守り task_next_actions_window_recover）。"""
+    def test_a_recovering_deadline_is_only_on_a_call_with_a_window(self):
+        """回の期限（次の予定の列 window_recover_until＝取り戻す電話・途中で切れた約束の電話のすぐのかけ直し）は、終わりのある幅を持つ、かけ直す予定に
+        だけ付けられる（データベースの守り task_next_actions_window_recover）。時刻の無い幅の約束（「3時以降」）にも付けられる（0244。⛔ 0216〜8回目の
+        見直しまで：時刻ちょうどの約束にだけ付けられ、時刻の無い幅の約束の電話が回の終わりのあとに切れると、締めが落ちた）。"""
         from salescall.core.access import Rejected
         s = self.ready()
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         w = next_action.Window(now + timedelta(hours=1), (0, 24 * 3600), None, now - timedelta(hours=1), "day",
                                recover_until=now + timedelta(hours=2))
-        write = lambda callee: self.tx(s, lambda tx: next_action._append(   # noqa: E731
-            tx, s["task"], call_at=now, end_reason=None, cause="試験：取り戻す電話", promised=True,
-            target=next_action.Target(s["contact"]), callee_at=callee, window=w))
+        write = lambda callee, window: self.tx(s, lambda tx: next_action._append(   # noqa: E731
+            tx, s["task"], call_at=now, end_reason=None, cause="試験：回の期限", promised=True,
+            target=next_action.Target(s["contact"]), callee_at=callee, window=window))
         with self.assertRaises(Rejected):
-            write(None)                                                          # 時刻ちょうどの約束でない
-        write(now)
+            write(None, replace(w, until=None))                                  # 終わりの無い幅
+        write(None, w)                                                           # 時刻の無い幅の約束
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["window_recover_until"], w.recover_until)
+        write(now, w)                                                            # 時刻ちょうどの約束
 
     def test_the_ask_mark_is_only_on_a_call(self):
         """契約者に伺う印（次の予定の列 month_ahead_ask。0219）は、かけ直す予定にだけ付けられる（データベースの守り task_next_actions_month_ahead_ask）。"""
