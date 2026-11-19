@@ -153,13 +153,23 @@ PRIOR_KEY = "前の話"
 
 def prior_of(it: dict, key: str, q: Question) -> str | None:
     """判定 key の読みに添える前の話の答え（唯一の読み口）：判定ごとに読んだもの（G-70 の行）が無ければ、組の1か所で読んだもの（read_priors）。
-    本番が前の話を問う答え（meaning_judge.prior_asked の1か所＝前の言葉があり、選択肢の質問の最初の答え）のときだけ。⛔ 2026-11-15 日本時間13時台：
-    前の言葉のあった頃（11-07 の基準の記録）に読んだ「無い」が、前の言葉の無くなった W1（F3＝システムの質問に前の話を渡さない）に残り、
-    正しい読みを「違う答えで確かめる」と数えていた"""
-    from meaning_judge import prior_asked
-    if not prior_asked(q, it.get("asked"), it.get("before")):
+    本番が前の話を問う答え（asks_prior の1か所）のときだけ。⛔ 2026-11-15 日本時間13時台：前の言葉のあった頃（11-07 の基準の記録）に読んだ「無い」が、
+    前の言葉の無くなった W1（F3＝システムの質問に前の話を渡さない）に残り、正しい読みを「違う答えで確かめる」と数えていた"""
+    if not asks_prior(it, q):
         return None
     return it[f"{key}前の話"] if f"{key}前の話" in it else it.get(PRIOR_KEY)
+
+
+def asks_prior(it: dict, q: Question) -> bool:
+    """本番がこの行で前の話の答えを問うか（唯一の場所＝送る側 prior_todo・数えの側 prior_of・flow_reply が読む）：行の場面から判定に送る問い合わせ
+    （judge_inputs＝判定に見せる質問・言い直し・前の言葉）を、本番の決まり（meaning_judge.prior_asked＝前の言葉があり、選択肢の質問の最初の答え）に通す。
+    場面を組めない行は問わない（送らない・数えない）。⛔ e055c397 まで：数えの側は記録の言い直し・前の言葉（it の asked・before）で決めていた＝組 R の
+    R5・R6 は本番どおり場面の前のお客様の言葉で前の話を問う（送る側は読む）のに、数えでは読んだ答えを捨てていた（分身 Y の書き置きの「気をつけること」）"""
+    from meaning_judge import prior_asked
+    try:
+        return prior_asked(*judge_inputs(it, q))
+    except NoScene:
+        return False
 
 
 def step_wants(it: dict, q: Question, has_end: bool) -> set[str]:
@@ -802,6 +812,26 @@ def _form_scene(q: Question) -> Flow:
     return f
 
 
+SCENE_WAIT_ASK = "上司に相談してみるので、少し待っていてください。"
+
+
+def _wait_ask_scene() -> Flow:
+    """待つかかけ直すか（H2）を伺っている所までの場面：支払いの質問（試しの言葉の表の R1）を伺い、お客様が「上司に相談してみるので、少し待っていてください。」
+    （待つかかけ直すかが言葉から決まらない＝判定がそろって WAIT_OR_LATER）と言い、本番の流れの制御が H2 を伺う所まで（伺うのは Flow._wait_or_later の1か所。
+    判定の読みで動く報告の無いターン＝flow_reply と同じ入口）。見直し (13) の D8"""
+    from flowctl import CALLBACK_IDS, WAIT_OR_LATER
+    from review_words import questions as review_questions
+    f = _played_flow(review_questions()["R1"])
+    f.on_callee(); f.on_heard(SCENE_WAIT_ASK)
+    r = Reading(WAIT_OR_LATER, True)
+    setattr(r, QUERY, QUERY_NO)
+    f.on_check("judge", r); f.on_decided()
+    f.judged_turn(voiced=False)
+    if f.wait_q != CALLBACK_IDS["wait_or_later"]:
+        raise NoScene("待つかかけ直すかを伺わない")
+    return f
+
+
 def _quiet(f: Flow) -> None:
     """質問（言い直し）のあと、お客様が黙ったので流れの制御が流した一言（Flow.on_silence）を、最後まで流した（Flow.on_played）＝黙ったあとの一言へのお返事の場面。"""
     r = f.on_silence()
@@ -859,6 +889,8 @@ def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
         f.apply("record_answer", {"question_id": of.id, "condition_id": "unknown"})
     elif in_aside_form(q) or in_alternatives_form(q):
         f = _form_scene(q)
+    elif q.id == CALLBACK_IDS["wait_or_later"]:
+        f = _wait_ask_scene()
     elif q.approval and q.announce and (s == "D" or it.get("asked")):
         f = _final_scene(q, it.get("asked"))
         return f, q.id
@@ -970,10 +1002,8 @@ def flow_reply(it: dict, q: Question, r, report: str = "neutral") -> tuple[Flow,
     f.use_checks("judge")
     f.on_callee(); f.on_heard(it.get("text") or "…")
     if r is not None:
-        if getattr(r, "prior", None) is not None and before_words(f.questions[qid], ["前の話"]) is None:
-            # 前の話を判定に渡さない質問（システムの質問＝flowctl.before_words の1か所）には、記録にある前の話の答えを渡さない（本番は問わない）。前の話のある
-            # 業務の質問は、記録の前の話の有無で問うたか（prior_of＝meaning_judge.prior_asked）が決まっている（場面には前の言葉を組まない）
-            r = _without_prior(r)
+        # 前の話の答えは、渡された読みのまま（本番が問う答えかは、読みを作る所＝記録の読み prior_of・正解の組み合わせ label_readings が asks_prior の1か所で
+        # 決める。⛔ e055c397 まで、ここでも flowctl.before_words で外していた＝問うかを決める所が2つあった）
         f.on_check("judge", r)
     f.on_decided()
     asked = f._asked_kind()
@@ -1001,6 +1031,8 @@ PLAY_ACTS = (("callback_hurry", END_ACTS[END_HURRY]), ("callback_refusal", END_A
              ("callback_wait_or_later", WAIT_ACT[WAIT_OR_LATER]), ("callback_time_", WAIT_ACT[LATER]), ("callback_not_agreed_which", WHICH_ACT),
              ("callback_other_point_which", WHICH_ACT), ("estimate_ask", ESTIMATE_ACT), ("how_now", HOW_NOW_ACT), ("hesitate_point", HESITATE_ACT[False]))
 PENDING_ACT = "保留でよいかを伺う"
+# 待つかかけ直すか（H2）を伺っている間に、お客様が待たずにお話を続けた（flowctl.KEEP_ON・Flow._wait_continue）：「はい、」のあと伺う前のお話へ戻り、その言葉を読み直す
+KEEP_ON_ACT = "待たずに伺う前のお話へ戻る（その言葉を読み直す）"
 WISH_ACT = "ほかのご希望を伺う"
 DASH_ACT = "「-」にして次へ"
 REJECT_ACT = "差し戻す（お客様には何も聞こえない）"
@@ -1037,6 +1069,9 @@ def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) 
         return WAIT_ACT[THINKING]
     if res == "next" and rep.get("question_id") == CALLBACK_IDS["brief"]:
         return BRIEF_ACT
+    if res == "next" and rep.get("ahead_offer") and qid == CALLBACK_IDS["wait_or_later"] and not rep.get("later_asked") \
+            and rep.get("question_id") != CALLBACK_IDS["time"]:
+        return KEEP_ON_ACT   # H2 を伺っている間に、待たずにお話を続けた（flowctl.Flow._wait_continue）＝伺う前の質問へ（かけ直しの時刻を伺う番ではない）
     if res == "replayed":
         return REPEAT_ACT
     if res == "callee_asked":
@@ -1114,7 +1149,9 @@ def flow_act(it: dict, q: Question, got, firm, prior=None, away=None) -> str | N
     r.firm = firm is not False
     if not isinstance(got, Reading) or away is not None:
         setattr(r, AWAY, away)
-    r.prior = prior
+    # 前の話の答えを渡された＝その前に相手が話した場面（行に前の言葉が無ければ置き場の言葉を当てる）。本番がその場面で前の話を問うかは asks_prior の1か所
+    # （システムの質問・最初の答えでない答えには、渡されても添えない＝本番は問わない）
+    r.prior = prior if prior is not None and asks_prior({**it, "before": it.get("before") or PRIOR_KEY}, q) else None
     return act_of(it, q, r)
 
 
@@ -1128,9 +1165,10 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
     firms = (True, False) if either(it) else (not hedged(it),)
     ends = tuple(end_accept(it)) if has_end else (None,)
     reasons = why_accept(it)
+    asks = asks_prior(it, q)   # 本番が前の話の答えを問う行だけ、前の話の答えを組み合わせる（送る側・記録の読みと同じ1か所）
     for a in accept(it):
         whys = tuple(reasons) if reasons else (None, *why_choices(False)) if a in ("unknown", "refused") else (None,)
-        priors = tuple(c for c in q.conditions if off_talk(q, a, c)) if talk(it) is False else ()
+        priors = tuple(c for c in q.conditions if off_talk(q, a, c)) if talk(it) is False and asks else ()
         for firm in firms:
             for qv in query_truths(it):   # 問いの正解を付けていない行は、どちらの読みも正解（query_truths の決まり＝11-08 8時55分08秒）
                 for av in away_truths(it):
@@ -1202,6 +1240,10 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     if act in asks or act.startswith(MAYBE_ACT):
         return "違う伺い（保留・いかがなさいますか・目安・どのあたり・ほかのご希望・可能性）" if want & asks or any(
             w.startswith(MAYBE_ACT) for w in want) else "要らない伺い（保留・いかがなさいますか・目安・どのあたり・ほかのご希望・可能性）"
+    if KEEP_ON_ACT in want:
+        return "⛔待たずに続けると言われたのに、待つ・かけ直しを伺う・聞き直す"   # 言われたお話を捨てる（本書 9-3「取得済みのことを重ねて聞かない」）
+    if act == KEEP_ON_ACT:
+        return "待たずに続けるとは言っていないのに、伺う前のお話へ戻る"
     pure = set(accept(it)) <= {UNDECIDED, "unknown"}   # どの答えにも寄っていない言葉
     waits = {wait_act(k) for k in WAIT_KINDS}   # 待つ・かけ直すの読みの動き（お礼の一言の有無も分ける＝wait_act の1か所）
     if act in waits:
@@ -1404,9 +1446,7 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
 def prior_todo(args, items: list[dict], qmap: dict) -> list[dict]:
     """前の話の答えを読む答え（read_priors が読む・組み立てだけ＝--dry-run が数える）：前の言葉があり、本番でも前の話を問う（meaning_judge.prior_asked の
     1か所）、まだ読んでいない答え。"""
-    from meaning_judge import prior_asked
-    return [it for it in items if PRIOR_KEY not in it and it["qid"] in qmap and in_scope(args, it, qmap)
-            and (got := sent_inputs(it, qmap))[2] and prior_asked(*got)]
+    return [it for it in items if PRIOR_KEY not in it and it["qid"] in qmap and in_scope(args, it, qmap) and asks_prior(it, qmap[it["qid"]])]
 
 
 def read_priors(args, items: list[dict], qmap: dict) -> int:
