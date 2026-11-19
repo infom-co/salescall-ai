@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ABSENT_WHY, OFFER, ANY, END_DOUBT_WHY, before_words, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, AWAY, ELSEWHERE, ELSEWHERE_YES, ELSEWHERE_NO, QUERY_YES, QUERY_NO, END_ANGRY, END_HURRY, END_NONE,
                      END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS,
-                     WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading)
+                     WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading, WRONG, WRONG_NOT_SAID)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, Reading, judge, judge_other
 
@@ -153,13 +153,23 @@ PRIOR_KEY = "前の話"
 
 def prior_of(it: dict, key: str, q: Question) -> str | None:
     """判定 key の読みに添える前の話の答え（唯一の読み口）：判定ごとに読んだもの（G-70 の行）が無ければ、組の1か所で読んだもの（read_priors）。
-    本番が前の話を問う答え（meaning_judge.prior_asked の1か所＝前の言葉があり、選択肢の質問の最初の答え）のときだけ。⛔ 2026-11-15 日本時間13時台：
-    前の言葉のあった頃（11-07 の基準の記録）に読んだ「無い」が、前の言葉の無くなった W1（F3＝システムの質問に前の話を渡さない）に残り、
-    正しい読みを「違う答えで確かめる」と数えていた"""
-    from meaning_judge import prior_asked
-    if not prior_asked(q, it.get("asked"), it.get("before")):
+    本番が前の話を問う答え（asks_prior の1か所）のときだけ。⛔ 2026-11-15 日本時間13時台：前の言葉のあった頃（11-07 の基準の記録）に読んだ「無い」が、
+    前の言葉の無くなった W1（F3＝システムの質問に前の話を渡さない）に残り、正しい読みを「違う答えで確かめる」と数えていた"""
+    if not asks_prior(it, q):
         return None
     return it[f"{key}前の話"] if f"{key}前の話" in it else it.get(PRIOR_KEY)
+
+
+def asks_prior(it: dict, q: Question) -> bool:
+    """本番がこの行で前の話の答えを問うか（唯一の場所＝送る側 prior_todo・数えの側 prior_of・flow_reply が読む）：行の場面から判定に送る問い合わせ
+    （judge_inputs＝判定に見せる質問・言い直し・前の言葉）を、本番の決まり（meaning_judge.prior_asked＝前の言葉があり、選択肢の質問の最初の答え）に通す。
+    場面を組めない行は問わない（送らない・数えない）。⛔ e055c397 まで：数えの側は記録の言い直し・前の言葉（it の asked・before）で決めていた＝組 R の
+    R5・R6 は本番どおり場面の前のお客様の言葉で前の話を問う（送る側は読む）のに、数えでは読んだ答えを捨てていた（分身 Y の書き置きの「気をつけること」）"""
+    from meaning_judge import prior_asked
+    try:
+        return prior_asked(*judge_inputs(it, q))
+    except NoScene:
+        return False
 
 
 def step_wants(it: dict, q: Question, has_end: bool) -> set[str]:
@@ -216,7 +226,7 @@ def either(it: dict) -> bool:
 # 答えとは別に読む項目（flowctl.SIDE_ITEMS）の読みを記録する見出し（{項目の名前: 判定の名前のあとに付ける語}。唯一の表＝記録 side_record・使い回すときに
 # 外す語）。⛔ 2026-11-06 日本時間15時台まで、記録する3か所と外す語の並びが2つの項目を名前で手書きしていた（項目を足すと、記録の漏れで数えなくなる）
 SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由", QUERY: "問い", PROMPT_REPLY: "声かけ", AWAY: "別の話", ELSEWHERE: "他社",
-               OFFER: "申し出", ABSENT_WHY: "出られない理由"}   # 申し出・出られない理由はお呼びする段だけ（G-53 の答えの段の行では None）
+               OFFER: "申し出", ABSENT_WHY: "出られない理由", WRONG: "番号違い"}   # 申し出・出られない理由はお呼びする段だけ（G-53 の答えの段の行では None）
 assert set(SIDE_SUFFIX) == set(SIDE_ITEMS), "記録の見出しは、答えとは別に読む項目の表と同じ項目"
 # 判定の確からしさの広がりを記録する見出し（{判定の名前のあとに付ける語: 読みの属性}。唯一の表＝記録と、使い回すときに外す語）。
 # ✅ 2026-11-07 日本時間10時29分25秒 ユーザー「d1-ultraの確からしさが低いのは、こちらの設問か選択肢、説明の問題ということでしょ！」＝
@@ -683,6 +693,13 @@ def away_truths(it: dict) -> tuple:
     return tuple((got or {}).get(AWAY) or (AWAY_YES, AWAY_NO))
 
 
+def wrong_truths(it: dict) -> tuple:
+    """正解の表の行の、こちらがかけた電話番号が違うと伝えたか（flowctl.WRONG）の正解（中の名前の並び）。付けていない行は「番号違いとは言っていない」（どの行も番号違いの
+    言葉ではない＝電話を終える言葉の既定 end_accept と同じ形。番号違いの行は review_words が付ける＝分身 AC）。"""
+    got = _label(it)
+    return tuple((got or {}).get(WRONG) or (WRONG_NOT_SAID,))
+
+
 def elsewhere_truths(it: dict) -> tuple:
     """正解の表の行の、ほかの会社に頼んでいる・使っていると言ったか（flowctl.ELSEWHERE）の正解（中の名前の並び）。✅ 2026-11-15 日本時間21時55分35秒 ユーザー
     （伺い25）で足した項目。付けていない行は「言っていない」（⚠️ 一括で付けた既定＝帳面 0-3 の (2) の外。ほかの会社のことを言いうる行は候補の一覧にして、答えを伏せた
@@ -697,6 +714,24 @@ def elsewhere_truths(it: dict) -> tuple:
 #    呼ばずに共通の関数を並べる順を手で写していた（本番の直しを測りへ写し直す修正が要る形＝11-06 の5つのコミットで3回。11-15 に全部の行で比べて写しの外れを
 #    分けた＝PHASE0 G-53 の 11-15 の段）。
 SCENE_NEXT = Question("ZZ", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+# お呼びした方に繋いだあとの答えの段の場面（行の印 scene＝番号違いの試しの言葉 review_words の行。分身 AC）：目的のお客様の区分ごとの業務（名前と読みつき）。
+# 判定に見せる質問は本番の1か所（Flow.for_judge）が作る＝ご本人の電話か（Flow._own_phone）で番号違いの説明が替わる。印の無い行は今のまま（目的のお客様のいない業務の
+# 最初の質問＝名乗りの録音の無い Flow）
+CONNECTED_SCENES = {"繋いだあと・会社の電話": {"name": "岡田", "reading": "おかだ", "role": "営業部部長"},
+                    "繋いだあと・ご本人の電話": {"kind": "個人", "name": "岡田", "reading": "おかだ"}}
+
+
+def _connected_scene(q: Question, scene: str) -> Flow:
+    """お呼びした方に繋ぎ、名乗り・用件のあと質問 q を伺った所までの本番の流れの制御（業務設定の入口 instruction.Business.flow と、繋ぐ1か所 Flow._connect）。"""
+    import dataclasses
+    from g22_opening import BUSINESS
+    from instruction import Target
+    if scene not in CONNECTED_SCENES:
+        raise NoScene(f"場面の印が無い（{scene}）")
+    f = dataclasses.replace(BUSINESS, target=Target(**CONNECTED_SCENES[scene]), questions=[q, SCENE_NEXT]).flow(recorded=True, play_recordings=True)
+    f.use_checks("judge")
+    f._connect({"judge"})
+    return f
 # 値を伺う型の、会話AIが渡す値の文字（判定は値の文字を読まない＝値の文字だけは会話AIが渡す。11-08 12時11分40秒）：(はじめの値, 直された値)
 SCENE_VALUES = {kind: (value, again) for (_, _, kind, value), again in zip(VALUE_QS, ("17日の午後3時", "4人", "090-9876-5432", "6万円", "来週の水曜日", "東京都港区芝6丁目"))}
 SCENE_VALUES.update({"name": ("田中", "佐藤")})
@@ -743,14 +778,125 @@ def _approval_scene(step: str) -> Flow:
     return f
 
 
+# 見直し (12) の形の質問（「ところで」の形・選択肢を並べた形）の場面の台本（本番で、その形で伺い直す所までのお客様の言葉と会話AIのひとこと）。お客様の言葉は試しの
+# 言葉の表（review_words）の別のお話の言葉・会話AIのひとことは中身の判定の試しの表（review_words.GROUND_WORDS）の言葉（どれも本番の流れの制御の操作で流す）
+SCENE_AWAY = "うちは月曜が定休日なんですよ。"
+SCENE_ASIDE_WORD = "さようでございますか。"
+SCENE_WAIT_WORD = "さようでございますか。お支払いは月曜日以外でも問題ございませんよ。"
+SCENE_NOD = "そうなんですね。"
+# 伺う質問の前に答えていただいた質問（その質問を流れの制御が返事で流した＝黙った秒の見張り・伺い直しの形が本番と同じになる。最初の質問は返事で流さない）
+SCENE_PRE = Question("Z0", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+SCENE_PRE_SAID = "はい、しています。"
+
+
+def _played_flow(q: Question) -> Flow:
+    """q を、前の質問（SCENE_PRE）のお返事への返事で流した所までの本番の流れの制御（黙ったあとの一言・伺い直しの形の場面の頭）。"""
+    f = Flow([SCENE_PRE, q, SCENE_NEXT], play_recordings=True)
+    f.use_checks("judge")
+    _scene_turn(f, SCENE_PRE_SAID, "はい", "record_answer", question_id=SCENE_PRE.id, condition_id="はい")
+    return f
+
+
+def _scene_turn(f: Flow, words: str, choice: str, op: str | None = None, **args) -> dict | None:
+    """場面の台本のお客様の1つの発話（判定の組がそろって choice と読み、こちらへ尋ねていない。項目 AWAY などは args の名前で渡す）。op があれば会話AIの報告。"""
+    f.on_callee(); f.on_heard(words)
+    r = Reading(choice, firm=True)
+    setattr(r, QUERY, QUERY_NO)
+    for k in [k for k in args if k in (AWAY,)]:
+        setattr(r, k, args.pop(k))
+    f.on_check("judge", r)
+    return f.apply(op, args) if op else None
+
+
+def _talk_word(f: Flow, words: str, touched: bool) -> dict:
+    """別のお話への会話AIのひとこと（中身の判定の読み＝電話接続側が操作の前に渡す Flow.on_grounded → 受け答えの操作）。touched＝お話に沿った受け答え
+    （業務の事実で応えた＝お返事を待つ）・でなければ相づちのひとこと（「ところで」で伺い直す）。"""
+    from grounding import GROUNDED, NO_FACT, Verdict
+    v = Verdict(GROUNDED if touched else NO_FACT, "")
+    v.by, v.touch = "g53_meaning", ""   # 質問が尋ねることに触れたかは読ませない（試験 AsideTest の grounded と同じ）
+    f.on_grounded(words, v)
+    return f.apply("replay_opening", {"part": "talk", "answer": words, "fallback": "talk_heard_nod"})
+
+
+def _form_scene(q: Question) -> Flow:
+    """見直し (12) の形の質問 q（「ところで」の形・選択肢を並べた形。番号は元の質問と同じ）を、本番の流れの制御がその形に替えて伺う所までの場面（替えるのは
+    Flow._soften の1か所＝ここでは替えない）。元の質問は同じ番号の質問の表の質問。"""
+    from flowctl import in_aside_form
+    from review_words import questions as review_questions
+    base = {**question_map(), **review_questions()}.get(q.id)
+    if base is None:
+        raise NoScene(f"元の質問が無い形の質問（{q.id}）")
+    f = _played_flow(base)
+    _scene_turn(f, SCENE_AWAY, UNDECIDED, "record_answer", question_id=base.id, condition_id="unknown", **{AWAY: AWAY_YES})
+    if in_aside_form(q):
+        _talk_word(f, SCENE_ASIDE_WORD, False)   # 相づちのひとこと＋「ところで」＋言い換えた質問（伺い9）
+    else:
+        _talk_word(f, SCENE_WAIT_WORD, True)     # お話に沿った受け答えで待つ → 相づちだけ → 意向が分からないまま戻る（選択肢を並べた形＝伺い16）
+        _scene_turn(f, SCENE_NOD, UNDECIDED, **{AWAY: AWAY_NO})
+        f.apply("replay_opening", {"part": "resume"})
+    return f
+
+
+SCENE_WAIT_ASK = "上司に相談してみるので、少し待っていてください。"
+
+
+def _wait_ask_scene() -> Flow:
+    """待つかかけ直すか（H2）を伺っている所までの場面：支払いの質問（試しの言葉の表の R1）を伺い、お客様が「上司に相談してみるので、少し待っていてください。」
+    （待つかかけ直すかが言葉から決まらない＝判定がそろって WAIT_OR_LATER）と言い、本番の流れの制御が H2 を伺う所まで（伺うのは Flow._wait_or_later の1か所。
+    判定の読みで動く報告の無いターン＝flow_reply と同じ入口）。見直し (13) の D8"""
+    from flowctl import CALLBACK_IDS, WAIT_OR_LATER
+    from review_words import questions as review_questions
+    f = _played_flow(review_questions()["R1"])
+    f.on_callee(); f.on_heard(SCENE_WAIT_ASK)
+    r = Reading(WAIT_OR_LATER, True)
+    setattr(r, QUERY, QUERY_NO)
+    f.on_check("judge", r); f.on_decided()
+    f.judged_turn(voiced=False)
+    if f.wait_q != CALLBACK_IDS["wait_or_later"]:
+        raise NoScene("待つかかけ直すかを伺わない")
+    return f
+
+
+def _quiet(f: Flow) -> None:
+    """質問（言い直し）のあと、お客様が黙ったので流れの制御が流した一言（Flow.on_silence）を、最後まで流した（Flow.on_played）＝黙ったあとの一言へのお返事の場面。"""
+    r = f.on_silence()
+    if not r or not r.get("play"):
+        raise NoScene("黙ったあとの一言を流さない場面")
+    f.on_played([p["text"] for p in r["play"]])
+
+
+def prompted_row(it: dict) -> bool:
+    """黙ったあとの一言へのお返事の行か（唯一の見分け）：記録の印（prompted）か、正解に「声かけへのお返事だけか」（PROMPT_REPLY）がある行。"""
+    return bool(it.get("prompted")) or PROMPT_REPLY in (it.get("label") or {})   # 正解の欄は行の label（試しの言葉の表の行）
+
+
+def _final_scene(q: Question, asked: str | None) -> Flow:
+    """ご承認のお知らせの最終の確かめ（accepted_line）への返事の場面：お知らせへのお返事が答えの話の相づちだけ（判定がそろって決められない・別のお話でない）
+    ＝流れの制御が最終の確かめを流す所まで。聞き取れなかったお知らせの確かめ（heard=False の形）は締めの前の念のための確認の場面＝まだ組めない。"""
+    from flowctl import accepted_line
+    if asked is not None and asked == accepted_line(q, heard=False)[1] and asked != accepted_line(q)[1]:
+        raise NoScene("聞き取れなかったお知らせの締めの前の確かめ（R7）")
+    f = Flow([q, SCENE_NEXT], play_recordings=True)
+    f.use_checks("judge")
+    _scene_turn(f, "なるほど。", UNDECIDED, "record_answer", question_id=q.id, condition_id="unknown", **{AWAY: AWAY_NO})
+    if f.awaiting_confirm != q.id:
+        raise NoScene("お知らせのあとの最終の確かめを流さない")
+    return f
+
+
 def flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
     """行 it（質問 q）の場面：質問を伺って、お客様の言葉を待っている所までの本番の流れの制御と、答えを待っている質問の番号（唯一の場面の組み立て）。
-    組めない行は NoScene。"""
-    from flowctl import CALLBACK_IDS
+    組めない行は NoScene。黙ったあとの一言へのお返事の行（prompted_row）は、その場面のあとにお客様が黙り、流れの制御が一言を流した所まで（D7）。"""
+    f, qid = _flow_scene(it, q)
+    if prompted_row(it):
+        _quiet(f)
+    return f, qid
+
+
+def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
+    from flowctl import CALLBACK_IDS, in_aside_form, in_alternatives_form
     from g73_system_words import wish_scenes
     s = it.get("set")
-    if it.get("prompted"):
-        raise NoScene("黙ったあとの一言のある行")
     if s in ("N1", "N2", "N3"):
         role = {v: k for k, v in CALLBACK_IDS.items()}[s]
         f = _approval_scene(role)
@@ -766,26 +912,88 @@ def flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
         setattr(r, QUERY, QUERY_NO)
         f.on_callee(); f.on_heard(said); f.on_check("judge", r); f.on_decided()
         f.apply("record_answer", {"question_id": of.id, "condition_id": "unknown"})
-    elif s == "R" and it.get("qid") not in ("R1", "R2"):
-        raise NoScene(f"見直し (12) の形の質問（{it.get('qid')}）")
+    elif in_aside_form(q) or in_alternatives_form(q):
+        f = _form_scene(q)
+    elif q.id == CALLBACK_IDS["wait_or_later"]:
+        f = _wait_ask_scene()
+    elif q.approval and q.announce and (s == "D" or it.get("asked")):
+        f = _final_scene(q, it.get("asked"))
+        return f, q.id
+    elif prompted_row(it):
+        f = _played_flow(q)
     else:
-        f = Flow([q, SCENE_NEXT], play_recordings=True)
+        f = _connected_scene(q, it["scene"]) if it.get("scene") else Flow([q, SCENE_NEXT], play_recordings=True)
+        if it.get("scene") and (s == "D" or it.get("asked")):
+            raise NoScene("繋いだあとの場面の言い直しは組まない")
         if s == "D" or it.get("asked"):   # 言い直しへの返事の行は、どの組でも同じ1か所で言い直しの場面に組む（見直し (13) の D9：組 E の言い直しのある行）
-            if it.get("qid") == "R7":
-                raise NoScene("ご承認のお知らせの最終の確かめ（R7）")
             choice = asked_choice(it, q)
             said = restated(q, choice if q.type in CHOICE_TYPES else "答えた", None if q.type in CHOICE_TYPES else _scene_value(q), f)[1]
             if said.get("result") != "confirm_required":
                 raise NoScene(f"言い直せない答え（{choice}）")
             if q.type in CHOICE_TYPES and f.items[q.id].condition != choice:
-                # 今の本番は、この答えを目的に進む向きの別の答えで言い直す（「それでは予定通りの方向で…」）＝判定が読んだ記録の言い直し（「念のため…変更が
-                # おありということで…」）と向きが違う場面は組めない（数えない。次の測りの前に組 D の言い直しの文を今の本番で作り直す＝帳面 1 の (1) の F1）
+                # 今の本番は、この答えを目的に進む向きの別の答えで言い直す（「それでは予定通りの方向で…」）＝正解の表の行（記録の言い直しの向きで正解を付けた）と
+                # 向きが違う場面は組めない（数えない。判定に送る言い直しの文は、組めた場面の本番の文＝judge_inputs。D7）
                 raise NoScene(f"記録の言い直しと今の本番の言い直しの向きが違う（{choice}→{f.items[q.id].condition}）")
             return f, q.id
     cur = f.current
-    if cur is None or f.questions[cur].text != q.text:
+    # 流れの制御はお知らせ・「ところで」・選択肢を並べた形などに質問の文を替えて伺う（番号は同じ）＝場面の質問は番号で当てる
+    if cur is None or cur != q.id or (f.questions[cur].text != q.text and not q.announce):
         raise NoScene(f"場面の質問が違う（{cur}）")
     return f, cur
+
+
+_INPUTS: dict = {}
+
+
+def query_changes(items: list[dict], qmap: dict) -> Counter:
+    """記録の言い直し・前の言葉で作った問い合わせ（meaning_judge.sent_text）と、本番の場面から作った問い合わせ（judge_inputs）が、組ごとに同じか・変わるか・
+    場面を組めないか（理由ごと）の数（組み立てだけ＝--dry-run・書き置きの前と後の数）。"""
+    from meaning_judge import sent_text
+    out = Counter()
+    for it in items:
+        q = qmap.get(it["qid"])
+        if q is None:
+            out["質問の表に無い"] += 1
+            continue
+        try:
+            shown, asked, before = judge_inputs(it, q)
+        except NoScene as e:
+            out[f"{SCENE_MISSING}{str(e).split('（')[0]}・{it['set']}"] += 1
+            continue
+        same = sent_text(q, it["text"], it.get("asked"), it.get("before")) == sent_text(shown, it["text"], asked, before)
+        out[f"{'同じ' if same else '変わる'}・{it['set']}"] += 1
+    return out
+
+
+def sent_inputs(it: dict, qmap: dict, *text: str) -> tuple:
+    """判定に送る引数（judge・judge_other・JudgePanel.ask・prior_asked・read_prior_first の並び）：(判定に見せる質問, [お客様の言葉,] 言い直し, 前の言葉)＝
+    judge_inputs の1か所。text を渡せば質問のあとに入れる。"""
+    shown, asked, before = judge_inputs(it, qmap[it["qid"]])
+    return (shown, *text, asked, before)
+
+
+def judge_inputs(it: dict, q: Question) -> tuple[Question | None, str | None, str | None]:
+    """行 it を判定に送る問い合わせの材料＝本番がその場面のお客様の発話の始めに判定に渡すもの（唯一の場所＝送る所 run_judges・run_group・前の話の答え
+    prior_todo・組み立てだけの数え・in_scope が読む）：(判定に見せる質問, 言い直して確かめた言葉, その前の言葉)＝場面（flow_scene）の Flow.judge_context
+    （本番の convo と同じ順＝お客様の発話の始め on_callee のあと）。記録の言い直しの文・前の言葉は使わない（D7。⛔ f72d31c4 まで、記録の文で送っていた＝組 D の
+    1,356行中686行が今の本番の言い直しと違った）。場面を組めない行は NoScene（送らない・数えない）。"""
+    key = (it.get("set"), it.get("qid"), it.get("text"), it.get("asked"), it.get("before"), prompted_row(it), q.text, it.get("scene"))
+    if key not in _INPUTS:
+        try:
+            f, qid = flow_scene(it, q)
+            f.on_callee()
+            shown, asked, before = f.judge_context()
+            if before is None and it.get("before"):
+                # 行に添えた前のお客様の言葉（G-70 の場面など＝場面の発話としては組んでいない）は、本番が渡すかを決める1か所（flowctl.before_words）に通す
+                # （システムの質問には渡さない）。場面が前の言葉を持つ行（ご承認の手順・形の質問など）は場面の言葉
+                before = before_words(f.questions[qid], str(it["before"]).split("／"))
+            _INPUTS[key] = (shown, asked, before)
+        except NoScene as e:
+            _INPUTS[key] = e
+    got = _INPUTS[key]
+    if isinstance(got, NoScene):
+        raise got
+    return got
 
 
 def _neutral_report(f: Flow, qid: str, r) -> tuple[str, dict]:
@@ -821,10 +1029,8 @@ def flow_reply(it: dict, q: Question, r, report: str = "neutral") -> tuple[Flow,
     f.use_checks("judge")
     f.on_callee(); f.on_heard(it.get("text") or "…")
     if r is not None:
-        if getattr(r, "prior", None) is not None and before_words(f.questions[qid], ["前の話"]) is None:
-            # 前の話を判定に渡さない質問（システムの質問＝flowctl.before_words の1か所）には、記録にある前の話の答えを渡さない（本番は問わない）。前の話のある
-            # 業務の質問は、記録の前の話の有無で問うたか（prior_of＝meaning_judge.prior_asked）が決まっている（場面には前の言葉を組まない）
-            r = _without_prior(r)
+        # 前の話の答えは、渡された読みのまま（本番が問う答えかは、読みを作る所＝記録の読み prior_of・正解の組み合わせ label_readings が asks_prior の1か所で
+        # 決める。⛔ e055c397 まで、ここでも flowctl.before_words で外していた＝問うかを決める所が2つあった）
         f.on_check("judge", r)
     f.on_decided()
     asked = f._asked_kind()
@@ -845,11 +1051,15 @@ WHICH_ACT, ESTIMATE_ACT, HOW_NOW_ACT, TROUBLE_ACT = "どのあたりかを伺う
 ELSEWHERE_ACT = "ほかの会社で解決できない問題や心配事を伺う"   # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。flowctl.Flow._elsewhere_ask）
 # ✅ 2026-11-16 日本時間0時42分38秒・12時48分22秒 ユーザー（伺い30・伺い31。flowctl.Flow._brief_ask）。⛔ 96579d84 まで「お礼と営業の要約を伝える」
 BRIEF_ACT = "お礼と要約のあと後ほどかけ直してよいかを伺う"
+# かけ直しの時刻を伺う一言は日時の2択の段の共通の一言（phrases.TIME_LADDER_IDS の callback_time_kind・callback_time_half＝頭で当てる。✅ 2026-11-19 日本時間14時18分13秒。
+# ⛔ 894b082f まで callback_later_time）
 PLAY_ACTS = (("callback_hurry", END_ACTS[END_HURRY]), ("callback_refusal", END_ASK), ("callback_topic", END_TOPIC), ("callback_concern", TROUBLE_ACT), ("ai_answer", TROUBLE_ACT),
              ("callback_elsewhere", ELSEWHERE_ACT),
-             ("callback_wait_or_later", WAIT_ACT[WAIT_OR_LATER]), ("callback_later_time", WAIT_ACT[LATER]), ("callback_not_agreed_which", WHICH_ACT),
+             ("callback_wait_or_later", WAIT_ACT[WAIT_OR_LATER]), ("callback_time_", WAIT_ACT[LATER]), ("callback_not_agreed_which", WHICH_ACT),
              ("callback_other_point_which", WHICH_ACT), ("estimate_ask", ESTIMATE_ACT), ("how_now", HOW_NOW_ACT), ("hesitate_point", HESITATE_ACT[False]))
 PENDING_ACT = "保留でよいかを伺う"
+# 待つかかけ直すか（H2）を伺っている間に、お客様が待たずにお話を続けた（flowctl.KEEP_ON・Flow._wait_continue）：「はい、」のあと伺う前のお話へ戻り、その言葉を読み直す
+KEEP_ON_ACT = "待たずに伺う前のお話へ戻る（その言葉を読み直す）"
 WISH_ACT = "ほかのご希望を伺う"
 DASH_ACT = "「-」にして次へ"
 REJECT_ACT = "差し戻す（お客様には何も聞こえない）"
@@ -862,9 +1072,23 @@ QUESTION_FIRST = "添えた質問に先に答えてから："
 ASKED_ACTS = {"asked": ANSWER_FIRST, "offer": AWAY_ACT, "help": HESITATE_ACT[True], "concern": CONCERN_ACT}
 
 
+# 判定がそろって「不快な様子だが電話は続けてよい」（flowctl.END_UPSET）と読んだ言葉に、受けの言葉・「はい、」の代わりにお詫び「失礼いたしました。」から話し始めた返事
+# （flowctl.Flow._ack の1か所＝apology_turn）の動きの名前の頭（お客様に聞こえる頭が変わる＝帳面 0-3「判定の項目・選べるものを足したら…数える1か所に入れる」。分身 AG）
+APOLOGY = "お詫びから："
+
+
 def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) -> str:
     """流れの制御の返事 rep から、動きの名前（唯一の名前の作り＝読みの動き flow_act・正解の動き flow_wants が通る）。名前はお客様に聞こえること（締める・伺う一言・
-    確かめ・受け取って次へ・待つ）で付ける。どの名前にも当たらない返事は「その他：」（数え漏れを黙って出さない）。"""
+    確かめ・受け取って次へ・待つ）で付ける。どの名前にも当たらない返事は「その他：」（数え漏れを黙って出さない）。不快な様子の言葉への返事の頭のお詫び（APOLOGY）も
+    名前に入れる（同じ動きでも、お客様に聞こえる頭が違う）。"""
+    name = _flow_name(f, qid, rep, it, asked)
+    if rep.get("ack") == "shitsurei" and f.apology_turn == f.callee_turns:
+        return APOLOGY + name
+    return name
+
+
+def _flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) -> str:
+    """flow_name の名前（お詫びの頭を除く）。"""
     res, item = rep.get("result"), f.items.get(qid)
     plays = [str(p.get("id") or "") for p in rep.get("play") or []]
     from flowctl import CALLBACK_IDS
@@ -886,6 +1110,9 @@ def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) 
         return WAIT_ACT[THINKING]
     if res == "next" and rep.get("question_id") == CALLBACK_IDS["brief"]:
         return BRIEF_ACT
+    if res == "next" and rep.get("ahead_offer") and qid == CALLBACK_IDS["wait_or_later"] and not rep.get("later_asked") \
+            and rep.get("question_id") != CALLBACK_IDS["time"]:
+        return KEEP_ON_ACT   # H2 を伺っている間に、待たずにお話を続けた（flowctl.Flow._wait_continue）＝伺う前の質問へ（かけ直しの時刻を伺う番ではない）
     if res == "replayed":
         return REPEAT_ACT
     if res == "callee_asked":
@@ -943,7 +1170,7 @@ def act_of(it: dict, q: Question, r) -> str | None:
     if r is None:
         return None
     side = tuple(getattr(r, k, None) for k in (*SIDE_SUFFIX, "prior"))
-    key = (it.get("set"), it.get("qid"), q.id, q.text, q.type, q.conditions, it.get("text"), it.get("asked"), it.get("asked_choice"), str(r), r.firm, side,
+    key = (it.get("set"), it.get("qid"), q.id, q.text, q.type, q.conditions, it.get("text"), it.get("asked"), it.get("asked_choice"), it.get("scene"), str(r), r.firm, side,
            tuple(sorted((q.meanings or {}).items())), bool(q.option_notes), q.asks_fact, q.maybe)
     if key not in _ACTS:
         try:
@@ -963,23 +1190,26 @@ def flow_act(it: dict, q: Question, got, firm, prior=None, away=None) -> str | N
     r.firm = firm is not False
     if not isinstance(got, Reading) or away is not None:
         setattr(r, AWAY, away)
-    r.prior = prior
+    # 前の話の答えを渡された＝その前に相手が話した場面（行に前の言葉が無ければ置き場の言葉を当てる）。本番がその場面で前の話を問うかは asks_prior の1か所
+    # （システムの質問・最初の答えでない答えには、渡されても添えない＝本番は問わない）
+    r.prior = prior if prior is not None and asks_prior({**it, "before": it.get("before") or PRIOR_KEY}, q) else None
     return act_of(it, q, r)
 
 
 def label_readings(it: dict, q: Question, has_end: bool) -> list:
     """正解の表の行 it から、正しい読みの組み合わせを全部作る（唯一の作り＝正解の動き step_wants）：答え（accept）× 言い切り（境目 either なら両方・
     ほかは「曖昧」の印 hedged の逆）× こちらへ尋ねた問いか（query_truths）× 別のお話か（away_truths）× 電話を終える言葉か（has_end なら end_accept・
-    無ければ読んでいない）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
+    無ければ読んでいない）× こちらがかけた電話番号が違うと伝えたか（wrong_truths）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
     正解 talk False の行は、その答えと食い違う前の話の答え＝flowctl.off_talk の1か所。ほかは前の話から決まる答えは無い）。聞こえ方は hear_truth。"""
     from flowctl import why_choices
     out = []
     firms = (True, False) if either(it) else (not hedged(it),)
     ends = tuple(end_accept(it)) if has_end else (None,)
     reasons = why_accept(it)
+    asks = asks_prior(it, q)   # 本番が前の話の答えを問う行だけ、前の話の答えを組み合わせる（送る側・記録の読みと同じ1か所）
     for a in accept(it):
         whys = tuple(reasons) if reasons else (None, *why_choices(False)) if a in ("unknown", "refused") else (None,)
-        priors = tuple(c for c in q.conditions if off_talk(q, a, c)) if talk(it) is False else ()
+        priors = tuple(c for c in q.conditions if off_talk(q, a, c)) if talk(it) is False and asks else ()
         for firm in firms:
             for qv in query_truths(it):   # 問いの正解を付けていない行は、どちらの読みも正解（query_truths の決まり＝11-08 8時55分08秒）
                 for av in away_truths(it):
@@ -987,11 +1217,12 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
                         for e in ends:
                             for w in whys:
                                 for p in priors or (None,):
-                                    r = Reading(a, firm)
-                                    for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it))):
-                                        setattr(r, k, v)
-                                    r.prior = p
-                                    out.append(r)
+                                    for wn in wrong_truths(it):
+                                        r = Reading(a, firm)
+                                        for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it)), (WRONG, wn)):
+                                            setattr(r, k, v)
+                                        r.prior = p
+                                        out.append(r)
     return out
 
 
@@ -1013,6 +1244,10 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     want = step_wants(it, q, it.get(f"{key}終わり") is not None)
     if act in want:
         return None
+    if act.startswith(APOLOGY) and act.removeprefix(APOLOGY) in want:
+        return "要らないお詫び（不快な様子の言葉ではないのに「失礼いたしました。」から話した・動きは正しい）"
+    if APOLOGY + act in want:
+        return "お詫びが落ちた（不快な様子の言葉に、受けの言葉で応えた・動きは正しい）"
     ends = {w for w in want if end_step(w)}
     closes = {w for w in ends if w.removeprefix(QUESTION_FIRST) not in (END_TOPIC, END_ASK)}
     if end_step(act):
@@ -1051,6 +1286,10 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     if act in asks or act.startswith(MAYBE_ACT):
         return "違う伺い（保留・いかがなさいますか・目安・どのあたり・ほかのご希望・可能性）" if want & asks or any(
             w.startswith(MAYBE_ACT) for w in want) else "要らない伺い（保留・いかがなさいますか・目安・どのあたり・ほかのご希望・可能性）"
+    if KEEP_ON_ACT in want:
+        return "⛔待たずに続けると言われたのに、待つ・かけ直しを伺う・聞き直す"   # 言われたお話を捨てる（本書 9-3「取得済みのことを重ねて聞かない」）
+    if act == KEEP_ON_ACT:
+        return "待たずに続けるとは言っていないのに、伺う前のお話へ戻る"
     pure = set(accept(it)) <= {UNDECIDED, "unknown"}   # どの答えにも寄っていない言葉
     waits = {wait_act(k) for k in WAIT_KINDS}   # 待つ・かけ直すの読みの動き（お礼の一言の有無も分ける＝wait_act の1か所）
     if act in waits:
@@ -1146,7 +1385,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
 
             def call(client):
                 t = time.monotonic()
-                got = judge(client, ids[key], q, it["text"], it.get("asked"), it.get("before"))
+                got = judge(client, ids[key], *sent_inputs(it, qmap, it["text"]))
                 took["s"] = round(time.monotonic() - t, 3)
                 return got
             try:
@@ -1183,7 +1422,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
             for attempt in range(5):
                 try:
                     t = time.monotonic()
-                    it[key] = judge_other(clients[key], key, q, it["text"], it.get("asked"), it.get("before"))
+                    it[key] = judge_other(clients[key], key, *sent_inputs(it, qmap, it["text"]))
                     it[f"{key}言い切り"] = getattr(it[key], "firm", None)
                     side_record(it, key, it[key])
                     it[f"{key}確からしさ"] = getattr(it[key], "sure", None)  # Jev の線（OTHER_JUDGES の sure_min）で、同時に出した組の読みを見積もるため
@@ -1237,7 +1476,7 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
             panel = JudgePanel({"judge2": fns})   # 答えごとに新しい受け持ち（前の答えの時間切れ・会社の印を持ち越さない）
             t = time.monotonic()
             try:
-                got = await panel.ask("judge2", qmap[it["qid"]], it["text"], it.get("asked"), it.get("before"))
+                got = await panel.ask("judge2", *sent_inputs(it, qmap, it["text"]))
                 it[name], it[f"{name}言い切り"], it[f"{name}by"] = str(got), got.firm, got.by
                 side_record(it, name, got)
             except NoJudgment as exc:
@@ -1253,9 +1492,7 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
 def prior_todo(args, items: list[dict], qmap: dict) -> list[dict]:
     """前の話の答えを読む答え（read_priors が読む・組み立てだけ＝--dry-run が数える）：前の言葉があり、本番でも前の話を問う（meaning_judge.prior_asked の
     1か所）、まだ読んでいない答え。"""
-    from meaning_judge import prior_asked
-    return [it for it in items if it.get("before") and PRIOR_KEY not in it and it["qid"] in qmap and in_scope(args, it, qmap)
-            and prior_asked(qmap[it["qid"]], it.get("asked"), it["before"])]
+    return [it for it in items if PRIOR_KEY not in it and it["qid"] in qmap and in_scope(args, it, qmap) and asks_prior(it, qmap[it["qid"]])]
 
 
 def read_priors(args, items: list[dict], qmap: dict) -> int:
@@ -1271,7 +1508,8 @@ def read_priors(args, items: list[dict], qmap: dict) -> int:
         return 0
     clients = {n: other_client(n, load_secret(OTHER_JUDGES[n]["key"], args.env), budget=args.budget_yen) for n in PRIOR_READERS}
     for n, it in enumerate(todo, 1):
-        it[PRIOR_KEY], it[f"{PRIOR_KEY}の確からしさ"], _ = read_prior_first(clients, qmap[it["qid"]], it["before"])
+        shown, _, before = sent_inputs(it, qmap)
+        it[PRIOR_KEY], it[f"{PRIOR_KEY}の確からしさ"], _ = read_prior_first(clients, shown, before)
         if n % 50 == 0:
             say("前の話の答え", n, "/", len(todo))
             save_partial(f"G-53{args.tag}", {"items": items})
@@ -1390,6 +1628,11 @@ def in_scope(args, it: dict, qmap: dict) -> bool:
     meaning_judge.sure_reading・会話の側の待つ長さ＝Limits.judge_wait_s に遅れた）だけ＝2つ目の判定が本番で使われる答え（伺い19 ア）。"""
     if args.sets and it["set"] not in args.sets:
         return False
+    if it["qid"] in qmap:
+        try:
+            judge_inputs(it, qmap[it["qid"]])
+        except NoScene:
+            return False   # 本番の場面を組めない行は送らない（数えでも SCENE_MISSING で出す＝D7）
     lead = getattr(args, "after", None)
     if not lead:
         return True
@@ -1464,6 +1707,7 @@ def main() -> None:
         todo = [it for it in items if in_scope(args, it, qmap)]
         say("組み立てだけ（--dry-run）：判定は送りません。送る数", {j: sum(1 for it in todo if j not in it) for j in args.judge},
             "前の話の答え", len(prior_todo(args, items, qmap)))
+        say("記録の文と、本番の場面から作った問い合わせ（judge_inputs）の比べ", dict(query_changes(items, qmap)))
         require_complete(args, "組み立てだけ", stop=False)   # 試しの言葉がそろっているかも出す（止めない）
         return
     ids = ids or ring.model_ids()

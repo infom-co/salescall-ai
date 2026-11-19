@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
-                     restates, side_items)
+                     restates, side_items, WRONG, wrong_choices)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -438,8 +438,13 @@ PROMPT = RULES + (   # 並びの見本（文を作るのは prompt_parts の1か
 # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い24）：理由を言わずに待つように言われたら「はい、」で待ち、黙られたら一言・しばらくして待つかかけ直すかを伺う
 #    ＝取り次ぐ・代わる・呼んでくる（HOLD＝黙って待つ）と、理由を言わずに待つ（WAIT_PLAIN）を分けた（組み合わせは flowctl.wait_reading の1か所）。境目は
 #    理由を言わずに待つの説明の1か所だけに書く（取り次ぎの説明に「理由を言わずに」を書かない）
-ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電話を代わる・ほかの方を呼んでくるあいだ、こちらに待つように言った（答えではない）",
-                WAIT_PLAIN: "どうして待つのかを言わずに、電話をつないだまま、こちらに待つようにとだけ言った（待つ事情を言ったときは、その事情の選べるもの。"
+# ✅ 2026-11-19 日本時間17時台 まとめ役 CL-1 が決まりで決めた（伺いの候補 (8)・伺わない）：電話を離れる事情を言った「待って」（席を外す・すぐ戻る）は、取り次ぎを
+#    待つ＝「はい、」のあと黙って待つ（お客様は電話を離れている＝本書 9-4 の「保留音の間は黙って待つ」と同じ理由・11-06 日本時間2時28分41秒「「はい、」のような
+#    相づちがないと失礼です」）。理由を言わずに待つ（伺い24）は、お客様が電話口にいる場面（黙られたら5秒で一言・20秒で待つかかけ直すか＝離れている方に話しかけない）。
+#    ⛔ それまでは「理由を言わずに待つ」の説明が「電話をつないだまま」だけで、電話を離れる方の「待って」もそちらに読めた
+ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電話を代わる・ほかの方を呼んでくる・いったん電話を離れて戻る（席を外す・すぐ戻る）あいだ、"
+                      "こちらに待つように言った（答えではない）",
+                WAIT_PLAIN: "どうして待つのかを言わずに、電話口にいたまま、こちらに待つようにとだけ言った（待つ事情を言ったときは、その事情の選べるもの。"
                             "答えではない）",
                 HOLD_BACK: "この電話の間に、ご自分で確かめてくる・周りの方に聞いてくる・相談してくるあいだ、電話をつないだまま待つように言った（待って"
                            "とは言わなくても、いま確かめてくる、と言ったのも。そのあと、ご自分で返事をする。答えではない）",
@@ -476,10 +481,12 @@ ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電
                 # どうなさいましたか と 急かすのは最悪な手ですよ。」・18時03分49秒「(1) ア」（flowctl.HESITATING・Flow._hesitation＝選ぶ助けを伝えて促す）
                 HESITATING: "どの答えにするかを迷っている・決めかねている、と言い終えた（答えのあいだで迷っている気持ちを言った。答えではない）",
                 # ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(1)…判定の選べるものに「もう一度言ってほしい」を足します。…OK」（flowctl.REPEAT・
-                # Flow._repeat_now）。分かれ目は意味で書く：こちらに別のこと（名前・会社名・意味）を尋ねたのではなく、伺ったことをもう一度言ってほしい
-                REPEAT: "直前にこちらが伺ったこと（質問・確かめの一言）が聞こえなかった・聞き取れなかったので、もう一度言ってほしいと頼んだ（もう一度とは"
-                        "言わなくても、聞こえなかった・聞き取れなかったと言ったのも。こちらの名前・会社名や、伺ったことの意味など、ほかのことを尋ねたの"
-                        "ではない。答えではない）",
+                # Flow._repeat_now）。分かれ目は意味で書く：こちらに別のこと（名前・会社名・意味）を尋ねたのではなく、こちらが言ったことをもう一度言ってほしい。
+                # 範囲は流れの制御が言い直すものと同じ（11-08 の A-3＝お答え・ご説明も言い直す・伺い76＝待っていただく一言も言い直す＝Flow._wait_again）。
+                # ⛔ 72dbd454 まで「伺ったこと（質問・確かめの一言）」だけで、流れの制御が言い直すものより狭かった
+                REPEAT: "直前にこちらが言ったこと（伺ったこと・お答えしたこと・お待ちいただくようにお願いしたことなど）が聞こえなかった・聞き取れなかったので、"
+                        "もう一度言ってほしいと頼んだ（もう一度とは言わなくても、聞こえなかった・聞き取れなかったと言ったのも。こちらの名前・会社名や、"
+                        "こちらが言ったことの意味など、ほかのことを尋ねたのではない。答えではない）",
                 # 残り（代わった人が話し始めた・決められない）は KIND_DESC のまま（1か所。⛔ 11-06 1時台に、ここを手で並べて「決められない」を落とした）
                 **{k: d for k, d in KIND_DESC.items() if k != HOLD}}
 
@@ -590,11 +597,35 @@ REPLIED_NOTE = (f"（{PROMPTED}は、お客様に尋ねられたことへの答�
                 f"気になる点・ご事情などのお話をしたときは、お返事だけではありません）")
 
 
+# 質問のあとにこちらが言った一言が「もしもし？」（伺ったあと黙られて、こちらの声が届いているかを確かめた一言＝flowctl.QUIET_STEPS の "asked" の1つ目）のときの
+# 読み方。その一言へのお返事（「はい」「もしもし」「聞こえてます」）は聞こえているということ＝質問への「はい」と決めつけない（11-13 20時06分19秒「「あ、はい、
+# 分かりました。」は…一言に対して答えてる可能性があるので、気をつけないといけないよ。」と同じ理由）。上の PROMPTED_NOTE の例（「大丈夫です」＝気になる点は無い）は、
+# 声が届いているかを確かめた一言には当たらない。お返事だけかを読む項目は同じ（PROMPT_REPLY）。✅ 2026-11-19 日本時間15時10分27秒 ユーザー「伺い49：エ」
+HEARD_NOTE = (f"（{PROMPTED}は、お客様が黙っていたので、こちらの声が届いているかを確かめた言葉です。お客様の言葉が、その声かけへのお返事だけ（「はい」「もしもし」"
+              f"「聞こえてます」など＝聞こえているということ）で、質問への答えをはっきり言っていなければ「{UNDECIDED}」を選び、"
+              f"{PROMPT_REPLY_HEADING}（{PROMPT_REPLY}）は「{PROMPT_REPLY_YES}」を選びます。質問への答えをはっきり言っていれば、その答えを選びます。"
+              f"気になる点・ご事情などのお話をしたときは、声かけへのお返事だけではありません）")
+
+
+# 質問のあとにこちらが言った一言が「少々お待ちいただいてもよろしいでしょうか？」（お客様のお話に会話AIがまだ返事をしていない間に、こちらの声が出ていないので流した
+# 一言＝flowctl.QUIET_STEPS の場面 ours・見分けは flowctl.waiting_line の1か所）のときの読み方。お客様が質問に答えたお話（その前に相手が言ったこと）は、まだこちらが
+# 受けていない。その一言へのお返事（「はい」「大丈夫ですよ」「どうぞ」）は待ってよいということ＝質問への「はい」と決めつけない（11-13 20時06分19秒「「あ、はい、
+# 分かりました。」は…一言に対して答えてる可能性があるので、気をつけないといけないよ。」と同じ理由）。お返事だけかを読む項目は同じ（PROMPT_REPLY）。分身 AF
+# （まとめ役の頼み rv144/AF の (1)＝分身 AD の伺い A の (ア)）。⛔ a5699306 まで、判定はこの一言を知らず、「いえ、まだです。」のあとの「はい、大丈夫ですよ。」を
+# ご予約の「はい」と読みえた（依頼者へ逆の答え）
+WAIT_NOTE = (f"（{PROMPTED}は、お客様のお話にこちらがお返事する前に、お待ちいただくようにお願いした言葉です。お客様の言葉が、そのお願いへのお返事だけ（「はい」"
+             f"「大丈夫ですよ」「どうぞ」など＝待ってよいということ）で、質問への答えをはっきり言い直していなければ「{UNDECIDED}」を選び、"
+             f"{PROMPT_REPLY_HEADING}（{PROMPT_REPLY}）は「{PROMPT_REPLY_YES}」を選びます。このお願いへの「はい」は、質問への「はい」ではありません。"
+             f"質問への答えを新しく言ったときは、その答えを選びます。急いでいる・ご事情などのお話をしたときは、お願いへのお返事だけではありません）")
+
+
 def prompted_note(line: str) -> str:
     """質問のあとにこちらが言った一言（Question.prompted）の読み方の注意書きを選ぶ唯一の場所（prompt_parts）：黙ったあとの一言（flowctl.QUIET_LINES）なら声かけの
-    読み方（PROMPTED_NOTE）、ほかは尋ねられた答え・受け答えの読み方（REPLIED_NOTE）。"""
-    from flowctl import QUIET_LINES
-    return PROMPTED_NOTE if line in QUIET_LINES else REPLIED_NOTE
+    読み方（声が届いているかを確かめた「もしもし？」＝flowctl.hearing_check の1か所なら HEARD_NOTE・こちらの声が出ていないときの待っていただく一言＝
+    flowctl.waiting_line の1か所なら WAIT_NOTE・ほかは PROMPTED_NOTE）、ほかは尋ねられた答え・受け答えの読み方（REPLIED_NOTE）。"""
+    from flowctl import QUIET_LINES, hearing_check, waiting_line
+    return (HEARD_NOTE if hearing_check(line) else WAIT_NOTE if waiting_line(line) else PROMPTED_NOTE if line in QUIET_LINES
+            else REPLIED_NOTE)
 
 
 def scene(q, text: str, asked: str | None = None, before: str | None = None) -> dict:
@@ -757,7 +788,13 @@ def answer_items(q, asked: str | None = None) -> dict:
     # 読みを組み合わせるのは flowctl.talked_away の1か所）も。✅ 2026-11-13 日本時間22時17分01秒「9は…」を本番で働かせる（意味は判定が読む＝11-08 12時11分40秒。
     # ⛔ 分身 D の f5fa2a9c までは、流れの制御は読みを使うのに問い合わせに入れていなかった＝本番の判定は読まず、伺い9 が働かなかった。⛔ 0c55c4e7 までは言い直しの
     # 確かめに読ませなかった＝見直し (12) の A-9・B-3）。答えの段の業務の質問・言い直しの判定の文が変わる＝整理が済んでからの1回の測りで測る（帳面 1 の (1)）
-    return (side_items(False) | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
+    # ほかの会社に頼んでいるのがご案内全体かを読む項目だけ、お客様が聞いた用件の一文を説明に入れる（判定に見せる質問の heard_purpose＝flowctl.Flow.for_judge の1か所。
+    # ほかの項目・質問の文は変えない。✅ 2026-11-19 まとめ役 CL-1 の頼み (2)）
+    purpose = {ELSEWHERE: elsewhere_choices(False, p)} if (p := getattr(q, "heard_purpose", "")) else {}
+    # こちらがかけた電話番号が違うと伝えたか（WRONG）の番号違いの説明は、かけた番号がお呼びした方ご本人の電話か（判定に見せる質問の own_phone＝flowctl.Flow.for_judge の
+    # 1か所）で替える（表 SIDE_ITEMS の既定は会社・お店の電話。ほかの項目・質問の文は変えない。分身 AC＝まとめ役 CL-1 の頼み rv140/AC の (1)）
+    own = {WRONG: wrong_choices(False, True)} if getattr(q, "own_phone", False) else {}
+    return (side_items(False) | purpose | own | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
             | ({AWAY: away_choices(False, True)} if away_fits(q, bool(asked)) else {}))
 
 
@@ -1239,11 +1276,14 @@ JEV_ITEMS = {END: "お客様の言葉は、この電話を終える言葉に当�
 JEV_ITEMS[AWAY] = ("お客様の言葉は、質問の答えの話ですか、それとも答えの話ではない別のお話ですか？（答えとは別に読みます。" + NOW_ONLY
                    + "。境目は選べるものの説明＝flowctl.away_choices の1か所）")   # ✅ 2026-11-13 日本時間22時17分01秒「9は…」（flowctl.AWAY）
 # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。flowctl.ELSEWHERE・said_elsewhere）
-JEV_ITEMS[ELSEWHERE] = ("お客様は、こちらがご案内している事柄を、ほかの会社に頼んでいる・ほかの会社のものを使っていると言いましたか？（答えとは別に読みます。"
-                        + NOW_ONLY + "）")
+# ご案内全体か、いまの質問のことだけかも同じ項目で読む（✅ 2026-11-19 日本時間15時10分27秒 ユーザー「伺い48：ア-2」。境目は選べるものの説明＝flowctl.elsewhere_choices の1か所）
+JEV_ITEMS[ELSEWHERE] = ("お客様は、こちらがご案内している事柄を、ほかの会社に頼んでいる・ほかの会社のものを使っていると言いましたか？言ったなら、ご案内全体のことですか、"
+                        "いまの質問のことだけですか？（答えとは別に読みます。" + NOW_ONLY + "）")
 # お呼びする段だけの2つ（flowctl.offer_choices・absent_why_choices。項目ごとに答える質問の Jev の問いは見出しから作る＝jev_request。表をそろえるための問い）
 JEV_ITEMS[OFFER] = "電話に出ている方は、こちらに何か申し出ましたか？（答えとは別に読みます。" + NOW_ONLY + "）"
 JEV_ITEMS[ABSENT_WHY] = "いまお呼びしている方が電話に出られないなら、その理由はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）"
+# 答えの段だけ（flowctl.wrong_choices・wrong_said。お呼びする段は「お呼びした方の事情」の項目が読む。分身 AC）
+JEV_ITEMS[WRONG] = "お客様は、こちらがかけた電話番号が違うと伝えましたか？（答えとは別に読みます。" + NOW_ONLY + "）"
 assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
 
 

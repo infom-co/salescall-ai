@@ -318,8 +318,10 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             held = play_for() if (play_for is not None and running and not info.get("incomplete")) else None
             if held is not None:
                 info["held_play"], extra = held["part"], clip_s(held["part"]) if clip_s is not None else 0.0
-            else:
-                info["held_ack"] = "hai"
+            elif "held_ack" not in info:
+                # 待つ間の「はい、」は流れの制御に聞く（Flow.hold_ack の1か所：この発話にもう「はい、」を流していれば何も流さない＝会話AIが黙ったときのつなぎの「はい、」と
+                # 重ねない・設計書 1-2。返事の相づちの「はい、」を重ねないのも流れの制御＝Flow._ack）
+                info["held_ack"] = flow.hold_ack()
         deadline = max(ready, quiet) + flow.limits.judge_wait_s(extra)   # 会話の側の待つ長さが切れる時（待つ間に流す録音の分を延ばす＝1か所）
         if waits and not info.get("incomplete"):  # 出揃っていなければ、判定を待っても使わない（流れの制御は決めずに待つ）
             await asyncio.wait(waits, timeout=max(0.0, deadline - loop.time()))
@@ -356,7 +358,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         待つ長さは会話の側の1か所（flow.limits.hold_s）：切れる時に組へ合図（release）し、組が持っている読みを受ける（意味の判定と同じ＝RELEASE_GRACE_S。
         ⛔ 2026-11-06 日本時間8時台：中身の判定の組は、先に出す Jev がまだ答えていない間、届いた考える Sonnet の読みを組の既定値まで持ち、会話の側が
         待つのをやめると、届いていた読みを使わずに受け皿へ回していた）。"""
-        info.setdefault("held_ack", "hai")
+        if "held_ack" not in info:
+            info["held_ack"] = flow.hold_ack()   # 待つ間の「はい、」（流れの制御の1か所＝Flow.hold_ack）
         done, _ = await asyncio.wait([task], timeout=max(0.0, t0 + flow.limits.judge_wait_s() - loop.time()))
         if task not in done:
             release.set()
@@ -670,6 +673,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                # ack：その報告が届いた瞬間に、電話接続側が流す相づち（flowctl.Flow._ack。試験では流さず、時刻と中身だけを記録する）
                "tool_events": [{"at_s": live.get("at_s"), "answered_s": live.get("answered_s"), "name": log["op"], "args": log["args"],
                                 "reply": log["reply"].get("result"),
+                                # 聞き返しの何回目か（お呼びする段の聞き返しで流した確かめる一言を、確かめの数に入れない＝scenes.confirms_to）
+                                "ask_n": log["reply"].get("ask_n"),
                                 "ack": log["reply"].get("ack"), "say": log["reply"].get("say"), "play": log["reply"].get("play")}
                                for live, log in zip([e for e in r["events"] if e["kind"] == "tool_call"], flow.log[log_start:])],
                "first_audio_after_s": r["first_audio_after_s"], "finished_after_s": r["finished_after_s"],
@@ -985,6 +990,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             "not_reached": flow.not_reached,  # 目的の人に繋がらずに終わった理由（会話の報告の not_reached。Flow.not_reached の1か所）
             "cut": flow.cut,  # 切れ方の材料（会話の報告の cut。Flow.on_line_end の1か所。CL-2 の 4-151）
             "apology_delivered": flow.apology_delivered,  # お詫びの電話で、お詫びを伝えられたか（会話の報告の apology_delivered。お詫びの電話でなければ None）
+            "apologies_delivered": flow.apologies_delivered,  # 頭のお詫びを、予約証のお詫びの理由ごとに最後まで流せたか（会話の報告の apologies_delivered）
             "irreversible_check": flow.irreversible_check,  # 取り消せない事実と2つ目の判定がそろったか（Flow._note_irreversible の1か所。CL-2 の 4-182 の (1)）
             "checked_after_call": before_after - len(flow.unchecked()),
             "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear else None,

@@ -407,6 +407,13 @@ def status() -> str:
     return "\n".join([f"要約の区切り（日本時間{jst(reading['boundary'])}）の 0-1：残り {len(left)} 本（読んだ {len(done)} 本）", *left])
 
 
+def code_head(text: str) -> bool:
+    """頭がコードの名前（` `）の一言か（一言は「次に、」から打ち始める＝帳面 0-1 の書き方）。英語の見分け（read_user_messages.english）は
+    コードの名前を数えないので、英語の一言の数えとは別に見る＝英語の数え（--english）は変えない。
+    ⛔ 2026-11-19 日本時間22時57分〜23時11分（「`judged_turn` を…」など6回）・11-03 からの35回：見張りも数える道具も止めなかった。"""
+    return text.lstrip().startswith("`")
+
+
 def verdict(hook: dict) -> str | None:
     """止める理由（止めないなら None）。要約の区切りを先に見る（記録の末尾は1回だけ読み、2つの見張りで使う）。"""
     rows = _tail_rows(hook["transcript_path"])
@@ -425,12 +432,18 @@ def verdict(hook: dict) -> str | None:
     if isinstance(last, str) and last:
         lines.append((last_step(rows), last))   # 記録にまだ無い最後の返事（記録に入っても同じ印）
     mark = lambda key, t: hashlib.sha1(f"{key}\n{t}".encode("utf-8")).hexdigest()   # noqa: E731
-    bad = [(key, t) for key, t in dict.fromkeys(lines) if english(t) and mark(key, t) not in done]
+    bad = [(key, t) for key, t in dict.fromkeys(lines) if (english(t) or code_head(t)) and mark(key, t) not in done]
     if not bad:
         return None
     done |= {mark(key, t) for key, t in bad}
     STATE.write_text(json.dumps(sorted(done)), encoding="utf-8")
     said = "」「".join(dict.fromkeys(t.strip()[:100] for _, t in bad))
+    if not any(english(t) for _, t in bad):
+        where = "返事" if stop else "一言"
+        then = "返事を終えてください。" if stop else "もう一度呼んでください。"
+        head = "" if stop else "この道具は呼んでいません。"
+        return (f"⛔ 最近の{where}の頭がコードの名前です（「{said}」）。{head}「次に、」から打ち始めて書き直し、"
+                f"経過の記録（docs/team/CL-1_HISTORY.md の末尾の「失敗の記録」）に書いてから、{then}")
     if stop:
         return (f"⛔ 最近の返事が英語です（「{said}」）。日本語で書き直し、経過の記録（docs/team/CL-1_HISTORY.md の末尾の「失敗の記録」）に書いてから、"
                 "返事を終えてください。")

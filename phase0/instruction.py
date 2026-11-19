@@ -14,11 +14,12 @@ from dataclasses import dataclass, field
 
 from flowctl import notice  # AIへの知らせの枠の唯一の場所
 from flowctl import approval_explanation, CloseOffer, KNOWN_HEADS, TALK_RECEIVE, label, offer_questions
+from flowctl import DEFAULT_BUSINESS_HOURS, DEFAULT_DESIGNATED_LIMIT
 from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
                      check_policies, choices_note, offers_rule, opening_question, resumed_call, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, standard_message, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, mobile_confirm, role_honorific, standard_message, target_call, target_transfer, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -97,6 +98,16 @@ class Target:
     def reconfirm(self) -> str:
         return SUCCESSOR["target_reconfirm"] if self.successor else target_reconfirm(self._name(), self.role)
 
+    def mobile_confirm(self) -> str:
+        """かけた番号が携帯電話の番号のときの、2回目の聞き返しの確かめる一言（phrases.mobile_confirm。お名前は確かめる一言と同じ呼び方）。お名前の無い目的のお客様
+        （役職だけ）・後任のご担当者様は空＝作らない（flowctl.Flow._calling_unheard は「もう一回よろしいでしょうか？」のまま）。"""
+        return "" if self.successor else mobile_confirm(self._name())
+
+    def transfer(self) -> str:
+        """呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（phrases.target_transfer。呼び名は呼ぶ一言と同じ。法人だけ＝個人の
+        お客様は空＝作らない。後任のご担当者様は共通の一言の録音 SUCCESSOR＝flowctl.Flow が差し替える）。✅ 2026-11-19 日本時間15時10分27秒 伺い51 のイ"""
+        return target_transfer(self.kind, self._name(), self.role)
+
     def promise_again(self) -> str:
         """約束の電話で取り次げないと言われたときに伺う一言（お名前は確かめる一言と同じ呼び方）。"""
         return PROMISE_AGAIN.format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
@@ -124,6 +135,14 @@ class Target:
     def unavailable_confirm(self) -> str:
         """理由を言わずに取り次げないと言われたときに、お呼びした方のご事情かを伺う一言（お名前は確かめる一言と同じ呼び方。flowctl.Flow._transfer_unclear）。"""
         return SUCCESSOR["unavailable_confirm"] if self.successor else unavailable_confirm(self._name(), self.role)
+
+
+# 業務設定の会話の秒と時間：CL-2 の設定の名前 → 業務の入口（Business）の欄の名前（唯一の表＝Business.with_call_settings が読み、Business.flow が流れの制御へ渡す）。
+# 読むのは CL-2 の conversation_io.call_setting（会話の処理が読める名前の頭＝CL-2 の CALL_SETTING_PREFIXES。callee. は CL-2 に足していただく＝CL-2 の連絡帳 4-405 の (1)
+# への答え）。RANGE_SETTINGS＝時間の組の欄（CL-2 の設定の形 daily_range＝["HH:MM", "HH:MM"]）
+CALL_SETTINGS = {"callee.business_hours": "business_hours", "callee.designated_limit": "designated_limit", "call.hold_wait": "hold_wait_s",
+                 "call.silence_prompt_after": "silence_prompt_after", "call.wait_ask_after": "wait_ask_after", "call.filler_after": "filler_after"}
+RANGE_SETTINGS = ("business_hours", "designated_limit")
 
 
 @dataclass
@@ -213,14 +232,24 @@ class Business:
     # 番号を伺い直す電話（予約証の目的 ask_number_again）：前の電話で伺った番号がどうだったか（phrases.NUMBER_AGAIN の鍵＝wrong_party・unreachable）。
     # 名乗りのあとに伺い直す一言で番号を伺い、答えはかけ直しの申し出（別の番号）として残す（CL-2 の 4-42）。流れの制御 Flow の number_again
     number_again: str | None = None
-    # 取り次ぎ・保留で待つ長さ（秒。業務ごとに選べる。✅ 2026-10-24 ユーザー：「デフォルト、相手から長く待つ必要がある理由がなければ5分、理由があれば
-    # それまで待つ」＝相手が長さを言えば、その長さ。flowctl.Flow の hold_wait_s）
+    # 取り次ぎ・保留で待つ長さ（秒。業務ごとに選べる＝CL-2 の設定 call.hold_wait。✅ 2026-10-24 ユーザー：「デフォルト、相手から長く待つ必要がある理由がなければ5分、
+    # 理由があればそれまで待つ」＝相手が長さを言えば、その長さ。flowctl.Flow の hold_wait_s）
     hold_wait_s: int = 300
     # 黙ったときの一言の秒（流れの制御が、場面ごとの一言と一緒に決める＝flowctl.QUIET_STEPS・Flow.on_silence）：1つ目の一言までの秒（契約者が変えられる設定
-    # call.silence_prompt_after。初め5秒＝✅ 2026-10-14 ユーザー）と、理由を言わずに待つように言われ、1つ目の一言のあとも黙られたときに待つかかけ直すかを伺うまでの秒
-    # （同じ置き場の形の設定＝CL-2 に足していただく。初め20秒。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い24）「それでもしばらく黙られていたら」。⏳ 秒はユーザーに確かめる）
+    # call.silence_prompt_after。初め5秒＝✅ 2026-10-14 ユーザー）と、同じ所の一言を言い終えたあとも黙られたときに待つかかけ直すかを伺うまでの秒（同じ形の設定
+    # call.wait_ask_after＝CL-2 の表の作り 0224・業務ごと。初め20秒＝✅ 2026-11-15 日本時間23時08分40秒 ユーザー「伺い28：ア」。場面は 11-15 日本時間21時55分35秒
+    # （伺い24「それでもしばらく黙られていたら」）・11-18 日本時間21時00分23秒（伺い43「ウ」＝どの場面の並びも最後は伺う））
     silence_prompt_after: float = 5
     wait_ask_after: float = 20
+    # 会話AIが声も報告も出さずに、お客様に何も聞こえない時間がこの秒続いたら、つなぎの「はい、」・さらにこの秒で待っていただく一言（流れの制御の
+    # こちらの声が出ていない場面＝flowctl.QUIET_STEPS の OUR_SCENE。CL-2 の設定 call.filler_after＝表の作り 0024・初め2秒＝✅ 2026-10-16 ユーザー「つなぎありの方が自然、2秒でOK」）
+    filler_after: float = 2
+    # お客様の営業時間・お客様指定の歯止め時間（CL-2 の設定 callee.business_hours・callee.designated_limit。業務ごと。("HH:MM", "HH:MM") か時の数の組。日をまたいで
+    # よい）：言われた時刻に午前・午後が無いときに補う・伺うかを決める（flowctl.fill_ampm・日時の2択の段＝flowctl.Flow の business_hours・designated_limit）。
+    # 初めの値は流れの制御と同じ（flowctl.DEFAULT_BUSINESS_HOURS＝会社 9:00〜19:00・DEFAULT_DESIGNATED_LIMIT＝7:00〜22:00）。⛔ 66eb3d76 まで、業務の入口に欄が無く、
+    # 流れの制御はどの業務でも初めの値で決めていた（CL-2 の連絡帳 4-405 の (1)）
+    business_hours: tuple = DEFAULT_BUSINESS_HOURS
+    designated_limit: tuple = DEFAULT_DESIGNATED_LIMIT
     # お詫びの電話（予約証の目的 apology）：伝える文（CL-2 の apology.for_task の text。承認したときに聞いていただいた録音で流す）。業務の質問はしない
     apology_call: str | None = None
     # その文が、いつの電話のことか（same_day＝同じ日「先ほど」・later＝あとの日「先日」。CL-2 の apology.for_task が選んだ文の部分
@@ -229,6 +258,11 @@ class Business:
     # 前の通話の答え（earlier）をいただいた、いちばん新しい電話が今日か（same_day・later。答えが無ければ None。予約証の earlier_when＝CL-2 の core/apology.earlier_when
     # の1か所・4-389）。読むのは引き継ぎを確かめる一言の「先日／先ほど」（flowctl.carried_ask。CL-1 の連絡帳 4-148 の「頼みたいこと (同じ日か)」）
     earlier_when: str | None = None
+    # この電話でかける番号（予約証の phone_e164＝CL-2 の core/gate.Claim.phone_e164 をそのまま写す。E.164 の「+81…」の形も、0 から始まる形も読める＝flowctl.number_kind）。
+    # 会話の側が読むのは、携帯電話の番号か（flowctl.is_mobile の1か所）だけ＝流れの制御へは真偽だけを渡す（Flow の dialed_mobile。番号そのものは判定・会話AIへの文・
+    # 通話の事実に入れない）。読むのは、お呼びする段で聞き取れないお返事の2回目の聞き返しの言い方（Flow._calling_unheard）。✅ 2026-11-19 日本時間14時18分13秒
+    # ユーザー「伺い54：イ　ただし、携帯番号の場合は、2回目は「申し訳ございません、「おかだ」様で大丈夫でしょうか？」」。None＝分からない（携帯ではない側＝今の言い方）
+    phone_e164: str | None = None
     # 約束の電話などの頭で流す、承認したお詫びの文（予約証のお詫びの理由 forbidden_speech のとき要る＝CL-2 の apology.for_task の text。承認したときに聞いて
     # いただいた録音で流す＝お詫びだけの電話の apology_call と同じ流し方。並べる順は flowctl.apology_order の1か所）。✅ CL-2 の 4-350 の (2)
     apology_text: str | None = None
@@ -340,18 +374,31 @@ class Business:
         """この業務・この電話の流れの制御（flowctl.Flow）を作る唯一の場所（通話の駆動側・試験の両方）。recorded＝名乗りを録音で流す形（本番の形＝
         DESIGN.md 6-13。流し直しにも使う）。目的の人のある業務は、繋がるまで最初の質問を渡さない（DESIGN.md 4-3）＝名乗り・用件の文は、
         AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
-        from flowctl import Flow
+        from flowctl import Flow, is_mobile
         return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, client_does=self.client_does, handoff_ways=tuple(self.handoff_ways),
                     close_offer=self.close_offer, way_words=self.way_words, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
                     answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
                     name_readings=self.name_readings(), judge_names=self.judge_names(),
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か・担当の方が替わった電話か
                     promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again, handover=self.handover,
-                    hold_wait_s=self.hold_wait_s, silence_prompt_after=self.silence_prompt_after, wait_ask_after=self.wait_ask_after, apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
-                    earlier_when=self.earlier_when,
+                    # 業務設定の会話の秒と時間（CALL_SETTINGS の1か所＝with_call_settings が CL-2 の設定から入れる）
+                    hold_wait_s=self.hold_wait_s, silence_prompt_after=self.silence_prompt_after, wait_ask_after=self.wait_ask_after,
+                    filler_after=self.filler_after,
+                    business_hours=tuple(self.business_hours), designated_limit=tuple(self.designated_limit),
+                    apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
+                    earlier_when=self.earlier_when, dialed_mobile=is_mobile(self.phone_e164),
+                    personal=self.target is not None and self.target.kind == "個人",
                     successor=self.target is not None and self.target.successor,
                     target=self.replay_parts() if self.target is not None else None,
-                    opening=self.replay_parts() if recorded else None, **kw)
+                    opening=self.replay_parts() if recorded else None,
+                    # 業務の録音が無い通話で、お客様が聞いた用件として判定に見せる（flowctl.Flow._heard_purpose）
+                    purpose=self.purpose_line or self.purpose_noun, **kw)
+
+    def with_call_settings(self, read) -> "Business":
+        """業務設定の会話の秒と時間（CALL_SETTINGS の欄）を、CL-2 の設定から入れたこの業務の入口（唯一の場所＝電話を始めるときに、つなぐ所が呼ぶ）。read＝設定の名前 →
+        値（CL-2 の conversation_io.call_setting(tx, 試行, 名前)。業務 → 依頼者 → 契約者 → システムの順で細かいほうが勝つ＝CL-2 の settings.resolve）。時間の組は組に、
+        秒はそのまま。CL-2 の連絡帳 4-405 の (1)"""
+        return dataclasses.replace(self, **{name: (tuple(v) if name in RANGE_SETTINGS else v) for key, name in CALL_SETTINGS.items() for v in [read(key)]})
 
     def spoken_names(self) -> list[str]:
         """声に出す名前（表記と読み）：社名・担当者名・お呼びした方の名前・読みの決まらない名前。名前は録音だけで言い、AIの自分の言葉には入れない
@@ -454,7 +501,8 @@ class Business:
         文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）と、
         その返事がはっきりしないときの聞き返し（target_reconfirm）と、約束の電話で取り次げないと言われたときに伺う一言（promise_again）と、
         法人なら前任の方の後任のご担当者様をお呼びする一言（target_successor）も。
-        お名前の入る7つ（target・target_confirm・target_reconfirm・promise_again・unavailable_confirm・target_successor・target_full＝フルネームのあるときだけ）は、業務の録音の組ではなく、名前の録音の
+        お名前の入る部分（target・target_confirm・target_reconfirm・promise_again・unavailable_confirm・carried_target・target_successor・target_full＝フルネームのあるときだけ・
+        mobile_confirm＝お名前のある目的のお客様だけ・target_transfer＝法人の目的のお客様だけ）は、業務の録音の組ではなく、名前の録音の
         台帳（名前の部分＋続く言葉。DESIGN.md 4-3）から流す。どの行が約束の電話・後任の方の電話になるかは、取込（台帳の録音を作る時）には
         分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す（CL-2 の 4-152）。
         この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
@@ -482,6 +530,14 @@ class Business:
                          promise_again=t.promise_again(),  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
                          unavailable_confirm=t.unavailable_confirm(),  # 理由を言わずに取り次げないと言われたとき（flowctl.Flow._transfer_unclear）
                          carried_target=t.carried_from())  # 続きの電話の判断いただける代わりの方への引き継ぎの確かめ（flowctl.carried_ask の "target"）
+            if t.transfer():
+                # 呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（flowctl.Flow._call_target。✅ 2026-11-19 日本時間15時10分27秒
+                # 伺い51 のイ＝かけた番号が携帯電話の番号なら流さない）。どの行が携帯電話の番号になるかは取込では決めない＝法人のどの電話にも返す
+                parts["target_transfer"] = t.transfer()
+            if t.mobile_confirm():
+                # かけた番号が携帯電話の番号のときの、聞き取れないお返事への2回目の聞き返しの確かめる一言（flowctl.Flow._calling_unheard。✅ 2026-11-19 日本時間14時18分13秒
+                # 伺い54 のイ）。どの行が携帯電話の番号になるかは取込では決めない（かける番号は予約証＝phone_e164）＝ほかの部分と同じく、お名前のある業務のどの電話にも返す
+                parts["mobile_confirm"] = t.mobile_confirm()
             if t.full_call():
                 parts["target_full"] = t.full_call()   # お名前だけでは分からないと言われたとき（部署・フルネーム。flowctl.Flow._who_unclear）
                 if t.successor_full_call():

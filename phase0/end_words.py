@@ -21,7 +21,7 @@
 """
 from __future__ import annotations
 
-from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, END_ANGRY, END_BRIEF, END_HURRY, END_NONE, END_REASONED, END_REFUSED, END_UNCLEAR, END_WHO,
+from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, END_ANGRY, END_BRIEF, END_HURRY, END_NONE, END_REASONED, END_REFUSED, END_UNCLEAR, END_UPSET, END_WHO,
                      LATER, QUERY, QUERY_NO, REFUSED_LABEL, THINKING, UNDECIDED, WHY_NOT_SAID)
 
 YES_NO = ("はい", "いいえ")
@@ -86,6 +86,9 @@ ANSWER = [
     (RESERVED, "たぶん予約してると思います。", (END_NONE,), ("はい" + HEDGED,), False, "事実を伺う質問（6時05分・依頼者がすること＝初めの値の記録）"),
     (RESERVED, "そういうお電話はちょっと……。", (UNDECIDED,), (UNDECIDED,), False, "電話を断っていそうだが言い切っていない・答えでもない"),
     (RESERVED, "結構です。", (UNDECIDED, END_NONE), (UNDECIDED,), False, "10-17「その言葉だけで通話の断りとして締めない」"),
+    # 答えを断る言葉が強いとき（分身 AE の書き置き rv140/AE/notes.md の 2 の (2) 型 (c)＝まとめ役が決まりで決めた・分身 AG）：電話を終える言葉ではない（11-02 日本時間
+    # 3時59分・4時16分・11-01 23時59分「(a) OK」）・その質問は答えたくない＝✕で二度と伺わない（10-13）・受け取る返事の頭はお詫び「失礼いたしました。」（10-14）
+    (RESERVED, "言う筋合いはないと思います。", (END_UPSET,), ("refused",), False, "答えを断る言葉が強い＝不快な様子だが電話は続けてよい（お詫びから）"),
 ]
 
 # 答えとは別に読む項目（こちらへ尋ねた問いか・別のお話か）と、わからない・答えたくない理由の正解（g53_labels.json の行と同じ欄・同じ決め方＝F5 の 11-15：
@@ -113,6 +116,7 @@ SIDE = {
     (RESERVED, "忙しいんで。"): {**_Q, "reason": _WHY_UNSAID},
     (RESERVED, "そういうお電話はちょっと……。"): {**_Q, "reason": _WHY_UNSAID},
     (RESERVED, "結構です。"): {**_A, "reason": _WHY_UNSAID},
+    (RESERVED, "言う筋合いはないと思います。"): {**_A, "reason": _WHY_REFUSED},
     (RESERVED, "たぶん予約してると思います。"): _A,
     (PAMPHLET, "うーん。"): {**_Q, "reason": _WHY_UNSAID},
     (PAMPHLET, "結構です。もうかけてこないでください。"): _Q,
@@ -123,21 +127,21 @@ SIDE = {
 }
 
 # お呼びする段：(電話口の方, お客様の言葉, 電話を終える言葉かの正解, 理由, 項目ごとの正解の字)。項目ごとの正解の字は、お呼びする段の測り（g59_calling_judge
-# の F と同じ字＝前と同じ方か・誰か・電話のやり取り・お呼びした方の事情。並べた字のどれでもよい）。正解は、判定に見せる言葉（呼ぶ一言・その前に相手が
+# の F と同じ字＝前と同じ方か・誰か・電話のやり取り・お呼びした方の事情・5つ目は書いた行だけ＝お呼びした方が電話に出られない理由。並べた字のどれでもよい）。正解は、判定に見せる言葉（呼ぶ一言・その前に相手が
 # 言ったこと・お客様の言葉）だけから決める：受付の方の行は、呼ぶ一言への最初の言葉（その前の言葉は無い）・ご本人の行は、受付の方の
 # 「岡田ですね。少々お待ちください。」（BEFORE_TARGET）のあとに出た方の言葉
 BEFORE_TARGET = "岡田ですね。少々お待ちください。"
 CALLING = [
     ("受付の方", "うちはそういうのは間に合ってますので。", (END_REFUSED,), "営業のお断り", ("同", "受不", "無", "無")),
-    ("受付の方", "営業のお電話でしたらお繋ぎできません。", (END_REFUSED,), "10-22＝営業のお断り（もうかけない）", ("同", "受", "無", "無")),
+    ("受付の方", "営業のお電話でしたらお繋ぎできません。", (END_REFUSED,), "10-22＝営業のお断り（もうかけない）", ("同", "受", "無", "無", "無決")),
     ("受付の方", "お名前だけではどの者か分かりかねますので、お繋ぎできかねます。", (END_WHO,), "23時59分＝部署・フルネームを伝えてお呼びし直す",
-     ("同", "受", "無", "無")),
-    ("受付の方", "個人あてのお電話はお繋ぎしておりません。", (END_REASONED,), "10-22＝事情があって取り次げない（日を改めて1回）", ("同", "受", "無", "無")),
+     ("同", "受", "無", "無", "無決")),
+    ("受付の方", "個人あてのお電話はお繋ぎしておりません。", (END_REASONED,), "10-22＝事情があって取り次げない（日を改めて1回）", ("同", "受", "無", "無", "無決")),
     ("受付の方", "あいにく取り次ぐことはいたしかねます。", (END_UNCLEAR,), "11-01 5時26分＝理由を言わずに取り次げない", ("同", "受", "無", "無")),
-    ("受付の方", "岡田は本日終日外出しておりまして。", (END_NONE,), "お呼びした方の事情（電話を終える言葉ではない）", ("同", "受", "無", "在")),
+    ("受付の方", "岡田は本日終日外出しておりまして。", (END_NONE,), "お呼びした方の事情（電話を終える言葉ではない）", ("同", "受", "無", "在", "長")),
     ("受付の方", "結構です。", (UNDECIDED,), "10-17＝その言葉だけで断りとしない", ("同", "受不", "無", "無")),
-    ("受付の方", "申し訳ございません、今ちょっとバタバタしておりまして。", (END_HURRY,), "急いでいる（受付の方でも同じ伺い）", ("同", "受不", "無", "無")),
-    ("ご本人", "すみません、いま手が離せないので失礼します。", (END_HURRY,), "10-13「忙しい」とだけ＝急いでいる", ("違", "本不", "無", "無")),
+    ("受付の方", "申し訳ございません、今ちょっとバタバタしておりまして。", (END_HURRY,), "急いでいる（受付の方でも同じ伺い）", ("同", "受不", "無", "無", "後無決")),
+    ("ご本人", "すみません、いま手が離せないので失礼します。", (END_HURRY,), "10-13「忙しい」とだけ＝急いでいる", ("違", "本不", "無", "無", "後無")),
     ("ご本人", "何度も同じ電話してきて、いい加減にしてください！", (END_ANGRY,), "怒っている・苦情", ("違", "本不", "無", "無")),
 ]
 
@@ -220,11 +224,9 @@ def calling_flow(row: tuple):
     _, words, ends, _, _ = row
     if ends[0] == END_NONE:
         return None
-    import dataclasses
     from flowctl import Flow
-    from g22_opening import BUSINESS
-    from instruction import Target
-    b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長", full_name="岡田太郎", full_reading="おかだたろう"))
+    import g59_flow_check as fc
+    b = fc.b_full   # 測りの業務（フルネームのある形）の唯一の定義（g59_flow_check.b_full。⛔ d8d03a78 まで、ここにも同じ定義を書いていた＝頼み rv140/AB の (2) の (b)）
     f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts())
     f.use_checks("judge")
     f.on_callee(); f.on_heard(words); f.on_check("judge", _reading(UNDECIDED, ends[0]))

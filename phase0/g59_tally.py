@@ -54,17 +54,17 @@ def _hear_rows() -> frozenset:
 
 def hear_only(r: dict) -> bool:
     """聞こえ方だけを数える行（試しの言葉 G-73。ほかの項目は正解を付けていない＝流れの制御の動きは数えない＝g59_calling_judge の run の hear_only）。"""
-    return not r["before"] and not r["successor"] and (r["text"], bool(r["asked"])) in _hear_rows()
+    return (not r["successor"] and (r["text"], bool(r["asked"])) in _hear_rows()
+            and (r["before"] or None) == g.hear_before(bool(r["asked"])))   # 前の言葉は試しの言葉の行の1か所（hear_before）
 
 
 def right_readings(got: dict, facts: dict) -> list[dict]:
     """正解の項目ごとの答えの組み合わせの全部。項目を足す前の記録（got に無い、あとから足した項目 g.ADDED）は、その項目を読みに入れない
-    （g59_calling_judge.facts_ok と同じ決まり）。正解をまだ付けていない項目（g.UNLABELED のうち正解の表に無いもの）は、判定の読みをそのまま入れる
-    （外れと数えない）。"""
+    （g59_calling_judge.facts_ok と同じ決まり）。⛔ 2026-11-19 日本時間21時台まで、正解をまだ付けていない項目（相手の申し出・電話に出られない理由）は
+    判定の読みをそのまま入れていた（外れと数えない）＝正解の表に正解を付けて外した。"""
     from itertools import product
     keys = [k for k in facts if not (k in g.ADDED and k not in got)]
-    open_ = {k: got[k] for k in g.UNLABELED if k not in facts and got.get(k) is not None}
-    return [dict(zip(keys, c)) | open_ for c in product(*(sorted(facts[k]) for k in keys))]
+    return [dict(zip(keys, c)) for c in product(*(sorted(facts[k]) for k in keys))]
 
 
 def off_reports(got: dict, facts: dict, r: dict) -> list[str]:
@@ -379,7 +379,6 @@ def cascade(stages: list[str]) -> dict:
     from flowctl import ASKED
     from meaning_judge import RACE, leads_of, members_for, question_kind
     table = current()
-    _, f, fs = g.flows()
     have: dict[str, dict] = {}                         # 判定の名前 ⇒ {(場面の鍵, 回): (行, 列)}
     for spec in stages:
         name, c = source(spec, "judge2")
@@ -393,11 +392,10 @@ def cascade(stages: list[str]) -> dict:
     for k, rep in sorted({kr for h in have.values() for kr in h}, key=str):
         acc, facts = table[k]
         sc_row = next(h[(k, rep)][0] for h in have.values() if (k, rep) in h)
-        fl = fs if sc_row["successor"] else f
-        target_q = g.question_of(fl, sc_row["asked"])
+        shown = g.judge_questions(sc_row)   # 判定に見せる質問は、行の場面の本番の流れの制御の1か所（Flow._calling_asked）
         sc = scene(sc_row)
         for part, sfx in PARTS:
-            q = target_q if sfx == "" else fl.for_judge(fl.asks_questions[target_q.id])
+            q = shown[0] if sfx == "" else shown[1]
             names = members_for(RACE, question_kind(q))
             runs = []
             for n in names:

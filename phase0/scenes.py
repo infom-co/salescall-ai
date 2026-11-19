@@ -21,9 +21,10 @@ from g22_opening import BUSINESS, W
 from g30_latency import keep_call
 from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import VOICE_TYPES, Target
-from make_callee_samples import verified
+from make_callee_samples import UTTERANCES, talk_name, text_and_how, verified
 from meaning_judge import STANDIN, add_judge_args, make_judges
 from flowctl import OWN_PARTS, PROMISE, refusal_in
+from review_words import TALK_WORDS, questions as review_questions
 from phrases import CLOSE_DECLINED, CLOSING, STANDARD_PARTS
 
 # 目的の人のある業務（DESIGN.md 4-3）：営業部部長の岡田様
@@ -161,6 +162,14 @@ def replies_to(call: dict, *wav_names: str) -> list[str]:
     return [e["reply"] for t in call["turns"] if any(_line_of(t).endswith(f"_{w}.wav") for w in wav_names) for e in t.get("tool_events") or []]
 
 
+def confirms_to(call: dict, *wav_names: str) -> int:
+    """その台詞へのAIのターンで、流れの制御が目的の人かを確かめた数（確かめる一言）。お呼びする段の聞き返しで流した確かめる一言（携帯電話の番号の2回目＝
+    flowctl.Flow._calling_ask_back の印 ask_n。✅ 2026-11-19 日本時間14時18分13秒 伺い54 のイ）は聞き返しなので数えない（分身 O の書き置き rv105/O/notes.md の
+    4. の (3)：数えると、携帯電話の番号を渡す場面で「確かめは1人に1回」が外れる）。"""
+    return sum(1 for t in call["turns"] if any(_line_of(t).endswith(f"_{w}.wav") for w in wav_names)
+               for e in t.get("tool_events") or [] if e.get("reply") == "confirm_target" and not e.get("ask_n"))
+
+
 def not_the_target(*wav_names: str):
     """目的の人ではない方（wav_names の台詞の方）が出たあと、取り次がれて岡田様が出る場面の確かめ（DESIGN.md 4-3・Flow._calling_reported）。
     ✅ 2026-10-21 ユーザー：「二つ以上揃わなかった場合に関しても正しく設計できているんですか？」⇒ 別の方には繋がない・同じ方を2回確かめない・
@@ -168,7 +177,7 @@ def not_the_target(*wav_names: str):
     def check(c: dict) -> dict:
         got_replies = replies_to(c, *wav_names)
         return {"別の方には繋がない": not any(r in ("next", "confirm_required") for r in got_replies),
-                "お呼びし直した": "call_target" in got_replies, "確かめは1人に1回": got_replies.count("confirm_target") <= 1,
+                "お呼びし直した": "call_target" in got_replies, "確かめは1人に1回": confirms_to(c, *wav_names) <= 1,
                 "番号違いにしない": end_reason(c) != "wrong_party",
                 "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}
     return check
@@ -555,6 +564,78 @@ SCENES = {
 }
 
 
+# ── 別のお話（試しの言葉の表 review_words.TALK_WORDS の1か所から組む＝言葉・業務の知っていること・正解をここに書き写さない。頼み rv123/Y3 の (3)）：
+#    お支払いの質問（表の R1＝本番でお客様が聞く文）のあとにお客様が別のお話をし、会話AIがお話の中身を受けたひとことを言う（flowctl.TALK_RECEIVE）。
+#    決まりの例の言葉（「うちは月曜が定休日なんですよ。」）は、支払日の事実の無い業務でだけ使う（D-13）。相手役の声はまだ作っていない（流すまでは動かさない＝
+#    run の「相手役の声が確かめに通っていない」）
+TALK_SCENE = "別のお話"
+TALK_QUESTION = "R1"
+
+
+def talk_business(know: list[str]):
+    """別のお話の場面の業務：質問はお支払いの質問だけ（review_words.questions の R1）・業務の情報は表の知っていること。"""
+    return dataclasses.replace(BUSINESS, questions=[review_questions()[TALK_QUESTION]], info=list(know))
+
+
+def talk_checks(call: dict) -> dict:
+    """別のお話の場面の決まり：会話AIがひとこと応えて流れの制御が受け付けた（受け答え＝replay_opening の talk・差し戻されていない）・相づちだけで終えない
+    （ひとことが「使えないときの一言」の相づちの文だけでない・相づちのあとに中身がある）・問いかけ・約束を入れない（約束の言葉は flowctl.PROMISE の1か所）・
+    そのあと答えが取れた。知らない事実を言わないかは、ひとことが受け付けられたこと（中身の判定 grounding が止めた文は受け付けない）で見る。"""
+    from phrases import TALK_FALLBACK
+    talks = [x for x in ops(call) if x["op"] == "replay_opening" and x["args"].get("part") == "talk"]
+    said_ok = [x["args"].get("answer") or "" for x in talks if x["reply"].get("result") != "rejected"]
+    nods = {plain(t) for t, *_ in TALK_FALLBACK.values()} | {plain(x) for x in ("さようでございますか。", "そうでしたか。", "そうなんですね。")}
+    return {"ひとこと応えた": bool(said_ok),
+            "相づちだけで終えない": bool(said_ok) and all(plain(a) not in nods for a in said_ok),
+            "問いかけ・約束を入れない": all("？" not in a and "?" not in a and not PROMISE.search(a) for a in said_ok),
+            "答えが取れた": got(call, TALK_QUESTION, "カード")}
+
+
+def talk_scenes() -> dict[str, "Scene"]:
+    return {f"{TALK_SCENE}_{i}": Scene(talk_business(know), [W(talk_name(words)), W("pay_card")], talk_checks, f"{words}｜{truth}")
+            for i, (know, words, truth) in enumerate(TALK_WORDS, 1)}
+
+
+SCENES |= talk_scenes()
+
+
+def talk_notes() -> list[dict]:
+    """別のお話の場面ごとに、本番の流れの制御（業務の Business.flow の1か所）が組み立てる会話AIへの知らせの文（流さない＝0円）：電話に出た方の第一声 →
+    人の報告 → 名乗りとお支払いの質問 → お客様の別のお話 → 判定の読み（決められない・別のお話＝表の R1 の別のお話の行の正解）→ 報告の無いターンの返事の知らせ。"""
+    import json as _json
+    from flowctl import AWAY, AWAY_YES, QUERY, QUERY_NO, UNDECIDED
+    from meaning_judge import Reading
+    out = []
+    for name, sc in SCENES.items():
+        if not name.startswith(TALK_SCENE):
+            continue
+        lines, _ = sc.call()
+        said_lines = [text_and_how(UTTERANCES[x["wav"][len("Puck_"):-len(".wav")]])[0] for x in lines]
+        f = sc.business.flow(recorded=True, play_recordings=True)
+        f.use_checks("judge")
+        f.on_connect(); f.on_callee(); f.on_heard(said_lines[0])
+        f.apply("report_party", {"party": "person"})
+        f.on_activity(False); f.on_first_words_end()
+        f.on_callee(); f.on_heard(said_lines[1])
+        r = Reading(UNDECIDED, firm=True)
+        setattr(r, QUERY, QUERY_NO)
+        setattr(r, AWAY, AWAY_YES)
+        f.on_check("judge", r); f.on_decided()
+        rep = f.judged_turn(voiced=False) or {}
+        out.append({"scene": name, "words": said_lines[1], "knowledge": sc.business.knowledge(), "result": rep.get("result"), "note": rep.get("message") or ""})
+    return out
+
+
+def show_talk_dry_run() -> None:
+    """--dry-run：流さずに、試しの言葉の表（G-57）の行の数・場面・声の型と、組み立てた知らせの文を出す（鍵を読まない・外へつながない）。"""
+    notes = talk_notes()
+    say(f"試しの言葉の表（G-57）の行：{len(TALK_WORDS)} 行（場面 {len(notes)}・声の型 {len(VOICE_TYPES)}＝流すときの通話 {len(notes) * len(VOICE_TYPES)} 本）")
+    for n in notes:
+        say(f"■ {n['scene']}：お客様「{n['words']}」｜返事 {n['result']}")
+        say("  業務の情報：" + "／".join(n["knowledge"]))
+        say("  会話AIへの知らせ：" + n["note"])
+
+
 def unmeasured(call: dict, scene: str) -> str | None:
     """場面が試すはずのことを試せなかった理由（無ければ None）。外れた言葉を起こす場面（off_script_at）で、そのターンにAIの声は出たが、
     AI自身の文字が1つも届かず、止められなかった（offscript.SpeechGate は文字の届かないターンを見張らない＝333ターン中11。設計どおり）
@@ -652,6 +733,9 @@ def main() -> None:
     args = p.parse_args()
     if args.tally:
         save_result("G-57-TALLY", tally(args.tally))
+        return
+    if args.dry_run:   # 組み立てだけ（流さない・保存しない）
+        show_talk_dry_run()
         return
     save_result(f"G-57{args.tag}", asyncio.run(run(args)))
     drop_partial(f"G-57{args.tag}")
