@@ -400,3 +400,28 @@ ol.steps-check small { color: var(--muted); }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 10px; font-size: 13px; color: var(--muted); }
 .crumbs a { color: var(--muted); } .crumbs a:hover { color: var(--primary); }
 .crumbs .here { color: var(--text); font-weight: 600; }
+
+/* 押せないボタンは押せない見た目に（どのボタンも同じ1か所）。理由が要る操作では、押せない理由をすぐ横に出す（app.js） */
+.btn:disabled, .btn[disabled] { opacity: .45; cursor: not-allowed; filter: grayscale(.4); }
+.why-disabled { font-size: 12px; color: var(--muted); margin-left: 8px; align-self: center; }
+/* 表の中の札は折り返す（長い名前が隣の欄に重ならない） */
+table.list .tag { white-space: normal; text-align: left; }
+/* 数の札の名前は途中で折らない・小さな説明は枠の中で折り返す */
+.stat .label { word-break: keep-all; }
+.mini-stats .mini small { word-break: normal; overflow-wrap: anywhere; }
+/* 狭い画面：表の1行を「見出し：値」の札に並べ替える（大事な列やボタンが画面の外に隠れない） */
+@media (max-width: 600px) {
+  .table-scroll { overflow-x: visible; }
+  .table-scroll > table.list { width: 100%; min-width: 0; }
+  table.list thead { display: none; }
+  table.list, table.list tbody, table.list tr, table.list td { display: block; width: 100%; }
+  table.list tr { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  table.list td { border: 0; padding: 3px 0; max-width: none; text-align: left; position: relative; }
+  table.list td[data-label] { padding-left: 8em; min-height: 1.6em; }   /* 値はふつうの文の流れのまま（中の名前や札が別の升目に分かれない） */
+  table.list td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 4px; width: 7.5em;
+                                      color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1.5; }
+  table.list td.num, table.list th.num { text-align: left; }
+  table.list td:empty { display: none; }
+}
+/* 4つの数の枠：狭い画面では2列（.grid.cols-4 の4列の決まりより後ろに置く＝上書きされない） */
+@media (max-width: 900px) { .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

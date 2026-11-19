@@ -59,13 +59,35 @@
     if (close) { var c = close.closest("dialog"); if (c) c.close(); }
     if (e.target.closest(".menu-toggle")) document.body.classList.toggle("nav-open");
   });
-  // 理由が要る操作：理由が空のあいだはボタンを押せない（サーバーも断る）
-  document.addEventListener("input", function (e) {
-    var form = e.target.closest("form[data-needs-reason]");
-    if (!form) return;
+  // 理由が要る操作：理由が空のあいだはボタンを押せない（サーバーも断る）。押せない理由を、ボタンのすぐ横に出す（どの画面も同じ1か所）
+  function reasonState(form) {
     var btn = form.querySelector("[data-submit]");
-    var empty = !form.querySelector("[name=reason]").value.trim();
+    var box = form.querySelector("[name=reason]");
+    if (!btn || !box) return;
+    var empty = !box.value.trim();
     btn.disabled = empty;
+    var hint = form.querySelector(".why-disabled");
+    if (!hint) {
+      hint = document.createElement("span");
+      hint.className = "why-disabled";
+      hint.textContent = "理由を書くと押せます";
+      btn.insertAdjacentElement("afterend", hint);
+    }
+    hint.hidden = !empty;
+  }
+  document.addEventListener("input", function (e) {
+    var form = e.target.closest && e.target.closest("form[data-needs-reason]");
+    if (form) reasonState(form);
+  });
+  document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll("form[data-needs-reason]").forEach(reasonState);
+    // 狭い画面では、表の1行を「見出し：値」の札に並べ替える（CSS）。見出しは表の見出しから付ける（画面ごとに書かない）
+    document.querySelectorAll("table.list").forEach(function (table) {
+      var heads = Array.prototype.map.call(table.querySelectorAll("thead th"), function (th) { return th.textContent.trim(); });
+      table.querySelectorAll("tbody tr").forEach(function (tr) {
+        Array.prototype.forEach.call(tr.children, function (td, i) { if (heads[i]) td.setAttribute("data-label", heads[i]); });
+      });
+    });
   });
   // 選ぶとすぐ絞る（ボタンを押さなくてよい）
   document.addEventListener("change", function (e) {

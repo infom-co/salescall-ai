@@ -15,7 +15,7 @@
       </div>
     </details>
   </span></div>
-<p class="lead">いまの状態は、次の予定と結果から出しています（画面では決め直しません）。</p>
+<p class="lead">お客様ごとの、いまの状態と結果です。会社名を押すと、そのお客様の画面を開きます。</p>
 {{ flash(done, ok) }}
 {% if rows %}
 <form method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/exclude" data-needs-reason class="bulk-form">
