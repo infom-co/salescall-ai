@@ -215,7 +215,7 @@ HOW_OF.update({f"callback_{r}": question_how(CALLBACK_ASK[r]) for rs in THEIRS_P
 HOW_OF["callback_elsewhere"] = question_how(CALLBACK_ASK["elsewhere"])
 # 深める一言へのお返事に伺う一言（phrases.CALLBACK_ASK の deepen_measures・deepen_ahead＝約43字・約53字）と、手短になら聞くと言われたときの要約の入らない一言（brief）：
 # ✅ 2026-11-16 日本時間12時48分22秒 ユーザー（(c)・伺い31）。質問の読み方で、長さの上限は文の長さで選ぶ（ほかの会社のことを伺う一言と同じ決め方）
-HOW_OF.update({f"callback_{r}": question_how(CALLBACK_ASK[r]) for r in ("deepen_measures", "deepen_ahead", "brief")})
+HOW_OF.update({f"callback_{r}": question_how(CALLBACK_ASK[r]) for r in ("deepen_measures", "deepen_ahead", "brief", "elsewhere_point")})
 # 引き継ぎを確かめる一言のあと最初から伺うときの一言（phrases.START_OVER「それでは改めて確認させていただきますね。」。✅ 同じ時「伺い2はア」）：2回目の戻る一言
 # 「それではもう一度確認させていただきますね。」（back_again）と同じ形・同じ長さの一言なので、同じ読み方と上限
 HOW_OF["start_over"] = "back_again"
