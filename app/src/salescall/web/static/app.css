@@ -395,3 +395,8 @@ ol.steps-check .what { display: flex; flex-direction: column; gap: 2px; min-widt
 ol.steps-check small { color: var(--muted); }
 .mini-stats .mini small { word-break: keep-all; }
 .setting-group { scroll-margin-top: calc(var(--chrome, 108px) + 12px); }
+
+/* いまいる所の道筋：小さく、でも必ず見える。長い名前は省略せず折り返す */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.crumbs a { color: var(--muted); } .crumbs a:hover { color: var(--primary); }
+.crumbs .here { color: var(--text); font-weight: 600; }

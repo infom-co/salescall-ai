@@ -521,6 +521,27 @@ class Web(_World):
         running = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}").text
         self.assertNotIn("<h2>はじめかた</h2>", running)                         # 手順がそろった業務では出さない
 
+    def test_a_notice_about_a_customer_says_where_and_links_to_the_row(self):   # 知らせの「どこの」「見る」（links の1か所）
+        from salescall.core import notify
+        app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: notify.emit(
+            tx, "complaint", key=f"試験：行の知らせ:{uuid4()}", summary="架空の行についての知らせ", refs={"task_id": str(self.a["task"])}))
+        page = self.get("A", "/t/notices").text
+        at = page.index("架空の行についての知らせ")
+        row = page[page.rindex("<tr>", 0, at):page.index("</tr>", at)]
+        self.assertIn("依頼者X", row)
+        self.assertIn(f"/rows/{self.a['task']}", row)
+        self.assertNotIn(f"/rows/{self.a['task']}", self.get("B", "/t/notices").text)   # ほかの契約者には出ない
+
+    def test_every_page_inside_a_client_shows_where_you_are(self):   # 道筋（base.html の1か所）：どの依頼者・業務を操作しているか
+        for path in (f"/c/{self.a['client']}", f"/c/{self.a['client']}/b/{self.a['business']}",
+                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url(),
+                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/results", self._import_base(),
+                     f"/c/{self.a['client']}/dnc", f"/c/{self.a['client']}/settings"):
+            with self.subTest(path=path):
+                page = self.get("A", path).text
+                crumbs = page[page.index('class="crumbs"'):page.index("</nav>", page.index('class="crumbs"'))]
+                self.assertIn("依頼者「依頼者X」", crumbs)
+
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",

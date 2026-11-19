@@ -2,9 +2,9 @@
 {% from "parts.html" import flash, csrf %}
 {% set active = "client" %}
 {% block title %}お客様リストの取り込み{% endblock %}
+{% block crumb %}取り込み{% endblock %}
 {% block main %}
 {% set base = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
-<p><a href="{{ base }}">← お客様リスト：{{ run.name }}</a></p>
 <h1>お客様リストを取り込む</h1>
 <ol class="steps"><li aria-current="step">ファイルを選ぶ</li><li>列を確かめる</li><li>行ごとの結果を確かめて登録</li></ol>
 {{ flash(done, ok) }}

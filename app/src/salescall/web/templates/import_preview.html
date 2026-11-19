@@ -2,6 +2,7 @@
 {% from "parts.html" import csrf, tag, stat %}
 {% set active = "client" %}
 {% block title %}行ごとの結果{% endblock %}
+{% block crumb %}取り込み{% endblock %}
 {% block main %}
 {% set base = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
 <p><a href="{{ base }}/import/{{ key }}">← 列を確かめ直す</a></p>

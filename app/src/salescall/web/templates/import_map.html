@@ -2,6 +2,7 @@
 {% from "parts.html" import csrf %}
 {% set active = "client" %}
 {% block title %}列を確かめる{% endblock %}
+{% block crumb %}取り込み{% endblock %}
 {% block main %}
 {% set base = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
 <p><a href="{{ base }}/import">← ファイルを選び直す</a></p>

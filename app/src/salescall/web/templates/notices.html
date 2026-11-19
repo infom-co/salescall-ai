@@ -4,14 +4,16 @@
 {% block title %}知らせ{% endblock %}
 {% macro notice_table(rows) -%}
 <div class="table-scroll"><table class="list">
-  <thead><tr><th>種類</th><th>中身</th><th class="wide">時刻</th><th class="wide">届いたか</th></tr></thead>
+  <thead><tr><th>種類</th><th>どこの</th><th>中身</th><th class="wide">時刻</th><th class="wide">届いたか</th><th></th></tr></thead>
   <tbody>
   {% for r in rows %}
     <tr>
       <td>{{ tag(words.notice_kind(r.kind), "stop" if r.urgent else "info") }}</td>
+      <td>{{ r.where or "全体" }}{% if r.who %}<div class="muted">{{ r.who }}</div>{% endif %}</td>
       <td>{{ r.summary }}</td>
       <td class="num wide">{{ time(r.occurred_at) }}</td>
       <td class="wide">{{ tag(state_words[r.state], {"sent": "ok", "gave_up": "stop", "trying": "wait"}.get(r.state, "")) }}</td>
+      <td class="nowrap">{% if r.link %}<a href="{{ r.link }}">見る</a>{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>

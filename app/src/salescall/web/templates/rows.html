@@ -3,7 +3,6 @@
 {% set active = "client" %}
 {% block title %}お客様リスト{% endblock %}
 {% block main %}
-<p><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}">← {{ business.name }}</a></p>
 {% set rbase = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
 <div class="title-row"><h1>お客様リスト：{{ run.name }}</h1>
   <span class="btn-row">

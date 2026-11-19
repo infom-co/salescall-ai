@@ -24,7 +24,7 @@ def rows(tx: Tx, task_ids: list[Any]) -> dict[Any, dict[str, str]]:
     if not task_ids:
         return {}
     got = tx.all("SELECT salescall.cur_client() AS client_id, t.task_id, t.run_id, r.business_id, t.source_name, t.target_name"
-                 " FROM salescall.tasks t JOIN salescall.runs r ON r.run_id = t.run_id WHERE t.task_id = ANY(%s)", (list(task_ids),))
+                 " FROM salescall.tasks t JOIN salescall.runs r ON r.run_id = t.run_id WHERE t.task_id = ANY(%s::uuid[])", ([str(t) for t in task_ids],))
     return {g["task_id"]: {"url": row_url(g["client_id"], g["business_id"], g["run_id"], g["task_id"]),
                            "who": " ／ ".join(x for x in (g["source_name"], g["target_name"]) if x) or "（会社名なし）"} for g in got}
 

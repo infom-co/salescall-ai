@@ -39,12 +39,20 @@ from salescall.core import approval as approval_core
 from salescall.core.access import Access
 from salescall.output import files as result_files
 from salescall.output import notices, result_rows, words
-from salescall.web import actions, context, counts, importing, inbox, rowfix, setting_forms, uploads, watch
+from salescall.web import actions, context, counts, importing, inbox, links, rowfix, setting_forms, uploads, watch
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
 HERE = Path(__file__).resolve().parent
 ACTING_COOKIE = "acting_tenant"   # 管理者が見ている契約者（署名つき）
 TENANT_BACKS = ("/t/costs",)   # 受け箱の操作のあと、依頼者の中の住所のほかに戻ってよい全体の画面（赤字の確認ボタン）
+
+
+def _is_uuid(v: Any) -> bool:
+    try:
+        UUID(str(v))
+        return True
+    except ValueError:
+        return False
 
 
 def safe_back(back: str, client_id: UUID, fallback: str) -> str:
@@ -322,7 +330,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 return stops.explain(tx, event_id)
             x = ctx.tenant(read) if client_id is None else ctx.client(client_id, read)
             base = f"/t/stops/{event_id}" if client_id is None else f"/c/{client_id}/stops/{event_id}"
-            return page(request, "stop.html", person, ctx, x=x, base=base, done=done, ok=bool(ok))
+            client = None if client_id is None else ctx.client(client_id, lambda tx: tx.one(
+                "SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)), read_only=True)
+            return page(request, "stop.html", person, ctx, x=x, base=base, done=done, ok=bool(ok), client=client,
+                        active="client" if client else "stops")
         return handle(request, render)
 
     def _stop_resume(request: Request, event_id: int, client_id: UUID | None, form: dict[str, Any]) -> HTMLResponse:
@@ -396,7 +407,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         def read(only_admin: bool) -> Callable[[Any], list[dict[str, Any]]]:
             def run(tx: Any) -> list[dict[str, Any]]:
                 rows = tx.all(
-                    "SELECT e.event_id, e.client_id, e.kind, e.summary, e.occurred_at, e.urgent,"
+                    "SELECT e.event_id, e.client_id, e.kind, e.summary, e.occurred_at, e.urgent, e.refs ->> 'task_id' AS task_id,"
                     "       ARRAY(SELECT d.status FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id) AS statuses"
                     " FROM salescall.notification_events e WHERE e.for_admin = %s"
                     " ORDER BY e.urgent DESC, e.occurred_at DESC, e.event_id DESC LIMIT 200", (only_admin,))
@@ -405,6 +416,23 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             rows = ctx.tenant(read(False))
             admin_rows = ctx.system(read(True)) if person.is_admin else []
+            # 知らせ1件ずつの「どこの」と「見る」：依頼者の知らせは依頼者の名前、お客様の知らせはその行へ（住所は links の1か所。
+            # 行は依頼者の取引でしか見えないので、依頼者ごとに1回で引く）
+            names = {c["client_id"]: c for c in ctx.clients()}
+            tasks: dict[Any, list[str]] = {}
+            for r in rows:
+                if r["client_id"] in names and r["task_id"]:
+                    tasks.setdefault(r["client_id"], []).append(r["task_id"])
+            found: dict[str, dict[str, str]] = {}
+            for cid, ids in tasks.items():
+                valid = [t for t in ids if _is_uuid(t)]
+                found.update({str(k): v for k, v in ctx.client(cid, lambda tx: links.rows(tx, valid), read_only=True).items()})
+            for r in rows:
+                c = names.get(r["client_id"])
+                r["where"] = c["name"] if c else ""
+                row = found.get(str(r["task_id"])) if r["task_id"] else None
+                r["link"] = row["url"] if row else (f"/c/{c['client_id']}" if c else "")
+                r["who"] = row["who"] if row else ""
             return page(request, "notices.html", person, ctx, rows=rows, admin_rows=admin_rows, state_words=notices.STATE_WORDS)
         return handle(request, render)
 

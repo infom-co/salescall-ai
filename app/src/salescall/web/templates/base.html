@@ -63,6 +63,16 @@
       <button class="btn small" type="submit">自分の契約者に戻る</button>
     </form>
     {% endif %}
+    {#- いまいる所の道筋（依頼者 › 業務 › 実施回 › このページ）。どのページも、この1か所で出す（どの依頼者・業務を操作しているかを見失わない） -#}
+    {% if client %}
+    <nav class="crumbs" aria-label="いまいる所">
+      <a href="/c/{{ client.client_id }}">依頼者「{{ client.name }}」</a>
+      {% if business %}<span aria-hidden="true">›</span><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}">業務「{{ business.name }}」</a>{% endif %}
+      {% if run and business %}<span aria-hidden="true">›</span><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}">お客様リスト「{{ run.name }}」</a>{% endif %}
+      {% set here %}{% block crumb %}{% endblock %}{% endset %}
+      {% if here|trim %}<span aria-hidden="true">›</span><span class="here">{{ here|trim }}</span>{% endif %}
+    </nav>
+    {% endif %}
     {% block main %}{% endblock %}
   </main>
 </div>
