@@ -10,11 +10,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from salescall.core.access import Refused
 from salescall.core.import_files import Sheet
 from salescall.core.phone import normalize
 
 
-class ImportRejected(Exception):
+class ImportRejected(Refused):
     """取込そのものを始められない（対応付けの誤り・実施回が無い など）。理由は日本語。何も登録しない。"""
 
 

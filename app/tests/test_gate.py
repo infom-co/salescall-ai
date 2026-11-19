@@ -245,7 +245,7 @@ class Schedule(Base):
 class DataReasons(Base):
     def test_dnc_and_number_kinds(self):
         s = self.ready()
-        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"))
+        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual", note="試験：手で入れた"))
         self.assertEqual(self.reason(s), "dnc_client")
         navi = self.ready(phone="0570-000-001")
         self.assertEqual(self.reason(navi), "number_kind_not_allowed")
@@ -336,7 +336,7 @@ class DataReasons(Base):
         v = self.ready()
         mobile = normalize(fictional_jp_fixed())
         self.tx(v, lambda tx: customer_contacts.add_number(tx, v["task"], mobile, "mobile", origin="list"))
-        self.tx(v, lambda tx: dnc.register(tx, mobile, "manual"), OPERATOR)
+        self.tx(v, lambda tx: dnc.register(tx, mobile, "manual", note="試験：手で入れた"), OPERATOR)
         self.assertEqual(self.reason(v), "dnc_client")
 
     def test_max_attempts_counts_only_dialed(self):
@@ -872,7 +872,7 @@ class UncountedDials(Base):
 
     def test_promised_callback_still_respects_other_rules(self):
         s = self.ready()
-        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"))
+        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual", note="試験：手で入れた"))
         self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
                                                         contact_id=s["contact"], cause="約束", promised=True))
         self.assertEqual(self.reason(s), "dnc_client")

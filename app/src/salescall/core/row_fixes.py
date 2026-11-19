@@ -45,7 +45,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import approval, business_settings, next_action, readings, target_policy, tasks
-from salescall.core.access import Rejected, Tx
+from salescall.core.access import Refused, Rejected, Tx
 from salescall.core.phone import SMS_KINDS, normalize
 
 FIELDS = ("source_name", "target_name", "target_full_name", "target_role", "target_department")   # 0178 の CHECK と同じ
@@ -56,7 +56,7 @@ PERSON_FIELDS = ("target_name", "target_full_name", "target_role", "target_depar
 FIRST_PERIOD = "first"   # 戻す選びの鍵：最初の担当の方の期（ほかの期の鍵は、その期の始まりの時刻＝ISO の形。`back_choices` が返す）
 
 
-class FixInvalid(ValueError):
+class FixInvalid(Refused):
     """その直しは受けられない（理由は日本語）。何も書かない。"""
 
 

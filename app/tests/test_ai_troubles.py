@@ -259,6 +259,8 @@ class Pause(_Base):
         got = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_pass(
             tx, sid, reason="試験：今日中に約束の電話を済ませたい"))
         self.assertEqual(got["actor_kind"], "operator")
+        active = lambda: self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))["emergency"]["pass"]["active"]   # noqa: E731
+        self.assertTrue(active())                                      # 緊急の道は、いま効いている（CL-3 の 39）
         self.assertEqual(self.blocking(), [])                          # その停止では止めない
         self.assertEqual(self.ai_stops(), [sid])                       # 停止そのものは解けていない（回復の確かめで解く）
         self.assertIn(self.s["line"], self.serving())                  # 約束の電話を受け持てる回線にも数える（門と同じ1か所）
@@ -283,6 +285,7 @@ class Pause(_Base):
         for e in self.ai_stops():
             self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx, e=e: stops.resume(tx, e, reason="試験：回復を確かめた"))
         self.assertEqual(self.blocking(), [])
+        self.assertFalse(active())                                     # 停止が解けたら、緊急の道も一緒に終わる（出した記録は残る）
         later = self.w.insert_claim(_with_task(self.w, self.s))
         self.assertIsNone(self.judge_route(later))
 

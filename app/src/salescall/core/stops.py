@@ -28,7 +28,7 @@ from uuid import UUID
 
 from salescall.core import ai_troubles, errors, health
 from salescall.core import notify as _notify
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Tx
 
 Scope = Literal["system", "tenant", "client", "business", "line"]   # line＝その回線だけ（回線の異常。9-1）
 Cause = Literal["manual", "line_failure", "ai_connection", "forbidden_speech", "quality_gate", "judge_unknown", "program_trouble"]
@@ -200,7 +200,7 @@ def lets_through(tx: Tx, cause: str) -> frozenset[str]:
     return frozenset(r["kind"] for r in tx.all("SELECT kind FROM salescall.stop_lets_through WHERE cause::text = %s", (cause,)))
 
 
-class EmergencyNotAllowed(Exception):
+class EmergencyNotAllowed(Refused):
     """緊急の道での再開を出せない停止（理由は文で）。"""
 
 
@@ -283,8 +283,10 @@ def explain(tx: Tx, stop_event_id: int, *, error_limit: int = 20) -> dict[str, A
     troubles, emergency = [], None
     if s["cause"] == "ai_connection" and s["scope"] == "tenant":
         troubles = ai_troubles.for_stop(tx, stop_event_id, error_limit)
+        # pass.active＝緊急の道が、いま効いているか（出した停止が、まだ解かれていない。データベースの salescall.emergency_route が読むのと同じ
+        # 1か所 salescall.emergency_stop。停止が解ければ一緒に終わる＝画面が組み合わせて決め直さない。CL-3 の 39）
         emergency = {"impossible_because": None if resolved is not None else emergency_possible(tx, stop_event_id),
-                     "pass": tx.one("SELECT reason, passed_by, actor_kind::text AS actor_kind, at"
+                     "pass": tx.one("SELECT reason, passed_by, actor_kind::text AS actor_kind, at, salescall.emergency_stop(stop_event_id) AS active"
                                     " FROM salescall.stop_emergency_passes WHERE stop_event_id = %s", (stop_event_id,))}
     return {"stop": s, "ai_troubles": troubles, "emergency": emergency, "cause": {"label": info.label, "meaning": info.meaning, "auto_resume": info.auto_resume,
                                  "before_resume": info.before_resume,

@@ -22,7 +22,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import tasks
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Tx
 from salescall.core.phone import SMS_KINDS, PhoneNumber, normalize
 
 KINDS = ("email", "fax", "address", "line_id", "meeting")          # 番号ではない連絡先の種類（0175 の CHECK と同じ）
@@ -37,7 +37,7 @@ _EMAIL = re.compile(r"[^@\s]+@[^@\s.]+(\.[^@\s.]+)+")
 _NO_SPACE = re.compile(r"\S+")
 
 
-class ContactInvalid(ValueError):
+class ContactInvalid(Refused):
     """連絡先の値の形が合わない（理由は日本語）。"""
 
 

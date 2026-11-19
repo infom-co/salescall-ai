@@ -10,6 +10,48 @@ from tests.support import ADMIN, OPERATOR, SYSTEM, fictional_caller
 from tests.test_gate import Base
 
 
+class SameNames(Base):
+    def test_a_name_already_used_is_refused_with_its_reason(self):
+        """同じ契約者の中で同じ名前の依頼者、同じ依頼者の中で同じ名前の業務は、作れない・その名前に変えられない（表記をそろえた形で比べる＝
+        全角と半角・空白の違いは同じ名前。データベースの一意の約束 0248。断りの文は registry.NameTaken の1か所＝画面がそのまま出す。CL-3 の 44）。
+        ほかの契約者・ほかの依頼者なら同じ名前でもよい。"""
+        from salescall.core.access import Refused
+        t, t2 = self.w.tenant(), self.w.tenant()
+        mk = lambda tenant, name: self.w.a.in_tenant(OPERATOR, tenant, lambda tx: registry.create_client(tx, name))   # noqa: E731
+        c = mk(t, "架空商事")
+        other = mk(t, "架空工業")
+        mk(t2, "架空商事")                                                  # ほかの契約者なら同じ名前でもよい
+        for name, run in (("同じ名前", lambda: mk(t, "架空商事")),
+                          ("全角と空白だけ違う", lambda: mk(t, " 架空商事　")),
+                          ("名前を変えて重ねる", lambda: self.w.a.in_tenant(OPERATOR, t, lambda tx: registry.rename_client(tx, other, "架空商事")))):
+            with self.subTest(name=name), self.assertRaises(registry.NameTaken) as e:
+                run()
+            self.assertIsInstance(e.exception, Refused)
+            self.assertIn("同じ名前の依頼者", str(e.exception))
+        biz = lambda client, name: self.w.a.in_client(OPERATOR, t, client, lambda tx: registry.create_business(tx, name))   # noqa: E731
+        biz(c, "架空の受付")
+        biz(other, "架空の受付")                                            # ほかの依頼者なら同じ名前でもよい
+        with self.assertRaises(registry.NameTaken) as e:
+            biz(c, "架空の受付")
+        self.assertIn("同じ名前の業務", str(e.exception))
+        with self.assertRaises(Refused):                                    # 空の名前も、理由つきの断り
+            mk(t, "　")
+
+
+class Refusals(unittest.TestCase):
+    def test_every_refusal_the_screen_shows_shares_one_base(self):
+        """core の部品が、人に見せる理由で断る例外は、どれも access.Refused を元にする（画面はこれ1つを受けて文を出す＝CL-3 の 21。
+        足し忘れると、画面が「誤り」で止まる）。"""
+        from salescall.core import (access, business_import, business_rules, business_settings, client_solutions, customer_contacts, dnc_import,
+                                    import_columns, import_files, importer, number_recheck, row_fixes, stops, target_recheck)
+        for c in (row_fixes.FixInvalid, client_solutions.SolutionInvalid, customer_contacts.ContactInvalid, stops.EmergencyNotAllowed,
+                  import_files.FileRejected, import_columns.ImportRejected, importer.PlanChanged, dnc_import.PlanChanged,
+                  business_settings.SettingsInvalid, business_import.PreviewChanged, number_recheck.RecheckInvalid,
+                  target_recheck.RecheckInvalid, business_rules.RulesInvalid, registry.NameTaken):
+            with self.subTest(refusal=c.__name__):
+                self.assertTrue(issubclass(c, access.Refused))
+
+
 class Clients(Base):
     def test_create_rename_and_the_change_is_recorded(self):
         t = self.w.tenant()

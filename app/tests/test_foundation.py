@@ -104,6 +104,103 @@ class ClientIsolation(unittest.TestCase):
             self.w.insert_claim(dict(a, phone=fictional_phone()))
 
 
+class Entrances(unittest.TestCase):
+    """取引の入口（依頼者・契約者・全体）は、どれも同じ決まりで、読むだけ（read_only）と読み書き1つずつの長さの上限（time_limit）を付けられる
+    （付けるのは access._run の1か所。CL-3 の連絡帳 4-1c の 32：画面の読むだけの取引で、長く止まらない・書かないを、どの段でも同じに付ける）。"""
+
+    def setUp(self):
+        self.w = World()
+        self.s = self.w.setup()
+
+    def entrances(self):
+        s, a = self.s, self.w.a
+        return (("依頼者", lambda work, **kw: a.in_client(OPERATOR, s["tenant"], s["client"], work, **kw)),
+                ("契約者", lambda work, **kw: a.in_tenant(OPERATOR, s["tenant"], work, **kw)),
+                ("全体", lambda work, **kw: a.in_system(SYSTEM, work, **kw)))
+
+    def test_every_entrance_takes_the_same_time_limit_and_read_only(self):
+        from salescall.core.access import TimedOut
+        for name, run in self.entrances():
+            with self.subTest(name=name):
+                with self.assertRaises(TimedOut):
+                    run(lambda tx: tx.execute("SELECT pg_sleep(2)"), time_limit=0.2)
+                self.assertEqual(run(lambda tx: tx.one("SELECT 1 AS n")["n"], time_limit=5, read_only=True), 1)
+                with self.assertRaises(Rejected):                                      # 読むだけの取引は書けない
+                    run(lambda tx: tx.execute("CREATE TEMP TABLE kakuu_x (n int)"), read_only=True)
+
+
+class AdminTenants(unittest.TestCase):
+    """管理者が、すべての契約者の一覧を読む（registry.tenants＝salescall.admin_tenants の1か所。CL-3 の 9。0247）：全体の取引の管理者だけ。"""
+
+    def test_only_the_admin_in_the_whole_transaction_reads_every_tenant(self):
+        from salescall.core import registry
+        w = World()
+        s = w.setup()
+        other = w.tenant()
+        got = w.a.in_system(ADMIN, lambda tx: registry.tenants(tx))
+        self.assertTrue({s["tenant"], other} <= {r["tenant_id"] for r in got})
+        self.assertTrue(all(r["name"] for r in got))
+        for name, run in (("全体の取引の契約者", lambda: w.a.in_system(OPERATOR, registry.tenants)),
+                          ("全体の取引のシステムの処理", lambda: w.a.in_system(SYSTEM, registry.tenants)),
+                          ("契約者の取引の管理者", lambda: w.a.in_tenant(ADMIN, s["tenant"], registry.tenants))):
+            with self.subTest(name=name), self.assertRaises(Rejected) as e:
+                run()
+            self.assertEqual(e.exception.constraint, "admin_tenants_by_admin")
+
+
+class ActionTokens(unittest.TestCase):
+    """画面の操作の1回きりの札（core/once。CL-3 の 2・DASHBOARD.md 8-1。0247）：2回目は何も変えない・操作が戻れば札も使っていない・同時の2回は
+    1つだけ・出した方が出した操作の名前で、その契約者の中でだけ使える・システムの処理は出せない。"""
+
+    def setUp(self):
+        self.w = World()
+        self.s = self.w.setup()
+
+    def tx(self, work, actor=OPERATOR):
+        return self.w.a.in_client(actor, self.s["tenant"], self.s["client"], work)
+
+    def test_a_token_works_once_and_only_for_its_own_operation(self):
+        from salescall.core import once
+        t = self.tx(lambda tx: once.issue(tx, "行の承認"))
+        self.assertTrue(self.tx(lambda tx: once.use(tx, t, "行の承認")))
+        self.assertFalse(self.tx(lambda tx: once.use(tx, t, "行の承認")))           # 二度押し：何も変えない
+        u = self.tx(lambda tx: once.issue(tx, "行の承認"))
+
+        def fails(tx):
+            once.use(tx, u, "行の承認")
+            raise ValueError("試験：操作が断られた")
+        with self.assertRaises(ValueError):
+            self.tx(fails)
+        self.assertTrue(self.tx(lambda tx: once.use(tx, u, "行の承認")))           # 操作が戻れば、札も使っていない
+        v = self.tx(lambda tx: once.issue(tx, "行の承認"))
+        for name, run in (("ほかの方", lambda: self.tx(lambda tx: once.use(tx, v, "行の承認"), ADMIN)),
+                          ("ほかの操作", lambda: self.tx(lambda tx: once.use(tx, v, "結果の直し"))),
+                          ("ほかの契約者", lambda: self.w.a.in_tenant(OPERATOR, self.w.tenant(), lambda tx: once.use(tx, v, "行の承認"))),
+                          ("システムの処理が出す", lambda: self.tx(lambda tx: once.issue(tx, "行の承認"), SYSTEM)),
+                          ("無い札", lambda: self.tx(lambda tx: once.use(tx, uuid.uuid4(), "行の承認")))):
+            with self.subTest(name=name), self.assertRaises(Rejected):
+                run()
+        g = self.w.a.in_system(ADMIN, lambda tx: once.issue(tx, "全体の停止を解く"))   # 全体の取引の札（契約者を持たない）
+        self.assertTrue(self.w.a.in_system(ADMIN, lambda tx: once.use(tx, g, "全体の停止を解く")))
+
+    def test_two_sends_at_once_use_the_token_once(self):
+        from salescall.core import once
+        t = self.tx(lambda tx: once.issue(tx, "行の承認"))
+        got, started = [], threading.Event()
+
+        def first(tx):
+            got.append(once.use(tx, t, "行の承認"))
+            started.set()
+            time.sleep(1.0)                                                       # 確定するまで、もう1つの送りを待たせる
+
+        a = threading.Thread(target=lambda: self.tx(first))
+        a.start()
+        started.wait(10)
+        got.append(self.tx(lambda tx: once.use(tx, t, "行の承認")))
+        a.join()
+        self.assertEqual(sorted(got), [False, True])
+
+
 class FrozenRecords(unittest.TestCase):
     """3-0 の3：変えてはいけない記録は、書き換え・消しを拒む（権限と仕掛けの2重）。"""
 

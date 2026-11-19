@@ -168,7 +168,7 @@ class Flow(Base):
         self.assertEqual(got["decision"].end_reason, "alternate_blocked:number_kind_not_allowed")
         s2 = self.ready_jp()
         said = fictional_jp_fixed()
-        self.tx(s2, lambda tx: dnc.register(tx, said, "manual"))
+        self.tx(s2, lambda tx: dnc.register(tx, said, "manual", note="試験：手で入れた"))
         _, _, got = self.redirect(s2, said)
         self.assertEqual(got["decision"].end_reason, "alternate_blocked:dnc_client")
 
