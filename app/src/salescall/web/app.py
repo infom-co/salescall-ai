@@ -429,7 +429,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 got = None
             shown = (None if got is None else words.setting_choice(d["key"], got["value"]) if d["value_type"] == "choice"
                      else setting_forms.show(d["value_type"], got["value"]))
-            rows.append({**d, "meaning": words.screen_meaning(d["key"], d["meaning"]), "got": got, "shown": shown,
+            rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": words.screen_help(d["key"], d["meaning"]),
+                         "got": got, "shown": shown,
                          "own": got is not None and got["from"] == level, "group": d["key"].split(".")[0],
                          "merge": MERGE_WORDS.get(d["merge_kind"], "")})
         return rows

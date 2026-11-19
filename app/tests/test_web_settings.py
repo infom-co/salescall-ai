@@ -79,6 +79,13 @@ class Forms(unittest.TestCase):
         self.assertIn("0001", shown)
         self.assertNotIn("0300", shown)                                        # 下4桁のほかは出さない
 
+    def test_every_setting_has_a_short_screen_name(self):   # 見出しの短い名前（output/words.SETTING_LABELS の1か所）
+        keys = {r["key"] for r in app_access().in_system(SYSTEM, lambda tx: tx.all("SELECT key FROM salescall.setting_definitions"))}
+        self.assertEqual(set(words.SETTING_LABELS), keys)
+        for k, v in words.SETTING_LABELS.items():
+            with self.subTest(key=k):
+                self.assertLessEqual(len(v), 24)
+
     def test_every_setting_group_has_a_word(self):
         heads = app_access().in_system(SYSTEM, lambda tx: {r["k"].split(".")[0] for r in tx.all(
             "SELECT key AS k FROM salescall.setting_definitions")})

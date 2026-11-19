@@ -44,17 +44,21 @@
 <p class="lead">ここで決めた値は、{% if level == "system" %}すべての契約者の初めの値になります（契約者・依頼者・業務で決めた値が勝ちます。「システムだけ」の設定は、この値だけを使います）{% elif level == "tenant" %}すべての依頼者・業務の初めの値になります（依頼者・業務で決めた値が勝ちます）{% elif level == "client" %}この依頼者のすべての業務に効きます（業務で決めた値が勝ちます）{% else %}この業務だけに効きます{% endif %}。変えた値と前の値は、記録に残ります。</p>
 {{ flash(done, ok) }}
 <div class="settings-filter"><input type="text" placeholder="設定を探す（例：時間帯・回数・間隔）" data-filter=".setting" aria-label="設定を探す"></div>
+<nav class="filters setting-toc" aria-label="設定のまとまり">
+  {% for group, items in rows|groupby("group") %}<a class="chip" href="#g-{{ group }}">{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }} <b>{{ items|length }}</b></a>{% endfor %}
+</nav>
 {% for group, items in rows|groupby("group") %}
-<section class="setting-group">
+<section class="setting-group" id="g-{{ group }}">
   <h2>{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }}</h2>
   {% for r in items %}
   <details class="setting card {{ 'own' if r.own }}">
     <summary>
-      <span class="meaning">{{ r.meaning }}</span>
+      <span class="meaning"><b>{{ r.label }}</b></span>
       <span class="now">{% if r.got %}<b>{{ r.shown }}</b> <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if r.own and level != "system" %} {{ tag("この段で決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag("仮の値（見直す時：" ~ r.provisional.review_when ~ "）", "wait") }}{% endif %}</span>
     </summary>
     <form method="post" action="{{ action }}" class="setting-form" data-needs-reason>
       {{ csrf(token) }}<input type="hidden" name="key" value="{{ r.key }}">
+      <p>{{ r.meaning }}</p>
       <p class="muted">{{ r.merge }}</p>
       {{ widget(r) }}
       {% if level == "system" %}

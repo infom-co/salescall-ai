@@ -207,6 +207,150 @@ RING_PURPOSE_WORDS: dict[str, str] = {"resume_check": "再開の確かめ", "no_
 SPEAKER_WORDS: dict[str, str] = {"callee": "お客様", "ai": "こちら（AI）"}
 
 
+# 設定の、画面の見出しに出す短い名前（1か所。設定の定義＝salescall.setting_definitions のすべての名前にあるかを試験が突き合わせる）。
+# 説明の文の正本は CL-2 の setting_definitions.meaning（開いたときに出す）。
+SETTING_LABELS: dict[str, str] = {
+    "ai.ear_tpm_limit": "聞き取りの確かめの1分の上限",
+    "ai.plan_conversation": "会話 AI の料金のプラン",
+    "ai.plan_import": "業務を組む AI の料金のプラン",
+    "ai.tpm_limit": "会話 AI の1分の上限",
+    "ai.tpm_per_call": "1本の電話の1分の見込み",
+    "ai.tpm_safety": "上限のうち使ってよい割合",
+    "approval.human": "検証モードを使うか",
+    "backup.ai.keep_days_cloud": "控え（AI用）をクラウドに残す日数",
+    "backup.ai.keep_days_drive": "控え（AI用）をハードディスクに残す日数",
+    "backup.overdue_after": "控えが取れていないとみなす長さ",
+    "backup.retry_after": "控えをやり直すまでの間",
+    "backup.submission.keep_days_drive": "提出用の控えを残す日数",
+    "budget.client_daily_yen": "依頼者の1日の費用の上限",
+    "budget.deficit_grace": "赤字をもう一度知らせるまでの時間",
+    "budget.max_cost_ratio": "報酬に対する費用の割合の上限",
+    "budget.tenant_daily_yen": "契約者の1日の費用の上限",
+    "business.call_declined_again": "断られたお客様に次の実施回でかけるか",
+    "call.filler_after": "沈黙のあと「はい」を入れるまで",
+    "call.frozen_after": "会話が固まったとみなすまで",
+    "call.hangup_after_close_wait": "締めのあと、こちらから切るまで",
+    "call.hangup_after_decline_wait": "断られたあと、こちらから切るまで",
+    "call.hold_wait": "保留で待つ長さ",
+    "call.silence_prompt_after": "黙られたとき、一言かけるまで",
+    "call.wait_ask_after": "「待ってて」のあと、一言かけるまで",
+    "callback.call_alternate_number": "お客様が言った別の番号へかけるか",
+    "callback.exact_days": "時刻の約束に出ないとき、続ける日数",
+    "callback.exact_retry_gaps": "時刻の約束に出ないとき、かけ直す間隔",
+    "callback.exact_slot": "時刻の約束の1回分の長さ",
+    "callback.month_ahead": "1か月以上先の次の回へ回すか",
+    "callback.period_afternoon": "「午後」の幅",
+    "callback.period_evening": "「夕方」の幅",
+    "callback.period_forenoon": "「午前」の幅",
+    "callback.period_morning": "「朝」の幅",
+    "callback.period_night": "「夜」の幅",
+    "callback.until_other_party": "「〇時までに別の番号へ」のかけ方",
+    "callback.until_preparing": "「〇時までに確認します」のかけ方",
+    "callback.until_unavailable": "「〇時まで出られない」のかけ方",
+    "callback.window_daily_max": "幅の約束で1日にかける回数",
+    "callee.business_hours": "お客様の営業時間",
+    "callee.designated_limit": "お客様指定の歯止め時間",
+    "calling.allow_navi_dial": "ナビダイヤルへかけるか",
+    "calling.allow_toll_free": "フリーダイヤルへかけるか",
+    "calling.business_daily_dials": "業務の1日の本数の上限",
+    "calling.call_after_refusal": "ほかの業務で断られたお客様にかけるか",
+    "calling.hours": "かけてよい曜日と時間帯",
+    "calling.hours_limit": "深夜・早朝の歯止め",
+    "calling.max_concurrent_calls": "同時に話す本数の上限",
+    "calling.ng_hours": "かけない時間（NG時間）",
+    "conversation.ask_back_required": "必須の質問を聞き返す回数",
+    "conversation.recheck_required": "必須の質問を締めの前に確かめる回数",
+    "decision.undecided_as_decided": "決められない決定の扱い",
+    "dial.failed_retry_days": "鳴らなかった番号へかけ直す並び",
+    "dnc.client_ref_is_stable_id": "管理番号でも止めるか",
+    "dnc.former_refusal_calls_new_person": "前の担当の方が断った番号へ新しい方にかけるか",
+    "gate.before_other_promise": "ほかの約束の前にかけるか",
+    "gate.call_length_days": "平均の通話時間を測る日数",
+    "gate.claim_lifetime": "予約の期限",
+    "gate.denied_retry_wait": "見送ったあと次に候補に出すまで",
+    "gate.exact_promise_guard": "時刻の約束の前に回線を空ける長さ",
+    "gate.exact_promise_guard_samples": "平均の通話時間を使い始める本数",
+    "gate.max_dials_per_contact_per_day": "同じ連絡先へ1日にかける回数",
+    "gate.other_contractor_interval": "ほかの契約者がかけた番号への間隔",
+    "gate.same_contact_min_interval": "同じ連絡先への最小の間隔",
+    "gate.same_number_gap": "ほかの業務がかけた番号への間隔",
+    "judge.models": "意味の判定に使う AI",
+    "judge.outage_bypass": "判定が止まったときの道",
+    "line.answer_drop_baseline_days": "応答率の「いつも」を見る日数",
+    "line.answer_drop_baseline_min_dials": "「いつも」を決める本数",
+    "line.answer_drop_hour_min_dials": "時間帯ごとの「いつも」を使う本数",
+    "line.answer_drop_min_dials": "応答率の低下を知らせる本数",
+    "line.answer_drop_ratio": "応答率の低下とみなす比",
+    "line.answer_drop_significance": "応答率の低下の確からしさ",
+    "line.lease": "回線を借りる期限",
+    "line.lease_renew": "回線の借用を延ばす間隔",
+    "line.max_dials_per_day": "1つの回線の1日の本数の上限",
+    "line.test_number": "テスト番号",
+    "line.test_ring_gaps": "テスト番号を鳴らす間隔",
+    "line.test_ring_hours": "テスト番号を鳴らしてよい時間",
+    "measure.draw_after": "抜き取りを選ぶまでの間",
+    "measure.sample_per_week": "1週間に抜き取る電話の数",
+    "pc.auto_update": "PC のプログラムを自動で更新するか",
+    "pc.down_after": "PC が止まったとみなすまで",
+    "quality.max_complaint": "苦情の割合の上限",
+    "quality.max_ear_disagreement": "聞き取りが食い違った割合の上限",
+    "quality.max_forbidden_speech": "言ってはいけないことの件数の上限",
+    "quality.max_technical_error": "技術的な失敗の割合の上限",
+    "quality.max_unknown_judgments": "判定できない件数の上限",
+    "quality.mock.calls": "模擬通話の本数",
+    "quality.mock.min_judgment_match": "模擬通話の判定の一致の下限",
+    "quality.mock.min_value_match": "模擬通話の値の一致の下限",
+    "quality.stage.sizes": "立ち上げの段ごとの件数",
+    "recording.keep_days_cloud": "録音をクラウドに残す日数",
+    "recording.keep_days_drive": "録音をハードディスクに残す日数",
+    "retry.apology_max": "お詫びの電話の回数の上限",
+    "retry.ask_number_again_max": "番号の聞き直しの回数の上限",
+    "retry.max_attempts_per_task": "1人のお客様にかける回数の上限",
+    "retry.no_opening_recheck": "かけられる時間が無い行の見直し",
+    "retry.time_band_boundaries": "時間帯の区切り",
+    "stop.ai.probe_interval": "AI の回復を試す間隔",
+    "stop.ai.resume_after_successes": "AI の回復とみなす回数",
+    "stop.ai_quota.rest": "上限に当たったキーを休ませる長さ",
+    "stop.ai_rate_limit.backoff": "混雑のときの待ち",
+    "stop.trouble.stop_after_rows": "不具合で止めるお客様の数",
+    "verification.recording_wait": "録音が届くのを待つ長さ",
+    "verification.retry_wait": "確かめをやり直すまでの待ち",
+}
+
+
+_DEV_MARK = re.compile(r"Intent|DESIGN|ユーザー|管理者「|✅|⏳|⛔|20\d\d-\d\d|CL-\d|0\d{3}|計画書|設計書")
+# 説明の文の中の内部の言い方 → 契約者の画面の言い方（1か所）
+_INNER_WORDS: dict[str, str] = {"見守り役": "システム", "電話接続モジュール": "電話をつなぐ部品", "別の耳": "聞き取りの確かめ"}
+_OPEN, _CLOSE = "（(", "）)"
+
+
+def _drop_dev_parens(text: str) -> str:
+    """括弧書き（入れ子も1つのまとまりとして数える）のうち、開発の覚え書きのしるしを含むものを、まとまりごと外す。"""
+    out, stack = [], []   # stack：開いた括弧の、out の中の位置
+    for ch in text:
+        if ch in _OPEN:
+            stack.append(len(out))
+            out.append(ch)
+        elif ch in _CLOSE and stack:
+            start = stack.pop()
+            out.append(ch)
+            if not stack and _DEV_MARK.search("".join(out[start:])):
+                del out[start:]
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def screen_help(key: str, text: str) -> str:
+    """設定の説明の文を、契約者の画面に出す形にする1か所：選び肢・設定の名前を言葉に置き換え（screen_meaning）、開発の覚え書きの入った
+    括弧書き（決めた日付・文書の名前・担当の名前など）は出さず、内部の言い方は画面の言い方にする。⏳ 契約者向けの説明を定義に持って
+    もらう＝CL-2 へのお願い 45（できたら、ここはそれを出すだけになる）。"""
+    out = _drop_dev_parens(screen_meaning(key, text))
+    for inner, plain in _INNER_WORDS.items():
+        out = out.replace(inner, plain)
+    return re.sub(r"\s+([。、）])", r"\1", out).strip()
+
+
 # 発信禁止の一覧の取り込みの欄の名前（欄の正本は core の dnc_import.FIELDS。試験が突き合わせる）
 DNC_IMPORT_FIELD_WORDS: dict[str, str] = {"phone": "電話番号", "client_ref": "依頼者の管理番号"}
 
@@ -305,9 +449,34 @@ def stop_scope(name: str) -> str:
     return stops.SCOPE_NAMES.get(name, NO_WORD)
 
 
+# 知らせの種類の、画面に出す短い名前（1か所）。core の notify.KINDS は種類の定義（開発の説明）なので、画面には出さない。
+# 種類のすべてに名前があるかは、試験が notify.KINDS と突き合わせる（種類が増えたのに名前が無ければ落ちる）。
+NOTICE_KIND_WORDS: dict[str, str] = {
+    "stopped": "発信を止めました", "resumed": "止めていた発信を再開しました", "quality_stage": "品質の段が進みました",
+    "judge_unknown": "結果を判定できなかった電話があります", "error_notice": "不具合がありました（直す担当へ依頼済み）",
+    "calendar_sync_failed": "祝日の暦を取りに行けませんでした", "calendar_next_year_missing": "来年の祝日の暦がまだありません",
+    "budget": "費用が上限を超えました", "forbidden_speech": "言ってはいけないことを言った電話があります",
+    "complaint": "苦情のあった電話があります", "apology": "お詫びの電話の結果", "deficit_warning": "赤字になっています",
+    "program_update": "PC のプログラムの更新が要ります", "backup_failed": "控えを取れませんでした",
+    "answer_rate_drop": "電話に出てもらえる割合が下がりました", "sample_ready": "正解を付ける電話を抜き取りました",
+    "old_promise_choice": "前の担当の方との約束を選んでください", "correction_call": "直した結果でおかけしてよいか確かめてください",
+    "month_ahead_approval": "1か月以上先のお電話を確かめてください", "month_ahead_unanswered": "【緊急】1か月以上先のお電話の答えがありません",
+    "solution_held": "依頼者の解決策を、まだ入れていません", "solution_earlier": "入っていない前の解決策があります",
+    "solution_unconfirmed": "解決策を入れるか選んでください", "declared_after_settle": "「もうかけないで」が電話のあとに届きました",
+    "recording_needed": "録音が要る部分があります", "recording_list_needed": "録音の一覧がまだありません",
+    "version_not_derived": "業務設定の新しい版を作れませんでした", "setting_missing": "設定がされていません",
+    "pc_down": "PC からの合図が途切れました", "line_undecided": "回線のせいか番号のせいか決められません",
+    "task_resting": "こちらの不具合で休ませたお客様がいます", "line_none_to_switch": "発信番号を替える回線がありません",
+    "pc_line_conflict": "同じ回線を2台の PC がつないでいます", "decision_approval": "取り消せない決定の確かめを待っています",
+    "decision_assumed": "決められなかった決定を、設定どおり決まったものとしました",
+    "emergency_route": "緊急の道で再開しました", "ai_newer_version": "使っている AI に新しい版が出ました",
+    "ai_version_missing": "使っている AI の版が見つかりません", "ai_version_unchecked": "AI の新しい版を確かめられませんでした",
+}
+
+
 def notice_kind(name: str) -> str:
-    """知らせの種類の名前（正本は notify.KINDS）。"""
-    return notify.KINDS.get(name, NO_WORD)
+    """知らせの種類の、画面に出す短い名前（NOTICE_KIND_WORDS の1か所。種類の正本は core の notify.KINDS）。"""
+    return NOTICE_KIND_WORDS.get(name, NO_WORD) if name in notify.KINDS else NO_WORD
 
 
 def exclusion_level(name: str | None) -> str:

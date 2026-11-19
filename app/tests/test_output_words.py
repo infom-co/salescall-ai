@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import unittest
 
+# 画面に出してはいけない開発の覚え書きのしるし（決めた日付・決まりの番号・文書の名前・担当の名前・内部の言い方）
+DEV_NOTE = r"Intent|DESIGN|ユーザー|✅|⏳|⛔|20\d\d-\d\d|CL-\d|[（(]?0\d{3}[）)]|見守り役|＝計画書|＝DESIGN"
+
 from salescall.core import ai_troubles, approval, call_report, errors, exclusions, next_action, notify, stops
 from salescall.core import business_rules
 from salescall.output import words
@@ -48,8 +51,8 @@ class EveryNameHasAWord(unittest.TestCase):
             self.assertEqual(words.stop_cause(cause), stops.CAUSES[cause].label)
         for scope in stops.SCOPE_NAMES:
             self.assertEqual(words.stop_scope(scope), stops.SCOPE_NAMES[scope])
-        for kind in notify.KINDS:
-            self.assertEqual(words.notice_kind(kind), notify.KINDS[kind])
+        for kind in notify.KINDS:   # 知らせの種類は、core の定義（開発の説明）ではなく、画面の短い名前（NOTICE_KIND_WORDS。下の試験）
+            self.assertEqual(words.notice_kind(kind), words.NOTICE_KIND_WORDS[kind])
         for level in exclusions.LEVEL_NAMES:
             self.assertEqual(words.exclusion_level(level), exclusions.LEVEL_NAMES[level])
         for stage in ai_troubles.STAGES:
@@ -181,4 +184,14 @@ class DncImportFields(unittest.TestCase):
         self.assertIsNotNone(m, "鳴らした目的の決まりが見つかりません")
         self.assertEqual(set(w.RING_PURPOSE_WORDS), set(_re.findall(r"'([a-z_]+)'", m.group(1))))
         self.assertEqual(set(w.RING_WORDS), {True, False, None})
+
+    def test_every_notice_kind_has_a_short_screen_name_without_developer_notes(self):
+        import re as _re
+        from salescall.core import notify
+        from salescall.output import words as w
+        self.assertEqual(set(w.NOTICE_KIND_WORDS), set(notify.KINDS))
+        for k, v in w.NOTICE_KIND_WORDS.items():
+            with self.subTest(kind=k):
+                self.assertLessEqual(len(v), 40)
+                self.assertIsNone(_re.search(DEV_NOTE, v))
 

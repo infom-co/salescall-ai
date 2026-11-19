@@ -394,3 +394,4 @@ ol.steps-check li.next .mark { background: var(--primary); color: var(--primary-
 ol.steps-check .what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 ol.steps-check small { color: var(--muted); }
 .mini-stats .mini small { word-break: keep-all; }
+.setting-group { scroll-margin-top: calc(var(--chrome, 108px) + 12px); }

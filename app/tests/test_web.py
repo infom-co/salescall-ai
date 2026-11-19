@@ -18,6 +18,7 @@ from salescall.web.context import Person
 from tests.support import OPERATOR, SYSTEM, World, app_access, ensure_rules, fictional_caller, fictional_jp_fixed
 
 SECRET = b"test-only-secret"
+from tests.test_output_words import DEV_NOTE  # noqa: E402  画面に出してはいけない開発の覚え書きのしるし（1か所）
 
 
 class _World(unittest.TestCase):
@@ -494,6 +495,7 @@ class Web(_World):
             if words_missing() in visible:
                 problems.append((path, "言葉の抜け"))
             problems += [(path, m) for m in internal.findall(visible)]
+            problems += [(path, "開発の覚え書き：" + m.group(0)) for m in re.finditer(DEV_NOTE, visible)]   # 画面に開発の根拠を出さない
             todo += [h for h in re.findall(r'href="(/[^"#?]*)', r.text) if not h.startswith(("/static", "/pc-login")) and h not in seen]
         self.assertGreater(len(seen), 10)
         self.assertEqual(problems, [])
