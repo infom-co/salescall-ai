@@ -430,7 +430,7 @@ class TargetRecheck(SettleBase):
                                                     checked_by="試験"))
         self.assertIsNone(self.item(s, aid))                                       # 別の方の答えは使わない（依頼者へは「-」）
         with self.assertRaises(Rejected):                                          # 記録は、表の持ち主でも変えられない
-            owner_access().in_system(OPERATOR, lambda tx: tx.execute(
+            owner_access().in_system(ADMIN, lambda tx: tx.execute(
                 "UPDATE salescall.target_rechecks SET outcome = 'target' WHERE attempt_id = %s", (aid,)))
         self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
         # 目的のお客様に取り次いでもらえなかったのと同じ（「一部だけ取れた」にしない＝判定と締めで「繋がった」を分けない）
@@ -1871,7 +1871,7 @@ class DialFixAfterCalls(SettleBase):
 
     def ends_row(self, s, aid):
         """締めの `_ends_row`（あとに発信のある行を、あとから決まった断りで終えるか）の答え。"""
-        return self.tx(s, lambda tx: settle._ends_row(tx, settle._attempt(tx, aid), "do_not_call", False, False))
+        return self.tx(s, lambda tx: settle._ends_row(tx, settle._attempt(tx, aid), "do_not_call", False, None, False))
 
     def test_the_old_person_refusing_stops_only_the_old_persons_numbers_and_the_new_person_is_called(self):
         """「担当の方は違う」・「約束も守る」で直し、前の番号で前の担当の方が「もうかけないで」と断った ⇒ 止めるのは前の担当の方の番号（断った
@@ -5047,7 +5047,8 @@ class CutOffCalls(SettleBase):
 
     def test_the_apology_for_a_cut_is_kept_until_the_callee_is_reached(self):
         """途中で切れた：次の予定にお詫びの印（cut_off）。予約証が会話の処理へ渡し、すぐのかけ直しに出なかったあとも引き継ぐ。
-        外れるのは、目的のお客様と話せた締めだけ（⛔ 2026-10-22 の見直し14：前は続きの電話に出ないと、お詫びが消えた）。"""
+        外れるのは、目的のお客様と話せて、会話の報告がそのお詫びを最後まで流せたと言う締めだけ（apologies_delivered。CL-1 の連絡帳 4-199。⛔ 2026-10-22 の
+        見直し14：前は続きの電話に出ないと、お詫びが消えた。⛔ 2026-11-19 まで：目的のお客様と話せたら、流したかを見ずに外していた）。"""
         s = self.ready()
         cut = ("dialing", "ringing", "answered", "in_conversation", "dropped")
         self.settle(s, self.call(s, cut, side="line", report=rep(cut=Cut("callee", False, False))))
@@ -5064,7 +5065,13 @@ class CutOffCalls(SettleBase):
         c = self.claim(s)
         self.assertEqual(c.apology, ("cut_off",))
         self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
-        self.settle(s, self.call(s))                                          # 目的のお客様と話せた
+        self.settle(s, self.call(s, report=replace(rep(), apologies_delivered=(("cut_off", False),))))   # 話せたが、お詫びは途中で止まった
+        self.assertEqual(reasons(), ["cut_off"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"],
+                                                       cause="試験：その時刻が来たことにする", promised=True))
+        c = self.claim(s)
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        self.settle(s, self.call(s, report=replace(rep(), apologies_delivered=(("cut_off", True),))))    # 話せて、最後まで流せた
         self.assertEqual(reasons(), [])
 
     def test_whether_a_call_was_cut_is_kept_once_on_the_attempt(self):
@@ -6281,7 +6288,8 @@ class CallbackWindow(SettleBase):
         c = self.claim(s)
         self.assertEqual(c.apology, ("missed_promise",))
         self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
-        self.settle(s, self.call(s))                                          # 目的のお客様と話せた
+        # 目的のお客様と話せて、そのお詫びを最後まで流せた（会話の報告の apologies_delivered。流せた理由だけ外す＝CL-1 の連絡帳 4-199）
+        self.settle(s, self.call(s, report=replace(rep(), apologies_delivered=(("missed_promise", True),))))
         self.assertFalse(owed())
 
     def weekend_words(self, s):
@@ -6493,7 +6501,7 @@ class DatabaseGuards(Base):
         for sql in ("UPDATE salescall.business_rules SET rules = '{}' WHERE version_id = %s",
                     "DELETE FROM salescall.business_rules WHERE version_id = %s"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
-                owner_access().in_system(OPERATOR, lambda tx: tx.execute(sql, (s["version"],)))
+                owner_access().in_system(ADMIN, lambda tx: tx.execute(sql, (s["version"],)))
 
     def test_apology_reasons_and_missed_rounds_are_kept_consistent(self):
         """お詫びの印は理由から作る列（理由があれば印。0116）で、理由は決まったものだけ。かけられなかった回の数は、過ぎた回の数を

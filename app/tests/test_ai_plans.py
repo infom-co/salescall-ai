@@ -57,3 +57,21 @@ class Plans(unittest.TestCase):
         self.assertEqual([self.plan(a) for a in ("conversation", "import")], ["own", "own"])
         self.choose("ai.plan_conversation", "included")
         self.assertEqual(self.plan("conversation"), "included")
+
+
+class Tiers(Plans):
+    def tier(self, ai, s=None):
+        s = s or self.s
+        return self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: ai_plans.tier(tx, ai, tenant_id=s["tenant"]))
+
+    def test_the_contractor_chooses_free_or_paid_only_for_its_own_key(self):
+        """無料枠と有料枠（0257。✅ 2026-10-16 ユーザー「契約者が無料枠と有料枠を選べる。…有料枠をおすすめする（強制はしない）」・CL-3 の 36）：
+        自分で API を契約するプラン（own）のときだけ、契約者が選んだ枠。初めは、おすすめの有料枠。契約者が自分で選べる（プランと違い、料金の
+        プランではない）。AI料金込み・判定の AI は、契約者の枠を持たない（None）。選べるのは free と paid だけ。"""
+        self.assertEqual([self.tier(a) for a in ("conversation", "import", "judge")], ["paid", "paid", None])
+        self.choose("ai.tier_conversation", "free", actor=OPERATOR)
+        self.assertEqual([self.tier(a) for a in ("conversation", "import")], ["free", "paid"])
+        self.choose("ai.plan_conversation", "included")
+        self.assertIsNone(self.tier("conversation"))                     # システムのキー：契約者の枠ではない
+        with self.assertRaises(Rejected):
+            self.choose("ai.tier_import", "cheap", actor=OPERATOR)

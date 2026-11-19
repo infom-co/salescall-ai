@@ -4,6 +4,8 @@
 - `python -m salescall.supervisor status`：どの設定が入っているか（値は出さない）。
 - `python -m salescall.supervisor drain`：同じ機械で動いている見守り役に「新しい電話をかけずに、いまの通話が終わったら止まって」と
   頼み、止まるまで待って知らせる（入れ替えの前に使う。`main.ask_drain`）。
+- `python -m salescall.supervisor first-admin`：サーバーを用意するときに1回だけ、最初の管理者のログインを、その契約者と一緒に作る（ログインIDと
+  パスワードは、その場で入れていただく。パスワードは画面にも記録にも出さない。管理者がもういれば、データベースが断る＝core/people.first_admin。0251）。
 契約者の PC で動かすのは、PC の部品（`python -m salescall.agent`）。
 """
 
@@ -47,11 +49,37 @@ def _stop_on_term() -> threading.Event:
     return stop
 
 
+def first_admin(ask=input, secret=None) -> int:   # noqa: ANN001
+    """最初の管理者のログインを作る（1回だけ）。ask・secret＝入れていただく所（試験では差し替える）。"""
+    import getpass
+
+    from salescall.core import people
+    from salescall.core.access import Access, Refused, Rejected
+    secret = secret or getpass.getpass
+    tenant_name = ask("最初の契約者の名前（例：管理者の会社の名前）：").strip()
+    name = ask("記録に残るお名前：").strip()
+    login_id = ask("ログインID：").strip()
+    password = secret("パスワード（画面には出ません）：")
+    if password != secret("もう一度パスワード：") or not (tenant_name and name and login_id):
+        print("入力が空か、2回のパスワードが違います。何も作っていません")
+        return 1
+    try:
+        Access(config.load().dsn).in_system(people.LOGIN_CHECKER, lambda tx: people.first_admin(
+            tx, tenant_name=tenant_name, name=name, login_id=login_id, password=password))
+    except (Refused, Rejected) as e:
+        print(f"作れませんでした：{e}（管理者がもういるときは、その管理者が画面でログインを作ります）")
+        return 1
+    print("最初の管理者のログインを作りました。画面からログインしてください")
+    return 0
+
+
 def run(argv: list[str]) -> int:
     command = argv[0] if argv else "run"
     if command == "status":
         print("\n".join(config.status()))
         return 0
+    if command == "first-admin":
+        return first_admin()
     if command == "drain":
         print("新しい電話を止めて、いまの通話の終わりを待っています（話している通話は、終わるまで待ちます。固まった通話は、"
               "おわびして終えます）…", flush=True)
@@ -83,7 +111,7 @@ def run(argv: list[str]) -> int:
                     return _end(1)
                 print(f"思いがけない誤り（{type(e).__name__}）。しばらくして動き直します")
                 time.sleep(RESTART_WAIT)
-    print("使い方：python -m salescall.supervisor [run | status | drain]")
+    print("使い方：python -m salescall.supervisor [run | status | drain | first-admin]")
     return 2
 
 

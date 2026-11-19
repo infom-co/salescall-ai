@@ -46,7 +46,7 @@ def local_today():
 
 def load_calendar(holidays=()):
     y = local_today().year
-    owner_access().in_system(OPERATOR, lambda tx: calendar.load_official_csv(tx, calendar_csv(range(y - 1, y + 2), holidays)))
+    owner_access().in_system(ADMIN, lambda tx: calendar.load_official_csv(tx, calendar_csv(range(y - 1, y + 2), holidays)))
 
 
 class Base(unittest.TestCase):
@@ -1106,8 +1106,11 @@ class CallerNumberAndVoice(Base):
                 got = self.tx(a, lambda tx: self.voice(tx, a, "L4"))
                 self.assertIsInstance(got, gate.Denied)
                 self.assertEqual(got.reason, "voice_not_ready")
-                for wrong in ([recordings.Part(part, "前の文。", "test://Leda/old", "5" * 64)],         # 文が違う
-                              [recordings.Part("intro", "ご予約の確認でお電話いたしました。", "test://Leda/intro", "5" * 64)]):   # 共通の一言の外
+                # 全部の部分がそろった組で、1つだけ文が違う・1つだけ共通の一言の外の名前（足りない組の守りではなく、文と名前の守りで断ることを確かめる）
+                whole = [recordings.Part(p, t, f"test://Leda/{p}", "5" * 64) for p, t in common_phrases.TEXTS.items()]
+                for wrong in ([x if x.part != part else recordings.Part(part, "前の文。", "test://Leda/old", "5" * 64) for x in whole],   # 文が違う
+                              whole + [recordings.Part("intro", "ご予約の確認でお電話いたしました。", "test://Leda/intro", "5" * 64)]):   # 共通の一言の外
+                    wrong = sorted(wrong, key=lambda x: x.part != part and x.part != "intro")
                     with self.subTest(wrong=wrong[0].part), self.assertRaises(ValueError):
                         self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(tx, unit="contractor", voice_name="Leda", parts=wrong))
                 old_hai = self.w.a.in_system(ADMIN, lambda tx: tx.one(
@@ -1375,17 +1378,25 @@ class CallerNumberAndVoice(Base):
         self.assertEqual(current(a, va, "Leda"), grown)
         later = make(a, va, "Leda", intro("Leda"), q1)                             # 同じ中身の組を作り直しても、そのまま流せる
         self.assertEqual((unheard(a, later), current(a, va, "Leda")), ([], later))
-        # 前の形（0173 より前）の、依頼者のタブの無い契約者の行が承認した中身（いまは作れないので、表の持ち主の役で台帳に置く）
-        owner_access().in_system(SYSTEM, lambda tx: tx.execute(
-            "INSERT INTO salescall.approved_contents (tenant_id, client_id, voice_name, content, set_id)"
-            " VALUES (%s, NULL, 'Leda', md5('架空の録音（intro）。' || chr(31) || %s || chr(31) || ''), %s)", (t, "8" * 64, same)))
-        for c, v, voice, part, why in ((a, va, "Sadachbia", intro("Sadachbia"), "ほかの声"),
-                                       (a, va, "Leda", intro("Leda", "8" * 64), "ほかの持ち主（タブの無い前の形の契約者の行）"),
-                                       (b, vb, "Leda", intro("Leda"), "ほかの依頼者"),
-                                       (a, va, "Leda", tail, "ほかの持ち主（システム）"),
-                                       (a, va, "Leda", intro("Leda", "9" * 64), "ほかの音声")):
+        def legacy(sid):
+            """前の形（0173 より前）の、依頼者のタブの無い契約者の行が、その組の部分と同じ中身を承認していた（いまは作れないので、表の持ち主の役で
+            台帳に置く。中身の鍵はデータベースの1か所 content_of で作る＝鍵の作り方が変わっても、この確かめが空振りしない。⛔ 0223 で鍵に部分の
+            名前が入ったのに、ここが前の作り方の鍵を手で書いていて、どの組の中身とも合わず、守りを外しても試験が通っていた＝CL-3 の 53）。"""
+            owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+                "INSERT INTO salescall.approved_contents (tenant_id, client_id, voice_name, content, set_id)"
+                " VALUES (%s, NULL, 'Leda', salescall.content_of(%s, 'intro'), %s)", (t, sid, same)))
+        for c, v, voice, part, why, before in ((a, va, "Sadachbia", intro("Sadachbia"), "ほかの声", None),
+                                               (a, va, "Leda", intro("Leda", "8" * 64), "ほかの持ち主（タブの無い前の形の契約者の行）", legacy),
+                                               (b, vb, "Leda", intro("Leda"), "ほかの依頼者", None),
+                                               (a, va, "Leda", tail, "ほかの持ち主（システム）", None),
+                                               (a, va, "Leda", intro("Leda", "9" * 64), "ほかの音声", None)):
             with self.subTest(why=why):
                 sid = make(c, v, voice, part)
+                if before is not None:
+                    before(sid)
+                    self.assertTrue(self.w.a.in_client(OPERATOR, t, c, lambda tx: tx.one(   # 台帳の中身は、この組の部分の中身と同じ（空振りしない）
+                        "SELECT EXISTS (SELECT 1 FROM salescall.approved_contents a JOIN salescall.part_contents k ON k.content = a.content"
+                        " WHERE k.set_id = %s AND a.client_id IS NULL) AS hit", (sid,)))["hit"])
                 self.assertEqual(unheard(c, sid), ["intro"])
                 self.assertNotEqual(current(c, v, voice), sid)
         empty = self.w.a.in_client(OPERATOR, t, a, lambda tx: tx.one(             # 部分の無い組は、そろわない
@@ -1755,17 +1766,17 @@ class Calendar(Base):
                "国民の祝日・休日月日,国民の祝日・休日名称\r\n2030/1/1,元日\r\n2030/1/1,元日\r\n".encode("cp932")]
         for data in bad:
             with self.subTest(data=data[:40]), self.assertRaises(CalendarRejected):
-                owner_access().in_system(OPERATOR, lambda tx: calendar.load_official_csv(tx, data))
+                owner_access().in_system(ADMIN, lambda tx: calendar.load_official_csv(tx, data))
 
     def test_out_of_range_and_newest_load_wins(self):
         from datetime import date
-        owner_access().in_system(OPERATOR, lambda tx: calendar.load_official_csv(tx, calendar_csv([2091, 2092])))
+        owner_access().in_system(ADMIN, lambda tx: calendar.load_official_csv(tx, calendar_csv([2091, 2092])))
         check = lambda d: owner_access().in_system(SYSTEM, lambda tx: calendar.holiday_checker(tx)(d))
         self.assertTrue(check(date(2091, 1, 1)))
         self.assertFalse(check(date(2091, 1, 2)))
         with self.assertRaises(CalendarOutOfRange):
             check(date(2093, 1, 1))
-        owner_access().in_system(OPERATOR, lambda tx: calendar.load_official_csv(
+        owner_access().in_system(ADMIN, lambda tx: calendar.load_official_csv(
             tx, calendar_csv([2091, 2092], holidays=[date(2091, 1, 2)])))
         self.assertTrue(check(date(2091, 1, 2)))
 
@@ -1832,7 +1843,7 @@ class Calendar(Base):
 
     def test_calendar_cannot_be_changed(self):
         with self.assertRaises(Rejected):
-            owner_access().in_system(OPERATOR, lambda tx: tx.execute("DELETE FROM salescall.calendar_holidays"))
+            owner_access().in_system(ADMIN, lambda tx: tx.execute("DELETE FROM salescall.calendar_holidays"))
 
 
 
@@ -1900,6 +1911,25 @@ class NameLedger(Content):
         self.tx(s, lambda tx: next_action.schedule_now(tx, tid, cause="試験"))
         return dict(s, task=tid, contact=k)
 
+    def test_a_name_tail_plays_only_a_recording_with_the_text_of_the_tail(self):
+        """続く言葉の録音は、その続く言葉の文（写し common_phrases.NAME_TAILS＝CL-1 の正本 phrases.NAME_TAILS）と同じ文の録音だけを流す（選ぶ1か所
+        salescall.current_name_set が文を受ける＝0259。共通の一言と同じ決まり＝✅ 2026-11-15 ユーザー「同じ決まりにする」。CL-1 の連絡帳 4-199 の 4-405 の (3)）。
+        前の文で録った録音（あとから作った組でも）は選ばない。入れる道（add_name_tail）も、文の違う録音を断る。"""
+        P = recordings.Part
+        old = "はいらっしゃいますか？"
+        self.assertNotEqual(common_phrases.NAME_TAILS["target"], old)
+        with self.assertRaises(ValueError):
+            self.w.a.in_system(ADMIN, lambda tx: recordings.add_name_tail(tx, voice_name="Leda", tail="target",
+                                                                          part=P("target", old, "test://Leda/old", "0" * 64)))
+        self.w.approve_names(None, [], ("Leda",), tails=("target",))
+
+        def stale(tx):   # 前の文で録った録音（入れる道は文を確かめるので、前からある組を置く形で作る）。あとから作った組
+            recordings.approve(tx, recordings.create_set(tx, unit="name_tail", voice_name="Leda", tail="target",
+                                                         parts=[P("target", old, "test://Leda/stale", "0" * 64)]))
+        self.w.a.in_system(ADMIN, stale)
+        got = self.w.a.in_system(ADMIN, lambda tx: recordings.name_recording(tx, uuid.uuid4(), "Leda", tail="target"))
+        self.assertEqual(got.spoken_text, common_phrases.NAME_TAILS["target"])
+
     def test_the_parts_cl1_added_on_11_01_are_received(self):
         """CL-1 が main（c4c8ffe・fe0e765）で足した、理由を言わずに取り次げないと言われたときの録音の部分（2026-11-01 ユーザーのご指示）：
         お取り次ぎいただける日時を伺う一言 callback_transfer_time・後任の方への確かめ successor_unavailable は共通の一言の録音（話して
@@ -1928,8 +1958,10 @@ class NameLedger(Content):
         申し伝える一言とその続きの電話の一言・答えの段のかけ直しの一言・返事を待つ一言・待つかかけ直すかを伺う一言は、どの業務でも同じ文の共通の
         一言（話してよい声が求める＝`COMMON_PARTS`）。待つかかけ直すかを伺うシステムの質問 H2 は、業務の質問の番号に使えない。"""
         from salescall.core import business_settings
-        self.assertLessEqual({"wish_told_online", "callback_email_online_again", "callback_later_time_answering", "wait_reply",
+        self.assertLessEqual({"wish_told_online", "callback_email_online_again", "wait_reply",
                               "callback_wait_or_later"}, set(recordings.COMMON_PARTS))
+        # 答えの段のかけ直しの一言「いつ頃おかけ直しさせていただきましょうか？」は、11-19 の日時の2択の段に替わって外れた（CL-1 の連絡帳 4-192 の (d)）
+        self.assertNotIn("callback_later_time_answering", recordings.COMMON_PARTS)
         self.assertIn("H2", business_settings.RESERVED_IDS)
 
     def test_the_parts_cl1_added_on_11_05_3am_are_received(self):
@@ -1993,8 +2025,9 @@ class NameLedger(Content):
         共通の一言の組にも入れない（業務の組から流す）。"""
         from salescall.core import business_settings
         self.assertLessEqual({"how_now", "callback_not_agreed_which", "callback_not_agreed_which_midway", "callback_handoff", "callback_handoff_bare",
-                              "callback_handoff_midway", "callback_handoff_pending", "callback_handoff_pending_bare",
-                              "callback_handoff_pending_midway", "apology_cut_off_same_day"}, set(recordings.COMMON_PARTS))
+                              "callback_handoff_midway", "callback_handoff_pending", "apology_cut_off_same_day"}, set(recordings.COMMON_PARTS))
+        # 保留を伺う一言の戻る形（_bare・_midway）は流れない（言い直しへの戻りは会話AIが言う）ので、11-19 に外れた（CL-1 の連絡帳 4-201）
+        self.assertFalse({"callback_handoff_pending_bare", "callback_handoff_pending_midway"} & set(recordings.COMMON_PARTS))
         self.assertLessEqual({"N4", "N5", "N6", "offer_which", "close_offer"}, business_settings.RESERVED_IDS)
         self.assertEqual({"offer_which", "close_offer", "N6_pending"} & set(recordings.COMMON_PARTS), set())
 
@@ -2033,8 +2066,27 @@ class NameLedger(Content):
         phrases.AGAIN_FIT）。名前の一覧が CL-1 の正本とそっくり同じかは、CL-1 の試験 test_recorded_names_match_cl2_common_parts が見る。"""
         lead = {c for c in recordings.COMMON_PARTS if c.endswith("_lead_soredeha")}
         self.assertIn("announce_recheck_unheard", recordings.COMMON_PARTS)
-        self.assertEqual(len(lead), 27 + 3 + 2 + 1 + 3)   # 4-159 の27本と、4-161 の3本・4-167 などの2本・4-170 の1本・4-173 の3本（下の試験）
+        # 4-159 の27本と、4-161 の3本・4-167 などの2本・4-170 の1本・4-173 の3本（下の試験）から、11-19 に外れた7本（「いつ頃」の3つ＝4-192 の (d)・E1〜E4 の
+        # 4つ＝4-199 の 4-411 の (1)）を引き、日時の2択の段の1本（callback_time_half_lead_soredeha）を足す
+        self.assertEqual(len(lead), 27 + 3 + 2 + 1 + 3 - 7 + 1)
         self.assertLessEqual({c.removesuffix("_lead_soredeha") for c in lead}, set(recordings.COMMON_PARTS))   # どれも、もとの質問の録音がある
+
+    def test_the_parts_cl1_added_and_retired_on_11_19_are_received(self):
+        """CL-1 の連絡帳 4-192 の (d)・4-195 の (a)・4-197・4-199 の 4-411・4-201（✅ 2026-11-19 日本時間14時18分13秒・15時10分27秒 ユーザー）：日時の2択の段の一言・
+        決め手を伺う一言・後任の方へのお取り次ぎ・相づち「大変失礼いたしました。」は、話してよい声が求める共通の一言。「いつ頃」と伺う一言と、流れない形は外れた
+        （求めると、CL-1 がもう録らない録音を待って声がそろわない）。続く言葉 mobile_confirm・target_transfer は名前の録音の台帳（共通の一言の組に入れない）。
+        決め手を伺うシステムの質問 E5・続く言葉の名前は、業務の質問の番号に使えない。"""
+        from salescall.core import business_settings
+        parts = set(recordings.COMMON_PARTS)
+        self.assertLessEqual({"callback_time_kind", "callback_time_kind_bare", "callback_time_kind_midway", "callback_time_half",
+                              "callback_time_half_lead_soredeha", "callback_time_half_midway", "time_weekend", "callback_elsewhere_point",
+                              "successor_transfer", "taihen_shitsurei"}, parts)
+        self.assertFalse({"callback_later_time", "callback_later_time_answering", "callback_hurry_when", "callback_elsewhere_midway",
+                          "callback_deepen_midway", "callback_handoff_pending_bare", "successor_reconfirm",
+                          "callback_elsewhere_point_midway", "callback_elsewhere_point_lead_soredeha"} & parts)
+        self.assertLessEqual({"mobile_confirm", "target_transfer"}, set(recordings.NAME_TAILS))
+        self.assertFalse({"mobile_confirm", "target_transfer"} & parts)
+        self.assertLessEqual({"E5", "mobile_confirm", "target_transfer", *recordings.NAME_TAILS}, business_settings.RESERVED_IDS)
 
     def test_the_parts_cl1_added_for_their_callback_on_other_reasons_are_received(self):
         """CL-1 の連絡帳 4-161（✅ 2026-11-15 日本時間11時59分07秒 ユーザー「伺い17はアでOK」）：お言葉に甘えて受けたあと、不在のほかの理由でも伺う一言の録音
@@ -2048,17 +2100,22 @@ class NameLedger(Content):
         求める（`COMMON_PARTS`）：考えている途中の方に黙られたときの1つ目の一言（doubt_anytime）・理由を言わずに待つ方に黙られたままのときの頭の無い
         待つかかけ直すかの伺い（callback_wait_or_later_plain）・ほかの会社に頼んでいると言われたときに伺う一言（callback_elsewhere）と、それぞれの
         3回目から戻る形（_midway）・頭「それでは」の形（_lead_soredeha）。無いと、その一言を流せないまま声を「話してよい」にする。"""
-        bases = ("callback_wait_or_later_plain", "callback_elsewhere", "callback_deepen")   # callback_deepen＝深める一言 E2（4-170）
-        self.assertLessEqual({"doubt_anytime"} | {f"{b}{tail}" for b in bases for tail in ("", "_midway", "_lead_soredeha")},
-                             set(recordings.COMMON_PARTS))
+        self.assertLessEqual({"doubt_anytime"} | {f"callback_wait_or_later_plain{tail}" for tail in ("", "_midway", "_lead_soredeha")}
+                             | {"callback_elsewhere", "callback_deepen"}, set(recordings.COMMON_PARTS))   # callback_deepen＝深める一言 E2（4-170）
+        # ほかの会社のことを伺う一言 E1・深める一言 E2 は、流れの制御が伺い直さないので、戻る形・頭「それでは」の形は流れない（11-19 に外れた＝CL-1 の連絡帳 4-199 の 4-411）
+        self.assertFalse({f"{b}{tail}" for b in ("callback_elsewhere", "callback_deepen") for tail in ("_midway", "_lead_soredeha")}
+                         & set(recordings.COMMON_PARTS))
 
     def test_the_parts_cl1_added_for_brief_calls_and_deepening_are_received(self):
         """CL-1 の連絡帳 4-173・4-174（✅ 2026-11-16 日本時間12時48分22秒・14時46分34秒 ユーザー）の共通の一言の録音も、話してよい声が求める（`COMMON_PARTS`）：
         深める一言へのお返事を受けて伺う一言（callback_deepen_measures・callback_deepen_ahead）・要約も用件の名詞も無い業務の手短にのかけ直しの伺い
         （callback_brief）と、それぞれの3回目から戻る形・頭「それでは」の形、手短にお伺いする一言（brief_go）。4-170 の deepen_ahead（受け止めの言葉が
         使えないときの録音）は使わなくなったので求めない（求めると、使わない録音が無いだけで声を「話せない」にする）。"""
-        bases = ("callback_deepen_measures", "callback_deepen_ahead", "callback_brief")
-        self.assertLessEqual({"brief_go"} | {f"{b}{tail}" for b in bases for tail in ("", "_midway", "_lead_soredeha")}, set(recordings.COMMON_PARTS))
+        self.assertLessEqual({"brief_go", "callback_deepen_measures", "callback_deepen_ahead"}
+                             | {f"callback_brief{tail}" for tail in ("", "_midway", "_lead_soredeha")}, set(recordings.COMMON_PARTS))
+        # 深める一言 E3・E4 の戻る形・頭「それでは」の形は流れない（11-19 に外れた＝CL-1 の連絡帳 4-199 の 4-411）
+        self.assertFalse({f"{b}{tail}" for b in ("callback_deepen_measures", "callback_deepen_ahead") for tail in ("_midway", "_lead_soredeha")}
+                         & set(recordings.COMMON_PARTS))
         self.assertNotIn("deepen_ahead", recordings.COMMON_PARTS)
         self.assertIn("call_again_taken", recordings.COMMON_PARTS)   # 4-175：かけ直しの伺いに「はい」をいただいて締めるときの言い切り
 
@@ -2075,7 +2132,7 @@ class NameLedger(Content):
         self.assertLessEqual({"wish_told_way", "back_again", "unclear_anytime", "concern_anytime", "hesitate_point",
                               "callback_email_bare", "callback_line_how_without_sms_2_bare", "callback_email_chosen_bare",
                               "callback_ask_when_midway", "callback_wait_or_later_midway", "callback_other_point_which_recap_midway",
-                              "callback_line_how_without_id_2_midway", "callback_later_time_answering_midway"}, parts)
+                              "callback_line_how_without_id_2_midway", "callback_time_kind_midway"}, parts)
         self.assertFalse({"back_often", "callback_email_announced", "callback_line_how_announced", "callback_fax_announced",
                           "callback_address_announced"} & parts)
         for tail in ("_bare", "_midway"):
@@ -2113,8 +2170,10 @@ class NameLedger(Content):
         （dounasaimasu）から「何か気になる点がございましたらお気軽にお聞かせくださいね。」（concern_anytime）に替わった（急かさない）ので、
         前の名前は求めない（求めると、CL-1 がもう録らない録音を待って声が「そろった」にならない）。"""
         from salescall.core import business_settings
-        self.assertLessEqual({"callback_hurry_again", "callback_hurry_when", "concern_anytime"}, set(recordings.COMMON_PARTS))
+        self.assertLessEqual({"callback_hurry_again", "concern_anytime"}, set(recordings.COMMON_PARTS))
         self.assertNotIn("dounasaimasu", recordings.COMMON_PARTS)
+        # 「ご都合のいい日時はいつ頃でしょうか？」（callback_hurry_when）は、11-19 の日時の2択の段に替わって外れた（CL-1 の連絡帳 4-192 の (d)）
+        self.assertNotIn("callback_hurry_when", recordings.COMMON_PARTS)
         self.assertIn("H1", business_settings.RESERVED_IDS)
 
     def test_the_not_agreed_ask_cl1_added_on_11_02_is_received(self):
@@ -2154,12 +2213,14 @@ class NameLedger(Content):
         K = recordings.NameKey
         self.assertEqual((got.roles, got.names), (("営業部部長",), (K(reading="おかだ"),)))
         # 取り次げないの確かめの一言（CL-1 が 11-01 に足した）・引き継ぎを確かめる一言の名前の入る形（carried_target。CL-1 の連絡帳 4-151 の伺い11）も、
-        # 目的のお客様のいる行はいつも要る
+        # 目的のお客様のいる行はいつも要る。法人の行はお取り次ぎをお願いし直す一言（target_transfer）・お名前のある行は携帯電話の番号のときの確かめる一言
+        # （mobile_confirm）も（CL-1 の連絡帳 4-197 の (a)・4-192 の (b) の (2)。どの行が携帯電話の番号になるかは前もって決めない）
         self.assertEqual(got.tails, ("target", "target_confirm", "target_reconfirm", "promise_again", "unavailable_confirm",
-                                     "carried_target", "target_successor"))
+                                     "carried_target", "target_successor", "target_transfer", "mobile_confirm"))
         b = self.ready()
         got = self.tx(b, lambda tx: recordings.name_needs(tx, b["task"]))
         self.assertEqual((got.roles, got.names), ((), (K(role=support.DEFAULT_ROLE),)))
+        self.assertNotIn("mobile_confirm", got.tails)                         # 役職のみ（お名前の無い行）は「（お名前）様で大丈夫でしょうか？」を使わない
         c = self.ready()
         self.switch_to(c, {"kind": "anyone", "role": None})
         self.assertIsNone(self.tx(c, lambda tx: recordings.name_needs(tx, c["task"])))
@@ -2169,7 +2230,7 @@ class NameLedger(Content):
             got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
         self.assertEqual((got.roles, got.names), ((), (K(reading="おかだ"),)))
         self.assertEqual(got.tails, ("target_individual", "target_confirm", "target_reconfirm", "promise_again", "unavailable_confirm",
-                                     "carried_target"))
+                                     "carried_target", "mobile_confirm"))     # 個人の行は、後任の方・お取り次ぎをお願いし直す一言が無い
         with self.assertRaises(ValueError):                                   # 名前の部分の鍵は、読みか役職のどちらか1つ
             K(reading="おかだ", role="社長")
 
@@ -2221,7 +2282,13 @@ class NameLedger(Content):
                                            " AND event_key LIKE 'name_recording_missing:%%'"))
         self.assertEqual(len(told), 1)                 # 2つの行・何度断っても、依頼者ごとに1日1つ
         self.assertIn("「おかだ」様", told[0]["summary"])
+        # 画面が行ごとに読む（門と同じ1か所＝gate.voice_candidates。知らせを増やさない。CL-3 の 37）
+        missing = self.tx(s, lambda tx: gate.name_recording_missing(tx, a["task"]))
+        self.assertIn("「おかだ」様", missing)
+        self.assertEqual(len(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.notification_events WHERE kind = 'setting_missing'"
+                                                          " AND event_key LIKE 'name_recording_missing:%%'"))), 1)
         self.w.approve_names(s, [K(reading="おかだ")], ("Leda",), tails=())   # 続く言葉は初めからそろっている（システムの共通の録音）
+        self.assertIsNone(self.tx(s, lambda tx: gate.name_recording_missing(tx, a["task"])))
         got = self.claim(a)                            # Leda はそろった：業務の声（Sadachbia）ではなく Leda で話す
         self.assertIsInstance(got, gate.Claim, got)
         self.assertEqual(got.voice_type, "L4")
@@ -2412,7 +2479,7 @@ class NameLedger(Content):
                 " VALUES (NULL, %s, 'name', %s, 'test://y', %s)", (own, f"{role}様", "0" * 64)))
         self.assertIn("取引から見える組", e.exception.message)                # 0109 の守りのまま
         self.w.a.in_system(ADMIN, lambda tx: recordings.approve(tx, unapproved))
-        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.current_name_set(%s, 'Leda', 'name', %s, NULL, NULL) AS c",
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.current_name_set(%s, 'Leda', 'name', %s, NULL, NULL, NULL) AS c",
                                                       (s["business"], role)))["c"], unapproved)   # 業務の組はまだ承認していない
 
     def test_the_admin_listens_to_a_business_name_recording_before_it_serves_every_contractor(self):

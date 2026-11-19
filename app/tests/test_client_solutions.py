@@ -92,9 +92,10 @@ class Solutions(Base):
             with self.subTest(index=index), self.assertRaises(client_solutions.SolutionInvalid):
                 self.tx(s, lambda tx: client_solutions.add(tx, aid, index, text, origin="dashboard",
                                                            name_answer=self.namer("料金"), find_names=NO_NAMES), OPERATOR)
-        with self.assertRaises(Rejected):
+        with self.assertRaises(Rejected) as e:   # 断るのは解決策の守り（0184）の1か所（ほかの所の断りで通ったことにしない）
             self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
                                                        name_answer=self.namer("料金"), find_names=NO_NAMES), SYSTEM)
+        self.assertEqual(e.exception.constraint, "client_solution_by_person")
 
     def test_a_solution_that_needs_the_contractor_to_confirm_a_reading_is_held(self):
         """取込と同じ確かめに通らなければ（検証モードで、解決策の文の名前の AI の読みを契約者が確かめていない）、版を作らずに理由を
@@ -177,6 +178,18 @@ class Solutions(Base):
             made = self.tx(s, lambda tx: bs.load(tx, got.version_id))
             self.assertEqual((made.standard_id, dict(made.answers)["会社の場所"]), (std, "東京都港区の本社でご説明します。"))
             self.assertNotIn("会社の場所", made.raw.get("answers_off") or [])
+            # いまの標準が替わっても、解決策の版は元の版の標準で確かめる（元の版が「使わない」にした標準の問いが、いまの標準に無くても断らない）
+            r = settings_raw()
+            r["answers_off"] = ["番号の出どころ"]
+            kept = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r, standard_id=std), OPERATOR)
+            self.tx(s, lambda tx: bs.assign(tx, s["run"], kept, reason="試験：標準の問いを使わない版"), OPERATOR)
+            with self.w.standard((("駐車場", "建物の裏にございます。"),)):
+                got = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額2万円です。", origin="dashboard",
+                                                                 name_answer=self.namer("料金"), find_names=NO_NAMES), OPERATOR)
+            made = self.tx(s, lambda tx: bs.load(tx, got.version_id))
+            self.assertEqual((made.standard_id, made.raw["answers_off"], dict(made.answers)["料金"]),
+                             (std, ["番号の出どころ"], "月額2万円です。"))
+            self.assertNotIn("駐車場", dict(made.answers))
 
     def test_solution_answers_are_kept_when_the_settings_are_imported_again(self):
         """✅ 2026-11-06 ユーザー「残す」：取り込み直したファイルに、解決策で足した問いが無ければ残す（知らせつき）。同じ問いがあれば
@@ -403,6 +416,9 @@ class Solutions(Base):
         after = self.tx(s, lambda tx: bs.load(tx, got.version_id)).raw["names"]
         self.assertEqual(after[:len(before)], before)                                          # 版の名前と読みは版のまま
         self.assertEqual([(n["text"], n["reading"]) for n in after[len(before):]], [("港区", "みなとく")])
+        # 変えるのは想定問答と名前だけ（確かめが整える項目＝質問の AI の答えの欄など は、元の版のまま）
+        others = lambda v: {k: x for k, x in self.tx(s, lambda tx: bs.load(tx, v)).raw.items() if k not in ("answers", "names")}   # noqa: E731
+        self.assertEqual(others(got.version_id), others(v0))
         self.assertFalse(self.tx(s, lambda tx: recordings.version_needs(tx, got.version_id)).listed)   # 一覧が届くまで
         port = {"港区": "みなとく"}
         need = self.tx(s, lambda tx: support.send_list(tx, got.version_id, readings={p + "料金": port, p + "場所": port}), OPERATOR)
@@ -1174,7 +1190,7 @@ class Solutions(Base):
         for sql in ("UPDATE salescall.client_solution_leave_outs SET recorded_by = 'だれか' WHERE solution_id = %s",
                     "DELETE FROM salescall.client_solution_leave_outs WHERE solution_id = %s"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
-                own.in_system(OPERATOR, lambda tx, sql=sql: tx.execute(sql, (sid,)))
+                own.in_system(ADMIN, lambda tx, sql=sql: tx.execute(sql, (sid,)))
         read = "SELECT solution_id FROM salescall.client_solution_leave_outs"
         self.assertEqual([r["solution_id"] for r in self.tx(s, lambda tx: tx.all(read), OPERATOR)], [sid])
         other_client = self.w.client(s["tenant"])

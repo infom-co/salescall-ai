@@ -44,10 +44,13 @@ ACTOR_KINDS = ("operator", "system", "admin")  # 契約者か、システムの�
 
 @dataclass(frozen=True)
 class Actor:
-    """誰が読み書きするか（利用者の識別名、またはシステムの処理の名前）。記録に残る。"""
+    """誰が読み書きするか（利用者の識別名、またはシステムの処理の名前）。記録に残る。
+    person_id＝管理者・契約者のログイン（core/people。ログインを確かめた画面が渡す）。管理者・契約者の取引は、データベースがこのログインで
+    範囲を確かめる（salescall.check_scope の1か所。0251）。システムの処理は持たない。"""
 
     name: str
     kind: str
+    person_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.strip():
@@ -309,10 +312,14 @@ class Access:
                             conn.execute(f"SET LOCAL statement_timeout = {max(1, int(time_limit * 1000))}")
                         conn.execute(
                             "SELECT set_config('salescall.tenant_id', %s, true), set_config('salescall.client_id', %s, true),"
-                            " set_config('salescall.actor', %s, true), set_config('salescall.actor_kind', %s, true)",
+                            " set_config('salescall.actor', %s, true), set_config('salescall.actor_kind', %s, true),"
+                            " set_config('salescall.person_id', %s, true)",
                             ("" if tenant_id is None else str(tenant_id), "" if client_id is None else str(client_id),
-                             actor.name, actor.kind),
+                             actor.name, actor.kind, "" if actor.person_id is None else str(actor.person_id)),
                         )
+                        # 範囲の確かめ（1か所＝データベース。管理者・契約者は確かめたログインで、契約者は自分の契約者だけ。0251）。どの取引も、
+                        # 読み書きの前に必ず通る（画面の誤り1つで、ほかの契約者のデータに届かない＝CL-3 の 14）
+                        Tx(conn).execute("SELECT salescall.check_scope()")
                         return work(Tx(conn))
             except errors.QueryCanceled as e:
                 raise TimedOut(str(e)) from e

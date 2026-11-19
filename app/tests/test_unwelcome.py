@@ -497,14 +497,16 @@ class PromiseAndApology(ApologyBase):
             self.tx(s, lambda tx: tx.execute(
                 "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition, attempt_id)"
                 " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed', NULL, %s)", (s["tenant"], s["client"], s["task"], s["version"], c.attempt_id)))
-        self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, replace(report or rep(), apology_delivered=delivered)))
+        # 約束の電話の頭のお詫びを流せたかは、会話の報告の apologies_delivered の forbidden_speech（お詫びだけの電話の文 apology_delivered とは別の鍵＝
+        # CL-1 の連絡帳 4-199）
+        self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, replace(report or rep(), apologies_delivered=(("forbidden_speech", delivered),))))
         self.tx(s, lambda tx: attempts.record_verification(tx, c.attempt_id, summary=CLEAN))
         self.tx(s, lambda tx: health.after_call(tx, c.attempt_id))
         return c.attempt_id
 
     def test_the_mark_stays_until_the_apology_is_delivered(self):
         """CL-1 の連絡帳 4-143 の頼み：言ってはいけないことのお詫びの印（予定の印 forbidden_speech）を外すのと、契約者への知らせ（「お客様と約束した電話の頭で、
-        お詫びを伝えました」）は、会話の報告がお詫びを伝えた（apology_delivered）ときだけ（お詫びの電話の締めと同じ材料＝settle._apology_delivered。決めるのは
+        お詫びを伝えました」）は、会話の報告がお詫びを伝えた（apologies_delivered の forbidden_speech）ときだけ（お詫びの電話の締めと同じ材料＝settle._apology_delivered。決めるのは
         next_action._forbidden_told の1か所）。会話の側は、代わりの方・前の電話でお話ししていない方にはお詫びを流さない ⇒ 目的のお客様と話せても、流していない
         電話のあとは印が残り、次に話せた電話の頭でお詫びを流す。⛔ 2026-11-13 まで：目的のお客様と話せたら外し、流していないのに契約者に「伝えました」と知らせた。"""
         import time

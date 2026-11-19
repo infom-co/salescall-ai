@@ -13,7 +13,7 @@ import uuid
 from datetime import timedelta
 
 from salescall.core.access import Rejected
-from tests.support import ADMIN, OPERATOR, SYSTEM, World, fictional_phone, kindless, owner_access
+from tests.support import ADMIN, OPERATOR, SYSTEM, TEST_PASSWORD, World, fictional_phone, kindless, owner_access
 
 
 class OneContactPerNumber(unittest.TestCase):
@@ -104,6 +104,122 @@ class ClientIsolation(unittest.TestCase):
             self.w.insert_claim(dict(a, phone=fictional_phone()))
 
 
+class People(unittest.TestCase):
+    """管理者・契約者のログインと、取引の範囲の確かめ（core/people・salescall.check_scope。0251。CL-3 の 1・14）。"""
+
+    def setUp(self):
+        import os
+
+        from salescall.core.access import Access
+        self.w = World()
+        self.a, self.b = self.w.setup(), self.w.setup()                         # 別の契約者2つ
+        self.plain = Access(os.environ["SALESCALL_TEST_APP_DSN"])               # 試験のログインを付けない、本番と同じ入口
+
+    def make(self, tenant, kind, password=TEST_PASSWORD):
+        from salescall.core import people
+        login = f"kakuu-{uuid.uuid4()}"
+        pid = self.w.a.in_system(ADMIN, lambda tx: people.create(tx, tenant_id=tenant, kind=kind, name=f"架空の{kind}", login_id=login,
+                                                                 password=password))
+        return pid, login
+
+    def test_a_contractor_opens_only_its_own_contractor_and_the_admin_opens_any(self):
+        from salescall.core import people
+        from salescall.core.access import Actor
+        op, _ = self.make(self.a["tenant"], "operator")
+        ad, _ = self.make(self.a["tenant"], "admin")
+        me = Actor("架空のoperator", "operator", op)
+        read = lambda tx: tx.one("SELECT 1 AS n")["n"]   # noqa: E731
+        self.assertEqual(self.plain.in_tenant(me, self.a["tenant"], read), 1)
+        self.assertEqual(self.plain.in_client(me, self.a["tenant"], self.a["client"], read), 1)
+        boss = Actor("架空のadmin", "admin", ad)
+        for run in (lambda: self.plain.in_tenant(boss, self.b["tenant"], read), lambda: self.plain.in_system(boss, read),
+                    lambda: self.plain.in_client(boss, self.b["tenant"], self.b["client"], read)):
+            self.assertEqual(run(), 1)                                           # 管理者は、どの契約者も全体も
+        for name, run, why in (
+                ("ほかの契約者", lambda: self.plain.in_tenant(me, self.b["tenant"], read), "scope_own_tenant"),
+                ("ほかの契約者の依頼者", lambda: self.plain.in_client(me, self.b["tenant"], self.b["client"], read), "scope_own_tenant"),
+                ("全体の取引", lambda: self.plain.in_system(me, read), "scope_own_tenant"),
+                ("ログインの無い契約者", lambda: self.plain.in_tenant(Actor("架空のoperator", "operator"), self.a["tenant"], read), "scope_person"),
+                ("名前が違う", lambda: self.plain.in_tenant(Actor("ほかの名前", "operator", op), self.a["tenant"], read), "scope_person"),
+                ("種類が違う", lambda: self.plain.in_tenant(Actor("架空のoperator", "admin", op), self.b["tenant"], read), "scope_person"),
+                ("ログインを持つシステムの処理", lambda: self.plain.in_system(Actor("架空のoperator", "system", op), read), "scope_person")):
+            with self.subTest(name=name), self.assertRaises(Rejected) as e:
+                run()
+            self.assertEqual(e.exception.constraint, why)
+        self.w.a.in_system(ADMIN, lambda tx: people.set_active(tx, op, False, reason="試験：契約が終わった"))
+        with self.assertRaises(Rejected) as e:                                   # 使えなくしたログインは、取引も開けない
+            self.plain.in_tenant(me, self.a["tenant"], read)
+        self.assertEqual(e.exception.constraint, "scope_person")
+
+    def test_only_the_admin_makes_logins_and_the_first_admin_only_once(self):
+        from salescall.core import people
+        for name, run in (("契約者", lambda: self.w.a.in_tenant(OPERATOR, self.a["tenant"], lambda tx: people.create(
+                               tx, tenant_id=self.a["tenant"], kind="operator", name="x", login_id=f"x-{uuid.uuid4()}"))),
+                          ("システムの処理（管理者がもういる）", lambda: self.w.a.in_system(SYSTEM, lambda tx: people.create(
+                               tx, tenant_id=self.a["tenant"], kind="admin", name="x", login_id=f"x-{uuid.uuid4()}"))),
+                          ("2人目の最初の管理者", lambda: self.w.a.in_system(SYSTEM, lambda tx: people.first_admin(
+                               tx, tenant_name="架空", name="x", login_id=f"x-{uuid.uuid4()}", password=TEST_PASSWORD)))):
+            with self.subTest(name=name), self.assertRaises(Rejected):
+                run()
+
+    def test_the_first_admin_command_refuses_when_an_admin_exists_or_the_passwords_differ(self):
+        """サーバーを用意するときの命令（python -m salescall.supervisor first-admin）：2回のパスワードが違えば何も作らない。管理者がもういれば、
+        データベースが断る（試験のデータベースには、もう試験の管理者がいる）。どちらも作らずに 1 を返す。"""
+        import os
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from salescall.supervisor import __main__ as cmd
+        answers = iter(["架空の契約者", "架空の管理者", f"kakuu-{uuid.uuid4()}"] * 2)
+        cfg = SimpleNamespace(dsn=os.environ["SALESCALL_TEST_APP_DSN"])
+        count = lambda: self.w.a.in_system(ADMIN, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.people")["n"])   # noqa: E731
+        before = count()
+        with mock.patch.object(cmd.config, "load", return_value=cfg):
+            twice = iter(["一つ目のパスワードです12345", "二つ目のパスワードです12345"])
+            self.assertEqual(cmd.first_admin(ask=lambda _: next(answers), secret=lambda _: next(twice)), 1)
+            same = iter([TEST_PASSWORD, TEST_PASSWORD])
+            self.assertEqual(cmd.first_admin(ask=lambda _: next(answers), secret=lambda _: next(same)), 1)
+        self.assertEqual(count(), before)
+
+    def test_login_with_a_password_gives_a_session_and_too_many_failures_lock_it(self):
+        from salescall.core import people
+        pid, login = self.make(self.a["tenant"], "operator")
+        self.assertIsNone(people.login(self.plain, login, "ちがうパスワードです12345"))
+        self.assertIsNone(people.login(self.plain, "kakuu-no-such-login", TEST_PASSWORD))
+        got = people.login(self.plain, login.upper(), TEST_PASSWORD)            # ログインIDの大文字・小文字は同じ
+        self.assertIsNotNone(got)
+        me = people.by_session(self.plain, got.token)
+        self.assertEqual((me.person_id, me.tenant_id, me.kind), (pid, self.a["tenant"], "operator"))
+        self.assertEqual(self.plain.in_tenant(me.actor, self.a["tenant"], lambda tx: tx.one("SELECT 1 AS n")["n"]), 1)
+        stored = self.w.a.in_system(ADMIN, lambda tx: tx.all("SELECT token_sha FROM salescall.person_sessions WHERE person_id = %s", (pid,)))
+        self.assertNotIn(got.token, str(stored))                                 # 印そのものは残さない（指紋だけ）
+        people.logout(self.plain, got.token)
+        self.assertIsNone(people.by_session(self.plain, got.token))
+        # パスワードを替える：本人はいまのパスワードを確かめてから。替えたら前の印は使えない。短いパスワードは断る
+        again = people.login(self.plain, login, TEST_PASSWORD)
+        with self.assertRaises(people.PasswordRefused):
+            people.set_password(self.plain, me, pid, "あたらしいパスワードです123", current="ちがう")
+        with self.assertRaises(people.PasswordRefused):
+            people.set_password(self.plain, me, pid, "短い", current=TEST_PASSWORD)
+        people.set_password(self.plain, me, pid, "あたらしいパスワードです123", current=TEST_PASSWORD)
+        self.assertIsNone(people.by_session(self.plain, again.token))
+        self.assertIsNone(people.login(self.plain, login, TEST_PASSWORD))
+        self.assertIsNotNone(people.login(self.plain, login, "あたらしいパスワードです123"))
+        # 続けて決めた回数（初め5回）誤ると、正しいパスワードでも決めた長さのあいだ断る
+        for _ in range(5):
+            self.assertIsNone(people.login(self.plain, login, "ちがうパスワードです12345"))
+        self.assertIsNone(people.login(self.plain, login, "あたらしいパスワードです123"))
+        whys = self.w.a.in_system(ADMIN, lambda tx: [r["why"] for r in tx.all(
+            "SELECT why FROM salescall.person_login_events WHERE login_id = %s ORDER BY seq", (login,))])
+        self.assertEqual(whys[-2:], ["wrong_password", "locked"])
+        # 使えなくしたログインは、確かめも印も通らない
+        pid2, login2 = self.make(self.a["tenant"], "operator")
+        s2 = people.login(self.plain, login2, TEST_PASSWORD)
+        self.w.a.in_system(ADMIN, lambda tx: people.set_active(tx, pid2, False, reason="試験"))
+        self.assertIsNone(people.by_session(self.plain, s2.token))
+        self.assertIsNone(people.login(self.plain, login2, TEST_PASSWORD))
+
+
 class Entrances(unittest.TestCase):
     """取引の入口（依頼者・契約者・全体）は、どれも同じ決まりで、読むだけ（read_only）と読み書き1つずつの長さの上限（time_limit）を付けられる
     （付けるのは access._run の1か所。CL-3 の連絡帳 4-1c の 32：画面の読むだけの取引で、長く止まらない・書かないを、どの段でも同じに付ける）。"""
@@ -140,12 +256,12 @@ class AdminTenants(unittest.TestCase):
         got = w.a.in_system(ADMIN, lambda tx: registry.tenants(tx))
         self.assertTrue({s["tenant"], other} <= {r["tenant_id"] for r in got})
         self.assertTrue(all(r["name"] for r in got))
-        for name, run in (("全体の取引の契約者", lambda: w.a.in_system(OPERATOR, registry.tenants)),
-                          ("全体の取引のシステムの処理", lambda: w.a.in_system(SYSTEM, registry.tenants)),
-                          ("契約者の取引の管理者", lambda: w.a.in_tenant(ADMIN, s["tenant"], registry.tenants))):
+        for name, run, why in (("全体の取引の契約者", lambda: w.a.in_system(OPERATOR, registry.tenants), "scope_person"),   # 開けもしない（0251）
+                               ("全体の取引のシステムの処理", lambda: w.a.in_system(SYSTEM, registry.tenants), "admin_tenants_by_admin"),
+                               ("契約者の取引の管理者", lambda: w.a.in_tenant(ADMIN, s["tenant"], registry.tenants), "admin_tenants_by_admin")):
             with self.subTest(name=name), self.assertRaises(Rejected) as e:
                 run()
-            self.assertEqual(e.exception.constraint, "admin_tenants_by_admin")
+            self.assertEqual(e.exception.constraint, why)
 
 
 class ActionTokens(unittest.TestCase):
@@ -413,7 +529,11 @@ class ServerOnly(unittest.TestCase):
         w = World()
         s = w.setup()
         role = f"salescall_t_{uuid.uuid4()}_deadbeef"
-        admin = Access(os.environ["SALESCALL_TEST_ADMIN_DSN"], max_attempts=1)
+        # データベースの管理者の接続（役を作れる）。試験のデータベースにつなぐ（読み書きの層は、どの取引でも範囲を確かめる＝0251 ので、salescall の表の
+        # あるデータベースで）
+        su = dict(p.split("=", 1) for p in os.environ["SALESCALL_TEST_ADMIN_DSN"].split())
+        su["dbname"] = dict(p.split("=", 1) for p in os.environ["SALESCALL_TEST_APP_DSN"].split())["dbname"]
+        admin = Access(" ".join(f"{k}={v}" for k, v in su.items()), max_attempts=1)
 
         def make(sql):   # 前の仕組みで作られて残った役を、データベースの管理者が作ったことにする（いまは表の持ち主からは作れない）
             admin.in_system(SYSTEM, lambda tx: tx.execute(sql))
@@ -431,7 +551,8 @@ class ServerOnly(unittest.TestCase):
                     "INSERT INTO salescall.line_methods (method, label) VALUES ('試験の方式', '試験')")))):
             with self.subTest(name), self.assertRaises(Rejected):
                 work()
-        self.assertEqual(left.in_system(SYSTEM, lambda tx: tx.all("SELECT 1 FROM salescall.setting_definitions")), [])   # 見えない
+        with self.assertRaises(Rejected):   # 取引を開くときの範囲の確かめで、もう断る（0251。前は開けて、何も見えないだけだった）
+            left.in_system(SYSTEM, lambda tx: tx.all("SELECT 1 FROM salescall.setting_definitions"))
 
 
 class SharedConnections(unittest.TestCase):
@@ -787,9 +908,9 @@ class ConflictsAreRetried(unittest.TestCase):
 class DeliveriesOnlyForReleasedVersions(unittest.TestCase):
     """10章・3-1：送れるのは「送ってよい印」の付いた版だけ。同じ版を同じ送り先へ2回は作れない。"""
 
-    def test_results_confirmed_in_verification_never_reach_the_requester(self):
-        """検証の段階で確定した結果には、送り先への連携（依頼者へ渡す道）を作れない（2026-10-16 ユーザー：「依頼者に途中作業
-        していることは絶対に知らせてはいけない」。データベースが守る）。"""
+    def test_a_result_confirmed_in_verification_can_be_delivered_too(self):
+        """実検証（検証モードで契約者が確かめた）で確定した結果も、送り先への連携（依頼者へ渡す道）を作れる（✅ 2026-11-18 管理者「実検証は渡せる」。
+        0254。⛔ 0043〜0253：本番で確定した版だけ）。模擬通話（サンプル検証）は行の結果を作らないので、どの道でも渡らない。確定していない版は作れない。"""
         w = World(); s = w.setup(); dest = uuid.uuid4()
         aid = w.insert_claim(s)   # 検証モードでかけた通話（検証の印。確定の印の段は、かけたときのモードで決まる＝0161）
 
@@ -802,13 +923,46 @@ class DeliveriesOnlyForReleasedVersions(unittest.TestCase):
                        (s["tenant"], s["client"], s["task"], aid))
             tx.execute("INSERT INTO salescall.destinations (tenant_id, client_id, destination_id, name, method, upsert_capable)"
                        " VALUES (%s, %s, %s, '架空の送り先', 'mock', true)", (s["tenant"], s["client"], dest))
-            tx.execute("INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
-                       " VALUES (%s, %s, %s, 1, '契約者', 'verification')", (s["tenant"], s["client"], s["task"]))
         w.a.in_client(OPERATOR, s["tenant"], s["client"], prepare)
-        with self.assertRaises(Rejected):
-            w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
-                "INSERT INTO salescall.deliveries (tenant_id, client_id, task_id, destination_id, version_no, state, send_count)"
-                " VALUES (%s, %s, %s, %s, 1, 'pending', 0)", (s["tenant"], s["client"], s["task"], dest)))
+        deliver = lambda: w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(   # noqa: E731
+            "INSERT INTO salescall.deliveries (tenant_id, client_id, task_id, destination_id, version_no, state, send_count)"
+            " VALUES (%s, %s, %s, %s, 1, 'pending', 0)", (s["tenant"], s["client"], s["task"], dest)))
+        with self.assertRaises(Rejected) as e:
+            deliver()                                                            # 確定していない
+        self.assertEqual(e.exception.constraint, "deliveries_released")
+        w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
+            " VALUES (%s, %s, %s, 1, '契約者', 'verification')", (s["tenant"], s["client"], s["task"])))
+        deliver()
+
+    def test_each_business_delivers_to_its_chosen_destinations_and_auto_writeback_needs_upsert(self):
+        """業務ごとの送り先（core/destinations。0254・CL-3 の 19）：選んでいなければ依頼者の送り先のすべて、選んでいれば、その送り先だけ（業務ごと）。
+        選ぶのは管理者か契約者だけ。自動で書き戻す送り先は「同じ鍵なら上書き」で受けられる送り先だけ（CL-3 の 5）。送り先を作る・直すのも管理者か契約者だけ。"""
+        from salescall.core import destinations
+        w = World(); s = w.setup()
+        other_biz, _ = w.business_with_version(s["tenant"], s["client"])
+        a, b = uuid.uuid4(), uuid.uuid4()
+        tx = lambda work, actor=OPERATOR: w.a.in_client(actor, s["tenant"], s["client"], work)   # noqa: E731
+        tx(lambda t: [t.execute("INSERT INTO salescall.destinations (tenant_id, client_id, destination_id, name, method, upsert_capable)"
+                                " VALUES (%s, %s, %s, %s, 'mock', %s)", (s["tenant"], s["client"], d, n, up))
+                      for d, n, up in ((a, "架空の送り先A", True), (b, "架空の送り先B", False))])
+        to = lambda biz: [d["destination_id"] for d in tx(lambda t: destinations.for_business(t, biz))]   # noqa: E731
+        self.assertEqual(to(s["business"]), [a, b])
+        tx(lambda t: destinations.choose(t, s["business"], a, True))
+        self.assertEqual((to(s["business"]), to(other_biz)), ([a], [a, b]))
+        tx(lambda t: destinations.choose(t, s["business"], a, False))
+        self.assertEqual(to(s["business"]), [a, b])
+        for name, run, why in (
+                ("システムの処理が選ぶ", lambda: tx(lambda t: destinations.choose(t, s["business"], b, True), SYSTEM), "business_destination_by_person"),
+                ("上書きで受けられない先へ自動で書き戻す", lambda: tx(lambda t: t.execute(
+                    "UPDATE salescall.destinations SET auto_writeback = true WHERE destination_id = %s", (b,))), "destinations_auto_only_upsert"),
+                ("システムの処理が送り先を直す", lambda: tx(lambda t: t.execute(
+                    "UPDATE salescall.destinations SET auto_writeback = true WHERE destination_id = %s", (a,)), SYSTEM), "destination_by_person")):
+            with self.subTest(name=name), self.assertRaises(Rejected) as e:
+                run()
+            self.assertEqual(e.exception.constraint, why)
+        tx(lambda t: t.execute("UPDATE salescall.destinations SET auto_writeback = true WHERE destination_id = %s", (a,)))
+        self.assertEqual([d["auto_writeback"] for d in tx(lambda t: destinations.for_business(t, s["business"]))], [True, False])
 
     def test_release_then_deliver_once(self):
         w = World(); s = w.setup(); dest = uuid.uuid4()
