@@ -605,12 +605,25 @@ HEARD_NOTE = (f"（{PROMPTED}は、お客様が黙っていたので、こちら
               f"気になる点・ご事情などのお話をしたときは、声かけへのお返事だけではありません）")
 
 
+# 質問のあとにこちらが言った一言が「少々お待ちいただいてもよろしいでしょうか？」（お客様のお話に会話AIがまだ返事をしていない間に、こちらの声が出ていないので流した
+# 一言＝flowctl.QUIET_STEPS の場面 ours・見分けは flowctl.waiting_line の1か所）のときの読み方。お客様が質問に答えたお話（その前に相手が言ったこと）は、まだこちらが
+# 受けていない。その一言へのお返事（「はい」「大丈夫ですよ」「どうぞ」）は待ってよいということ＝質問への「はい」と決めつけない（11-13 20時06分19秒「「あ、はい、
+# 分かりました。」は…一言に対して答えてる可能性があるので、気をつけないといけないよ。」と同じ理由）。お返事だけかを読む項目は同じ（PROMPT_REPLY）。分身 AF
+# （まとめ役の頼み rv144/AF の (1)＝分身 AD の伺い A の (ア)）。⛔ a5699306 まで、判定はこの一言を知らず、「いえ、まだです。」のあとの「はい、大丈夫ですよ。」を
+# ご予約の「はい」と読みえた（依頼者へ逆の答え）
+WAIT_NOTE = (f"（{PROMPTED}は、お客様のお話にこちらがお返事する前に、お待ちいただくようにお願いした言葉です。お客様の言葉が、そのお願いへのお返事だけ（「はい」"
+             f"「大丈夫ですよ」「どうぞ」など＝待ってよいということ）で、質問への答えをはっきり言い直していなければ「{UNDECIDED}」を選び、"
+             f"{PROMPT_REPLY_HEADING}（{PROMPT_REPLY}）は「{PROMPT_REPLY_YES}」を選びます。このお願いへの「はい」は、質問への「はい」ではありません。"
+             f"質問への答えを新しく言ったときは、その答えを選びます。急いでいる・ご事情などのお話をしたときは、お願いへのお返事だけではありません）")
+
+
 def prompted_note(line: str) -> str:
     """質問のあとにこちらが言った一言（Question.prompted）の読み方の注意書きを選ぶ唯一の場所（prompt_parts）：黙ったあとの一言（flowctl.QUIET_LINES）なら声かけの
-    読み方（声が届いているかを確かめた「もしもし？」＝flowctl.hearing_check の1か所なら HEARD_NOTE・ほかは PROMPTED_NOTE）、ほかは尋ねられた答え・受け答えの
-    読み方（REPLIED_NOTE）。"""
-    from flowctl import QUIET_LINES, hearing_check
-    return HEARD_NOTE if hearing_check(line) else PROMPTED_NOTE if line in QUIET_LINES else REPLIED_NOTE
+    読み方（声が届いているかを確かめた「もしもし？」＝flowctl.hearing_check の1か所なら HEARD_NOTE・こちらの声が出ていないときの待っていただく一言＝
+    flowctl.waiting_line の1か所なら WAIT_NOTE・ほかは PROMPTED_NOTE）、ほかは尋ねられた答え・受け答えの読み方（REPLIED_NOTE）。"""
+    from flowctl import QUIET_LINES, hearing_check, waiting_line
+    return (HEARD_NOTE if hearing_check(line) else WAIT_NOTE if waiting_line(line) else PROMPTED_NOTE if line in QUIET_LINES
+            else REPLIED_NOTE)
 
 
 def scene(q, text: str, asked: str | None = None, before: str | None = None) -> dict:

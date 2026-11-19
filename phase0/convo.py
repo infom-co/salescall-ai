@@ -318,8 +318,10 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             held = play_for() if (play_for is not None and running and not info.get("incomplete")) else None
             if held is not None:
                 info["held_play"], extra = held["part"], clip_s(held["part"]) if clip_s is not None else 0.0
-            else:
-                info["held_ack"] = "hai"
+            elif "held_ack" not in info:
+                # 待つ間の「はい、」は流れの制御に聞く（Flow.hold_ack の1か所：この発話にもう「はい、」を流していれば何も流さない＝会話AIが黙ったときのつなぎの「はい、」と
+                # 重ねない・設計書 1-2。返事の相づちの「はい、」を重ねないのも流れの制御＝Flow._ack）
+                info["held_ack"] = flow.hold_ack()
         deadline = max(ready, quiet) + flow.limits.judge_wait_s(extra)   # 会話の側の待つ長さが切れる時（待つ間に流す録音の分を延ばす＝1か所）
         if waits and not info.get("incomplete"):  # 出揃っていなければ、判定を待っても使わない（流れの制御は決めずに待つ）
             await asyncio.wait(waits, timeout=max(0.0, deadline - loop.time()))
@@ -356,7 +358,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         待つ長さは会話の側の1か所（flow.limits.hold_s）：切れる時に組へ合図（release）し、組が持っている読みを受ける（意味の判定と同じ＝RELEASE_GRACE_S。
         ⛔ 2026-11-06 日本時間8時台：中身の判定の組は、先に出す Jev がまだ答えていない間、届いた考える Sonnet の読みを組の既定値まで持ち、会話の側が
         待つのをやめると、届いていた読みを使わずに受け皿へ回していた）。"""
-        info.setdefault("held_ack", "hai")
+        if "held_ack" not in info:
+            info["held_ack"] = flow.hold_ack()   # 待つ間の「はい、」（流れの制御の1か所＝Flow.hold_ack）
         done, _ = await asyncio.wait([task], timeout=max(0.0, t0 + flow.limits.judge_wait_s() - loop.time()))
         if task not in done:
             release.set()
