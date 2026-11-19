@@ -693,7 +693,9 @@ class Business:
             # 用件から作る決まった伝言（phrases.standard_message。伝言を残さない業務で、お礼の一言のあとに伝言の申し出を重ねられたときにお願いする＝✅ 2026-11-13
             # 日本時間22時17分01秒 ユーザー「伺い7はイ」）。伝言は、お呼びした方がいらっしゃらないときの申し出なので、目的のお客様のいる業務だけ
             company, caller = self._said()
-            parts["message"] = self.message or standard_message(company, caller, self.purpose_noun if self.purpose_text() else "")
+            # 顧客獲得型の決まった伝言の用件は「大切なお話で」（phrases.standard_message の acquire＝分身 P の続き）。業務が書いた伝言の文は今のまま
+            parts["message"] = self.message or standard_message(company, caller, self.purpose_noun if self.purpose_text() else "",
+                                                                acquire=self.call_type == CALL_ACQUIRE)
         parts.update({f"answer_{name}": text for name, text in self.answers})  # 想定問答の答え（依頼主の単位の録音。flowctl.ANSWER_PREFIX）
         return parts
 
