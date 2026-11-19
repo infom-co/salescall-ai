@@ -158,6 +158,8 @@ class MoreCallsButton(MoreCalls):
         page = http.get(rows).text
         self.assertIn("1 行が「さらにかける」の承認を待っています", page)
         self.assertIn(f'form="more-{s["task"]}"', page)                         # 行の中のボタンは、表の外の送り先を指す（form を入れ子にしない）
+        part = page[page.index('<details class="adder more-act">'):]
+        self.assertIn("に、この行だけ、もう一度おかけします", part[:800])        # 押す前に、どのお客様かを名前つきで見せる（計画書 5-1）
         self.assertRegex(page, r'class="tag wait"[^>]*>' + inbox.MORE_CALLS_TITLE + "：")   # 終えた行でも緑の「済み」にせず、待ちの色（色の決まり）
         sent = form_of(page, act)
         self.assertEqual(sent["back"], rows)

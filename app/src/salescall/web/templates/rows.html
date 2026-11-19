@@ -48,7 +48,12 @@
       <td class="wide person">{{ r.target_name or "" }}{% if r.target_role %}<span class="muted">（{{ r.target_role }}）</span>{% endif %}</td>
       <td class="tel">{{ phone(r.dial_phone) }}</td>
       <td class="nowrap">{{ next_tag(r.next_kind, r.next_call_at, r.next_end_reason, waiting=more[r.task_id].title if r.task_id in more else "") }}{% if r.task_id in more %}
-        <div class="more-act"><button class="btn main small" type="submit" form="more-{{ r.task_id }}">{{ more[r.task_id].buttons[0].label }}</button></div>{% endif %}</td>
+        {# 発信を始める操作なので、どのお客様かを名前つきで見せてから決める（計画書 5-1「取り消せない操作の確認」）。受け箱・1行の画面は、名前を並べたカードの中にボタンがある #}
+        <details class="adder more-act"><summary class="btn main small">{{ more[r.task_id].buttons[0].label }}</summary>
+          <div class="panel">
+            <p>「{{ r.source_name or "（会社名なし）" }}{% if r.target_name %} ／ {{ r.target_name }}様{% endif %}」に、この行だけ、もう一度おかけします。また話せなければ、もう一度ここにボタンが出ます。</p>
+            <button class="btn main small" type="submit" form="more-{{ r.task_id }}">おかけする</button>
+          </div></details>{% endif %}</td>
       <td class="wide nowrap">{% if r.business_state == "open" %}<span class="muted">{{ words.word(words.BUSINESS_STATES, "open").screen }}</span>{% else %}{{ words.word(words.BUSINESS_STATES, r.business_state).screen }}{% endif %}</td>
       <td class="num">{{ r.attempts }}</td>
       <td class="wide">{% if r.last_state %}{{ words.word(words.ATTEMPT_STATES, r.last_state).screen }}<span class="muted">・{{ time(r.last_at) }}</span>{% endif %}</td>

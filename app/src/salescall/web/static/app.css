@@ -137,6 +137,10 @@ ul.numbers li.old .num { color: var(--muted); font-weight: 500; text-decoration:
 .card.attention-stop { border-left: 4px solid var(--stop); }
 .card.attention-wait { border-left: 4px solid var(--wait); }
 .more-act { margin-top: 6px; }   /* 「さらにかける」：状態の下に置く（隣の列に重ねない・スマホの枠からはみ出さない） */
+/* 確かめの枠は、浮かせず、その場で下に開く（表の枠で隠れない・スマホではみ出さない） */
+.adder.more-act { display: block; }
+.adder.more-act .panel { position: static; width: auto; max-width: 300px; margin-top: 8px; white-space: normal; box-shadow: none; }
+.adder.more-act .panel p { margin: 0 0 8px; font-size: 13px; word-break: normal; line-break: strict; }
 .more-note { margin-bottom: 14px; }
 
 .tag { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 600;
