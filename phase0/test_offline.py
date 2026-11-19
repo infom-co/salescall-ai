@@ -41789,6 +41789,20 @@ class WaitedStoryKeptTest(unittest.TestCase):
             self.assertEqual((f.items["Q1"].condition, f.taken["Q1"]["said"]), ("いいえ", w.STORY), play)
             self.assertNotIn("ご予約はされていますでしょうか", heard_words(r), play)
 
+    def test_thinking_after_the_wait_line_then_the_story_answer_has_one_hai(self):
+        # 考えている途中（「えーと、そうですねえ……」）への「はい。」のあと、前のお話の答えの報告が届いた：答えは前のお話で受け、返事の頭に「はい、」を重ねない（本書 9-7＝
+        # 1つの発話に相づちは1回。「はい。」を流した発話の印は、つなぎの「はい、」と同じ hai_turn）
+        from flowctl import PROMPT_REPLY_NO, THINKING
+        w = WaitLineReplyTest()
+        f = w.waited()
+        f.on_callee(); f.on_heard("えーと、そうですねえ……")
+        f.on_check("judge", w.rd(THINKING, PROMPT_REPLY_NO))
+        r = f.on_silence(ours=True)
+        self.assertEqual((r["result"], r.get("ack")), ("thinking", "aizuchi"))
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+        self.assertEqual((r["result"], f.items["Q1"].condition, f.taken["Q1"]["said"]), ("next", "いいえ", w.STORY))
+        self.assertEqual(heard_words(r), "続きましてご希望の日時をお聞かせいただけますでしょうか？")
+
 
 class ChoiceDeniedTest(unittest.TestCase):
     """分身 M（伺い70 の (1)＝決まりで決めた）：選ぶ質問の言い直し（「はい、それではカードで承りますね？」）への「いえ、違います。」は迷いではなく、こちらの言い直しを
