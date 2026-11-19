@@ -231,6 +231,7 @@ TEXTS: dict[str, str] = {
     'resumed_fallback_lead': '前回お伺いした件ですが、',
     'shitsurei': '失礼いたしました。',
     'shouchi': '承知しました。',
+    'shouchi_hurried': '承知しました。',
     'start_over': 'それでは改めて確認させていただきますね。',
     'successor_call': '恐れ入りますが後任のご担当者様はいらっしゃいますでしょうか？',
     'successor_confirm': '後任のご担当者様でいらっしゃいますでしょうか？',

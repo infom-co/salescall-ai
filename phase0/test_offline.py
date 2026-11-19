@@ -32,10 +32,9 @@ CL2_PENDING = frozenset({
                          "prompt_reply",
                          # 深める一言に入れる困りごとの言葉・困りごとが続く形の句を会話AIが書く道具の引数（replay_opening の trouble・kept。伺い29＝✅ 2026-11-16
                          # 日本時間0時42分38秒・12時48分22秒 ユーザー。CL-2 への知らせはまとめ役）
-                         "trouble", "kept",
-                         # 手短に伺っている途中に重ねて急かされたときの少し焦った「承知しました。」の相づちの録音（phrases.ACK の shouchi_hurried。伺い41＝✅ 2026-11-18
-                         # 日本時間21時00分23秒 ユーザー「アでいいが、少し焦った感じで！」。CL-2 への知らせはまとめ役）
-                         "shouchi_hurried"})
+                         "trouble", "kept"})
+# （2026-11-19 に外した：手短に伺っている途中の少し焦った「承知しました。」の録音 shouchi_hurried＝CL-2 の common_phrases.TEXTS に入った＝CL-2 の
+# 連絡帳 4-426 の (1)・CL-1.md 4-190）
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す。2026-11-18 に「どうなさいますか？」の
 # dounasaimasu が外れた＝CL-1.md 4-109）
 CL2_RETIRED: frozenset[str] = frozenset()

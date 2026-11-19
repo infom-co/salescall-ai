@@ -343,6 +343,41 @@ COUNT_END_PREFIXES = ("policy_max:",)                        # 再発信の方�
 # どの組にも入れない）
 
 
+# お客様と約束したかけ直しの電話・言ってはいけないことのあとのお詫びの電話を、決めた日数・回数かけても、お客様と話せずに終えた行の終わりの理由
+# （契約者がダッシュボードの取り込んだ行で「さらにかける」を承認できる＝`more_calls_offered` の1か所。✅ 2026-11-19 ユーザー：「約束の電話やお詫びの電話は、
+# その行だけ、契約者が承認ボタンを押したら、さらに3回かける。それでも繋がらなければ、再度承認ボタンを出す。繋がるまで承認ボタンは出し続ける。。承認ボタンが
+# 押されなければかけない」・「約束+お詫びでかけられなかったものすべて」・「ダッシュボードの取り込んだ行に承認ボタンを出します」。0245）
+MORE_CALL_ENDS = frozenset({"callback_exact_unreached", "callback_unspecified_time", "apology_unreached"})
+
+
+def more_calls_offered(tx: Tx, task_id: UUID) -> int | None:
+    """その行で、契約者が「さらにかける」を承認できるか（1か所。ダッシュボードの行の承認ボタン＝core/customer_rows.progress・承認＝core/approval.more_calls・
+    終えたときの知らせ＝`end` が読む）。できるなら、いまの予定（終えた予定）の番号（seq）を返す。
+    できるのは、いまの予定が、約束の電話・お詫びの電話を決めた日数・回数かけても話せずに終えた予定（`MORE_CALL_ENDS`）のとき。ただし、時刻の決まって
+    いない約束を、回数でなく契約者の再発信の方針が「終える」ので終えた行（かけていない）は入れない（番号の直しで戻すかと同じ `_count_end` の1か所）。
+    お客様が断った・番号のせい（番号を直せば戻る＝`reopens_on_fix`）・業務を終えた行は入れない。"""
+    cur = current(tx, task_id)
+    if cur is None or cur["kind"] != "end" or cur["end_reason"] not in MORE_CALL_ENDS or not _count_end(tx, task_id, cur["end_reason"]):
+        return None
+    return cur["seq"]
+
+
+def after_more_calls(tx: Tx, task_id: UUID, *, cause: str) -> int:
+    """契約者が「さらにかける」を承認したあとの、行の予定（core/approval.more_calls だけが呼ぶ。承認を書いた同じ取引）：番号を直して終えた行を戻すのと
+    同じ1か所（`_restart`）で、いまの番号のまま、もう一度かけ始める。約束の電話は約束の時刻・幅のまま1日目から（計画書 7-1 (8)。時刻の決まっていない
+    約束は、その方針の間隔で）、お詫びの電話は時間帯を変えて決めた回数（retry.apology_max＝3回。10-30 (2)）。言ってはいけないことのお詫びの印は、まだ
+    伝えていなければ残す（約束の電話の頭で伝える＝7-3 (2)）。回数は、承認から数え直す（承認の時刻が数え始め＝データベースの salescall.task_calls_from）。
+    相手が違えば `_onto_dial` が新しい担当の方への形にする。戻せない（承認したお詫びの案が無い・営業を続けない）なら LookupError（承認も書かない）。"""
+    cur, now = _fix_start(tx, task_id)
+    if cur is None or cur["kind"] != "end":
+        raise LookupError("その行は、終えていません（さらにかける承認はできません）")
+    again = _restart(tx, task_id, _last_call_plan(tx, task_id, cur["seq"]), now=now,
+                     rule=f"{cause}（{cur['end_reason']} で終えた行を、契約者の承認で、さらにかける）")
+    if again is None:
+        raise LookupError("その行は、もうかけられません（お詫びの案が無い・業務を終えた）")
+    return _write(tx, task_id, again)
+
+
 def reopens_on_fix(tx: Tx, task_id: UUID, end_reason: str, *, dial: bool = True, same_person: bool = False) -> bool:
     """その終わりの理由で終えた行を、行の直しで戻すか（1か所。dial＝かける番号の直し＝`after_dial_fix`・`_moved_on_fix`。偽＝お呼びする方の
     名前などを「担当の方は違う」で直した＝`after_person_fix`。0208・0210。same_person＝名前などを「同じ」で直した＝値は変わったが担当の方は同じ。
@@ -1149,7 +1184,20 @@ def end(tx: Tx, task_id: UUID, reason: str, *, cause: str, apology: Apology = No
     seq = _append(tx, task_id, call_at=None, end_reason=reason, cause=cause, apology=apology, cut_call=cut_call, after=after)
     attempts.release_task(tx, task_id)
     approval.after_ended(tx, task_id)
+    if more_calls_offered(tx, task_id) == seq:
+        # 約束・お詫びの電話を決めた日数・回数かけても話せずに終えた：契約者に知らせる（ダッシュボードの取り込んだ行に「さらにかける」の承認ボタン。
+        # 押されなければ、かけない。終えた予定ごとに1回＝知らせの鍵）
+        notify.emit(tx, "more_calls", key=f"more_calls:{task_id}:{seq}", refs={"task_id": task_id, "end_seq": seq, "end_reason": reason},
+                    summary=MORE_CALLS_SUMMARY.get(reason, "お客様と約束した電話・お詫びの電話が、決めた回数かけてもお客様に届きませんでした。")
+                    + "ダッシュボードの行の「さらにかける」を押すと、その行だけ、もう一度かけ始めます（押されなければ、かけません）。")
     return seq
+
+
+MORE_CALLS_SUMMARY = {
+    "callback_exact_unreached": "お客様と約束した時刻の電話が、決めた日数かけてもお客様と話せませんでした。",
+    "callback_unspecified_time": "お客様と約束したかけ直しの電話が、決めた回数かけてもお客様と話せませんでした。",
+    "apology_unreached": "お詫びの電話が、決めた回数かけてもお客様に届きませんでした。",
+}
 
 DNC_ENDS = ("dnc_client", "dnc_client_ref", "dnc_contractor")   # 門が発信禁止で終えた行の終わりの理由＝かけない理由の名前（target_policy）
 

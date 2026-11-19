@@ -175,10 +175,10 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
                                          reached_target=inp.reached_target, not_reached=not_reached, again=again,
                                          dialed_at=a["claimed_at"], blame=health.blame_of(tx, attempt_id), attempt_id=attempt_id)
-    if decision.kind == "end":
+    if decision.kind == "end" and decision.end_reason not in next_action.MORE_CALL_ENDS:
+        # 決めた回数かけても届かずに終えたときは、行を終える1か所（next_action.end）が「さらにかける」の承認ボタンの知らせを出す（同じことを2回知らせない）
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
-                             "apology_unreached": "お詫びの電話が、決めた回数かけてもお客様に届きませんでした。",
                              "do_not_call": "お詫びの電話で、発信を断られました。",
                              "apology_wrong_party": "お詫びの電話の番号が、番号違いでした（その番号は発信禁止にしました）。",
                              "apology_fax_line": "お詫びの電話の番号が、FAX でした（その番号は発信禁止にしました）。"}.get(
