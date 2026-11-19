@@ -13421,7 +13421,12 @@ class EndWordsTest(unittest.TestCase):
             ("はい、それではご予約はされているということで承っておいて大丈夫でしょうか？", "続ける"),
             (self.R1, "続ける"), (self.R1, "続ける"),
             # 答えを断る言葉が強い（不快な様子だが電話は続けてよい）：答えたくない（✕）で次へ・頭はお詫び（分身 AG＝HolesAGTest の (3)）
-            ("失礼いたしました。" + self.NEXT.removeprefix("承知しました。"), "続ける")]
+            ("失礼いたしました。" + self.NEXT.removeprefix("承知しました。"), "続ける"),
+            # 「怒っている・苦情」と「通話・営業を断った」の境目の両側（伺い81・分身 K2＝AngryBoundaryTest）：断りの勢いの言葉は断られたときの締め・はっきり怒っている
+            # 言葉は苦情の締め（どちらも今の確認の電話の型の応じ方のまま）
+            (self.REFUSED, "締め（callee_refused_call）・もうかけない"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"),
+            ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ"),
+            ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ")]
         self.assertEqual(len(want), len(ANSWER))
         for row, w in zip(ANSWER, want):
             _, heard, marks = answer_flow(row)
@@ -13434,6 +13439,9 @@ class EndWordsTest(unittest.TestCase):
                 ("失礼いたしました。営業部部長の「おかだたろう」様はいらっしゃいますでしょうか？", "続ける"),
                 ("はい、お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。", "締め（not_transferred）"),
                 (unavailable, "続ける"), None, (unavailable, "続ける"), (self.H1, "続ける"), (self.H1, "続ける"),
+                ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ"),
+                # 境目の両側（伺い81・分身 K2）
+                (self.REFUSED, "締め（callee_refused_call）・もうかけない"),
                 ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ")]
         self.assertEqual(len(want), len(CALLING))
         for row, w in zip(CALLING, want):
@@ -41466,3 +41474,49 @@ class ConfirmTypeUnchangedByScaleTest(unittest.TestCase):
             "brief": ("ありがとうございます。後ほどお時間のある時にかけ直しさせていただきましょうか？", None, []),
             "angry": ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "callee_complaint", ["complaint", "end"]),
             "unsure": ("失礼いたしました。今後このようなお電話はご遠慮したほうがよろしいでしょうか？", None, [])})
+
+
+# ── 顧客獲得型の2つ目の (4)：「しつこい」の境目（分身 K2）。✅ 2026-11-20 日本時間2時18分01秒 ユーザー「伺い81：…OK」（「しつこい」は締めずに続け、はっきり怒っている方とは
+# 判定の説明の文の1か所で分けます）。判定に送る文が変わる（G-59 の指紋が変わる＝分身 K2 の書き置き rv174/K2/notes.md）
+class AngryBoundaryTest(unittest.TestCase):
+    """判定の項目「電話を終える言葉か」の「怒っている・苦情」の説明の1か所で、断りの勢いの言葉（前にも断ったと念を押す・断りを強い勢いで言う）は「通話・営業を断った」、
+    はっきり怒っている言葉（無礼だと責める・やめるように言いつける・こちらの責任者に代わるように求める）は「怒っている・苦情」と分ける。説明は意味で書き、試しの言葉と同じ
+    言い方は書かない。試しの正解の表（end_words）に境目の両側の言葉を足す（正解は説明の文と言葉だけから決める）。"""
+
+    def test_the_boundary_is_written_once_in_the_angry_description(self):
+        from flowctl import ANGRY_NOT, END_ANGRY, END_REFUSED, end_choices
+        for calling in (False, True):
+            c = end_choices(calling)
+            self.assertIn(ANGRY_NOT, c[END_ANGRY])
+            self.assertIn(END_REFUSED, ANGRY_NOT)                      # 断りの勢いの言葉の行き先は「通話・営業を断った」
+            for k in set(c) - {END_ANGRY}:                              # 境目はこの1か所だけ（ほかの説明は変えない）
+                self.assertNotIn("念を押", c[k], k)
+            self.assertIn("責任者に代わる", c[END_ANGRY])               # はっきり怒っている側（意味で書く）
+        self.assertEqual(end_choices(False)[END_ANGRY], end_choices(True)[END_ANGRY])
+        for d in (*end_choices(False).values(), *end_choices(True).values()):   # 試しの言葉と同じ言い方を例にしない
+            for w in ("しつこ", "何度", "いい加減", "失礼", "上の者", "迷惑", "言ってる"):
+                self.assertNotIn(w, d)
+
+    def test_both_sides_of_the_boundary_are_in_the_correct_table(self):
+        from end_words import ANSWER, CALLING, SIDE, answer_truths
+        from flowctl import END_ANGRY, END_REFUSED
+        ends = {r[1]: r[2] for r in ANSWER} | {r[1]: r[2] for r in CALLING}
+        want = {"しつこいですね。いらないって言ってるでしょう。": (END_REFUSED,), "何度も言ってるでしょう、もう結構ですって。": (END_REFUSED,),
+                "いい加減にしてください！": (END_ANGRY,), "上の者を出してください。": (END_ANGRY,),
+                "しつこいですね。営業のお電話はお繋ぎできないと言ってるでしょう。": (END_REFUSED,), "いい加減にしてください、失礼ですよ。": (END_ANGRY,)}
+        self.assertEqual({w: ends.get(w) for w in want}, want)
+        truths = answer_truths()
+        for row in ANSWER:
+            if row[1] in want:
+                self.assertIn((row[0], row[1]), SIDE)                     # 答えとは別に読む項目の正解も持つ（g53_labels.json の行と同じ欄）
+                self.assertEqual(truths[(row[0], row[1])]["end"], list(want[row[1]]))
+
+    def test_confirm_type_hears_the_same_close_as_each_side_of_today(self):
+        # 今の確認の電話の型では、判定が断ったと読めば断られたときの締め（もうかけない）・怒っていると読めば苦情の締め（人に引き継ぐ）。言葉の読みが境目で替わるだけで、
+        # それぞれの読みへの応じ方は今のまま（分身 K1 の ConfirmTypeUnchangedByScaleTest と同じ値）
+        from end_words import ANSWER, answer_flow
+        rows = {r[1]: r for r in ANSWER}
+        self.assertEqual(answer_flow(rows["しつこいですね。いらないって言ってるでしょう。"])[1:],
+                         ("承知しました。お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_refused_call）・もうかけない"))
+        self.assertEqual(answer_flow(rows["いい加減にしてください！"])[1:],
+                         ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ"))
