@@ -1119,6 +1119,16 @@ SUCCESSOR_OF = "{who}の後任のご担当者様はいらっしゃいますで�
 # 言い方「（お名前）様とお電話の約束をしておりましたので、後ほど改めてお掛けしてもよろしいでしょうか？」（言葉の途中の読点は外す＝10-15）。
 # 「OKなら、当日の約束の時刻の幅の中かけ直してもいいと思うけど、そうでなければ、当日の幅はやめたほうがいい」（答えは通話の事実 not_transferred の again）
 PROMISE_AGAIN = "{who}とお電話の約束をしておりましたので後ほど改めてお掛けしてもよろしいでしょうか？"
+# 名前の録音の台帳（DESIGN.md 4-3）の、お名前の入る一言の形（続く言葉の名前 → 形。{who}＝お名前の呼び方＝役職の部分と名前の部分。唯一の一覧＝文を作る
+# instruction.Target・CL-2 の名前の録音の台帳の続く言葉の写し）。名前は CL-2 の recordings.NAME_TAILS（＝名乗りの部分の名前。呼ぶ一言の個人の形は
+# target_individual）。続く言葉（NAME_TAILS）は形の {who} より後ろ（助詞から＝✅ 2026-10-25 日本時間の夕方 ユーザー＝CL-1.md 4-55 の (2)）。お名前の前に言葉の
+# ある形（「恐れ入りますが」）は、その言葉を NAME_HEADS に持つ。CL-2 は共通の一言（RECORDED）と同じ道具で写しを作り、続く言葉の録音を文で比べる（CL-2 の連絡帳
+# 4-405 の (3)：⛔ 66eb3d76 まで、続く言葉の文を出す1か所が無く、CL-2 は鍵だけで録音を選んでいた）
+NAME_FORMS = {"target": TARGET_CALL["法人"], "target_individual": TARGET_CALL["個人"], "target_confirm": TARGET_CONFIRM, "target_reconfirm": TARGET_RECONFIRM,
+              "promise_again": PROMISE_AGAIN, "target_successor": SUCCESSOR_OF, "unavailable_confirm": UNAVAILABLE_CONFIRM, "carried_target": CARRIED_FROM,
+              "mobile_confirm": MOBILE_CONFIRM, "target_transfer": TARGET_TRANSFER}
+NAME_TAILS = {k: v.split("{who}", 1)[1] for k, v in NAME_FORMS.items()}
+NAME_HEADS = {k: v.split("{who}", 1)[0] for k, v in NAME_FORMS.items() if v.split("{who}", 1)[0]}
 # 前の電話の事情で、まずお詫びする一言（予約証の apology の理由ごと。共通の一言の録音）。目的の方に繋がったら（目的の人の無い業務は名乗りのあと）、
 # 用件・質問の前に流す。いつの電話のことかは予約証に無いので、「先ほど」「先日」と言わない形。✅ 2026-10-24 ユーザー：約束の時間にかけられなかったとき
 # 「お約束の時間にお電話ができず誠に申し訳ございませんでした。」（「お」が多すぎのため修正＝案の「お時間」）・途中で切れたとき「OK」
@@ -1412,12 +1422,20 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
 # 読み方の表にだけあり、この表に無かった＝録音が作られない形だった。続きの電話で切れた所から伺う一言（callback_〜_again＝前置き「前回…」つき）へ戻るときは、
 # 前置きを言い直さず同じ役目のそれだけで伺う形（flowctl.Question.plain＝B-5）なので、その一言の2回目・3回目の形は作らない
 RESUMED_IDS = {f"callback_{k}_again" for k in CALLBACK_ASK_RESUMED}
-BACK_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS]
+# 流れの制御が伺い直さない（戻らない）システムの質問の役目（「流しうるか」の唯一の決まり＝戻り方を決める flowctl.Flow._elsewhere_left・録音の表の形 BACK_FIT・
+# AGAIN_FIT）：ほかの会社のことを伺う一言 E1（✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25）「無い・はっきりしない・聞き取れない＝伺い直さず、もとの
+# お返事の今の応じ方で続ける」）と、深める一言 E2〜E4・決め手を伺う一言 E5（1通話1回・伺い直さない＝E1 と同じ。flowctl.DEEPEN_ROLES）。伺っている途中に別のお話に
+# なっても戻らないので、戻る一言のあとの形（_bare・_midway）と伺い直す形（_lead_soredeha）は流れない＝表に入れない（CL-2 は表の全部がそろわないとその声で話さない＝
+# 流れない録音まで契約者に録って聞いていただくことになる＝CL-2 の連絡帳 4-411 の (1)）。⛔ 66eb3d76 まで、どのシステムの質問にも形を作っていた
+NOT_ASKED_AGAIN = ("elsewhere", "deepen", "deepen_measures", "deepen_ahead", "elsewhere_point")
+_NOT_ASKED_AGAIN_IDS = {f"callback_{k}" for k in NOT_ASKED_AGAIN}
+BACK_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS and k not in _NOT_ASKED_AGAIN_IDS]
             for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY) for rid, t in [back_fit(base, text, b)] if rid != base}
 RECORDED.update(BACK_FIT)
 # システムの質問を、戻る一言なしに伺い直す形（again_fit の1か所。もう伺った質問へ戻る頭「それでは」＝見直し (12) の B-9）。続きの電話の前置きつきの一言
 # （RESUMED_IDS）は、伺い直すときは前置きを言い直さない形（flowctl.Question.plain）なので作らない
-AGAIN_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS and k not in BACK_FIT]
+AGAIN_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS and k not in BACK_FIT
+                                         and k not in _NOT_ASKED_AGAIN_IDS]
              for rid, t in [again_fit(base, text)] if rid != base}
 RECORDED.update(AGAIN_FIT)
 
