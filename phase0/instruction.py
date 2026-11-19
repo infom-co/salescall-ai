@@ -321,16 +321,19 @@ class Business:
            （考えない）は「はい、岡田です。」を3回とも「決められない」、取り次ぎのあとの「お電話代わりました。」を3回とも「決められない」と読んだ
            （質問の文を「岡田（おかだ）」にすると、どちらも「ご本人」）
         sees_target：お呼びする方の名前と読みを見せるか（既定は JUDGE_SEES_TARGET_NAME）。見せない形は、お呼びする方の声の形（ひらがなのお名前も）を
-        HIDDEN_TARGET に置き換える（呼ぶ一言・確かめる一言・後任の方の一言のどれも、for_judge のこの表で置き換わる）＝名前を伏せる形と今の形の比べ
+        HIDDEN_TARGET に置き換える（呼ぶ一言・確かめる一言・後任の方の一言・詳しい呼ぶ一言のフルネームのどれも、for_judge のこの表で置き換わる）＝名前を伏せる形と今の形の比べ
         （CL-1.md 4-165）も、この1か所で切り替える"""
         from names import hira, quote
         sees_target = JUDGE_SEES_TARGET_NAME if sees_target is None else sees_target
         out = {quote(r): f"{s}（{r}）" for s, r in self.name_readings().items() if s != r}
         t = self.target
-        if t is not None and t.name and not sees_target:
-            out[quote(hira(t.reading))] = HIDDEN_TARGET
-        elif t is not None and t.name and t.name != hira(t.reading):
-            out[quote(hira(t.reading))] = f"{t.name}（{hira(t.reading)}）"
+        # お呼びする方のお名前（お名字）と、詳しい呼ぶ一言（Target.full_call）で言うフルネーム。⛔ a13eb002 まで、フルネームは表に無く、詳しい呼ぶ一言のあとの判定には
+        # 声の形（「おかだたろう」）のまま見せていた（本書 9-5 の 6.「質問の文のお名前は、書いてあるとおり＋読み」・CL-1 の頼み rv97/K で見つけた）
+        for name, reading in ((t.name, t.reading), (t.full_name, t.full_reading)) if t is not None else ():
+            if name and not sees_target:
+                out[quote(hira(reading))] = HIDDEN_TARGET
+            elif name and name != hira(reading):
+                out[quote(hira(reading))] = f"{name}（{hira(reading)}）"
         return out
 
     def flow(self, recorded: bool = True, play_recordings: bool = False, **kw) -> "Flow":

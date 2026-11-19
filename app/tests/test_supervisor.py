@@ -1061,7 +1061,7 @@ class Rounds(SupervisorBase):
                 return self.is_set()
         stop = Stop()
 
-        def one(*args):
+        def one(*args, **kw):   # 回線の流れが渡す前の回の誤り（fell）も受ける
             rounds.append(1)
             return line.Round(pause="line_in_call")
         with mock.patch.object(line, "one_round", one), mock.patch.object(line, "STUCK_AFTER", 0.0):
@@ -2961,6 +2961,11 @@ class Review26c(SupervisorBase):
         self.assertEqual(self.trouble(t, left.called), "runner_error")
         self.assertEqual(leases.left_why(access_mod.RetryExhausted("試験")), leases.LEFT)
         self.assertEqual(leases.left_why(None), leases.LEFT)                 # 流れを立ち上げ直した（誤りが分からない）
+        with self.assertRaises(Exception) as refused:   # データベースの守りが断った書き込み（読み書きの層を通った本物の誤り）
+            self.w.a.in_tenant(SYSTEM, t["tenant"], lambda tx: tx.execute(
+                "DO $$ BEGIN RAISE EXCEPTION '試験' USING ERRCODE = 'check_violation'; END $$"))
+        self.assertEqual(leases.left_why(refused.exception), leases.BROKEN)                       # ＝プログラムの誤り
+        self.assertEqual(leases.left_why(access_mod.PoolBusy("試験")), leases.LEFT)                # 共有のつなぎの混雑（データベースに届かない側）
 
     def test_a_call_that_could_not_be_written_is_the_storages_fault(self):
         """話し終えた通話の最後の書き込みがデータベースの誤りで書けずに戻ったら、会話の部品の不具合でなく保存のせい（⛔ 見直し26c の 4：

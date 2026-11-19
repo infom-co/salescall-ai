@@ -13,7 +13,8 @@
 --        直し直して「かけない」にしたら、いちばん新しい記録が「かけない」なので、もう待たない。
 --    (3) 目的のお客様だと確かめられなかった通話（call_unconfirmed の1か所）に、契約者の直しを重ねる：いま効いている直し（通話のいまの結果＝call_results が
 --        契約者の版）があれば、それが「繋がらなかった」で、システムは目的のお客様と話したと判定していた（または確かめ直しで確かめられなかった）ときだけ
---        確かめられなかった通話。直しが「繋がらなかった」でなければ、確かめられた通話（契約者が、目的のお客様の答えと決めた）。直しが無ければ今までどおり。
+--        確かめられなかった通話。ほかの直しは、システムの確かめ直しのまま（直しは業務の結果を決めるもので、別の方の答え・連絡先を目的のお客様のものに
+--        しない。例：受付の方の「もうかけないで」を「もうかけないで」に直しても、受付の方の連絡先を目的のお客様のものにしない）。直しが無ければ今までどおり。
 
 ALTER TABLE salescall.correction_calls ADD COLUMN asked_by text, ADD COLUMN calls boolean NOT NULL DEFAULT true;
 UPDATE salescall.correction_calls SET asked_by = '（0242 の前の確かめ待ち）' WHERE asked_by IS NULL;   -- 前の確かめ待ちは、どなたも確かめられない（直し直す）
@@ -64,7 +65,7 @@ SET search_path = salescall, pg_temp AS $$
   SELECT CASE
     WHEN h.business_state IS NULL THEN x.rech                      -- 直しが無い（いま効いている契約者の版が無い）
     WHEN h.business_state = 'not_reached' THEN x.rech OR coalesce(s.business_state <> 'not_reached', false)
-    ELSE false END                                                 -- 契約者が、目的のお客様の結果に直した
+    ELSE x.rech END                                                -- ほかの直しは、システムの確かめ直しのまま（確かめられなかった方の答えを使わない）
   FROM (SELECT salescall.call_recheck_failed(p_attempt) AS rech) x
   LEFT JOIN salescall.call_results h ON h.attempt_id = p_attempt AND h.kind = 'human'
   LEFT JOIN LATERAL (SELECT j.business_state FROM salescall.task_results j

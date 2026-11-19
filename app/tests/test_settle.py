@@ -642,8 +642,14 @@ class PromiseNotTransferred(SettleBase):
         return replace(rep(("reception",), not_reached="not_transferred"), not_transferred=(NotTransferred(said, again),))
 
     def test_ok_to_call_again_keeps_today_in_the_window(self):
-        """「またおかけしてよい」と言われた：当日の約束の幅の中で、不在の方針の間隔（試験の業務は1時間おき）でかけ直す。"""
+        """「またおかけしてよい」と言われた：当日の約束の幅の中でかけ直す。その日にまだ試していない時間帯が無ければ（ここでは区切りをいまの時にした）、時刻の
+        決まっていない約束の方針の間隔（試験の業務は1時間おき）で（✅ 2026-11-18 ユーザー：伺い1「案ア」＝next_action._window_round_next。⛔ 8回目の見直しまで：
+        時間帯の区切りを試験で決めておらず、日本時間の朝に流すと、その日の昼の時間帯（12時）が残ってそこへ回り、落ちた）。"""
         s = self.ready()
+        local = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now()) AS t")["t"])
+        if local.hour == 0:
+            self.skipTest("日本時間の0時台：いまの時刻を区切りにできない")
+        self.put_client(s, "retry.time_band_boundaries", [local.hour])   # いまが最後の時間帯
         now, window = self.promised(s)
         got = self.settle(s, self.call(s, report=self.report(True)))
         d = got["decision"]
@@ -2222,6 +2228,13 @@ class DialFixAfterCalls(SettleBase):
         new = self.fixed_as(u, False)                                          # 「担当の方は違う」で鈴木様の番号に直す
         self.tx(u, lambda tx: settle.resettle(tx, refused))                    # 田中様の通話を締め直す（判定し直し・録音から作り直した報告など）
         self.assertFalse(self.stopped(u, self.phone_of(u, new)))               # 鈴木様の番号は止めない
+        # 鈴木様の番号を共有する別の行にも、田中様の断りを広げない（あとの担当の方の番号を外してから広げる＝dnc.refusal_reach。⛔ 8回目の見直しの途中まで：
+        # 広げてから外したので、鈴木様の番号を通って、その行の番号まで止めた）
+        z = normalize(fictional_jp_fixed())
+        k = self.w.contact(u["tenant"], u["client"], z.e164)
+        w_task = self.w.task(u["tenant"], u["client"], self.w.run(u["tenant"], u["client"], u["business"], u["version"]), k)
+        self.tx(u, lambda tx: tasks.add_record_number(tx, w_task, normalize(self.phone_of(u, new)), "mobile", origin="dashboard"), OPERATOR)
+        self.assertFalse(self.stopped(u, z.e164))
 
     def test_a_complaint_is_the_old_persons_own_and_the_new_person_is_called(self):
         """✅ 2026-11-16 ユーザー（伺い「前の担当の方（田中様）が怒った（苦情）あと、『担当の方は違う』で鈴木様に直したら」へ）：「鈴木様へはかける」＝苦情も

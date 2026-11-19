@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items)
 
@@ -345,8 +345,28 @@ TALK_RULES = ASK_HEAD + "\n決まり：\n" + MEANING_RULE + "。\n" + MAYBE_RULE
 #    ⚠️ 例は、試験の言葉（G-59）と同じ言い方にしない
 
 
+def calling_rules(q) -> tuple[str, str]:
+    """お呼びする段の判定（項目ごとに答える質問）の決まりの文のうち、判定に見せる一言の種類で変わる所（唯一の場所＝facet_rules・jev_request）：(頭の文, 伺った
+    一言へのお返事の読み方の一文＝無ければ空)。種類は、質問の文が、お呼びする方のご様子を伺った一言か（Question.inquiry＝flowctl.CALLING_INQUIRIES の一言を見せた
+    ときだけ Flow._calling_asked が付ける＝ご事情を伺う一言「（お名前）様は今お電話に出られないご状況ということでしょうか？」）。呼ぶ一言・詳しい呼ぶ一言・確かめる
+    一言の文は今のまま（G-59 の測りの行と同じ文＝指紋が変わらない）。
+    伺った一言には「はい」「いいえ」で答えていただく：お返事の「はい、そうです。」は、言葉そのものに不在の言葉が無くても、伺ったとおり（いまは電話に出られない）
+    だと、いまの言葉で伝えたもの。⛔ 06661192 まで、頭は呼ぶ一言だけを思い描いた文（「電話でお呼びする方を、質問の言葉でお呼びして」）で、事情は「いまの言葉だけ」で
+    読むと書いてあった＝事情を「言っていない」と読みうる（流れの制御は、受付の方に「はい、」のあと黙る・決められないなら確かめる・ご本人なら繋ぐ＝CL-1 の頼み
+    rv100/M の before.md の 1）。判定への文は、初めて読む人が分かる言葉で、お客様の様子として思い浮かぶ言葉で書く（✅ 2026-11-01 日本時間6時05分）。⚠️ 例は、
+    試験の言葉（G-59）と同じ言い方にしない（言葉の頭の「はい」「いいえ」「そうです」「違います」だけを書く）"""
+    if not getattr(q, "inquiry", False):
+        return "電話でお呼びする方を、質問の言葉でお呼びして、電話に出ている方が話しました。", ""
+    P, _ = called_words(getattr(q, "seeks_successor", False))
+    return ("電話でお呼びする方のことを、質問の言葉で伺って、電話に出ている方が話しました。",
+            f"質問は、{P}のご様子を、こちらが言葉にして伺ったものです。質問に「はい」「そうです」と答えた言葉は、伺ったとおりだと、いまの言葉で伝えたもの"
+            "として読み、「いいえ」「違います」と答えた言葉は、そうではないと、いまの言葉で伝えたものとして読みます（言葉の頭の「はい」が、質問への答えではなく"
+            "相づちだけのときは、これに当たりません）")
+
+
 def facet_rules(q) -> str:
-    """項目ごとに答える質問の決まり（問い合わせの文の1か所。RULES の代わり）。場面で変わる所（いまお呼びしている方の呼び方）は、項目と同じ
+    """項目ごとに答える質問の決まり（問い合わせの文の1か所。RULES の代わり）。判定に見せる一言の種類で変わる所（頭の文・伺った一言へのお返事の読み方）は
+    calling_rules の1か所。場面で変わる所（いまお呼びしている方の呼び方）は、項目と同じ
     1か所（flowctl.called_words）から作る。後任の方の場面だけの言い分けは、話している方は誰かの見分け方（flowctl.target_facets）にだけ書く。
     ⚠️ 例は、試験の言葉（G-59）と同じ言い方にしない。決まりの文に、選べるものの説明の条件を写さない（⛔ 2026-10-30：条件を一部だけ写して2回
     行き過ぎた＝帳面 0-2 の21回目の失敗）。
@@ -360,7 +380,8 @@ def facet_rules(q) -> str:
        考える Haiku は、確かめるきっかけの「はい。」を確かめた問いへの答えと取り違えた ⇒ 言葉の決まりの「その前に相手が言ったこと」（確かめる一言への返事の場面だけ＝flowctl.facet_terms。⛔ はじめは5行目の終わりに、どの場面にも書いていた）。
        「迷ったら決められない」と書いていたので、Luna は説明で決まる言葉でも「決められない」に逃げた ⇒ 見分け方の「決められない」を選ぶとき"""
     P, _ = called_words(getattr(q, "seeks_successor", False))
-    return ("電話でお呼びする方を、質問の言葉でお呼びして、電話に出ている方が話しました。その言葉について、次の項目ごとに、選べるものを1つずつ"
+    head, asked = calling_rules(q)
+    return (head + "その言葉について、次の項目ごとに、選べるものを1つずつ"
             "選んでください。\n"
             f"1つの言葉に、いくつもの事実が入ることがあります（{P}ではない方が、{P}は出られないと伝えた・{P}は出られないのでほかの者に代わると"
             "言った など）。項目ごとに、その項目のことだけを読みます（ほかの項目に当たる事実があっても、この項目の答えは変えません）。\n"
@@ -369,7 +390,8 @@ def facet_rules(q) -> str:
             "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません。\n"
             "- 話している方は誰かは、言葉から言える段まで選び、2つの答えの境目は、その項目の見分け方で決めます。\n"
             f"- 電話のやり取りと、{P}の事情と、" + "と、".join(SIDE_ITEMS[k][0] for k in side_items(True)) + f"は、{NOW_ONLY}（その前に相手が言った取り次ぎ・不在・断りなどの事実は、いまの言葉の答えにしません）。\n"
-            "- 前と同じ方かと、話している方は誰かは、その前に相手が言ったことも合わせて決めます（説明と見分け方の中の「その前の言葉で」「取り次ぐと"
+            + (f"- {asked}。\n" if asked else "")
+            + "- 前と同じ方かと、話している方は誰かは、その前に相手が言ったことも合わせて決めます（説明と見分け方の中の「その前の言葉で」「取り次ぐと"
             "言われたあとに」などは、その前に相手が言ったことに当てます。いまの言葉の中の人が誰かも、その前の言葉で結びます）。\n")
 
 
@@ -658,12 +680,12 @@ def settle_sure(r) -> None:
     """読みの確からしさを、その読みで流れの制御が使う問いだけから出し直す唯一の所（used_sure の決まり。問いごとの確からしさ confs の無い読みは
     返事の sure のまま）。本番の read と、記録から読みを戻す測りの数え（g53_meaning.reading）が通る。⛔ 2026-11-18 日本時間15時台（見直し (13) の
     D10）まで、測りの数えは記録したときの確からしさのまま＝今の決まりなら確かな読みを確かでないと数え、2つ目の判定へ送る行が本番と食い違った"""
-    used = used_sure(getattr(r, "confs", None), str(r))
+    used = used_sure(getattr(r, "confs", None), str(r), bool(getattr(r, "away", False)))
     if used is not None:
         r.sure = used
 
 
-def used_sure(confs: dict | None, cond: str) -> float | None:
+def used_sure(confs: dict | None, cond: str, away: bool = False) -> float | None:
     """読みの確からしさ＝その読みで流れの制御が使う問いの、選んだものの確からしさのいちばん低いもの（唯一の決まり。問いごとの確からしさを返す
     判定だけ＝判断のモデル。返さなければ None＝返事の sure のまま）。分からない理由（WHY）は答えが わからない・答えたくない のときだけ使う
     （Flow._why_of）・声が届いていない様子（HEAR）は確からしさに関係なく切れ方の材料に使う（確かでない読みも数える＝Flow.cut）ので入れない・
@@ -674,10 +696,14 @@ def used_sure(confs: dict | None, cond: str) -> float | None:
     黙ったあとの一言へのお返事だけか（PROMPT_REPLY）は、読んだとき（一言を流したあとの言葉）はいつも使う（そろって「お返事だけ」なら答えの読みにかかわらず最終の
     確かめ＝flowctl.prompt_replied・Flow._prompt_due。見直し (12) の B-4）。⛔ 0c55c4e7 まで AWAY をいつも数えていたので、答えの確からしさが高くても、使わない
     項目の確からしさが線より下なら読み全体が「確かでない」になった（見直し (12) の D-3。⛔ 2e5986f5 まで PROMPT_REPLY は答えが「決められない」かご承認の
-    お知らせのときだけ数えた＝流れの制御もそのときだけ使い、資料の申し出への「いえ、大丈夫です。」を「いいえ」と読むとお断りで締めた）"""
+    お知らせのときだけ数えた＝流れの制御もそのときだけ使い、資料の申し出への「いえ、大丈夫です。」を「いいえ」と読むとお断りで締めた）
+    お呼びする段の相手の申し出（OFFER）はいつも使う（申し出があれば応じ方が替わる＝電話を終える言葉かと同じ）・お呼びした方が出られない理由（ABSENT_WHY）は、
+    その読みがお呼びした方は出られない・ご本人がいまは話せないと読んだとき（away＝読みの印 Reading.away）だけ使う（流れの制御が理由を読むのはそのときだけ＝
+    Flow._absent_why）。"""
     if not confs:
         return None
-    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)]
+    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)
+            and (k != ABSENT_WHY or away)]
     return min(vals) if vals and all(isinstance(c, (int, float)) for c in vals) else None
 
 
@@ -1215,6 +1241,9 @@ JEV_ITEMS[AWAY] = ("お客様の言葉は、質問の答えの話ですか、そ
 # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。flowctl.ELSEWHERE・said_elsewhere）
 JEV_ITEMS[ELSEWHERE] = ("お客様は、こちらがご案内している事柄を、ほかの会社に頼んでいる・ほかの会社のものを使っていると言いましたか？（答えとは別に読みます。"
                         + NOW_ONLY + "）")
+# お呼びする段だけの2つ（flowctl.offer_choices・absent_why_choices。項目ごとに答える質問の Jev の問いは見出しから作る＝jev_request。表をそろえるための問い）
+JEV_ITEMS[OFFER] = "電話に出ている方は、こちらに何か申し出ましたか？（答えとは別に読みます。" + NOW_ONLY + "）"
+JEV_ITEMS[ABSENT_WHY] = "いまお呼びしている方が電話に出られないなら、その理由はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）"
 assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
 
 
@@ -1235,9 +1264,11 @@ def jev_request(model: str, q, text: str, asked: str | None = None, before: str 
     """Jev への問い合わせ：どの答えか（choice・確からしさ付き）と、言い切っているか（noul）。項目ごとに答える質問は、項目ごとに1つの問い
     （確からしさは項目ごと＝読むときは一番低いもの。言い切っているかは問わない）。"""
     if q.facets:
+        _, inquired = calling_rules(q)   # 伺った一言へのお返事の読み方（決まりの文を渡さない判断のモデルには、どの項目の問いにも＝facet_rules と同じ1文）
         return {"model": model, "state": scene(q, text, asked, before),
                 "questions": {f.key: {"type": "choice", "instructions": f"電話に出ている方の言葉で、{f.heading}はどれに当たりますか？（"
                                       + (f"{NOW_ONLY}。" if f.key in NOW_ONLY_FACETS else "")
+                                      + (f"{inquired}。" if inquired else "")
                                       + "ほかの項目に当たる事実があっても、この項目のことだけを読みます）"
                                       + ("見分け方：" + "／".join(f.notes) if f.notes else "")   # 境目は判定の文と同じ1か所（flowctl.Facet）
                                       + ("言葉の決まり：" + "／".join(q.terms) if f.key in TERM_FACETS else ""),

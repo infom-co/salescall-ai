@@ -10,7 +10,7 @@ import time
 
 from common import base_parser, require_python, save_result, say
 from convo import answers
-from flowctl import ABOUT, END, END_HURRY, END_NONE, HEAR, HEAR_LOST, HEAR_OK, PHONE, SPEAKER, WHO
+from flowctl import ABOUT, ABSENT_WHY, END, END_HURRY, END_NONE, HEAR, HEAR_LOST, HEAR_OK, OFFER, PHONE, SPEAKER, WHO
 from g53_meaning import spread_record
 from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, measured_judges
 
@@ -277,6 +277,10 @@ def accept_of(facts: dict[str, set], seeks_successor: bool = False) -> list[str]
 
 
 ADDED = (END, HEAR)   # あとから足した項目（足す前の記録は、この項目を数えない＝facts_ok・facts_whole の1か所）
+# 正解をまだ付けていない項目（2026-11-18 の rv92/H で足した相手の申し出・お呼びした方が出られない理由。⏳ 正解の表に申し出・理由の正解を付ける＝0円・
+# 読み手2人）：正解の表に無い項目は、項目ごとの数え（facts_ok・facts_whole＝正解の表の項目だけを見る）にも、流れの制御の動きの数えにも外れと数えない
+# （正しい読みの組み合わせに、判定の読みをそのまま入れる＝g59_tally.right_readings の1か所）
+UNLABELED = (OFFER, ABSENT_WHY)
 
 
 def facts_ok(got: dict | None, facts: dict[str, set]) -> bool:

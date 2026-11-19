@@ -59,10 +59,12 @@ def hear_only(r: dict) -> bool:
 
 def right_readings(got: dict, facts: dict) -> list[dict]:
     """正解の項目ごとの答えの組み合わせの全部。項目を足す前の記録（got に無い、あとから足した項目 g.ADDED）は、その項目を読みに入れない
-    （g59_calling_judge.facts_ok と同じ決まり）。"""
+    （g59_calling_judge.facts_ok と同じ決まり）。正解をまだ付けていない項目（g.UNLABELED のうち正解の表に無いもの）は、判定の読みをそのまま入れる
+    （外れと数えない）。"""
     from itertools import product
     keys = [k for k in facts if not (k in g.ADDED and k not in got)]
-    return [dict(zip(keys, c)) for c in product(*(sorted(facts[k]) for k in keys))]
+    open_ = {k: got[k] for k in g.UNLABELED if k not in facts and got.get(k) is not None}
+    return [dict(zip(keys, c)) | open_ for c in product(*(sorted(facts[k]) for k in keys))]
 
 
 def off_reports(got: dict, facts: dict, r: dict) -> list[str]:
