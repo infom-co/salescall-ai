@@ -105,6 +105,19 @@ def approve(tx: Tx, order_id: int, set_id: UUID) -> None:
     schedule_if_ready(tx, o["task_id"])
 
 
+def awaiting_approval(tx: Tx, *, task_id: UUID | None = None) -> list[dict[str, Any]]:
+    """承認を待っているお詫びの電話の案（1か所。画面の受け箱が読む＝CL-3 の 29 の (b)）：まだ承認の記録の無い案と、その案のいちばん新しい
+    お詫びの録音の組（無ければ None＝録音を作っている途中）。[{order_id, task_id, pairs, improper, text_same_day, prepared_at, set_id}]（作った順）。
+    task_id＝その行の分だけ。承認は `approve`（録音の組を聞いてから）。"""
+    return tx.all("SELECT o.order_id, o.task_id, o.pairs, o.improper, o.text_same_day, o.prepared_at,"
+                  "       (SELECT s.set_id FROM salescall.recording_sets s WHERE s.unit = 'apology' AND s.order_id = o.order_id"
+                  "         ORDER BY s.created_at DESC, s.set_id DESC LIMIT 1) AS set_id"
+                  " FROM salescall.apology_orders o"
+                  " WHERE NOT EXISTS (SELECT 1 FROM salescall.apology_approvals a WHERE a.order_id = o.order_id)"
+                  "   AND (%s::uuid IS NULL OR o.task_id = %s::uuid)"
+                  " ORDER BY o.prepared_at, o.order_id", (task_id, task_id))
+
+
 def waits_on(tx: Tx, task_id: UUID, attempt_id: UUID) -> bool:
     """いまの予定が、その通話（言ってはいけないことを言った通話）の承認したお詫びの電話か（1か所。その通話を締め直しても、行の予定を書き直さない＝
     settle._judge_and_write。お詫びの電話のあとの動きは、お詫びの電話の締めが決める）。"""

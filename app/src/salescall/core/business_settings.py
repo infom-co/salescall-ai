@@ -40,7 +40,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (approval, attempts, business_rules, calendar, call_report, calling_hours, notify, quality_stage,
+from salescall.core import (approval, attempts, business_rules, calendar, call_report, calling_hours, common_phrases, notify, quality_stage,
                             readings)
 from salescall.core.access import Refused, Tx
 
@@ -81,6 +81,7 @@ RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "
                           "E1",   # ほかの会社に頼んでいると言われたときに、解決できない問題・心配事を伺うシステムの質問（CL-1 の 58fb6c7f・伺い25）
                           "E2",   # E1 で言っていただいた困りごとを深める一言のシステムの質問（CL-1 の連絡帳 4-170 の (5)）
                           "E3", "E4",   # 深める一言へのお返事を受けて伺うシステムの質問（手をお打ちか・今後の懸念。CL-1 の連絡帳 4-173 の (3)）
+                          "E5",   # ほかの会社に困りごとは無いと言われたときに、お選びになった決め手を伺うシステムの質問（CL-1 の連絡帳 4-195 の (a)）
                           "H3",   # 手短になら聞くと言われたときの「後ほどお時間のある時にかけ直しさせていただきましょうか？」のシステムの質問（同じ 4-173 の (3)）
                           "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
@@ -88,6 +89,9 @@ RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "
                           # 続きの電話で判断いただける代わりの方に、お呼びした方から引き継いでいるかを伺う一言（お名前が入る名乗りの部分。流すのは名前の録音の
                           # 台帳から＝target と同じ。CL-1 の連絡帳 4-151 の伺い11）
                           "carried_target",
+                          # 名前の録音の台帳の続く言葉の名前（名乗りの部分の名前。mobile_confirm・target_transfer ほか。写しの1か所 common_phrases.NAME_TAILS＝
+                          # CL-1 の連絡帳 4-192 の (b) の (2)・4-197 の (a)。続く言葉を足しても、ここを書き足し忘れない）
+                          *common_phrases.NAME_TAILS,
                           "voicemail", "message", "busy",   # busy＝引き止めの一言の業務の録音の部分（CL-1 の連絡帳 4-75。ai・voicemail・message と同じ）
                           # 手短になら聞くと言われたときの「（要約）の件でお電話させていただきましたが…かけ直しさせていただきましょうか？」の業務の録音の部分（CL-1 の
                           # 連絡帳 4-173 の (2)。busy と同じ）。⛔ 4-170 の部分 summary（営業の要約の文を流す）は、これに替わって無くなった（業務設定の欄 summary は残る）
@@ -2060,8 +2064,23 @@ def assign_problems(tx: Tx, run_id: UUID, version_id: UUID) -> list[str]:
 #    ✅ 2026-11-02 管理者：(h) の流れ「新しい版の録音が承認されるまでは、今の版のまま電話を続けます。承認されたら、その業務の実施回を
 #    自動で新しい版に替えます。電話は止めません。」
 SUCCESSION_CAUSES = {"standard": "標準の想定問答が新しくなった", "solution": "依頼者の解決策を想定問答に足した",
-                     "override": "契約者が上書きを変えた"}   # 0183 の CHECK と同じ
+                     "override": "契約者が上書きを変えた", "retry": "契約者が再発信の方針を変えた"}   # 0183・0258 の CHECK と同じ
 KEEP = "keep"   # derive の standard：元の版が指す標準の版のまま
+
+
+def change_retry(tx: Tx, version_id: UUID, policies: dict[str, Any], *, reason: str) -> UUID:
+    """業務の再発信の方針（結果ごとに、かけ直すか・回数・間隔）だけを変えた新しい版を足す（ダッシュボードの一括の入口。管理者か契約者。計画書 6-2
+    「ダッシュボードでは一括登録できるように」・6-1 (4)。CL-3 の 49）。policies＝{結果の鍵（business_rules.POLICY_KEYS のどれか）: business_rules.Policy}
+    （渡した鍵だけ変える）。足す道・確かめ・登録は、ほかのきっかけと同じ `derive` の1か所（形の確かめは business_rules.check。通らなければ SettingsInvalid）。
+    理由は必ず。前の版は残る。新しい版を返す（実施回に割り当てるのは `adopt_ready`）。"""
+    if not policies or any(k not in business_rules.POLICY_KEYS for k in policies):
+        raise SettingsInvalid([f"変える方針は {list(business_rules.POLICY_KEYS)} のどれかです"])
+
+    def change(raw: dict[str, Any]) -> dict[str, Any]:
+        rules = dict(raw["rules"])
+        rules["retry"] = {**rules["retry"], **{k: business_rules.policy_raw(p) for k, p in policies.items()}}
+        return dict(raw, rules=rules)
+    return derive(tx, version_id, change, cause="retry", note=reason)
 
 
 def successor_tip(tx: Tx, version_id: UUID) -> UUID:
@@ -2081,7 +2100,7 @@ def derive(tx: Tx, version_id: UUID, change: Callable[[dict[str, Any]], dict[str
     if cause not in SUCCESSION_CAUSES:
         raise ValueError(f"版を足すきっかけは {list(SUCCESSION_CAUSES)} のどれかです（{cause!r}）")
     if not note.strip():
-        raise ValueError("何を変えたかを書いてください")
+        raise Refused("何を変えたか（理由）を書いてください")   # 画面の入力の断り（理由つき＝access.Refused）
     base = successor_tip(tx, version_id)
     old = load(tx, base)
     business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (base,))["business_id"]

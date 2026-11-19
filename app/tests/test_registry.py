@@ -38,6 +38,38 @@ class SameNames(Base):
             mk(t, "　")
 
 
+class ClientGroups(Base):
+    def test_groups_arrange_clients_only_and_are_kept_by_the_contractor(self):
+        """依頼者のグループ（0255。CL-3 の 15）：契約者ごとに名前と並び順を持ち、1つの依頼者が複数のグループに入れる。入れる・外す・並べ替え・やめるが
+        できる（消さない）。同じ名前は NameTaken。作る・直すのは管理者か契約者だけ。ほかの契約者には見えない。業務の一覧は作った順（registry.businesses）。"""
+        t, t2 = self.w.tenant(), self.w.tenant()
+        c1, c2 = self.w.client(t), self.w.client(t)
+        tx = lambda work, actor=OPERATOR, tenant=t: self.w.a.in_tenant(actor, tenant, work)   # noqa: E731
+        east = tx(lambda x: registry.create_group(x, "東日本"))
+        west = tx(lambda x: registry.create_group(x, "西日本"))
+        tx(lambda x: registry.set_group_member(x, east, c1, True))
+        tx(lambda x: registry.set_group_member(x, west, c1, True))                      # 複数のグループに入れる
+        tx(lambda x: registry.set_group_member(x, west, c2, True))
+        tx(lambda x: registry.set_group_member(x, west, c1, False))
+        shape = lambda: [(g["name"], g["position"], g["clients"]) for g in tx(registry.groups)]   # noqa: E731
+        self.assertEqual(shape(), [("東日本", 1, [c1]), ("西日本", 2, [c2])])
+        tx(lambda x: registry.move_group(x, west, 1))
+        self.assertEqual(shape(), [("西日本", 1, [c2]), ("東日本", 2, [c1])])
+        with self.assertRaises(registry.NameTaken):
+            tx(lambda x: registry.create_group(x, " 東日本 "))
+        self.assertEqual(tx(registry.groups, tenant=t2), [])                            # ほかの契約者には見えない
+        with self.assertRaises(Rejected):
+            tx(lambda x: registry.create_group(x, "システムのグループ"), SYSTEM)
+        tx(lambda x: registry.remove_group(x, east))
+        self.assertEqual(shape(), [("西日本", 1, [c2])])
+        tx(lambda x: registry.create_group(x, "東日本"))                                # やめた名前は、また使える
+        with self.assertRaises(LookupError):
+            tx(lambda x: registry.set_group_member(x, east, c1, True))
+        b1, _ = self.w.business_with_version(t, c1)
+        b2, _ = self.w.business_with_version(t, c1)
+        self.assertEqual([b["business_id"] for b in self.w.a.in_client(OPERATOR, t, c1, registry.businesses)], [b1, b2])
+
+
 class Refusals(unittest.TestCase):
     def test_every_refusal_the_screen_shows_shares_one_base(self):
         """core の部品が、人に見せる理由で断る例外は、どれも access.Refused を元にする（画面はこれ1つを受けて文を出す＝CL-3 の 21。

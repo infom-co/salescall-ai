@@ -339,6 +339,9 @@ _STANDARD = ("s.unit = 'standard' AND s.tenant_id IS NULL"
 # おります。」）・callback_wait_or_later（待つかかけ直すかを1回だけ伺う一言。✅ 11-05 23時19分06秒・23時56分48秒 ユーザー）。CL-1 の試験 test_offline が
 # この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
 # 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
+# 2026-11-19 の受け取り（CL-1 の連絡帳 4-192 の (d)・4-195・4-197・4-199・4-201）：日時の2択の段（callback_time_kind・callback_time_half と、その形・time_weekend）・
+# 決め手を伺う一言 callback_elsewhere_point・後任の方へのお取り次ぎ successor_transfer・相づち taihen_shitsurei を足し、「いつ頃」と伺う一言（callback_later_time・
+# callback_later_time_answering・callback_hurry_when と、その形）・流れない形（E1〜E4 の戻る形・保留の戻る形・successor_reconfirm）を外した（写しは道具で作り直す）。
 # ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
 # promise_again を求めた。お名前の入る一言（target・target_confirm・target_reconfirm・promise_again・target_successor）は業務の組に入らず、
 # 名前の録音の台帳（CL-1 の DESIGN.md 4-3）から流すので、約束の電話が1本もかからなかった。契約者の組の部分はどの電話でも流れうる（相づち・
@@ -501,8 +504,10 @@ def missing_parts(tx: Tx, version_id: UUID) -> list[str]:
 # 続く言葉が違うので、個人は target_individual）
 # carried_target＝続きの電話で判断いただける代わりの方に、お呼びした方から引き継いでいるかを伺う一言「恐れ入りますが（〇〇様）のほうからこれまでのお話は
 # お聞き及びでしょうか？」の続く言葉（CL-1 の連絡帳 4-151 の伺い11。✅ 2026-11-13 日本時間22時17分01秒「11はイ」。0221）
-NAME_TAILS: tuple[str, ...] = ("target", "target_individual", "target_confirm", "target_reconfirm", "promise_again",
-                               "target_successor", "unavailable_confirm", "carried_target")
+# 続く言葉の名前（文の写しは common_phrases.NAME_TAILS の1か所＝CL-1 の正本 phrases.NAME_TAILS から道具で作る。続く言葉の録音は、その文と同じ文の録音だけを
+# 流す＝salescall.current_name_set。0259）。mobile_confirm＝かけた番号が携帯電話の番号のときの「（お名前）様で大丈夫でしょうか？」・target_transfer＝法人の行の
+# 「恐れ入りますが（呼び名）のお取り次ぎをお願いできますでしょうか？」（CL-1 の連絡帳 4-192 の (b) の (2)・4-197 の (a)）
+NAME_TAILS: tuple[str, ...] = tuple(common_phrases.NAME_TAILS)
 NAME_UNITS: tuple[str, ...] = ("name_role", "name", "name_tail")   # 名前の録音の台帳の単位（データベースの recording_sets_unit と同じ）
 
 
@@ -550,8 +555,11 @@ def name_needs(tx: Tx, task_id: UUID) -> NameNeeds | None:
     named = bool(target["name"])
     # 引き継ぎを確かめる一言の名前の入る形（carried_target）も、続きの電話でどなたに繋がるかが前もって分からないので、目的のお客様のいる業務ならどの行も
     # 初めから要る（約束の一言・取り次げないの確かめの一言と同じ。録音は声ごとの続く言葉1つ＝行ごとに増えない。CL-1 の連絡帳 4-151 の伺い11）
+    # かけた番号が携帯電話の番号のときの確かめる一言（mobile_confirm）も、どの行が携帯電話の番号になるかを前もって決めないので、お名前のある行はどの行も初めから
+    # 要る（CL-1 の連絡帳 4-192 の (b) の (2)）。お取り次ぎをお願いし直す一言（target_transfer）は法人の行だけ（同 4-197 の (a)。どちらも声ごとに1本）
     tails = ("target" if corporate or not named else "target_individual", "target_confirm", "target_reconfirm",
-             "promise_again", "unavailable_confirm", "carried_target") + (("target_successor",) if corporate else ())
+             "promise_again", "unavailable_confirm", "carried_target") + (("target_successor", "target_transfer") if corporate else ()) \
+        + (("mobile_confirm",) if named else ())
     if named:
         reading = target["reading"] or None
         if reading is None:
@@ -577,14 +585,14 @@ def _missing(tx: Tx, needs: NameNeeds, voice_name: str) -> list[tuple[str, str]]
         return [("name", "お名前の読み・役職（呼ぶ材料がありません）")]
     rows = tx.all(
         "SELECT 'role' AS what, k.i FROM unnest(%(roles)s::text[]) WITH ORDINALITY k(role, i)"
-        " WHERE salescall.current_name_set(%(b)s, %(v)s, 'name_role', k.role, NULL, NULL) IS NULL"
+        " WHERE salescall.current_name_set(%(b)s, %(v)s, 'name_role', k.role, NULL, NULL, NULL) IS NULL"
         " UNION ALL SELECT 'name', n.i FROM unnest(%(readings)s::text[], %(nroles)s::text[]) WITH ORDINALITY n(reading, role, i)"
-        " WHERE salescall.current_name_set(%(b)s, %(v)s, 'name', n.role, n.reading, NULL) IS NULL"
-        " UNION ALL SELECT 'tail', t.i FROM unnest(%(tails)s::text[]) WITH ORDINALITY t(tail, i)"
-        " WHERE salescall.current_name_set(%(b)s, %(v)s, 'name_tail', NULL, NULL, t.tail) IS NULL"
+        " WHERE salescall.current_name_set(%(b)s, %(v)s, 'name', n.role, n.reading, NULL, NULL) IS NULL"
+        " UNION ALL SELECT 'tail', t.i FROM unnest(%(tails)s::text[], %(texts)s::text[]) WITH ORDINALITY t(tail, text, i)"
+        " WHERE salescall.current_name_set(%(b)s, %(v)s, 'name_tail', NULL, NULL, t.tail, t.text) IS NULL"
         " ORDER BY 1, 2",
         {"roles": list(needs.roles), "readings": [k.reading for k in needs.names], "nroles": [k.role for k in needs.names],
-         "tails": list(needs.tails), "b": needs.business_id, "v": voice_name})
+         "tails": list(needs.tails), "texts": [common_phrases.NAME_TAILS[t] for t in needs.tails], "b": needs.business_id, "v": voice_name})
     label = {"role": lambda i: f"{needs.roles[i]}の（役職の部分）", "name": lambda i: needs.names[i].label(),
              "tail": lambda i: f"続く言葉 {needs.tails[i]}"}
     order = {"role": 0, "name": 1, "tail": 2}
@@ -607,8 +615,8 @@ def name_recording(tx: Tx, business_id: UUID, voice_name: str, *, role: str | No
                                else ("name", key.role, key.reading) if key is not None else ("name_tail", None, None))
     row = tx.one(
         "SELECT r.part, r.spoken_text, r.audio_ref, r.audio_sha256 FROM salescall.recordings r"
-        " WHERE r.set_id = salescall.current_name_set(%s, %s, %s, %s, %s, %s)",
-        (business_id, voice_name, unit, k_role, k_reading, tail))
+        " WHERE r.set_id = salescall.current_name_set(%s, %s, %s, %s, %s, %s, %s)",
+        (business_id, voice_name, unit, k_role, k_reading, tail, None if tail is None else common_phrases.NAME_TAILS.get(tail)))
     return None if row is None else Part(row["part"], row["spoken_text"], row["audio_ref"], row["audio_sha256"])
 
 
@@ -629,10 +637,12 @@ def add_name_part(tx: Tx, *, voice_name: str, key: NameKey, part: Part, business
 
 
 def add_name_tail(tx: Tx, *, voice_name: str, tail: str, part: Part, business_id: UUID | None = None) -> UUID:
-    """台帳に続く言葉を1つ入れる（承認の前。部分の名前は続く言葉の名前と同じ。文は空でない＝データベースが守る。助詞から始まるかは
-    未決）。承認は `approve`。"""
+    """台帳に続く言葉を1つ入れる（承認の前。部分の名前は続く言葉の名前と同じ。文は、その続く言葉の文の写し common_phrases.NAME_TAILS と同じ文だけ＝文の
+    違う録音は流さない決まり（salescall.current_name_set。0259）なので、入れる前に断る）。承認は `approve`。"""
     if tail not in NAME_TAILS:
         raise ValueError(f"続く言葉の名前は {NAME_TAILS} のどれかです（{tail!r}）")
+    if part.spoken_text != common_phrases.NAME_TAILS[tail]:
+        raise ValueError(f"続く言葉 {tail} の文は「{common_phrases.NAME_TAILS[tail]}」です（{part.spoken_text!r}）")
     return create_set(tx, unit="name_tail", voice_name=voice_name, parts=[part], tail=tail, business_id=business_id)
 
 

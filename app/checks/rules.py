@@ -116,6 +116,40 @@ def web_parts_only_in_web(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── 画面の決まり（CL-3 の連絡帳 4-1 の 3。DASHBOARD.md 6-1）：(a) 画面の場所では、取引を開く（Access の in_client・in_tenant・in_system、
+#    Access そのものを作る）のは web/context.py の1か所だけ（ルートは context の Ctx を通す）。(b) 文字をそのまま部品として出す書き方（ひな形の
+#    「|safe」・Markup）は使わない（お客様の言葉・業務設定の文がそのまま画面の部品になり、なりすましの書き込みを通しうるため）。
+WEB_TX_HOME = "src/salescall/web/context.py"
+_TX_OPENERS = ("in_client", "in_tenant", "in_system")
+
+
+def web_follows_its_rules(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if not rel.startswith(WEB_PLACE):
+            continue
+        tree = _parse(path)
+        for node in ast.walk(tree):
+            if rel != WEB_TX_HOME and isinstance(node, ast.Call):
+                f = node.func
+                if (isinstance(f, ast.Attribute) and f.attr in _TX_OPENERS) or (isinstance(f, ast.Name) and f.id == "Access") \
+                        or (isinstance(f, ast.Attribute) and f.attr == "Access"):
+                    out.append(Violation("持ち場", rel, node.lineno, f"画面の取引を開くのは {WEB_TX_HOME} の1か所だけです（Ctx を通す）"))
+            if isinstance(node, (ast.Name, ast.Attribute)) and (getattr(node, "id", None) == "Markup" or getattr(node, "attr", None) == "Markup"):
+                out.append(Violation("持ち場", rel, node.lineno, "文字をそのまま部品として出す Markup は使いません"))
+        for module, line in _imported_modules(tree):
+            if module in ("markupsafe.Markup", "jinja2.Markup"):
+                out.append(Violation("持ち場", rel, line, "文字をそのまま部品として出す Markup は使いません"))
+    templates = app_root / WEB_PLACE / "templates"
+    if templates.is_dir():
+        for path in sorted(templates.rglob("*.html")):
+            for n, text in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                if re.search(r"\|\s*safe\b", text):
+                    out.append(Violation("持ち場", _rel(app_root, path), n, "ひな形で「|safe」（文字をそのまま部品として出す）は使いません"))
+    return out
+
+
 # ── 11章：「いま誰が・どの契約者・どの依頼者か」をデータベースへ渡すのは、読み書きの層の1か所だけ
 SCOPE_SETTING_ALLOWED = {"src/salescall/core/access.py"}
 # 設定の名前は、引用符でくくった形（'salescall.tenant_id' など）か、set_config で渡す。
@@ -241,8 +275,11 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "attempt_state_history": {"INSERT": frozenset()},   # 状態の移り変わりを残すのは、データベースの仕掛けだけ（attempt_after_write）
     "name_changes": {"INSERT": frozenset()},            # 名前の変更を残すのは、データベースの仕掛けだけ（only_name_changes など）
     "deficit_warnings": {"INSERT": frozenset({_CORE + "usage.py"}), "UPDATE": frozenset({_CORE + "usage.py"})},   # 赤字の警告（12-1-2）
-    "destinations": {"INSERT": frozenset(), "UPDATE": frozenset()},   # 送り先（4-5。⏳ CL-3 の出力の部品が書く。作るときに足す）
-    "tenants": {"INSERT": frozenset()},                 # 契約者を作るのは、まだどの部品も無い（⏳ サブスクの契約の入口）
+    "destinations": {"INSERT": frozenset({"src/salescall/output/"}), "UPDATE": frozenset({"src/salescall/output/"})},   # 送り先（4-5。CL-3 の出力の部品＝CL-3 の 5）
+    "business_destinations": {"INSERT": frozenset({_CORE + "destinations.py"})},   # 業務ごとの送り先の選び（0254。CL-3 の 19）
+    "client_groups": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},   # 依頼者のグループ（0255。CL-3 の 15）
+    "client_group_changes": {"INSERT": frozenset({_CORE + "registry.py"})},   # グループの出入り（足していく記録。0255）
+    "tenants": {"INSERT": frozenset({_CORE + "people.py"})},   # 契約者を作るのは、最初の管理者と一緒に（people.first_admin。0251）。⏳ サブスクの契約の入口
     "notification_events": {"INSERT": frozenset({_CORE + "notify.py"})},      # 知らせの台帳（Q23。入れるのはここだけ）
     "error_events": {"INSERT": frozenset({_CORE + "watch.py"})},              # エラーの記録（Q9。分類は errors.py）
     "stop_checks": {"INSERT": frozenset({_CORE + "watch.py"})},               # 停止を解く確かめの記録（9-1）
@@ -258,6 +295,12 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "more_call_approvals": {"INSERT": frozenset({_CORE + "approval.py"})},    # 「さらにかける」の承認（管理者か契約者だけ。0245）
     "solution_text_names": {"INSERT": frozenset({_CORE + "client_solutions.py"})},   # 解決策の文ごとの名前の答え（文ごとに1回。0246）
     "action_tokens": {"INSERT": frozenset({_CORE + "once.py"})},              # 画面の操作の1回きりの札（0247）
+    "people": {"INSERT": frozenset({_CORE + "people.py"})},   # 管理者・契約者のログイン（0251）
+    "person_passwords": {"INSERT": frozenset({_CORE + "people.py"})},   # 管理者・契約者のログイン（0251）
+    "person_states": {"INSERT": frozenset({_CORE + "people.py"})},   # 管理者・契約者のログイン（0251）
+    "person_login_events": {"INSERT": frozenset({_CORE + "people.py"})},   # 管理者・契約者のログイン（0251）
+    "person_sessions": {"INSERT": frozenset({_CORE + "people.py"})},   # 管理者・契約者のログイン（0251）
+    "person_session_ends": {"INSERT": frozenset({_CORE + "people.py"})},   # 管理者・契約者のログイン（0251）
     "action_token_uses": {"INSERT": frozenset({_CORE + "once.py"})},          # その札を使った記録（札ごとに1つ。0247）
     "quality_evaluations": {"INSERT": frozenset({_CORE + "quality_stage.py"})},   # 品質の段の評価（Q22）
     "imports": {"INSERT": frozenset({_CORE + "importer.py"})},
@@ -494,6 +537,10 @@ FILE_READER_MODULES = ("openpyxl", "defusedxml", "pypdf", "zipfile", "xml.etree"
 FILE_READER_HOME = "src/salescall/core/import_files.py"
 
 
+# 結果のファイル（Excel）を書く1か所（出力の部品。CL-3 の連絡帳 4-1 の 6）：使ってよいのは Excel の部品（openpyxl）だけ（読む部品は使わない）
+FILE_WRITER_HOME = "src/salescall/output/files.py"
+
+
 def file_readers_in_one_place(app_root: Path) -> list[Violation]:
     out: list[Violation] = []
     for path in _python_files(app_root):
@@ -501,6 +548,8 @@ def file_readers_in_one_place(app_root: Path) -> list[Violation]:
         if rel.startswith("tests/") or rel == "run_tests.py" or rel == FILE_READER_HOME:
             continue
         for module, line in _imported_modules(_parse(path)):
+            if rel == FILE_WRITER_HOME and (module == "openpyxl" or module.startswith("openpyxl.")):
+                continue
             if any(module == m or module.startswith(m + ".") for m in FILE_READER_MODULES):
                 out.append(Violation("一本化", rel, line, f"ファイルの中身を読む部品（{module}）を使うのは {FILE_READER_HOME} だけです"))
     return out
@@ -510,6 +559,15 @@ def file_readers_in_one_place(app_root: Path) -> list[Violation]:
 #    - 時間帯（かけてよい時間帯・かけない時間）：実際に使う時間帯を出す gate の1か所（NG時間を引き忘れない。5-2-2）
 #    - 契約者の承認のモード：承認の部分だけ（I-13。判定などがモードを読むと、両モードで動きが変わる）
 SETTING_READERS: dict[str, tuple[str, str, str]] = {
+    "ai.tier_conversation": ("src/salescall/core/ai_plans.py", "8章", "AI のキーの枠を読むのは、契約プランの部品（core/ai_plans.py）の1か所です"),
+    "ai.tier_import": ("src/salescall/core/ai_plans.py", "8章", "AI のキーの枠を読むのは、契約プランの部品（core/ai_plans.py）の1か所です"),
+    "notify.sms_to": ("src/salescall/output/notices.py", "9-2", "知らせの送り先・回数を読むのは、送る部品（output/notices.py）の1か所です"),
+    "notify.chatwork_room": ("src/salescall/output/notices.py", "9-2", "知らせの送り先・回数を読むのは、送る部品（output/notices.py）の1か所です"),
+    "notify.admin_sms_to": ("src/salescall/output/notices.py", "9-2", "知らせの送り先・回数を読むのは、送る部品（output/notices.py）の1か所です"),
+    "notify.admin_chatwork_room": ("src/salescall/output/notices.py", "9-2", "知らせの送り先・回数を読むのは、送る部品（output/notices.py）の1か所です"),
+    "notify.max_tries_sms": ("src/salescall/output/notices.py", "9-2", "知らせの送り先・回数を読むのは、送る部品（output/notices.py）の1か所です"),
+    "notify.max_tries_chatwork": ("src/salescall/output/notices.py", "9-2", "知らせの送り先・回数を読むのは、送る部品（output/notices.py）の1か所です"),
+    "notify.send_hours": ("src/salescall/output/notices.py", "9-2", "知らせを送ってよい時間を読むのは、送る部品（output/notices.py の schedule）の1か所です"),
     "calling.hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "calling.ng_hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "approval.human": ("src/salescall/core/approval.py", "I-13", "契約者の承認のモードを読むのは、承認の部分（core/approval.py）だけです"),
@@ -786,6 +844,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     file_readers_in_one_place,
     settings_read_in_one_place,
     web_parts_only_in_web,
+    web_follows_its_rules,
     entries_called_from_their_places,
     call_errors_only_through_troubles,
     person_kinds_only_in_the_database,

@@ -12,7 +12,7 @@ from dataclasses import replace
 from salescall.core import business_rules
 from salescall.core import business_settings as bs
 from salescall.core.access import Rejected
-from tests.support import OPERATOR, World, owner_access, rules_raw
+from tests.support import ADMIN, OPERATOR, World, owner_access, rules_raw
 
 FIELD_TYPES = frozenset({"date", "time", "datetime", "number", "amount", "name", "phone", "email", "address", "yes_no",
                          "choice", "free_text"})
@@ -1468,7 +1468,7 @@ class Versions(unittest.TestCase):
         from datetime import date, datetime, timezone
         from salescall.core import calendar
         from tests.test_gate import calendar_csv
-        owner_access().in_system(OPERATOR, lambda tx: calendar.load_official_csv(
+        owner_access().in_system(ADMIN, lambda tx: calendar.load_official_csv(
             tx, calendar_csv([2098, 2099], holidays=[date(2098, 11, 4)])))
         r = raw()
         r["questions"][1]["text"] = f"{bs.DAY_SLOT}であれば承れますが、ご希望の日時をお聞かせください。"
@@ -1481,6 +1481,21 @@ class Versions(unittest.TestCase):
         self.assertEqual(self.tx(lambda tx: bs.day_of_call(tx, plain, at)), {"earliest_day": None, "today": date(2098, 11, 3)})
         with self.assertRaises(calendar.CalendarOutOfRange):
             self.tx(lambda tx: bs.day_of_call(tx, v, datetime(2099, 12, 30, 3, 0, tzinfo=timezone.utc)))   # 2100年の暦が無い
+
+    def test_call_days_are_the_days_the_business_can_call(self):
+        """会話の側の日時の2択の段が、お客様に伺う日の候補を作る材料（CL-1 の連絡帳 4-192 の (d) の (2)。`gate.call_days` の1か所）：電話の日の次の日から14日の間で、
+        その業務のかけてよい時間帯（初めの値は平日の9時〜18時・土日祝はかけない）が空でない日。祝日は暦の1か所。暦の無い日の手前で止める。"""
+        from datetime import date, datetime, timezone
+        from salescall.core import calendar, gate
+        from tests.test_gate import calendar_csv
+        owner_access().in_system(ADMIN, lambda tx: calendar.load_official_csv(
+            tx, calendar_csv([2098, 2099], holidays=[date(2098, 11, 4)])))
+        days = lambda at: self.tx(lambda tx: gate.call_days(tx, at, tenant_id=self.s["tenant"], client_id=self.s["client"],   # noqa: E731
+                                                            business_id=self.s["business"]))
+        at = datetime(2098, 11, 2, 15, 30, tzinfo=timezone.utc)            # 日本時間では 11月3日（月曜日）の0時30分
+        self.assertEqual(days(at), tuple(date(2098, 11, d) for d in (5, 6, 7, 10, 11, 12, 13, 14, 17)))   # 4日は祝日・土日はかけない
+        self.assertEqual(days(datetime(2099, 12, 24, 3, 0, tzinfo=timezone.utc)),                      # 2100年の暦が無い：その手前まで
+                         tuple(date(2099, 12, d) for d in (25, 28, 29, 30, 31)))
 
     def test_a_version_saved_with_decline_rules_reads_them_as_final_goals(self):
         """業務の決まりに「断りの答え」（decline）を持っていた前の版（2026-11-02 に業務設定の質問の final_goal・declines と業務の goal_mode
@@ -1668,11 +1683,11 @@ class StandardScripts(unittest.TestCase):
         すべての契約者が読める。"""
         from tests.support import ADMIN
         body = {"answers": [{"name": "会社の場所", "text": "東京都港区にございます。"}]}
-        for who in (lambda: self.tx(lambda tx: bs.save_standard(tx, body)),
-                    lambda: self.w.a.in_system(OPERATOR, lambda tx: bs.save_standard(tx, body))):
+        for who, why in ((lambda: self.tx(lambda tx: bs.save_standard(tx, body)), "standard_by_admin"),
+                         (lambda: self.w.a.in_system(OPERATOR, lambda tx: bs.save_standard(tx, body)), "scope_person")):   # 契約者は全体の取引を開けない（0251）
             with self.assertRaises(Rejected) as e:
                 who()
-            self.assertEqual(e.exception.constraint, "standard_by_admin")
+            self.assertEqual(e.exception.constraint, why)
         with self.w.standard(STD[1:]) as sid:
             self.assertEqual(self.tx(lambda tx: bs.current_standard(tx)), bs.Standard(sid, STD[1:]))
             stored = self.w.a.in_system(ADMIN, lambda tx: tx.one(

@@ -125,6 +125,20 @@ def make_version_checker():
     return VersionChecker()
 
 
+SENT_TO: list = []   # 知らせを送る部品の代わりが呼ばれた先（契約者・None＝管理者あて）
+
+
+class NoticeSender:
+    """知らせを送る部品の代わり（CL-3 の output/notices。呼ばれた先を残すだけ）。"""
+
+    def deliver(self, access, actor, tenant_id):
+        SENT_TO.append((actor.name, actor.kind, tenant_id))
+
+
+def make_notice_sender():
+    return NoticeSender()
+
+
 class FakeLinks(NoLinks):
     """PC の部品のつなぎの代わり（どの回線が、どの契約者のどの PC につながっているか）。"""
 
@@ -2527,9 +2541,10 @@ class Main(SupervisorBase):
         self.assertTrue({"recover", "settle", "backups", "backup_watch", "whole_backup_watch", "lasting_stops",
                          "system_lasting_stops", "pc_watch", "budget", "holidays", "fixed_stops", "month_ahead_notices",
                          "quality_production"} <= bare)   # quality_production＝本番になった業務の品質の停止を解く（原則9）   # fixed_stops＝直した版で解く（0139）・month_ahead_notices＝1か月以上先のかけ直しの5分前の緊急の知らせ
-        self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks", "ai_versions"} & bare)
+        self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks", "ai_versions", "notices", "admin_notices"} & bare)
         full = here(self.cfg(s, SALESCALL_OWNER_DSN="x", SALESCALL_RESTORE_DSN="y", SALESCALL_ADMIN_TENANT=str(uuid.uuid4()),
-                             SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p", SALESCALL_VERSION_CHECKER="m:c"))
+                             SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p", SALESCALL_VERSION_CHECKER="m:c",
+                             SALESCALL_NOTICE_SENDER="m:n"))   # 知らせを送る部品（CL-3。0253・CL-3 の 4）
         self.assertEqual(full, {j.name for j in jobs.JOBS})
 
     def test_tenant_jobs_run_once_for_every_tenant_and_system_jobs_once(self):
@@ -2776,6 +2791,20 @@ class AIVersions(SupervisorBase):
             "SELECT kind, summary FROM salescall.notification_events WHERE for_admin AND refs->'名前' ? %s ORDER BY event_id", (name,)))
         asked = self.w.a.in_system(SYSTEM, lambda tx: [r["kind"] for r in fix_requests.open_requests(tx, "CL-1") if name in r["refs"].get("名前", [])])
         return [n["kind"] for n in notes], [n["summary"] for n in notes], asked
+
+    def test_notices_are_sent_for_each_contractor_and_for_the_admin_by_the_one_sender(self):
+        """知らせを送る仕事（CL-3 の 4）：部品があれば、契約者ごとに1回（その契約者）と、管理者あてに1回（None）、部品を呼ぶだけ。部品が無ければ
+        仕事にしない（送る順・文・送り直し・記録は部品の中の1か所）。"""
+        s = self.ready()
+        cfg = self.cfg(s, SALESCALL_NOTICE_SENDER="tests.test_supervisor:make_notice_sender")
+        SENT_TO.clear()
+        jobs.notices(jobs.Context(self.w.a, cfg, HOLDER, NoLinks(), tenant_id=s["tenant"]))
+        jobs.admin_notices(jobs.Context(self.w.a, cfg, HOLDER, NoLinks()))
+        self.assertEqual(SENT_TO, [(jobs.ACTOR.name, "system", s["tenant"]), (jobs.ACTOR.name, "system", None)])
+        wanted = {j.name: j.wanted for j in jobs.JOBS if j.name in ("notices", "admin_notices")}
+        self.assertEqual({n: (w(cfg), w(self.cfg(s))) for n, w in wanted.items()},
+                         {"notices": (True, False), "admin_notices": (True, False)})
+        self.assertEqual({j.name: j.scope for j in jobs.JOBS if j.name in wanted}, {"notices": "tenant", "admin_notices": "system"})
 
     def run_check(self, s, rows):
         VERSION_ROWS[:] = rows

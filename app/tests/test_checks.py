@@ -54,6 +54,23 @@ class Planted(unittest.TestCase):
         self.assertEqual(sorted((v.path, v.line) for v in found),
                          [("src/salescall/core/x.py", 1), ("src/salescall/core/x.py", 2), ("src/salescall/output/y.py", 1)])
 
+    def test_web_opens_transactions_only_in_its_context_and_never_marks_text_safe(self):
+        """画面の決まり（CL-3 の 3）：取引を開くのは web/context.py だけ。文字をそのまま部品として出す書き方（|safe・Markup）は使わない。"""
+        root = self._app({"src/salescall/web/context.py": "def f(a):\n    return a.in_client(1, 2, 3, 4)\n",
+                          "src/salescall/web/app.py": "from markupsafe import Markup\ndef g(a):\n    a.in_tenant(1, 2, 3)\n    return Markup('x')\n",
+                          "src/salescall/web/templates/page.html": "<p>{{ name }}</p>\n<p>{{ note | safe }}</p>\n",
+                          "src/salescall/core/x.py": "def h(a):\n    return a.in_client(1, 2, 3, 4)\n"})
+        found = sorted((v.path, v.line) for v in rules.web_follows_its_rules(root))
+        self.assertEqual(found, [("src/salescall/web/app.py", 3), ("src/salescall/web/app.py", 4),
+                                 ("src/salescall/web/templates/page.html", 2)])
+
+    def test_excel_is_written_only_by_the_result_file_writer(self):
+        """Excel の部品は、読むのは取込の1か所、書くのは結果のファイルの1か所（output/files.py。CL-3 の 6）だけ。書く1か所でも、読む部品は使わない。"""
+        root = self._app({"src/salescall/output/files.py": "import openpyxl\nimport pypdf\n",
+                          "src/salescall/output/other.py": "import openpyxl\n"})
+        found = sorted((v.path, v.line) for v in rules.file_readers_in_one_place(root))
+        self.assertEqual(found, [("src/salescall/output/files.py", 2), ("src/salescall/output/other.py", 1)])
+
     def test_scope_settings_outside_layer(self):
         root = self._app({"src/salescall/output/x.py": f"SQL = \"SELECT {SET_CONFIG}('{SCOPE_KEY}', '1', true)\"\n"})
         self.assertEqual([v.rule for v in rules.scope_settings_only_in_layer(root)], ["11章"])

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 import time
 import unittest
 import unittest.mock
@@ -61,6 +63,20 @@ class ApologyBase(Helpers):
 
 
 class Apology(ApologyBase):
+
+    def test_the_apologies_awaiting_approval_are_read_from_one_place(self):
+        """承認を待っているお詫びの電話の案（apology.awaiting_approval。CL-3 の 29 の (b)）：まだ承認していない案と、その案のいちばん新しいお詫びの
+        録音の組（まだ無ければ None）。承認すれば出なくなる。行で絞れる。"""
+        s = self.fresh(stage_cap=20)
+        aid = self.incident(s)
+        order_id = self.draft(s, aid)["order_id"]
+        waiting = lambda **kw: [(r["order_id"], r["set_id"]) for r in self.tx(s, lambda tx: apology.awaiting_approval(tx, **kw))]   # noqa: E731
+        self.assertEqual(waiting(), [(order_id, None)])                                  # 録音を作っている途中
+        heard = self.recorded(s, order_id)
+        self.assertEqual(waiting(task_id=s["task"]), [(order_id, heard)])
+        self.assertEqual(waiting(task_id=uuid.uuid4()), [])
+        self.tx(s, lambda tx: apology.approve(tx, order_id, heard), OPERATOR)
+        self.assertEqual(waiting(), [])
 
     def test_the_system_prepares_and_only_a_person_approves(self):
         s = self.fresh(stage_cap=20)

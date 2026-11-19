@@ -430,7 +430,7 @@ class TargetRecheck(SettleBase):
                                                     checked_by="試験"))
         self.assertIsNone(self.item(s, aid))                                       # 別の方の答えは使わない（依頼者へは「-」）
         with self.assertRaises(Rejected):                                          # 記録は、表の持ち主でも変えられない
-            owner_access().in_system(OPERATOR, lambda tx: tx.execute(
+            owner_access().in_system(ADMIN, lambda tx: tx.execute(
                 "UPDATE salescall.target_rechecks SET outcome = 'target' WHERE attempt_id = %s", (aid,)))
         self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
         # 目的のお客様に取り次いでもらえなかったのと同じ（「一部だけ取れた」にしない＝判定と締めで「繋がった」を分けない）
@@ -6493,7 +6493,7 @@ class DatabaseGuards(Base):
         for sql in ("UPDATE salescall.business_rules SET rules = '{}' WHERE version_id = %s",
                     "DELETE FROM salescall.business_rules WHERE version_id = %s"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
-                owner_access().in_system(OPERATOR, lambda tx: tx.execute(sql, (s["version"],)))
+                owner_access().in_system(ADMIN, lambda tx: tx.execute(sql, (s["version"],)))
 
     def test_apology_reasons_and_missed_rounds_are_kept_consistent(self):
         """お詫びの印は理由から作る列（理由があれば印。0116）で、理由は決まったものだけ。かけられなかった回の数は、過ぎた回の数を

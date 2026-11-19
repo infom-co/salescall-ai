@@ -429,6 +429,26 @@ class NotGuessed(unittest.TestCase):
                 self.assertEqual((r.kind, r.start), (CONFIRM, None))
                 self.assertTrue(r.why)
 
+    def test_named_days_and_a_time_are_any_of_those_days_at_that_time(self):
+        """お客様が名指しした、いくつもの日（週末＝「土日」・休みの日の種類＝「土日祝」）と時刻は、その日々のどの日でも、その時刻から1回分（版 20。✅ 2026-11-19
+        日本時間14時18分13秒 ユーザーの日時の2択の段＝お客様が土日を選ぶと「土日の14時」「土日の午前11時」の形になる。CL-1 の連絡帳 4-192 の (d) の (3)）。
+        名指しでない範囲（「来週の3時」）は確かめる（test_needs_confirming）。"""
+        slot = 1800
+        for text, start, end in (("土日の14時", at(2026, 10, 17, 14), at(2026, 10, 18, 14, 30)),
+                                 ("土日の午前11時", at(2026, 10, 17, 11), at(2026, 10, 18, 11, 30)),
+                                 ("週末の14時ごろ", at(2026, 10, 17, 14), at(2026, 10, 18, 14, 30)),
+                                 ("来週の土日の14時", at(2026, 10, 24, 14), at(2026, 10, 25, 14, 30))):
+            with self.subTest(text=text):
+                r = read(text, NOW, slot=slot)
+                self.assertEqual((r.kind, r.start, r.end, r.daily, r.day_said, r.repeat),
+                                 (WINDOW, start, end, (start.hour * H + start.minute * 60, start.hour * H + start.minute * 60 + slot), True,
+                                  spoken_time.WEEK))
+        r = read("土日祝の14時", NOW, slot=slot)
+        self.assertEqual((r.kind, r.daily, r.days, r.day_said), (WINDOW, (14 * H, 14 * H + slot), ("sat", "sun", "holiday"), True))
+        for text in ("平日の午後3時", "来週の14時", "来月の5日以降の3時"):   # 名指しでない範囲は、今までどおり確かめる
+            with self.subTest(text=text):
+                self.assertEqual(read(text, NOW).kind, CONFIRM)
+
     def test_unreadable(self):
         for text in ("明日か明後日の午後3時", "来月の午後3時ごろの予定です", "折り返し", "そのへんで"):
             with self.subTest(text=text):

@@ -1,13 +1,14 @@
 """報酬の決まりと、今月の報酬・費用（「報酬に対して、費用が何％かかっているか」。DESIGN.md 12-1-1）。持ち主 CL-2。
 
-- 報酬の決まりを足すのは `set_terms` だけ（I-12。app/checks が見張る）。依頼者ごと・版つき（いつから使うか）。報酬の形は、
-  成果1件あたり・かけた1本あたり・話せた1本あたり・月額・時給の組み合わせ（依頼者によって違う。2026-10-15 ユーザー）。
+- 報酬の決まりを足すのは `set_terms` だけ（I-12。app/checks が見張る）。業務ごと・版つき（いつから使うか）。報酬の形は、
+  成果1件あたり・かけた1本あたり・話せた1本あたり・月額・時給の組み合わせ（依頼者・業務によって違う。2026-10-15 ユーザー。✅ 2026-11-18 管理者
+  「報酬の決まりは『業務』ごと」＝0256。⛔ 前は依頼者ごと）。今月の数・費用の割合・赤字の判断は依頼者ごと（その依頼者の業務を合わせる＝計画書 12-2）。
 - 今月（日本時間の月）の数を数えるのは `month` の1か所：報酬の内訳・費用・かけた本数。上限・赤字の判断は core/usage.py。
   - 成果1件＝いまの業務の状態（最新の結果の版）が「完了」の行を、はじめて「完了」になった時刻で数える（契約者が直した版も
     含む。完了でないと直した行は数えない）。かけた1本＝発信した（dialing に入った時刻で数える。お客様のところで鳴りえた発信だけ＝
     salescall.is_placed の1か所：PC がかけずに取り消した発信・回線の部品が番号を受け付けなかった発信は数えない。⛔ 見直し15）。
     話せた1本＝会話に入った（in_conversation に入った）。どれも、その出来事の時刻に効いていた決まりの単価で数える
-    （あとから決まりを変えても、過去の分は変わらない）。
+    （あとから決まりを変えても、過去の分は変わらない）。単価は、その出来事の業務の決まり（`_PRICE_AT`）。
   - 月額＝その月のうち、決まりが効いていた時間で日割り（月の途中の割合を、月末の見込みと比べられるように）。
   - 時給＝依頼者から見て、頼んだ先（管理者や契約者）が架電作業をしていた時間に当たる時間（2026-10-15 ユーザー）。人と同じ速さで
     数える（2026-10-17 ユーザー：「時給換算では、人がやるのと同じスピードが重要」）：電話1本ごとに、かけ始め（予約）から終わりまで
@@ -31,6 +32,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from salescall.core import attempts
 from salescall.core.access import Tx
@@ -74,8 +76,8 @@ class Terms:
     hourly_gap_seconds: int | None = None
 
 
-def set_terms(tx: Tx, terms: Terms, *, valid_from: datetime, note: str) -> int:
-    """取引の依頼者に、報酬の決まりを足す（valid_from から使う）。どれも 0 の決まりは足せない（入れ忘れと見分けられない）。"""
+def set_terms(tx: Tx, business_id: UUID, terms: Terms, *, valid_from: datetime, note: str) -> int:
+    """取引の依頼者の業務に、報酬の決まりを足す（valid_from から使う）。どれも 0 の決まりは足せない（入れ忘れと見分けられない）。"""
     if not any(v > 0 for v in (terms.per_completed_yen, terms.per_dial_yen, terms.per_talk_yen, terms.monthly_yen,
                                terms.hourly_yen)):
         raise ValueError("報酬の決まりが、どれも 0 円です")
@@ -84,11 +86,11 @@ def set_terms(tx: Tx, terms: Terms, *, valid_from: datetime, note: str) -> int:
     if terms.hourly_yen > 0 and terms.hourly_gap_seconds is None:
         raise ValueError("時給の決まりには、電話と電話の間の秒数（hourly_gap_seconds）が要ります")
     return tx.one(
-        "INSERT INTO salescall.reward_terms (tenant_id, client_id, valid_from, per_completed_yen, per_dial_yen, per_talk_yen,"
+        "INSERT INTO salescall.reward_terms (tenant_id, client_id, business_id, valid_from, per_completed_yen, per_dial_yen, per_talk_yen,"
         " monthly_yen, hourly_yen, hourly_gap_seconds, deficit_caution, note, set_by)"
-        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s, salescall.cur_actor())"
+        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, salescall.cur_actor())"
         " RETURNING terms_id",
-        (valid_from, terms.per_completed_yen, terms.per_dial_yen, terms.per_talk_yen, terms.monthly_yen, terms.hourly_yen,
+        (business_id, valid_from, terms.per_completed_yen, terms.per_dial_yen, terms.per_talk_yen, terms.monthly_yen, terms.hourly_yen,
          terms.hourly_gap_seconds, terms.deficit_caution, note))["terms_id"]
 
 
@@ -101,14 +103,16 @@ def set_terms(tx: Tx, terms: Terms, *, valid_from: datetime, note: str) -> int:
 _BILLED_PER_CALL = "salescall.counts_per_call(salescall.keeping_kind(a.purpose, a.promised))"
 
 
-# その時刻に効いていた決まりの、ある形の単価（無ければ 0）
-_PRICE_AT = ("coalesce((SELECT t.{col} FROM salescall.reward_terms t WHERE t.valid_from <= x.at"
+# その出来事の業務の、その時刻に効いていた決まりの、ある形の単価（無ければ 0。1か所）
+_PRICE_AT = ("coalesce((SELECT t.{col} FROM salescall.reward_terms t WHERE t.business_id = x.business_id AND t.valid_from <= x.at"
              " ORDER BY t.valid_from DESC LIMIT 1), 0)")
 
 
 def month(tx: Tx) -> dict[str, Any]:
     """取引の依頼者の、今月（日本時間）の数。cost・revenue（合計）・breakdown（形ごとの数と円。時給は秒）・
-    upper（余裕を足した報酬）・has_terms（いま効いている報酬の決まりがあるか。先の日付からの決まりだけなら無い）・
+    upper（余裕を足した報酬。余裕は、いま決まりが効いている業務ごとに足す）・has_terms（いま効いている報酬の決まりがあり、今月かけた業務の
+    どれにも、いま効いている決まりがあるか。先の日付からの決まりだけなら無い）・businesses_without_terms（今月かけたのに、いま効いている
+    決まりの無い業務。報酬が足りずに数えられ、赤字を見誤るので、判断しない＝`usage._deficit` の UNKNOWN）・
     unpriced_entries（単価が設定されておらず金額の無い利用量の数。費用はその分を含まない＝画面で注意として出す）・
     cost_by_kind（費用の、実測と推定の内訳 {"measured": 円, "estimated": 円}。合計は cost と同じ＝同じ1つの問い合わせで数える。計画書 5-2
     「今月の費用（実測と推定を分けて）」・CL-3 の 23）。
@@ -116,15 +120,17 @@ def month(tx: Tx) -> dict[str, Any]:
     b = tx.one("SELECT salescall.from_jst(date_trunc('month', salescall.jst(now()))) AS s,"
                " salescall.from_jst(date_trunc('month', salescall.jst(now())) + interval '1 month') AS e, now() AS now")
     events = {
-        "completed": ("per_completed_yen", "SELECT min(r.decided_at) AS at FROM salescall.task_results r"
+        "completed": ("per_completed_yen", "SELECT min(r.decided_at) AS at, rn.business_id FROM salescall.task_results r"
                                            " JOIN salescall.latest_task_results l ON l.task_id = r.task_id"
+                                           " JOIN salescall.tasks t ON t.task_id = r.task_id JOIN salescall.runs rn ON rn.run_id = t.run_id"
                                            " WHERE r.business_state = 'completed' AND l.business_state = 'completed'"
-                                           " GROUP BY r.task_id"),
-        "dial": ("per_dial_yen", "SELECT h.at FROM salescall.attempt_state_history h JOIN salescall.attempts a"
-                                 " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'dialing' AND " + attempts.placed("a")
+                                           " GROUP BY r.task_id, rn.business_id"),
+        "dial": ("per_dial_yen", "SELECT h.at, salescall.attempt_business(a.attempt_id) AS business_id FROM salescall.attempt_state_history h"
+                                 " JOIN salescall.attempts a ON a.attempt_id = h.attempt_id WHERE h.to_state = 'dialing' AND " + attempts.placed("a")
                  + " AND " + _BILLED_PER_CALL),
-        "talk": ("per_talk_yen", "SELECT h.at FROM salescall.attempt_state_history h JOIN salescall.attempts a"
-                                 " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'in_conversation' AND " + _BILLED_PER_CALL),
+        "talk": ("per_talk_yen", "SELECT h.at, salescall.attempt_business(a.attempt_id) AS business_id FROM salescall.attempt_state_history h"
+                                 " JOIN salescall.attempts a ON a.attempt_id = h.attempt_id WHERE h.to_state = 'in_conversation' AND "
+                 + _BILLED_PER_CALL),
     }
     breakdown: dict[str, dict[str, Any]] = {}
     for name, (col, sql) in events.items():
@@ -134,14 +140,18 @@ def month(tx: Tx) -> dict[str, Any]:
     work = tx.one(f"SELECT coalesce(sum(x.seconds), 0) AS s, coalesce(sum(x.seconds / 3600 * {_PRICE_AT.format(col='hourly_yen')}),"
                   " 0) AS yen FROM salescall.work_seconds(%s, %s) x", (b["s"], b["now"]))
     breakdown["hourly"] = {"count": None, "seconds": Decimal(work["s"]), "yen": Decimal(work["yen"])}
-    terms = tx.all("SELECT valid_from, monthly_yen, per_completed_yen, per_talk_yen, deficit_caution FROM salescall.reward_terms"
-                   " ORDER BY valid_from")
+    terms = tx.all("SELECT business_id, valid_from, monthly_yen, per_completed_yen, per_talk_yen, deficit_caution FROM salescall.reward_terms"
+                   " ORDER BY business_id, valid_from")
+    by_business: dict[Any, list[dict[str, Any]]] = {}
+    for t in terms:
+        by_business.setdefault(t["business_id"], []).append(t)
     monthly, span = Decimal(0), (b["e"] - b["s"]).total_seconds()
-    for i, t in enumerate(terms):
-        start = max(t["valid_from"], b["s"])
-        end = min(terms[i + 1]["valid_from"] if i + 1 < len(terms) else b["now"], b["now"])
-        if end > start:
-            monthly += Decimal(t["monthly_yen"]) * Decimal((end - start).total_seconds()) / Decimal(span)
+    for rows in by_business.values():   # 月額は業務ごとに、その業務の決まりが効いていた時間で日割り
+        for i, t in enumerate(rows):
+            start = max(t["valid_from"], b["s"])
+            end = min(rows[i + 1]["valid_from"] if i + 1 < len(rows) else b["now"], b["now"])
+            if end > start:
+                monthly += Decimal(t["monthly_yen"]) * Decimal((end - start).total_seconds()) / Decimal(span)
     breakdown["monthly"] = {"count": None, "yen": monthly}
     c = tx.one("SELECT coalesce(sum(amount_yen), 0) AS y, count(*) FILTER (WHERE amount_yen IS NULL) AS unpriced,"
                "       coalesce(sum(amount_yen) FILTER (WHERE kind = 'measured'), 0) AS measured,"
@@ -149,12 +159,16 @@ def month(tx: Tx) -> dict[str, Any]:
                " FROM salescall.usage_entries WHERE occurred_at >= %s AND occurred_at <= %s", (b["s"], b["now"]))
     cost = Decimal(c["y"])
     revenue = sum((x["yen"] for x in breakdown.values()), Decimal(0))
-    # ぶれる2つ（成果・話せた本数）の余裕：いまの決まりの単価 × 赤字の知らせの早さの割合
-    now_terms = next((t for t in reversed(terms) if t["valid_from"] <= b["now"]), None)
+    # ぶれる2つ（成果・話せた本数）の余裕：業務ごとに、いまの決まりの単価 × 赤字の知らせの早さの割合
+    now_terms = {bid: t for bid, rows in by_business.items()
+                 if (t := next((r for r in reversed(rows) if r["valid_from"] <= b["now"]), None)) is not None}
     upper = revenue
-    if now_terms is not None:
-        margin = caution_margin(now_terms["deficit_caution"])
-        upper += (Decimal(now_terms["per_completed_yen"]) + Decimal(now_terms["per_talk_yen"])) * margin
+    for t in now_terms.values():
+        upper += (Decimal(t["per_completed_yen"]) + Decimal(t["per_talk_yen"])) * caution_margin(t["deficit_caution"])
+    called = {r["business_id"] for r in tx.all(
+        "SELECT DISTINCT salescall.attempt_business(a.attempt_id) AS business_id FROM salescall.attempts a"
+        " WHERE a.claimed_at >= %s AND a.claimed_at <= %s", (b["s"], b["now"]))}
+    missing = sorted(called - set(now_terms), key=str)
     return {"month_start": b["s"], "cost": cost, "revenue": revenue, "upper": upper, "breakdown": breakdown,
-            "has_terms": now_terms is not None, "unpriced_entries": c["unpriced"],
+            "has_terms": bool(now_terms) and not missing, "businesses_without_terms": missing, "unpriced_entries": c["unpriced"],
             "cost_by_kind": {"measured": Decimal(c["measured"]), "estimated": Decimal(c["estimated"])}}

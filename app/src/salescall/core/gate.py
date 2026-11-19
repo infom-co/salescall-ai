@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, NamedTuple
 from uuid import UUID
 
@@ -335,6 +335,25 @@ def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: 
     """かけてよい時間帯（曜日・祝日ごと）：かけてよい時間帯から NG時間を引いた残り（次の始まりを探すのに使う）。お客様が言った
     幅の約束の電話は `window_hours`（依頼者の時間帯・NG時間の外でもかける）。"""
     return _usable_hours(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))[1]
+
+
+def call_days(tx: Tx, at: datetime, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None, days: int = 14) -> tuple[date, ...]:
+    """その業務が電話をかけられる日（at の日本時間の次の日から days 日の間で、かけてよい時間帯＝`calling_hours_for` が空でない日。祝日は暦の1か所＝
+    `holiday_checker`）。会話の側の日時の2択の段が、お客様に伺う曜日・日の候補を作る材料（CL-1 の連絡帳 4-192 の (d) の (2)。会話の側の Flow の call_days）。
+    暦の無い日に当たったら、その前の日までで止める（決めつけない。暦の無い日は門がかけない）。"""
+    hours = calling_hours_for(tx, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+    check = holiday_checker(tx)
+    start = calling_hours.local(at).date()
+    out: list[date] = []
+    for n in range(1, days + 1):
+        d = start + timedelta(days=n)
+        try:
+            key = calling_hours.day_key(d, check)
+        except CalendarOutOfRange:
+            break
+        if hours.get(key):
+            out.append(d)
+    return tuple(out)
 
 
 def _usable_hours(tx: Tx, scope: dict[str, Any]) -> tuple[dict, dict]:
@@ -714,6 +733,51 @@ OTHER_VOICE_MISSING = ("別の声の録音がありません。ほかの依頼�
                        "別の声の録音を承認してください。")
 
 
+@dataclass(frozen=True)
+class VoiceCandidates:
+    """その行のその版で、話してよい声の候補（`voice_candidates` の答え。何も書かない）。"""
+    ready: list[str]                 # 話してよい声（お詫びの声・名前の録音で絞ったあと）
+    must: str | None                 # お詫びを伝える電話の、契約者が聞いて承認した録音の声（無ければ None）
+    wait: str | None                 # 待つ理由（apology_voice_not_ready・name_recording_missing。待たなければ None）
+    missing_names: list[str]         # 名前の録音で待つときの、足りない部分（初めの声の分）
+
+
+def voice_candidates(tx: Tx, task_id: UUID, version_id: UUID) -> VoiceCandidates:
+    """話してよい声の候補を決める1か所（門の `choose_voice` と、画面が読む `name_recording_missing` が同じものを読む。何も書かない・知らせない。
+    CL-3 の 37）：話してよい声は、承認した録音のある声だけ（`recordings.ready_voices`）。
+    - お詫びを伝える電話（お詫びだけの電話・約束の電話などの頭のお詫び＝apology.carries の1か所）は、契約者が聞いて承認した録音と同じ声だけ（録音の文を
+      流すので、声がまじらない。0131）。その声で話せなければ待つ（⛔ 2026-11-15 の見直しまで：お詫びだけの電話でしか声を限らず、約束の電話の頭のお詫びは
+      別の声で続きえた・その声が話せないときは、事情と違う「録音が承認されていない」を知らせた）。
+    - お名前の入る一言の録音（名前の録音の台帳）が、その行の分そろっている声だけ（recordings.name_needs・name_missing の1か所。0132）。どの声でも
+      そろわなければ待つ。"""
+    from salescall.core import apology   # お詫びの部品が次の動き（門を読む）を読むので、ここで読む（読み合いにしない）
+    ready = recordings.ready_voices(tx, version_id)
+    sorry = tx.one("SELECT purpose, apology_reasons FROM salescall.current_next_actions WHERE task_id = %s", (task_id,))
+    must = apology.voice(tx, task_id) if sorry is not None and apology.carries(sorry["purpose"], tuple(sorry["apology_reasons"])) else None
+    if must is not None:
+        if must not in ready:
+            return VoiceCandidates([], must, "apology_voice_not_ready", [])
+        ready = [must]
+    needs = recordings.name_needs(tx, task_id) if ready else None
+    if needs is not None:
+        named = [v for v in ready if not recordings.name_missing(tx, needs, v)]
+        if not named:
+            return VoiceCandidates([], must, "name_recording_missing", list(recordings.name_missing(tx, needs, ready[0])))
+        ready = named
+    return VoiceCandidates(ready, must, None, [])
+
+
+def name_recording_missing(tx: Tx, task_id: UUID) -> list[str] | None:
+    """その行が、名前の録音がそろわず、かけられないか（画面が行ごとに読む。計画書 12-1「名前の録音がそろわずかけられない行」。CL-3 の 37）：
+    かけられないなら足りない部分の名前の並び、かけられるなら None。決め方は門と同じ1か所（`voice_candidates`。その行の実施回のいまの版で）。
+    何も書かない・知らせない。"""
+    version = tx.one("SELECT salescall.run_current_version(t.run_id) AS v FROM salescall.tasks t WHERE t.task_id = %s", (task_id,))
+    if version is None or version["v"] is None:
+        return None
+    c = voice_candidates(tx, task_id, version["v"])
+    return c.missing_names if c.wait == "name_recording_missing" else None
+
+
 def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice: str, today: Any) -> str | Denied:
     """この通話で話す声の型（決めるのはここだけ。DESIGN.md 5-2-2 の順10。2026-10-17 ユーザー：声を決める場所は門＝案A）。
     話してよい声は、承認した録音のある声だけ（`recordings.ready_voices` の1か所。事前の録音チェック）。
@@ -733,32 +797,19 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
     お名前の入る一言は、名前の録音の台帳の、その行の役職の部分・名前の部分・続く言葉が承認されている声だけで話す
     （`recordings.name_needs`・`name_missing`。0132・0134）。どの声でもそろわなければ name_recording_missing で待つ（行ごとに要るものが違うので、実施回をまとめて
     飛ばさず、その行を候補に出さない）。"""
-    from salescall.core import apology   # お詫びの部品が次の動き（門を読む）を読むので、ここで読む（読み合いにしない）
-    ready = recordings.ready_voices(tx, version_id)
+    c = voice_candidates(tx, task["task_id"], version_id)
     types = {r["code"]: r for r in tx.all("SELECT code, voice_name, default_for_voice FROM salescall.voice_types")}
-    # お詫びを伝える電話（お詫びだけの電話・約束の電話などの頭のお詫び＝apology.carries の1か所）は、契約者が聞いて承認した録音と同じ声だけ（録音の文を
-    # 流すので、声がまじらない。0131）。その声で話せなければ待ち、その理由を知らせる（⛔ 2026-11-15 の見直しまで：お詫びだけの電話でしか声を限らず、
-    # 約束の電話の頭のお詫びは別の声で続きえた・その声が話せないときは、事情と違う「録音が承認されていない」を知らせた）
-    sorry = tx.one("SELECT purpose, apology_reasons FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
-    must = apology.voice(tx, task["task_id"]) if sorry is not None and apology.carries(sorry["purpose"], tuple(sorry["apology_reasons"])) else None
-    if must is not None:
-        if must not in ready:
-            notify.emit(tx, "setting_missing", key=f"apology_voice_not_ready:{task['task_id']}:{today}",
-                        summary=APOLOGY_VOICE_NOT_READY.format(must), refs={"client_id": task["client_id"], "task_id": task["task_id"],
-                                                                        "version_id": version_id}, admin=True)
-            return _deny("apology_voice_not_ready")
-        ready = [must]
-    # お名前の入る一言の録音（名前の録音の台帳）が、その行の分そろっている声だけ（recordings.name_needs・name_missing の1か所。0132）。
-    # どの声でもそろわなければ待たせ、契約者に知らせる（行ごとに知らせを増やさない＝依頼者ごと・1日に1つ。止めない）
-    needs = recordings.name_needs(tx, task["task_id"]) if ready else None
-    if needs is not None:
-        named = [v for v in ready if not recordings.name_missing(tx, needs, v)]
-        if not named:
-            notify.emit(tx, "setting_missing", key=f"name_recording_missing:{task['client_id']}:{today}",
-                        summary=NAME_RECORDING_MISSING.format("・".join(recordings.name_missing(tx, needs, ready[0])[:3])),
-                        refs={"client_id": task["client_id"]})
-            return _deny("name_recording_missing")
-        ready = named
+    must, ready = c.must, c.ready
+    if c.wait == "apology_voice_not_ready":
+        notify.emit(tx, "setting_missing", key=f"apology_voice_not_ready:{task['task_id']}:{today}",
+                    summary=APOLOGY_VOICE_NOT_READY.format(must), refs={"client_id": task["client_id"], "task_id": task["task_id"],
+                                                                    "version_id": version_id}, admin=True)
+        return _deny("apology_voice_not_ready")
+    if c.wait == "name_recording_missing":
+        # 行ごとに知らせを増やさない＝依頼者ごと・1日に1つ。止めない
+        notify.emit(tx, "setting_missing", key=f"name_recording_missing:{task['client_id']}:{today}",
+                    summary=NAME_RECORDING_MISSING.format("・".join(c.missing_names[:3])), refs={"client_id": task["client_id"]})
+        return _deny("name_recording_missing")
     # 声は業務ごと（✅ 2026-11-17 ユーザー：「業務が違えば、同じ人に同じ声や同じ電話番号でかけるのは絶対禁止です。…同じ業務であれば、同じ人には同じ声で
     # かけないとおかしいでしょ。」。0235）：お客様（その番号）が同じ依頼者のほかの業務の電話で聞いた声は、どれも使わない。同じ業務（ほかの実施回を含む）が
     # その番号で前に使った声（お客様が聞いた声だけ＝0227）は、続けて使う。⛔ 2026-11-17 の5回目の見直しまで：その行の声をいちばん先に使い、ほかの業務と

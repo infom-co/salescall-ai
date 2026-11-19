@@ -27,6 +27,30 @@ class Versions(Base):
     def current(self, s):
         return self.tx(s, lambda tx: tx.one("SELECT salescall.run_current_version(%s) AS v", (s["run"],))["v"])
 
+    def test_the_retry_policy_alone_is_changed_by_a_new_version_with_a_reason(self):
+        """再発信の方針だけを変えた版を足す（business_settings.change_retry。計画書 6-2「ダッシュボードでは一括登録できるように」・CL-3 の 49）：渡した
+        結果の方針だけ変わり、ほかの方針と中身はそのまま。足す道は derive の1か所（きっかけ retry・何を変えたかが残る・前の版は残る）。理由は必ず。
+        方針の鍵は決まったものだけ。足せるのは管理者か契約者だけ。"""
+        from salescall.core import business_rules as br
+        from salescall.core.access import Refused
+        s = self.ready()
+        v0 = s["version"]
+        before = self.tx(s, lambda tx: br.load(tx, v0)).retry
+        new = br.Policy("call", 2, ("hours", 6))
+        v1 = self.tx(s, lambda tx: bs.change_retry(tx, v0, {"open": new}, reason="試験：会話に至らなかったら6時間おきに2回"), OPERATOR)
+        after = self.tx(s, lambda tx: br.load(tx, v1)).retry
+        self.assertEqual(after["open"], new)
+        self.assertEqual({k: v for k, v in after.items() if k != "open"}, {k: v for k, v in before.items() if k != "open"})
+        self.assertEqual(self.tx(s, lambda tx: bs.load(tx, v1)).raw["questions"], self.tx(s, lambda tx: bs.load(tx, v0)).raw["questions"])
+        row = self.tx(s, lambda tx: tx.one("SELECT cause, note FROM salescall.version_successions WHERE to_version = %s", (v1,)))
+        self.assertEqual((row["cause"], row["note"]), ("retry", "試験：会話に至らなかったら6時間おきに2回"))
+        self.assertEqual(self.tx(s, lambda tx: br.load(tx, v0)).retry, before)                     # 前の版は残る
+        for name, run, err in (("理由が空", lambda: self.tx(s, lambda tx: bs.change_retry(tx, v1, {"open": new}, reason="　"), OPERATOR), Refused),
+                               ("無い鍵", lambda: self.tx(s, lambda tx: bs.change_retry(tx, v1, {"x": new}, reason="試験"), OPERATOR), bs.SettingsInvalid),
+                               ("システムの処理", lambda: self.tx(s, lambda tx: bs.change_retry(tx, v1, {"open": new}, reason="試験"), SYSTEM), Rejected)):
+            with self.subTest(name=name), self.assertRaises(err):
+                run()
+
     def test_a_derived_version_is_adopted_only_when_it_can_speak_without_stopping_calls(self):
         """後の版は、(1) 今の版で話してよい声がすべてそろい (2) 品質の段で止まらずに始められるようになってから、実施回に自動で割り当てる。
         それまでは今の版のまま（電話を止めない）。割り当ての記録には「自動」と、何を変えたかが残る。"""

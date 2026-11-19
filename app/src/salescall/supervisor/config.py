@@ -25,7 +25,8 @@ from uuid import UUID
 from salescall.link.basics import Env
 
 NAMES = ("SALESCALL_DSN", "SALESCALL_LISTEN", "SALESCALL_CALL_RUNNER", "SALESCALL_VERIFIER", "SALESCALL_PROBER",
-         "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN", "SALESCALL_ADMIN_TENANT", "SALESCALL_VERSION_CHECKER")
+         "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN", "SALESCALL_ADMIN_TENANT", "SALESCALL_VERSION_CHECKER",
+         "SALESCALL_NOTICE_SENDER")
 
 
 class ConfigMissing(Exception):
@@ -43,6 +44,7 @@ class Config:
     restore_dsn: str | None = field(repr=False)
     admin_tenant: UUID | None = None
     version_checker: str | None = None
+    notice_sender: str | None = None   # 知らせを送る部品（CL-3 の output/notices。plugins.NoticeSender）
 
     @property
     def calls(self) -> bool:
@@ -83,7 +85,8 @@ def load(environ: dict[str, str] | None = None) -> Config:
         raise ConfigMissing("SALESCALL_ADMIN_TENANT は契約者の番号（例 0a1b…）で書きます") from None
     return Config(dsn=dsn, listen=where, call_runner=maybe("SALESCALL_CALL_RUNNER"), verifier=maybe("SALESCALL_VERIFIER"),
                   prober=maybe("SALESCALL_PROBER"), owner_dsn=maybe("SALESCALL_OWNER_DSN"),
-                  restore_dsn=maybe("SALESCALL_RESTORE_DSN"), admin_tenant=whole, version_checker=maybe("SALESCALL_VERSION_CHECKER"))
+                  restore_dsn=maybe("SALESCALL_RESTORE_DSN"), admin_tenant=whole, version_checker=maybe("SALESCALL_VERSION_CHECKER"),
+                  notice_sender=maybe("SALESCALL_NOTICE_SENDER"))
 
 
 def status(environ: dict[str, str] | None = None) -> list[str]:
