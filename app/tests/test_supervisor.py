@@ -1061,7 +1061,7 @@ class Rounds(SupervisorBase):
                 return self.is_set()
         stop = Stop()
 
-        def one(*args):
+        def one(*args, **kw):   # 回線の流れが渡す前の回の誤り（fell）も受ける
             rounds.append(1)
             return line.Round(pause="line_in_call")
         with mock.patch.object(line, "one_round", one), mock.patch.object(line, "STUCK_AFTER", 0.0):
