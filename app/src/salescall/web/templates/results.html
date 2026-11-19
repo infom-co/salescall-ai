@@ -14,8 +14,8 @@
 {% if leak %}<div class="flash ng" role="alert">{{ leak }}</div>{% endif %}
 {% if rows %}
 <div class="table-scroll"><table class="list">
-  <thead><tr>{% for c in columns %}<th class="nowrap">{{ c }}</th>{% endfor %}</tr></thead>
-  <tbody>{% for r in rows %}<tr>{% for c, v in zip(columns, r.values()) %}{% if c in r.to_fill %}<td class="to-fill">{{ please_fill }}</td>{% else %}<td>{{ v }}</td>{% endif %}{% endfor %}</tr>{% endfor %}</tbody>
+  <thead><tr>{% for c in (rows[0].columns if rows else columns) %}<th class="nowrap">{{ c }}</th>{% endfor %}</tr></thead>
+  <tbody>{% for r in rows %}<tr>{% for c, v in zip(r.columns, r.values()) %}{% if c in r.to_fill %}<td class="to-fill">{{ please_fill }}</td>{% else %}<td>{{ v }}</td>{% endif %}{% endfor %}</tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<div class="card">{{ empty("渡す行はまだありません") }}</div>{% endif %}
 {% endblock %}

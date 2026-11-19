@@ -34,7 +34,7 @@ class NothingToDeliver(access.Refused):
 
 def check(rows: list[result_rows.ResultRow], *ours: str) -> None:
     """こちらが作った言葉（列の名前・行の言葉・ours＝ファイルの名前に使う実施回の名前など）に、依頼者へ出さない言葉が無いか。"""
-    texts = list(result_rows.COLUMNS) + [w for r in rows for w in r.our_words()] + list(ours)
+    texts = list(result_rows.COLUMNS) + [w for r in rows for w in r.our_words()] + list(ours)   # 質問の見出しは依頼者の業務設定の文（こちらの言葉ではない）
     hits = sorted({h for t in texts for h in words.not_for_client(t)})
     if hits:
         raise ClientWordsLeak(f"依頼者へ出さない言葉が入っていたので、書き出しませんでした（{'・'.join(hits)}）。担当に直しを頼んでください")
@@ -51,7 +51,7 @@ def to_csv(rows: list[result_rows.ResultRow], *ours: str) -> bytes:
     check(rows, *ours)
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\r\n")
-    w.writerow(result_rows.COLUMNS)
+    w.writerow(rows[0].columns if rows else result_rows.COLUMNS)   # 列は実施回の行で同じ（基本の列＋質問ごとの2列）
     for r in rows:
         w.writerow([_cell(c) for c in r.cells()])
     return buf.getvalue().encode("utf-8-sig")

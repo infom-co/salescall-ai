@@ -260,6 +260,15 @@ class VerificationMode(ApprovalHelpers):
         r = self._post(http, csv_url, {})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(r.content.decode("utf-8-sig").strip().splitlines()), 2)   # 確定した行が出る
+        import csv as _csv
+        import io as _io
+        from salescall.output import result_rows
+        head, row = list(_csv.reader(_io.StringIO(r.content.decode("utf-8-sig"))))
+        asked = [i for i, h in enumerate(head) if h.endswith(result_rows.WORDS_SUFFIX)]
+        self.assertTrue(asked)                                                    # 質問ごとの2列（答え／お客様の言葉）が出る
+        for i in asked:
+            self.assertNotIn(row[i - 1], ("-", "✕"))                              # 答えの欄は値か、お客様の言葉か、状態の短い言葉（「-」「✕」ではない。
+            #                                                                          この試験の土台は「取れた」の印だけで値を入れないので、値の欄は空）
         self.assertEqual(kept(), 1)
         self.assertRegex(http.get(f"/c/{s['client']}/b/{s['business']}").text, r"<b class=\"num\">0</b><span>確かめ待ち</span>")   # 確かめたので0
         self.assertEqual(self._post(http, csv_url, {}).status_code, 200)          # 同じ中身をもう1回渡しても

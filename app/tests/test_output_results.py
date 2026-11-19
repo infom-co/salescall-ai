@@ -43,6 +43,45 @@ class CallEnd(unittest.TestCase):
                 self.assertEqual(words.not_for_client(w), [])
 
 
+class AnswerCells(unittest.TestCase):
+    """質問ごとの2列（DESIGN.md 7-3-2）。✅ 2026-11-08・2026-11-20 管理者「「-」「✕」以外で記載する」（CL-1 の連絡帳 4-206）：取れなかった答えは、
+    答えの欄にお客様の言葉。言葉が無ければ状態の短い言葉。取れた答えは値のまま、言い切っていない返事のときだけ横の欄にお客様の言葉。"""
+    from types import SimpleNamespace as _Q
+    VALUE = _Q(id="Q1", text="ご希望の日はいつでしょうか？", ask_about="ご希望の日", type="date")
+    CHOICE = _Q(id="Q2", text="ご予約はされていますか？", ask_about=None, type="yes_no")
+
+    def cell(self, q, item, not_asked=()):
+        return result_rows.answer_cells(q, item, set(not_asked))
+
+    def test_a_taken_answer_is_the_value_and_words_only_when_not_said_plainly(self):
+        self.assertEqual(self.cell(self.VALUE, {"state": "confirmed", "value": {"text": "15日"}})[:2], ("15日", ""))
+        self.assertEqual(self.cell(self.CHOICE, {"state": "accepted", "condition": "いいえ", "hedged": "していないはずですが"})[:2],
+                         ("いいえ", "していないはずですが"))                                # 案C：値はそのまま・横の欄にお客様の言葉
+
+    def test_an_answer_not_taken_is_written_in_the_customers_words(self):
+        for state in ("dont_know", "refused", "unresolved", "unclear"):
+            with self.subTest(state=state):
+                got = self.cell(self.CHOICE, {"state": state, "hedged": "まだ決めていないんですよね／上と相談します"})
+                self.assertEqual(got, ("まだ決めていないんですよね／上と相談します", "", None))   # 「-」「✕」ではない
+
+    def test_an_answer_without_words_says_its_state_shortly(self):
+        for state, word in (("refused", "お答えを控えられた"), ("dont_know", "わからないとのこと"), ("empty", "伺っていない")):
+            with self.subTest(state=state):
+                self.assertEqual(self.cell(self.CHOICE, {"state": state}), (word, "", word))
+        self.assertEqual(self.cell(self.CHOICE, None)[0], "伺っていない")
+        self.assertEqual(self.cell(self.CHOICE, {"state": "accepted", "condition": "はい"}, not_asked=("Q2",))[0], result_rows.NOT_ASKED)
+
+    def test_no_mark_or_system_word_reaches_the_client(self):
+        for state, w in words.ITEM_STATES.items():
+            with self.subTest(state=state):
+                self.assertNotIn(w.client, ("-", "✕"))
+                self.assertEqual(words.not_for_client(w.client or ""), [])
+
+    def test_the_headers_are_two_per_question(self):
+        self.assertEqual(result_rows.question_headers([self.VALUE, self.CHOICE]),
+                         ("ご希望の日", "ご希望の日（お客様の言葉）", "ご予約はされていますか？", "ご予約はされていますか？（お客様の言葉）"))
+
+
 class Csv(unittest.TestCase):
     def _row(self, **kw):
         base = dict(client_ref="A-1", company="架空商事", person="山田様（部長）", full_name="", department="", phone="03-0000-0001",

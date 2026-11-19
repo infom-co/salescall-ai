@@ -6,8 +6,13 @@
   渡さない・実検証（＝検証モード）は渡せる・そのあとフルオート（＝本番）。⇒ verification と production。模擬通話は結果の版を作らない。
   ⏳ 依頼者のシステムへの書き戻し（`deliveries`）は、データベースの守りが本番の版だけのまま（CL-2 へのお願い 17）。ファイルはこの決まりで出す。
 - **判定待ち（次の予定が hold）の行と、最新の結果の版がまだ確定していない行は出さない**（古い確定の版を、今の答えとして渡さない）。
-- ⏳ 質問ごとの2列（答え／お客様の言葉）と判定の中身の列（ほかのご希望 など）は、書き方の変更（2026-11-18 管理者「変更 CL-1かCL-2に
-  連絡済み」）が届いてから、この部品の `QUESTION_COLUMNS` の1か所に足す。
+- **質問ごとの2列（答え／お客様の言葉）**（DESIGN.md 7-3-2。`answer_cells` の1か所）：✅ 2026-11-08 日本時間3時48分03秒・2026-11-20 日本時間
+  1時00分04秒 管理者「あなたに指示の中で「-」「✕」以外で記載することを伝えていますよね」（CL-1 の連絡帳 4-206）＝取れなかった答えは、答えの欄に
+  「-」「✕」ではなく、その答えをいただいたお客様の言葉（会話の側の1か所 `Flow.customer_words`＝しまう所は `hedged`）。言葉の無い答えは状態の
+  短い言葉（`words.ITEM_STATES` の依頼者へ出す言葉）。取れた答えは値のまま、言い切っていない返事のときだけ横の欄にお客様の言葉（2026-10-18 案C）。
+  伺わなかった質問（判定の中身の not_asked）は「伺っていない（対象外）」。答えは、結果を決めた通話の担当の方の答え（core の
+  `conversation_io.answers` の1か所。担当の方ごとの決まりをここで決め直さない）。
+- ⏳ 判定の中身の列（ほかのご希望・ご納得いただけなかった点 など）は、まだ（出し方を決めてから。DESIGN.md 7-3-3）。
 - ⏳ 「お客様からのご質問」の列（計画書 11-3「お答えできなかったご質問は必ず載せる」）は、書き方の変更とは別：判定の中身にまだご質問が
   入っていない（CL-2 へのお願い 51）。通話の報告を直に読まない（目的のお客様だと確かめていない方の言葉を渡さない決まりを、判定の1か所で守る）。
 """
@@ -18,7 +23,9 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_rules, business_settings, calling_hours, customer_rows, phone
+import json
+
+from salescall.core import business_rules, business_settings, calling_hours, conversation_io, customer_rows, judge, phone
 from salescall.core.access import Tx
 from salescall.output import words
 
@@ -53,19 +60,67 @@ class ResultRow:
     dialed: int            # かけた回数（発信まで進んだ電話）
     last_at: str           # 最後にかけた日時（日本時間）
     to_fill: tuple[str, ...] = ()   # 依頼者に埋めていただく欄の列の名前（TO_FILL_COLUMNS の値）
+    headers: tuple[str, ...] = ()   # 質問ごとの2列の見出し（実施回のいまの版の質問の順。`question_headers`）
+    answers: tuple[str, ...] = ()   # 質問ごとの2列の値（headers と同じ並び）
+    ours: tuple[str, ...] = ()      # 質問ごとの値のうち、こちらが作った言葉（状態の短い言葉。依頼者へ出さない言葉の確かめに通す）
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return COLUMNS + self.headers
 
     def values(self) -> list[str]:
         """列の順の値（そのまま。埋めていただく欄は空）。"""
         return [self.client_ref, self.company, self.person, self.full_name, self.department, self.phone, self.handling, self.result,
-                self.call_end, str(self.dialed), self.last_at]
+                self.call_end, str(self.dialed), self.last_at] + list(self.answers)
 
     def cells(self) -> list[str]:
         """色の付かない形（CSV）の値：埋めていただく欄には PLEASE_FILL を書く。"""
-        return [PLEASE_FILL if c in self.to_fill else v for c, v in zip(COLUMNS, self.values())]
+        return [PLEASE_FILL if c in self.to_fill else v for c, v in zip(self.columns, self.values())]
 
     def our_words(self) -> list[str]:
-        """こちらが作った言葉（依頼者へ出さない言葉の確かめに通すもの。お客様・依頼者のデータ＝会社名などは入れない）。"""
-        return [self.handling, self.result, self.call_end] + ([PLEASE_FILL] if self.to_fill else [])
+        """こちらが作った言葉（依頼者へ出さない言葉の確かめに通すもの。お客様・依頼者のデータ＝会社名・お客様の言葉・値などは入れない）。"""
+        return [self.handling, self.result, self.call_end] + ([PLEASE_FILL] if self.to_fill else []) + list(self.ours)
+
+
+NOT_ASKED = "伺っていない（対象外）"   # 伺わなかった質問（決めるのは判定の not_asked の1か所＝判定の中身）
+WORDS_SUFFIX = "（お客様の言葉）"       # 質問ごとの2列目の見出しの後ろ
+
+
+def question_headers(questions: Any) -> tuple[str, ...]:
+    """質問ごとの2列の見出し（1か所）：答えの欄は質問の「聞くこと」（無ければ質問の文）、横の欄はそれに「（お客様の言葉）」。"""
+    out: list[str] = []
+    for q in questions:
+        name = q.ask_about or q.text
+        out += [name, name + WORDS_SUFFIX]
+    return tuple(out)
+
+
+def _value_text(value: Any) -> str:
+    """取れた値を文字にする（値の形は型ごと。文字はそのまま、{"text": …} はその文字、ほかは JSON の文字）。"""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict) and isinstance(value.get("text"), str):
+        return value["text"]
+    return json.dumps(value, ensure_ascii=False)
+
+
+def answer_cells(q: Any, item: dict[str, Any] | None, not_asked: set[str]) -> tuple[str, str, str | None]:
+    """質問1つの2列（答え・お客様の言葉）と、こちらが作った言葉（あれば。確かめに通す）。決まりは DESIGN.md 7-3-2 の1か所。"""
+    if q.id in not_asked:
+        return NOT_ASKED, "", NOT_ASKED
+    if item is None:
+        word = words.ITEM_STATES["empty"].client or ""
+        return word, "", word
+    state, said = item["state"], (item.get("hedged") or "").strip()
+    if state in judge.TAKEN:   # 「取れた」の定義は判定の1か所（DESIGN.md 4-4）
+        answer = item.get("condition") if q.type in business_settings.CHOICE_TYPES or item.get("value") in (None, "") else _value_text(item.get("value"))
+        return answer or "", judge.hedged_words(state, said) or "", None   # 言い切っていない返事のときだけ横の欄（判定の1か所）
+    if said:   # 取れなかった答え：答えの欄にお客様の言葉（✅ 2026-11-08・11-20 管理者）
+        return said, "", None
+    word = words.ITEM_STATES[state].client or "" if state in words.ITEM_STATES else ""
+    return word, "", word
 
 
 def call_end(last: dict[str, Any] | None, next_kind: str | None) -> str:
@@ -86,7 +141,7 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
     # 行ごとの最新の版が、渡せる段で確定しているか。最新の版がまだ確定していない行（確かめ待ち・判定できない・直した版の確かめ待ち）は、
     # 古い確定の版を出さずに、行ごと出さない（判定待ちと同じ。古い答えを今の答えとして渡さない）。
     latest = {r["task_id"]: r for r in tx.all(
-        "SELECT l.task_id, l.version_no, l.business_state::text AS business_state,"
+        "SELECT l.task_id, l.version_no, l.business_state::text AS business_state, l.attempt_id, l.detail,"
         "       EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = l.task_id AND x.version_no = l.version_no"
         "               AND x.stage = ANY(%s)) AS released"
         " FROM salescall.latest_task_results l JOIN salescall.tasks k ON k.task_id = l.task_id WHERE k.run_id = %s",
@@ -98,6 +153,12 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
         " WHERE k.run_id = %s AND salescall.is_dialed(a.state) ORDER BY a.task_id, a.claimed_at DESC", (run_id,))}
     full_names = {r["task_id"]: r["target_full_name"] for r in tx.all(
         "SELECT task_id, target_full_name FROM salescall.tasks_now WHERE run_id = %s", (run_id,))}
+    version = tx.one("SELECT salescall.run_current_version(%s) AS v", (run_id,))["v"]
+    try:   # 中身をまだ置いていない版（業務の取り込みの前）は、質問の列を出さない
+        questions = business_settings.load(tx, version).questions if version is not None else ()
+    except LookupError:
+        questions = ()
+    headers = question_headers(questions)
     out = []
     for r in customer_rows.progress(tx, run_id):
         kind = r["next_kind"]
@@ -108,6 +169,17 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
         result = (words.BUSINESS_STATES[state].client or "") if state in words.BUSINESS_STATES else ""
         last = calls.get(r["task_id"])
         person = (r["target_name"] or "") + (f"（{r['target_role']}）" if r["target_role"] else "")
+        cells: list[str] = []
+        ours: list[str] = []
+        if v is not None and v["attempt_id"] is not None:   # 結果を決めた通話の担当の方の答え（core の1か所）
+            items = conversation_io.answers(tx, r["task_id"], v["attempt_id"])
+            not_asked = set((v["detail"] or {}).get("not_asked") or ())
+            for q in questions:
+                answer, said, our = answer_cells(q, items.get(q.id), not_asked)
+                cells += [answer, said]
+                ours += [our] if our else []
+        else:
+            cells = [""] * len(headers)
         out.append(ResultRow(
             client_ref=r["client_ref"] or "", company=r["source_name"] or "", person=person,
             full_name=full_names.get(r["task_id"]) or "", department=r["target_department"] or "",
@@ -116,5 +188,5 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
             phone=(phone.normalize(r["dial_phone"]).national or r["dial_phone"]) if r["dial_phone"] else "",
             handling=words.NEXT_KINDS["end"].client if kind == "end" else words.NEXT_KINDS["call"].client,
             result=result, call_end=call_end(last, kind), dialed=int(last["dialed"]) if last else 0,
-            last_at=calling_hours.label(last["claimed_at"]) if last else ""))
+            last_at=calling_hours.label(last["claimed_at"]) if last else "", headers=headers, answers=tuple(cells), ours=tuple(ours)))
     return out
