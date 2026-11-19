@@ -35,4 +35,12 @@
   <tbody>{% for name, text in s.answers %}<tr><td>{{ name }}</td><td>{{ text }}</td></tr>{% endfor %}</tbody></table></div>
 {% else %}<div class="card">{{ empty("この版で書いた想定問答はありません", "システムの標準の想定問答を使います。") }}</div>{% endif %}
 {% endif %}
+{% if policies %}
+<h2 style="margin-top:24px" id="retry">結果ごとのかけ直し</h2>
+<p class="muted">電話の結果ごとに、かけ直すか・何回まで・どれだけあけるかです（この業務で決めた値）。</p>
+<div class="table-scroll"><table class="list"><thead><tr><th>電話の結果</th><th class="wide">かけ直し</th></tr></thead>
+  <tbody>{% for k, p in policies %}<tr><td>{{ words.RETRY_POLICY_WORDS.get(k, words.NO_WORD) }}</td><td class="wide">{{ words.retry_policy(p) }}</td></tr>{% endfor %}</tbody></table></div>
+<details class="muted" style="margin-top:8px"><summary>システムが決めているかけ直し（業務では変えません）</summary>
+  <ul>{% for k, p in system_policies %}<li>{{ words.RETRY_POLICY_WORDS.get(k, words.NO_WORD) }}：{{ words.retry_policy(p) }}</li>{% endfor %}</ul></details>
+{% endif %}
 {% endblock %}

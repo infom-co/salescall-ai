@@ -26,6 +26,13 @@ def _enum(name: str) -> list[str]:
 
 
 class EveryNameHasAWord(unittest.TestCase):
+    def test_every_retry_policy_and_interval_has_a_screen_word(self):   # 計画書 6-2「再発信の方針」（業務設定の版の画面）
+        from salescall.core import business_rules
+        self.assertEqual(set(words.RETRY_POLICY_WORDS), set(business_rules.POLICY_KEYS) | set(business_rules.SYSTEM_POLICIES))
+        self.assertEqual(set(words.INTERVAL_WORDS), set(business_rules.INTERVAL_UNITS))
+        self.assertEqual(words.retry_policy(business_rules.Policy("call", 3, ("hours", 3))), "かけ直す：3回まで・3時間おき")
+        self.assertEqual(words.retry_policy(business_rules.Policy("end", None, None)), "かけ直さずに終える")
+
     def test_every_database_state_has_a_screen_word(self):
         for enum, table in (("business_state", words.BUSINESS_STATES), ("attempt_state", words.ATTEMPT_STATES),
                             ("item_state", words.ITEM_STATES), ("delivery_state", words.DELIVERY_STATES),

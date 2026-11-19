@@ -261,6 +261,25 @@ def plain(text: str) -> str:
     return re.sub(r"\s+([。、）])", r"\1", out).strip()
 
 
+# 再発信の方針（結果ごとに、かけ直すか・回数・間隔）の結果の名前（鍵の正本は core の business_rules.POLICY_KEYS＝業務で決める・
+# SYSTEM_POLICIES＝システムが決める。試験が突き合わせる）。業務設定の版の画面に出す（計画書 6-2「再発信の方針」）。
+RETRY_POLICY_WORDS: dict[str, str] = {
+    "open": "会話に至らなかった（お客様が出なかった）", "incomplete": "一部だけ取れた",
+    "not_reached_absent": "目的のお客様が不在（戻る時刻は分からなかった）", "callback_unspecified_time": "時刻の決まっていないかけ直しの約束",
+    "not_reached_not_transferred": "事情があり、取り次いでいただけなかった", "other_means": "ほかの方法でのご連絡を希望された",
+    "not_reached_departed": "お呼びした方が在籍していない", "not_reached_who_unclear": "お名前だけではどの方か分からなかった",
+}
+INTERVAL_WORDS: dict[str, str] = {"hours": "{n}時間おき", "days": "{n}日後"}   # 鍵の正本は core の business_rules.INTERVAL_UNITS
+
+
+def retry_policy(p: object) -> str:
+    """再発信の方針1つを、画面の言葉にする（1か所）。"""
+    if getattr(p, "action", None) == "end":
+        return "かけ直さずに終える"
+    unit, n = p.interval   # type: ignore[attr-defined]
+    return f"かけ直す：{p.max_times}回まで・{INTERVAL_WORDS[unit].format(n=n)}"   # type: ignore[attr-defined]
+
+
 # 赤字の確認ボタンの名前（承認待ちと、費用と報酬・依頼者のタブの知らせで同じ名前＝1か所）
 DEFICIT_CONFIRM = "確かめた（これ以上お知らせしない）"
 

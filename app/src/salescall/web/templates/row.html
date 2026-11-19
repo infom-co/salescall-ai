@@ -18,6 +18,12 @@
     <h2>いまの状態</h2>
     <dl class="facts">
       <dt>次の予定</dt><dd>{% set mc = pending|selectattr("kind", "equalto", "more_calls")|first %}{{ next_tag(row.next_kind, row.next_call_at, row.next_end_reason, waiting=mc.title if mc else "") }}</dd>
+      {% if rest %}<dt>休み</dt><dd>{{ tag("休んでいます", "wait") }}<div class="muted">{{ rest }}</div>
+        <details class="adder"><summary class="btn small">手で戻す</summary>
+          <form class="panel" method="post" action="{{ base }}/rows/{{ row.task_id }}/restore" data-needs-reason>{{ csrf(token) }}
+            <label class="field">理由（記録に残ります）</label><input type="text" name="reason" placeholder="例：直ったことを確かめた">
+            <p class="muted">直ったことを確かめてから戻してください。戻すと、この行にまたおかけします（同じ不具合で続けて終われば、また休みます）。</p>
+            <button class="btn main small" type="submit" data-submit disabled>戻す</button></form></details></dd>{% endif %}
       <dt>結果</dt><dd>{{ words.word(words.BUSINESS_STATES, row.business_state).screen }}
         {% if can_correct %}
         <details class="adder"><summary class="btn small">結果を直す</summary>

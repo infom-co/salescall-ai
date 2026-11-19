@@ -32,9 +32,9 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
-from salescall.core import (agents, calling_hours, conversation_io, customer_contacts, customer_rows, dnc, dnc_import, exclusions, health,
-                            health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results, reward,
-                            settings, stops, usage)
+from salescall.core import (agents, calling_hours, conversation_io, customer_contacts, customer_rows, dnc, dnc_import, exclusions, gate,
+                            health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
+                            reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
 from salescall.core.access import Access
 from salescall.output import files as result_files
@@ -1025,7 +1025,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     @app.get("/c/{client_id}/b/{business_id}/versions/{version_id}")
     def version_page(request: Request, client_id: UUID, business_id: UUID, version_id: UUID) -> HTMLResponse:
         """業務設定の版の中身（読むだけ。読むのは core の business_settings.load の1か所＝置いたときと同じ確かめで読む）。"""
-        from salescall.core import business_settings
+        from salescall.core import business_rules, business_settings
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
                 b = context.business(tx, business_id)
@@ -1039,8 +1039,14 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     s, problem = None, f"この版は、いまの確かめに通りません：{e}"
                 except LookupError:   # 中身をまだ置いていない版（業務の取り込みで置く）
                     s, problem = None, "この版には、まだ業務設定の中身がありません。業務の資料を取り込む画面は準備中です（入ると、業務のタブの「はじめかた」から取り込めます）。"
+                try:   # 結果ごとのかけ直し（再発信の方針。読むのは core の business_rules.load の1か所＝通話のあとの次の動きと同じ）
+                    rules = business_rules.load(tx, version_id)
+                except (business_rules.RulesMissing, business_rules.RulesInvalid):
+                    rules = None
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
-                        "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem}
+                        "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem,
+                        "policies": [(k, rules.retry[k]) for k in business_rules.POLICY_KEYS] if rules else [],
+                        "system_policies": [(k, rules.retry[k]) for k in business_rules.SYSTEM_POLICIES] if rules else []}
             return page(request, "version.html", person, ctx, **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 
@@ -1331,7 +1337,11 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     except actions.REFUSALS as e:
                         step = {"error": str(e)}
                 latest = results.latest(tx, task_id)
-                return {"level": exclusions.level(tx, task_id),
+                # こちらの不具合で休ませている・復旧を待っている行（戻せる段は core の troubles.RESTORABLE、待ちの言葉は gate.REASONS の1か所）
+                stage = health.task_of(tx, task_id).stage
+                rest = (gate.REASONS[gate.TASK_STAGE_REASONS[stage.name.lower()]].message
+                        if stage in troubles.RESTORABLE else "")
+                return {"level": exclusions.level(tx, task_id), "rest": rest,
                         "latest": latest, "can_correct": latest is not None and latest["kind"] in measure.SYSTEM_KINDS,
                         "pending": inbox.collect(tx, task=task_id),   # この行の承認待ち（受け箱と同じ1か所・同じ形で出す）
                         "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
@@ -1395,6 +1405,22 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     def row_page(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, task_id: UUID,
                  done: str | None = None, ok: int = 1) -> HTMLResponse:
         return _row_page(request, client_id, business_id, run_id, task_id, done=done, ok=ok)
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}/restore")
+    async def row_restore(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, task_id: UUID) -> HTMLResponse:
+        """こちらの不具合で休ませた行・復旧を待っている行を、管理者か契約者が手で戻す（core の troubles.restore だけ。計画書 10-3 の 2026-10-25
+        夜 (2)「管理者・契約者が手で戻すこともできる」）。理由は必ず（記録に残る）。いま戻せる段でなければ断る（何も変えない）。"""
+        form = dict(await request.form())
+        base = f"/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}"
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> None:
+                _row_in(tx, business_id, run_id, task_id)
+                if not troubles.restore(tx, task_id, reason=str(form.get("reason") or "")):
+                    raise actions.Refused("この行は、いま休んでいません（もう戻ったか、待っている理由が変わりました）。何も変えていません。")
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do),
+                              done="戻しました。この行に、またおかけします（同じ不具合で続けて終われば、また休みます）。", reason_field="reason")
+            return _back(base, out)
+        return handle(request, render)
 
     @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}/fix")
     async def row_fix(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, task_id: UUID) -> HTMLResponse:

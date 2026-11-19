@@ -150,6 +150,12 @@ class Web(_World):
         self.assertEqual(ok.status_code, 200)
         self.assertIn("業務設定の中身", ok.text)
         self.assertNotIn(words_missing(), ok.text)
+        from salescall.core import business_rules
+        from salescall.output import words
+        rules = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: business_rules.load(tx, self.a["version"]))
+        part = ok.text[ok.text.index('id="retry"'):]                            # 結果ごとのかけ直し（計画書 6-2。読むのは core の1か所）
+        for k in business_rules.POLICY_KEYS:
+            self.assertIn(f"{words.RETRY_POLICY_WORDS[k]}</td><td class=\"wide\">{words.retry_policy(rules.retry[k])}", part)
         self.assertEqual(self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/versions/{self.y['version']}").status_code, 404)
 
     def test_the_counts_of_client_x_do_not_move_when_client_y_changes(self):   # S-6
