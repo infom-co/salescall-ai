@@ -38794,3 +38794,149 @@ class HolesZTest(unittest.TestCase):
         # 別の質問（次の言い直し）では、その質問で1回
         r = B.turn(f, "はい、それでお願いします。", self.rd("affirmed"), "confirm_field", question_id="Q2", result="affirmed")
         self.assertEqual(f.current, "Q4")
+
+
+class AskCandidatesDecidedTest(unittest.TestCase):
+    """分身 Y2（rv121/Y/extra.md の (10)）：伺いの候補4つ（rv56/ask_cands.md）を、まとめ役が本書・帳面の決まりで決めた（伺わない）。正解の表に入れ、
+    答えの段の判定の説明の境目を1か所だけ直す（取り次ぎを待つ＝いったん電話を離れて戻るも／理由を言わずに待つ＝電話口にいたまま）。同じ理由が当たる行
+    （同じ言葉・拒んだ言葉への聞き直し）にも当てた。⛔ e055c397 まで：電話を離れる事情の「待って」を、説明の文では理由を言わずに待つとも読めた（5秒で
+    「何か気になる点が…」＝離れている方に話しかける）・正解の表は「返事を待つ」（「このままお返事を待っております。」）も正解にしていた"""
+
+    LEAVE = (("W1@E1", "すぐ戻るので、待っていてもらえますか。"), ("W1@G17", "いまちょっと席を外すので、待ってもらえますか。"))
+
+    @staticmethod
+    def row(s, qid, text, asked=None):
+        return {"set": s, "qid": qid, "text": text, "asked": asked}
+
+    def test_the_border_between_holding_and_waiting_without_a_reason(self):
+        from flowctl import HOLD, WAIT_PLAIN
+        from meaning_judge import ANSWER_KINDS, KIND_DESC
+        self.assertIn("いったん電話を離れて戻る（席を外す・すぐ戻る）", ANSWER_KINDS[HOLD])
+        self.assertIn("電話口にいたまま", ANSWER_KINDS[WAIT_PLAIN])
+        self.assertNotIn("つないだまま", ANSWER_KINDS[WAIT_PLAIN])
+        self.assertNotIn("理由を言わずに", ANSWER_KINDS[HOLD])   # 境目は理由を言わずに待つの説明の1か所（取り次ぎの説明に「理由を言わずに」を書かない）
+        self.assertNotIn("離れて戻る", KIND_DESC[HOLD])         # お呼びする段・戻ったかの文は変えない（G-59・G-68 の指紋は同じ）
+
+    def test_leaving_the_phone_is_answered_with_hai_and_a_silent_wait(self):
+        import g53_meaning as g
+        from flowctl import HOLD
+        qm = g.question_map()
+        for qid, text in self.LEAVE:
+            it, q = self.row("W1", qid, text), qm[qid]
+            self.assertEqual(g.accept(it), [HOLD], text)
+            self.assertEqual(g.flow_wants(it, q), {g.WAIT_ACT[HOLD]}, text)
+            for r in g.label_readings(it, q, False):
+                f, _, rep, _ = g.flow_reply(it, q, r)
+                self.assertEqual((rep["result"], rep["ack"], rep.get("silence_s")), ("hold", "hai", None), text)   # 「はい、」のあと黙って待つ
+                self.assertIsNone(f.on_silence(), text)   # 5秒の一言（「何か気になる点が…」）を流さない＝離れている方に話しかけない
+
+    def test_the_decided_candidates_are_in_the_table(self):
+        import g53_meaning as g
+        from flowctl import REPEAT, THINKING, UNDECIDED
+        qm = g.question_map()
+        hear = [self.row("HEAR", "G1", "もしもし、聞こえてます？ 少し遠いみたいです"), self.row("HEAR", "V1", "もしもし、今の声聞こえてますか？ 遠いです")]
+        for it in hear:
+            self.assertEqual(g.accept(it), [REPEAT], it["text"])   # こちらの声が遠い＝聞き取れなかった（REPEAT の説明）
+        unsure = {("W1", "W1@G17", "んー、何とも言えないですね。"): ["unknown", THINKING], ("C", "G6", "うーん、どうでしょう"): None,
+                  ("N3", "N3", "そうですね、何とも言えないところです。"): None}
+        for (s, qid, text), want in unsure.items():
+            it = self.row(s, qid, text)
+            got = g.accept(it)
+            self.assertIn("unknown", got, text)
+            self.assertIn(THINKING, got, text)
+            if want:
+                self.assertEqual(got, want, text)
+            self.assertNotIn(g.ASK_AGAIN, g.flow_wants(it, qm[qid]), text)   # 「決められない」の聞き直し（急かす・同じ質問を2度）は正しい動きに入らない
+        n3 = self.row("N3", "N3", "そうですね、何とも言えないところです。")
+        self.assertIn(UNDECIDED, g.accept(n3))   # ご納得を伺う一言では「決められない」も「わからない」と同じ動き（流れの制御で確かめた）＝正解を広げる
+        for qid, text in (("G12", "個人のスケジュールなので"), ("G14", "業務に関係ないので"), ("G10", "こちらの都合ですので")):
+            it = self.row("C", qid, text)
+            self.assertEqual(g.accept(it), ["refused"], text)   # 答えない理由＝答えたくない（拒んだ項目を聞き直さない＝9-5）
+            self.assertEqual(g.flow_wants(it, qm[qid]), {"受け取る：refused"}, text)
+
+
+class PriorAskedFromSceneTest(unittest.TestCase):
+    """分身 Y2（rv121/Y/notes.md の「気をつけること」）：本番が前の話の答えを問うかを、送る側（判定へ送る問い合わせ judge_inputs）と数えの側
+    （prior_of・flow_reply）が同じ1か所（g53_meaning.asks_prior＝行の場面の judge_inputs を meaning_judge.prior_asked に通す）で決める。⛔ e055c397 まで：
+    数えの側は記録の言い直し・前の言葉（it["asked"]・it["before"]）で決めていた＝組 R の R5・R6 は本番どおり場面の前のお客様の言葉で前の話を問う
+    （送る側は読む）のに、数えでは読んだ前の話の答えを捨てていた"""
+
+    def test_the_form_scene_prior_is_counted_where_the_sender_reads_it(self):
+        import g53_meaning as g
+        from review_words import answer_words, questions
+        qs = questions()
+        it = next(w for w in answer_words() if w["qid"] == "R5" and w["text"] == "じゃあ振込で。")
+        self.assertFalse(it.get("before"))   # 記録の行には前の言葉が無い（場面の前のお客様の言葉で問う）
+        shown, asked, before = g.judge_inputs(it, qs["R5"])
+        self.assertTrue(before)
+        self.assertTrue(g.asks_prior(it, qs["R5"]))
+        self.assertEqual(g.prior_of({**it, g.PRIOR_KEY: "振込"}, "j", qs["R5"]), "振込")
+
+    def test_one_place_decides_whether_the_prior_is_asked(self):
+        import inspect
+        import g53_meaning as g
+        for fn in (g.prior_of, g.prior_todo, g.label_readings):
+            src = inspect.getsource(fn)
+            self.assertIn("asks_prior(", src, fn.__name__)
+            self.assertNotIn("prior_asked(", src, fn.__name__)
+            self.assertNotIn('it.get("before")', src, fn.__name__)
+        src = inspect.getsource(g.flow_reply)   # 渡された読みのまま流れの制御に通す（問うかを2か所目で決めない）
+        self.assertNotIn("before_words(", src)
+        self.assertNotIn("_without_prior(", src)
+
+
+class WaitOrLaterWordsTest(unittest.TestCase):
+    """分身 Y2（見直し (13) の D8・rv121/Y/directive.md の (2)）：待つかかけ直すか（H2）を伺っている間のお客様の言葉の試しの言葉（rv70/r13d/words.md の案）を、
+    試しの言葉の表（review_words）に入れる。正解は言葉・説明の文（H2 の選べるものの説明＝flowctl._ROLE_MEANINGS の wait_or_later）・ご決定（本書 9-5 の W1 の段の
+    (3)・11-05 日本時間23時56分48秒「(ア)」）だけから決めた。決まらない行は正解を付けずに「読み手へ」（TO_READERS）。場面は、支払いの質問への「上司に相談して
+    みるので、少し待っていてください。」（待つかかけ直すか決まらない）のあと、本番の流れの制御が H2 を伺う所まで（g53_meaning._flow_scene の1か所）"""
+
+    def test_the_words_are_in_the_table_with_answers_from_the_words_and_the_descriptions(self):
+        from flowctl import CALL_LATER, KEEP_ON, WAIT_NOW
+        from review_words import TO_READERS, answer_words
+        got = {it["text"]: it["label"]["accept"] for it in answer_words() if it["qid"] == "H2"}
+        self.assertEqual(got, {"あ、もう大丈夫です。どうぞ続けてください。": [KEEP_ON], "いえ、今ちょうど終わりましたので、お話どうぞ。": [KEEP_ON],
+                               "大丈夫ですよ、そのまま話してください。": [KEEP_ON], "あ、さっきの件ですけど、うちはカードでお願いします。": [KEEP_ON],
+                               "じゃあ、少しだけ待っていてもらえますか。": [WAIT_NOW], "今ちょっと無理なので、また後でかけてください。": [CALL_LATER]})
+        self.assertIn("うーん、どうしようかな。", [w["text"] for w in TO_READERS if w["qid"] == "H2"])
+
+    def test_the_scene_is_the_production_wait_or_later_ask(self):
+        import g53_meaning as g
+        from flowctl import KEEP_ON, WAIT_NOW, callback_question
+        from review_words import answer_words, questions
+        qs = questions()
+        rows = [it for it in answer_words() if it["qid"] == "H2"]
+        h2 = callback_question("wait_or_later")
+        for it in rows:
+            shown, asked, before = g.judge_inputs(it, qs["H2"])
+            self.assertEqual((shown.id, shown.text, asked), ("H2", h2.text, None), it["text"])
+            self.assertIsNone(g.flow_miss({**it, "j": it["label"]["accept"][0], "j言い切り": True}, qs["H2"], "j"), it["text"])
+        keep = next(it for it in rows if it["label"]["accept"] == [KEEP_ON])
+        wait = next(it for it in rows if it["label"]["accept"] == [WAIT_NOW])
+        self.assertNotEqual(g.flow_wants(keep, qs["H2"]), g.flow_wants(wait, qs["H2"]))   # 待たずに続けるのを待つと読めば外れ
+        self.assertIsNotNone(g.flow_miss({**keep, "j": WAIT_NOW, "j言い切り": True}, qs["H2"], "j"))
+
+
+class MeasureBookWordsTest(unittest.TestCase):
+    """分身 Y2（rv121/Y/directive.md の (7)）：帳面 1 の (1) の「この1回の測りに足す」と書かれた答えの段の試しの言葉のうち、正解が帳面に書かれ（お言葉・ご決定・
+    決まった説明の文から決まり）、本番の流れの制御で場面を組めるものを、試しの言葉の表（review_words）に入れる：言い直し・最終の確かめへのお返事の別のお話か
+    （分身 N＝5a7f04ce）・お知らせへの最初のお返事の別のお話か（持ち場 C の C4）・別のお話の答えの話（分身 E＝092f2317 の「分からない・答えたくない」）"""
+
+    WANT = {("R8", "うちは月曜が定休日なんですよ。", True): ["決められない"], ("R8", "はい、大丈夫です。", True): ["affirmed"],
+            ("R7", "そういえば来週は祝日なんですよ。", True): ["決められない"], ("R7", "あ、はい、分かりました。", True): ["はい"],
+            ("R7", "なるほど。", False): ["決められない"], ("R7", "うちは月曜が定休日なんですよ。", False): ["決められない"],
+            ("R1", "ちょっと分からないですね。", False): ["unknown"], ("R1", "それは言いたくないです。", False): ["refused"]}
+
+    def test_the_book_words_are_in_the_table_and_composed_by_the_flow(self):
+        import g53_meaning as g
+        from flowctl import AWAY, AWAY_NO, AWAY_YES
+        from review_words import answer_words, questions
+        qs = questions()
+        rows = {(it["qid"], it["text"], it["set"] == "D"): it for it in answer_words()}
+        for (qid, text, final), want in self.WANT.items():
+            it = rows.get((qid, text, final))
+            self.assertIsNotNone(it, (qid, text))
+            self.assertEqual(it["label"]["accept"], want, text)
+            self.assertEqual(it["label"][AWAY], [AWAY_YES if "定休日" in text or "祝日" in text else AWAY_NO], text)
+            g.judge_inputs(it, qs[qid])   # 本番の場面で組める
+            self.assertIsNone(g.flow_miss({**it, "j": want[0], "j言い切り": True, "j別の話": it["label"][AWAY][0]}, qs[qid], "j"), text)

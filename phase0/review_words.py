@@ -11,8 +11,9 @@
 """
 from __future__ import annotations
 
-from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, HESITATING, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_YES, QUERY, QUERY_NO,
-                     QUERY_YES, THINKING, WHY_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, since_form)
+from flowctl import (AWAY, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, HESITATING, KEEP_ON, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_YES, QUERY,
+                     QUERY_NO, QUERY_YES, REFUSED_LABEL, THINKING, WAIT_NOW, WHY_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question,
+                     since_form)
 from grounding import TOUCHED, UNTOUCHED, one_touched
 from meaning_judge import UNDECIDED
 
@@ -38,8 +39,12 @@ def questions() -> dict[str, Question]:
     approval = Question("R7", "キャンセルについてご了承いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=True, approval=True,
                         announce="当日のキャンセルは前日までにご連絡いただく必要がございますのでご了承ください。", matter="キャンセル",
                         matter_clause="当日のキャンセルは前日までにご連絡いただく必要がある")
+    # H2＝待つかかけ直すかの伺い（システムの質問・本番の1か所 callback_question）。場面は支払いの質問（R1）のあとに流れの制御が伺う所（g53_meaning._flow_scene）
     return {"R1": pay, "R2": Question("R2", "ご訪問の日にちはいつがよろしいでしょうか？", "date", conditions=("答えた",), required=True),
-            "R3": since_form(budget), "R4": since_form(person), "R5": aside_form(pay), "R6": alternatives_form(pay), "R7": approval}
+            "R3": since_form(budget), "R4": since_form(person), "R5": aside_form(pay), "R6": alternatives_form(pay), "R7": approval,
+            "H2": callback_question("wait_or_later"),
+            # 金額を伺う質問（言い直しへのお返事の試しの言葉＝帳面 1 の (1) の分身 N の行の「金額の言い直し」。言い直しの文は本番の1か所 Flow._ask_confirm）
+            "R8": Question("R8", "ご予算はおいくらくらいでしょうか？", "amount", conditions=("答えた",), required=True)}
 
 
 # わからない・答えたくない理由の正解（label の reason＝g53_labels.json の行と同じ欄・同じ決め方＝F5 の 11-15）：答えが「決められない」を含む行は、流れの制御が
@@ -62,11 +67,20 @@ def _row(qid: str, text: str, accept, away=None, query=QUERY_NO, prompt=None, he
     return {"set": "R", "maker": "見直し (12)", "qid": qid, "text": text, "asked": asked, "label": label}
 
 
+def restated_line(q: Question) -> str:
+    """値を伺う質問 q の言い直しの文（本番の1か所 Flow._ask_confirm が流す文＝測りの場面 g53_meaning.restated と同じ。判定に見せる形 Flow._judge_text）。"""
+    from flowctl import Flow
+    from g53_meaning import _scene_value, restated
+    f, _ = restated(q, "答えた", _scene_value(q))
+    return Flow._judge_text(f, f.awaiting_say)
+
+
 def answer_words() -> list[dict]:
     """答えの段（G-53）の試しの言葉と正解。"""
     qs = questions()
     accepted = accepted_line(qs["R7"])[1]
     unheard = accepted_line(qs["R7"], heard=False)[1]
+    budget_again = restated_line(qs["R8"])
     return [
         # 担当 D の表（基本の質問）
         _row("R1", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, why="聞かれたことと関わりのないご事情", reason=WHY_OTHER),
@@ -108,7 +122,47 @@ def answer_words() -> list[dict]:
         _row("R7", "あ、それとですね、うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, prompt=PROMPT_REPLY_NO, why="声かけへのお返事だけではない別のお話",
              reason=WHY_OTHER),
         _row("R7", "いえ、大丈夫です。", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, why="声かけへのお返事だけ", reason=WHY_OTHER),
+        # 帳面 1 の (1) の「この1回の測りに足す」と書かれた答えの段の言葉（分身 Y2 が入れた。正解は帳面に書かれたとおり＝お言葉・決まった説明の文から決まる）
+        # 言い直し・最終の確かめへのお返事の別のお話か（分身 N＝5a7f04ce・見直し (12) の A-9・B-3）：金額の言い直し・ご承認のお知らせの最終の確かめ
+        {**_row("R8", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, asked=budget_again, why="言い直しへの別のお話（分身 N の行）", reason=WHY_OTHER),
+         "set": "D"},
+        {**_row("R8", "はい、大丈夫です。", ["affirmed"], AWAY_NO, asked=budget_again, why="言い直しを認めた＝答えの話（答えは合っている。分身 N の行）"),
+         "set": "D"},
+        {**_row("R7", "そういえば来週は祝日なんですよ。", [UNDECIDED], AWAY_YES, asked=accepted, why="最終の確かめへの別のお話（分身 N の行）", reason=WHY_OTHER),
+         "set": "D"},
+        {**_row("R7", "あ、はい、分かりました。", ["はい"], AWAY_NO, asked=accepted, why="最終の確かめへのご了承＝答えの話（分身 N の行）"), "set": "D"},
+        # お知らせへの最初のお返事の別のお話か（見直し (13) の持ち場 C の C4）
+        _row("R7", "なるほど。", [UNDECIDED], AWAY_NO, why="お知らせへの相づちだけ＝答えの話（決められない。C4）", reason=WHY_OTHER),
+        _row("R7", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, why="お知らせへの別のお話（C4）", reason=WHY_OTHER),
+        # 別のお話か の答えの話（分身 E＝092f2317：分からない・答えたくない、は答えの話）
+        _row("R1", "ちょっと分からないですね。", ["unknown"], AWAY_NO, why="分からないとだけ言った＝答えの話（分身 E の行）",
+             reason=(DONT_KNOW_LABEL["unspecified"],)),
+        _row("R1", "それは言いたくないです。", ["refused"], AWAY_NO, why="言いたくないとだけ言った＝答えの話（分身 E の行）",
+             reason=(REFUSED_LABEL["unwilling"],)),
+        # 待つかかけ直すか（H2）を伺っている間の言葉（見直し (13) の D8＝rv70/r13d/words.md の案・分身 Y2 が入れた）。正解は言葉・選べるものの説明（KEEP_ON＝
+        # 「待つのも改めておかけ直しするのも要らず、そのままお話を続けた（その前のお話に答えた・もう大丈夫だと言った など）」・WAIT_NOW＝「このまま電話をつないで
+        # お待ちしてよい」・CALL_LATER＝「改めておかけ直ししてよい」）・ご決定（本書 9-5 の W1 の段の (3)・11-05 日本時間23時56分48秒「(ア)」）だけから。
+        # 別のお話かは付けない（どちらの読みも正解＝away_truths の決まり）。決まらない行は TO_READERS
+        _row("H2", "あ、もう大丈夫です。どうぞ続けてください。", [KEEP_ON], why="もう大丈夫と言い、続きを促した（説明の「もう大丈夫だと言った」）"),
+        _row("H2", "いえ、今ちょうど終わりましたので、お話どうぞ。", [KEEP_ON], why="用事が終わり、続けてよいと言った（待つのも要らない）"),
+        _row("H2", "大丈夫ですよ、そのまま話してください。", [KEEP_ON], why="待つのもかけ直すのも要らず、そのまま話してと言った"),
+        _row("H2", "あ、さっきの件ですけど、うちはカードでお願いします。", [KEEP_ON],
+             why="伺う前のお話（支払いの質問）に答えた（説明の「その前のお話に答えた」）"),
+        _row("H2", "じゃあ、少しだけ待っていてもらえますか。", [WAIT_NOW], why="このまま待ってほしいと言った"),
+        _row("H2", "今ちょっと無理なので、また後でかけてください。", [CALL_LATER], why="あとでかけ直してほしいと言った"),
     ]
+
+
+# 正解が言葉・説明の文・ご決定から決まらない試しの言葉（正解を付けない＝答えを伏せた読み手へ回す。数えには入れない）。場面は answer_words と同じ形（qid の質問）
+TO_READERS = [
+    {"set": "D", "maker": "帳面 1 の (1) の分身 N の行", "qid": "R8", "text": "うーん、どうでしょうねえ。", "asked": None,
+     "why": "帳面には「答えの話」とだけ書かれ、答えは書かれていない。金額の言い直しへのお返事で、「決められない」（「はい、いかがなさいますか？」）・「考えている途中」"
+            "（「はい。」）・「わからない」（「それではまだ確定ではないと承っておきますね。」）で、お客様に聞こえる言葉が分かれる（伺いの候補 (7) のご決定は最初の"
+            "答えの場面＝聞き直しの場面）"},
+    {"set": "R", "maker": "見直し (13) の D8", "qid": "H2", "text": "うーん、どうしようかな。", "asked": None,
+     "why": "どれとも言っていない。「決められない」（「はい、それではこのままお返事を待っております。」）と「考えている途中」（「はい。」）で、お客様に聞こえる"
+            "言葉が分かれる（11-07 日本時間18時台に業務の質問の「うーん、どうしようかな」へ考えている途中を足したのは、H2 の場面ではない）"},
+]
 
 
 # 中身の判定（G-63）：いま伺っている質問「お支払いの方はカードと振込のどちらにされますか？」・選択肢カード・振込。touch＝選択肢を添えたときの正解・
@@ -153,5 +207,5 @@ TALK_WORDS = [
 
 def counts() -> dict[str, int]:
     """足した試しの言葉の数（表ごと）。G-63 は添える形ごと（選択肢つき・質問だけ・添えない）に流すので、その数も。"""
-    return {"G-53": len(answer_words()), "G-63": len(GROUND_WORDS), "G-63（3つの形で流す行）": len(GROUND_WORDS) * 3,
+    return {"G-53": len(answer_words()), "G-53（読み手へ）": len(TO_READERS), "G-63": len(GROUND_WORDS), "G-63（3つの形で流す行）": len(GROUND_WORDS) * 3,
             "取込の中身の判定": len(IMPORT_WORDS), "G-57": len(TALK_WORDS)}
