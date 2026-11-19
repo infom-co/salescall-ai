@@ -73,6 +73,9 @@ CL2_PENDING = frozenset({
                          "wrong_number_ask", "omatase", "wait_soon",
                          # 後任の方もいらっしゃらないときに、その役職の方をお呼びする名乗りの部分（phrases.ROLE_PARTS＝名前の録音の台帳の役職の呼び方＋今ある続く言葉。伺い69）
                          "target_role", "target_role_confirm", "target_role_unavailable", "target_role_transfer",
+                         # 役職の方へ切り替えた印（通話の事実 departed の to_role＝行を終えない）と、次の電話ではじめから役職の方をお呼びする予約証の口（role_call）。名前は仮
+                         # （CL-1 の続きの頼み (2)。CL-2 への知らせは分身 M の書き置き＝rv175/M/notes.md）
+                         "to_role", "role_call",
                          # 顧客獲得型の2つ目（分身 K2。CL-2 への知らせは分身 K2 の書き置き＝rv174/K2/notes.md。名前はどれも仮）：本題の段の悩みの伺いの番号 Y2・会話AIが「ただ」に
                          # 続ける中身を書く部分の名前（中と日本語）・締めた理由 no_pain（悩みがどれも無い＝日を改める）・共通の一言の録音（あっでしたよね・とあるサービス・
                          # 「聞かせてください」のお名前の入らない所・そうですよね・9-9 の (7) の文・お名前の分からない方への「御社」の形）・名前の録音の台帳の続く言葉
@@ -42113,6 +42116,81 @@ class NoSuchPersonRecallTest(unittest.TestCase):
         self.assertEqual(heard_words(r), "「おかだ」様でいらっしゃいますでしょうか？")
         self.assertFalse(f.successor)
 
+
+class RoleCallMarkTest(unittest.TestCase):
+    """分身 M（CL-1 の続きの頼み (2)＝書き置き 10 の (a) を決まりで決めた形「イ」）：後任の方もいらっしゃらず、その役職の方をお呼びした電話は、役職の方が外出中などで今の
+    かけ直しの道（戻りの時刻を伺う）へ進んでも、行を終えない（本書 9-4 の「担当者が不在」の行・✅ 2026-11-04 日本時間3時15分47秒「通常は、いない場合、終えるではなく、
+    いつ戻られるのかを確認するのがセオリーですよ！」）。会話の側は (a) 役職の方へ切り替えた印を、その切り替えの元になった在籍していないの事実（departed）に1か所で残し
+    （仮の名前 to_role）、(b) 次の電話で、はじめから役職の方をお呼びする口（門の予約証の仮の名前 role_call＝instruction.Target.role_call・後任の方の電話の successor と同じ考え）
+    が立っていれば、名乗りの部分 target_role（phrases.ROLE_PARTS）でお呼びする。役職の方もいらっしゃらなければ今のお礼の締め（事実 departed の successor＝真＝行を終える）。"""
+    N = NoSuchPersonRecallTest
+    ROLE = NoSuchPersonRecallTest.ROLE
+
+    def to_role(self):
+        from flowctl import ABOUT_DEPARTED, ABOUT_NO_SUCH
+        t = self.N()
+        f = t.opened()
+        t.say(f, "そういう者はおりませんが。", ABOUT_NO_SUCH)
+        t.say(f, "いえ、おりません。", ABOUT_NO_SUCH)
+        r = t.say(f, "後任もおりません。", ABOUT_DEPARTED)
+        self.assertEqual(heard_words(r), self.ROLE)
+        return t, f
+
+    @staticmethod
+    def marks(f):
+        return [(d["successor"], d.get("to_role")) for d in f.facts.get("departed", [])]
+
+    def test_the_switch_to_the_role_person_is_marked_once(self):
+        t, f = self.to_role()
+        self.assertEqual(self.marks(f), [(False, None), (True, True)])   # 後任の方へ切り替えた（印なし）・役職の方へ切り替えた（to_role）
+
+    def test_the_role_person_away_goes_on_to_ask_when_and_keeps_the_mark(self):
+        from flowctl import ABOUT_NONE
+        t, f = self.to_role()
+        r = t.say(f, "部長はただいま外出しております。", ABOUT_NONE)
+        self.assertNotEqual(r["result"], "end", r)
+        self.assertIsNone(f.end_reason)
+        self.assertEqual([c["why"] for c in f.facts.get("callback", [])], ["absent"])   # 今のかけ直しの道（戻りの時刻を伺う）
+        self.assertEqual(self.marks(f), [(False, None), (True, True)])   # 行を終えない印のまま（終える印 successor だけの記録は無い）
+
+    def test_the_role_person_absent_too_ends_with_the_end_mark(self):
+        from flowctl import ABOUT_NO_SUCH
+        t, f = self.to_role()
+        r = t.say(f, "部長という者もおりません。", ABOUT_NO_SUCH)
+        self.assertEqual((r["result"], f.end_reason), ("end", "departed"))
+        self.assertEqual(self.marks(f), [(False, None), (True, True), (True, None)])   # 3つ目＝役職の方もいない（successor＝真＝行を終える）
+
+    def ticket(self):
+        import dataclasses
+        b = self.N.U.business(self.N.U.FIXED, "named")
+        return dataclasses.replace(b, target=dataclasses.replace(b.target, role_call=True))
+
+    def test_a_role_call_ticket_calls_the_role_person_from_the_start(self):
+        import instruction
+        b = self.ticket()
+        f = b.flow(recorded=True, play_recordings=True)
+        f.use_checks("judge", "judge2", "asks")
+        f.on_connect()
+        f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+        r = f.apply("report_party", {"party": "reception"})
+        plays = [(p.get("part") or p.get("id"), p["text"]) for p in r["play"]]
+        self.assertEqual(plays[-1], ("target_role", "部長様はいらっしゃいますでしょうか？"), plays)
+        self.assertEqual((f.role_called, f.successor, f.judge_context()[0].text), (True, False, "部長様はいらっしゃいますでしょうか？"))
+        self.assertNotIn("target_full", f.target)   # お名前の入る一言（フルネームでお呼びし直す）は使わない
+        _, text = instruction.build(b, "S2", opening_mode="recorded", play_recordings=True)
+        self.assertIn("目的の人は「部長様」です。", text)
+        self.assertIn("部長様はいらっしゃいますでしょうか？", text)
+        self.assertNotIn("「おかだ」", text)
+        # 録音の組は、どの電話でも同じ部分（CL-2 の 4-152）＝予約証で部分は変わらない
+        self.assertEqual(b.replay_parts(), self.N.U.business(self.N.U.FIXED, "named").replay_parts())
+
+    def test_the_role_person_absent_on_a_ticket_call_ends_the_row(self):
+        from flowctl import ABOUT_NO_SUCH
+        f = self.N.U().opened(self.ticket())
+        f.use_checks("judge", "judge2", "asks")
+        r = self.N.say(f, "そういう者はおりませんが。", ABOUT_NO_SUCH)   # お名前ではお呼びし直さない（役職の方をお呼びしている）
+        self.assertEqual((r["result"], f.end_reason), ("end", "departed"))
+        self.assertEqual(self.marks(f), [(True, None)])
 
 
 # ── 顧客獲得型の2つ目の (4)：「しつこい」の境目（分身 K2）。✅ 2026-11-20 日本時間2時18分01秒 ユーザー「伺い81：…OK」（「しつこい」は締めずに続け、はっきり怒っている方とは

@@ -5565,7 +5565,7 @@ class Flow:
                  voicemail_message: str | None = None, target: dict | None = None, answers: dict | None = None,
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
                  name_readings: dict[str, str] | None = None, judge_names: dict[str, str] | None = None,
-                 promised: bool = False, apology: tuple = (), successor: bool = False,
+                 promised: bool = False, apology: tuple = (), successor: bool = False, role_call: bool = False,
                  voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None, hold_wait_s: int = 300,
                  apology_call: str | None = None, apology_when: str | None = "later", client_does: str = "", apology_text: str | None = None,
                  earliest_day=None, today=None, handoff_ways: tuple = (), close_offer: "CloseOffer | None" = None,
@@ -6042,6 +6042,12 @@ class Flow:
                     d["target_full"] = d["target_successor_full"]
                 else:
                     d.pop("target_full", None)   # 後任の方の形が無ければ、お呼びし直さない（前任の方をフルネームでお呼びしない）
+        if role_call:
+            # 前の電話で後任の方もいらっしゃらず、その役職の方をお呼びした会社への次の電話（予約証の role_call＝仮の名前。CL-2 が通話の事実 departed の to_role から立てる＝
+            # 後任の方の電話 successor と同じ考え）：最初から役職の方が目的の人。お呼びする形は通話の中で切り替えるときと同じ1か所（_role_parts）。✅ 決まりで決めた（CL-1 の
+            # 続きの頼み (2)）
+            assert not successor, "後任の方の電話と役職の方の電話は、どちらか1つです"
+            self._role_parts()
         if apology_call:
             # お詫びの電話には業務の用件を流さない（どの道でも＝名乗りの流し直し・まだ届いていない部分・代わりの方の申し出。「ご用件は？」には
             # お詫びの録音＝_op_replay_opening）。⛔ 2026-10-24 の見直し（調べ役）：繋いだときだけ用件を外していたので、ほかの道では業務の用件が流れた
@@ -13400,12 +13406,18 @@ class Flow:
             self._keep_calling_turn()
             self.target_from = self.callee_turns + 1
             return r
-        self._note("departed", policy=policy, read=sorted(read), successor=self.successor)
+        to_role = bool(self.successor and policy != "end" and not self.role_called and (self.target or {}).get(ROLE_PARTS["target"]))
+        # 通話の事実 departed（唯一の書き場所）：successor＝後任の方・役職の方をお呼びしているときに在籍していないと言われた（お呼びできる方がもういない＝行を終える。
+        # 役職の方は後任の方のあと＝CL-2 の call_report.departed_end の読みのまま）。to_role（仮の名前・CL2_PENDING）＝この在籍していないのあと、その役職の方をお呼びした
+        # （行を終えない＝役職の方が外出中などなら今のかけ直しの道で戻りの時刻を伺う・次の電話は予約証の role_call＝はじめから役職の方）。役職の方へ切り替えた記録にだけ付ける
+        # （ほかの記録は今のまま）。✅ 決まりで決めた（CL-1 の続きの頼み (2)＝本書 9-4 の「担当者が不在」・2026-11-04 日本時間3時15分47秒「通常は、いない場合、終えるではなく、
+        # いつ戻られるのかを確認するのがセオリーですよ！」）。⛔ 3ad40c6e〜547c67f8 は印が無く、役職の方が外出中でも CL-2 の読みで行が終わった（伺った戻りの時刻が宙に浮く）
+        self._note("departed", policy=policy, read=sorted(read), successor=self.successor or self.role_called, **({"to_role": True} if to_role else {}))
         now = self._judged_now()
         told = why == "departed" or not now or any(says_away(v) for v in now.values())
         self._keep_calling_turn()
         lead = [{"kind": "recorded", "id": "departed", "text": DEPARTED_ACK}] if told else []
-        if self.successor and policy != "end" and not self.role_called and (self.target or {}).get(ROLE_PARTS["target"]):
+        if to_role:
             # 後任の方もいらっしゃらない（後任の方をお呼びしたどの道でも＝はじめから後任の方をお呼びする電話も）：その役職の方をお呼びする（役職だけでお呼びする業務の呼ぶ一言と
             # 同じ1か所＝名乗りの部分 ROLE_PARTS・_to_role）。頭は後任の方をお呼びするときと同じ（在籍していないことを伝えられたときのお詫びの録音＝下の呼ぶ所）。
             # ✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいないときは、該当の役職の方」（名簿に役職が無ければ今のお礼の締め＝下）
@@ -13450,6 +13462,18 @@ class Flow:
         お呼びする業務と同じ問い（後任の方の印 successor を下ろす＝はじめにお呼びした言葉は見せない）。前にお呼びした方への読み・回数は数えない（_to_successor と同じ区切り）。
         お名前の入る一言（フルネームでお呼びし直す・携帯電話の番号の確かめ）は、役職の方には使わない。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいない
         ときは、該当の役職の方」"""
+        self._role_parts()
+        self._calling_questions()
+        self.target_from = self.callee_turns + 1
+        self.target_called, self.target_confirmed, self.target_sorry, self.transfer_asked = [], [], [], []
+        self.target_claimed = False
+        self.back_turn = None
+
+    def _role_parts(self) -> None:
+        """役職の方をお呼びする形にする唯一の場所（通話の中で切り替える _to_role・次の電話ではじめから役職の方をお呼びする＝予約証 role_call の始め）：呼ぶ一言・確かめる一言・
+        ご事情を伺う一言・お取り次ぎのお願いを名乗りの部分 ROLE_PARTS（役職だけでお呼びする業務と同じ形の文）にし、お名前の入る一言（フルネームでお呼びし直す・携帯電話の番号の
+        確かめ）は使わない。後任の方の印 successor は下ろす（判定は役職だけでお呼びする業務と同じ問い）。録音の組は、どの電話でも同じ部分（CL-2 の 4-152）＝流す部分の名前だけ
+        替える（part_names）。"""
         self.successor, self.role_called = False, True
         for d in {id(d): d for d in (self.target, self.opening) if d}.values():
             for k, part in ROLE_PARTS.items():
@@ -13462,11 +13486,6 @@ class Flow:
         for k in ROLE_PARTS:
             self.system_parts.pop(k, None)   # 後任の方の共通の一言の録音（SUCCESSOR_IDS）は使わない
         self.part_names.update(ROLE_PARTS)
-        self._calling_questions()
-        self.target_from = self.callee_turns + 1
-        self.target_called, self.target_confirmed, self.target_sorry, self.transfer_asked = [], [], [], []
-        self.target_claimed = False
-        self.back_turn = None
 
     def _plays_recorded(self, plays: list[dict]) -> bool:
         """決まった言葉 plays（名乗りの部分・申し出に応じる一言など）を、録音で流せる通話か（唯一の場所。⛔ 2026-11-04 に見つけた穴：_led と
