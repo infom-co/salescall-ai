@@ -187,6 +187,14 @@ MAX_S["question_long"] = 17.0
 # 3回目から戻るときの一言（phrases.BACK_TO_MIDWAY・27字）を、上の104字の一言と1本にした形（131字＝見込み 21.2秒）の上限（2026-11-07 日本時間4時40分35秒のご指摘）
 HOW["question_xl"] = HOW["question"]
 MAX_S["question_xl"] = 24.0
+# 顧客獲得型の Yes の質問の段の受け止め（phrases.YES_RECEIVE＝共通の一言 yes_received_（鍵））と「手短に」への一言（yes_brief）：お客様のお断り・お忙しさを心の底から
+# 受け止める読み方（✅ 2026-11-20 日本時間0時09分49秒 ユーザー「心の底から受け止める。（ひとこと端的に受け止めるのは相手に反撃されるすきを与える）」）。2回目からの
+# 受け止め（約50字＝見込み 8.1秒）が入る上限
+from phrases import YES_RECEIVE  # noqa: E402
+HOW["yes_received"] = ("電話で、お客様のお断りやお忙しさを、心の底から受け止めて共感するように、温かく、申し訳なさを込めて。言葉の途中で区切らずに、"
+                       "なめらかに、ひと続きで")
+MAX_S["yes_received"] = 9.0
+HOW_OF.update({f"yes_received_{k}": "yes_received" for k in YES_RECEIVE} | {"yes_brief": "yes_received"})
 
 
 def question_how(text: str) -> str:
@@ -375,8 +383,10 @@ def script_table(business) -> tuple[dict, dict]:
     from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, again_fit, back_fit, question_clip
 
     items = [("intro", business.opening_parts()[1], "intro")]
-    if business.purpose_line:
-        items.append(("purpose", business.purpose_line, "purpose"))
+    # 用件の一文（顧客獲得型は「（用件の名詞）の件でお電話しているんですけど、」＝instruction.Business.purpose_text の1か所。業務の入口でない試しの業務は用件の一文のまま）
+    purpose = business.purpose_text() if hasattr(business, "purpose_text") else business.purpose_line
+    if purpose:
+        items.append(("purpose", purpose, "purpose"))
     # 相手に聞かれたことへの決まった言い方（「AIですか？」）・留守番電話の伝言・伝言・引き止めの一言（業務が書いたときだけ＝replay_parts）も、依頼主の単位
     # （DESIGN.md 6-13 の3）。業務が書かなかった「AIですか？」の答えは標準＝共通の一言の録音（phrases.STANDARD_PARTS）なので、ここには入らない。
     # 目的の人を呼ぶ一言・確かめる一言は、電話をかける相手ごとに名前が変わるので、ここではなく名前の録音の台帳（DESIGN.md 4-3）
@@ -456,6 +466,10 @@ def script_table(business) -> tuple[dict, dict]:
             items += [(rid, text, question_how(text)) for rid, text in dict([(oq.recording, oq.text)] + fitted).items()]
             if asks_wish(oq):
                 items.append((pending_recording_id(oq), pending_line(oq), "question"))
+    # 顧客獲得型の Yes の質問（中身の入る依頼主の単位の録音。材料ごと×頭の言葉の形＝flowctl.yes_forms の1か所。流す形は flowctl.yes_question）。受け止めの一言・「手短に」への
+    # 一言は共通の一言（phrases.RECORDED の yes_received_・yes_brief）、2回目の受け止めのお名前は名前の録音の台帳（yes_received）
+    from flowctl import yes_forms
+    items += [(rid, text, question_how(text)) for rid, text in yes_forms(getattr(business, "yes_asks", ()))]
     table, readings = {}, {}
     for base, text, how in items:
         variants = reading_variants(text, business.names)
