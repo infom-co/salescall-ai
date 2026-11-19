@@ -3,7 +3,7 @@
 {% block title %}発信禁止{% endblock %}
 {% block main %}
 {% set base = ("/c/" ~ client.client_id ~ "/dnc") if client else "/t/dnc" %}
-<div class="title-row"><h1>{{ ("発信禁止：" ~ client.name) if client else "共通の発信禁止（" ~ ctx.tenant_name ~ "）" }}</h1>
+<div class="title-row"><h1>{{ ("発信禁止（依頼者「" ~ client.name ~ "」）") if client else ("共通の発信禁止（「" ~ ctx.tenant_name ~ "」のすべての依頼者）") }}</h1>
   <span class="btn-row"><a class="btn" href="{{ base }}/import">一覧を取り込む</a>
   <details class="adder inline"><summary class="btn main">＋ 番号を登録する</summary>
     <form class="panel" method="post" action="{{ base }}" {% if not client %}data-needs-reason{% endif %}>

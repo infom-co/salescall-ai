@@ -61,13 +61,13 @@
 {% macro deficit_card(client, d, token, back) -%}
   <div class="card attention-stop deficit">
     <b>「{{ client.name }}」は今月、報酬より費用が多くなっています（赤字）</b>
-    <span class="muted">{{ d.figures }}・{{ time(d.warned_at) }}にお知らせ。電話は止めていません。</span>
+    <span class="muted">お知らせした時点（{{ time(d.warned_at) }}）：{{ d.figures }}。電話は止めていません。</span>
     {% if d.confirmed %}
       <button class="btn small" type="button" disabled>確かめました（{{ time(d.confirmed_at) }}）</button>
     {% else %}
       <form method="post" action="/c/{{ client.client_id }}/inbox/deficit/confirm">{{ csrf(token) }}
         <input type="hidden" name="warning_id" value="{{ d.warning_id }}"><input type="hidden" name="back" value="{{ back }}">
-        <button class="btn main small" type="submit">確かめた（これ以上お知らせしない）</button></form>
+        <button class="btn main small" type="submit">{{ words.DEFICIT_CONFIRM }}</button></form>
       <span class="muted">{{ time(d.deadline) }}までに確かめないと、契約者と管理者にもう一度お知らせします。</span>
     {% endif %}
   </div>

@@ -14,8 +14,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
+from pathlib import Path
 from dataclasses import dataclass
 
 from salescall.core import ai_plans, ai_troubles, business_import, errors, exclusions, gate, notify, stops
@@ -38,7 +40,7 @@ BUSINESS_STATES: dict[str, Word] = {
     "out_of_scope": Word("範囲外（番号違いなど）", "対象外（番号違いなど）"),
     "not_reached": Word("目的のお客様に繋がらなかった", "ご担当の方に繋がらず"),
     "concluded": Word("結論として終えた", "ご回答をいただき終了"),
-    "unknown": Word("判定できない（判定待ち）", None),
+    "unknown": Word("判定できない（決め直し中）", None),
 }
 
 # 試行（1回の電話）の状態（docs/DESIGN.md 4-2。データベースの attempt_state）
@@ -84,7 +86,7 @@ DELIVERY_STATES: dict[str, Word] = {
 # 次の予定の種類（docs/DESIGN.md 7-2。current_next_actions の kind）
 NEXT_KINDS: dict[str, Word] = {
     "call": Word("かけ直し待ち", "対応中"),
-    "hold": Word("判定待ち", None),
+    "hold": Word("結果の決め直し中", None),
     "end": Word("済み", "済み"),
 }
 
@@ -209,113 +211,9 @@ SPEAKER_WORDS: dict[str, str] = {"callee": "お客様", "ai": "こちら（AI）
 
 # 設定の、画面の見出しに出す短い名前（1か所。設定の定義＝salescall.setting_definitions のすべての名前にあるかを試験が突き合わせる）。
 # 説明の文の正本は CL-2 の setting_definitions.meaning（開いたときに出す）。
-SETTING_LABELS: dict[str, str] = {
-    "ai.ear_tpm_limit": "聞き取りの確かめの1分の上限",
-    "ai.plan_conversation": "会話 AI の料金のプラン",
-    "ai.plan_import": "業務を組む AI の料金のプラン",
-    "ai.tpm_limit": "会話 AI の1分の上限",
-    "ai.tpm_per_call": "1本の電話の1分の見込み",
-    "ai.tpm_safety": "上限のうち使ってよい割合",
-    "approval.human": "検証モードを使うか",
-    "backup.ai.keep_days_cloud": "控え（AI用）をクラウドに残す日数",
-    "backup.ai.keep_days_drive": "控え（AI用）をハードディスクに残す日数",
-    "backup.overdue_after": "控えが取れていないとみなす長さ",
-    "backup.retry_after": "控えをやり直すまでの間",
-    "backup.submission.keep_days_drive": "提出用の控えを残す日数",
-    "budget.client_daily_yen": "依頼者の1日の費用の上限",
-    "budget.deficit_grace": "赤字をもう一度知らせるまでの時間",
-    "budget.max_cost_ratio": "報酬に対する費用の割合の上限",
-    "budget.tenant_daily_yen": "契約者の1日の費用の上限",
-    "business.call_declined_again": "断られたお客様に次の実施回でかけるか",
-    "call.filler_after": "沈黙のあと「はい」を入れるまで",
-    "call.frozen_after": "会話が固まったとみなすまで",
-    "call.hangup_after_close_wait": "締めのあと、こちらから切るまで",
-    "call.hangup_after_decline_wait": "断られたあと、こちらから切るまで",
-    "call.hold_wait": "保留で待つ長さ",
-    "call.silence_prompt_after": "黙られたとき、一言かけるまで",
-    "call.wait_ask_after": "「待ってて」のあと、一言かけるまで",
-    "callback.call_alternate_number": "お客様が言った別の番号へかけるか",
-    "callback.exact_days": "時刻の約束に出ないとき、続ける日数",
-    "callback.exact_retry_gaps": "時刻の約束に出ないとき、かけ直す間隔",
-    "callback.exact_slot": "時刻の約束の1回分の長さ",
-    "callback.month_ahead": "1か月以上先の次の回へ回すか",
-    "callback.period_afternoon": "「午後」の幅",
-    "callback.period_evening": "「夕方」の幅",
-    "callback.period_forenoon": "「午前」の幅",
-    "callback.period_morning": "「朝」の幅",
-    "callback.period_night": "「夜」の幅",
-    "callback.until_other_party": "「〇時までに別の番号へ」のかけ方",
-    "callback.until_preparing": "「〇時までに確認します」のかけ方",
-    "callback.until_unavailable": "「〇時まで出られない」のかけ方",
-    "callback.window_daily_max": "幅の約束で1日にかける回数",
-    "callee.business_hours": "お客様の営業時間",
-    "callee.designated_limit": "お客様指定の歯止め時間",
-    "calling.allow_navi_dial": "ナビダイヤルへかけるか",
-    "calling.allow_toll_free": "フリーダイヤルへかけるか",
-    "calling.business_daily_dials": "業務の1日の本数の上限",
-    "calling.call_after_refusal": "ほかの業務で断られたお客様にかけるか",
-    "calling.hours": "かけてよい曜日と時間帯",
-    "calling.hours_limit": "深夜・早朝の歯止め",
-    "calling.max_concurrent_calls": "同時に話す本数の上限",
-    "calling.ng_hours": "かけない時間（NG時間）",
-    "conversation.ask_back_required": "必須の質問を聞き返す回数",
-    "conversation.recheck_required": "必須の質問を締めの前に確かめる回数",
-    "decision.undecided_as_decided": "決められない決定の扱い",
-    "dial.failed_retry_days": "鳴らなかった番号へかけ直す並び",
-    "dnc.client_ref_is_stable_id": "管理番号でも止めるか",
-    "dnc.former_refusal_calls_new_person": "前の担当の方が断った番号へ新しい方にかけるか",
-    "gate.before_other_promise": "ほかの約束の前にかけるか",
-    "gate.call_length_days": "平均の通話時間を測る日数",
-    "gate.claim_lifetime": "予約の期限",
-    "gate.denied_retry_wait": "見送ったあと次に候補に出すまで",
-    "gate.exact_promise_guard": "時刻の約束の前に回線を空ける長さ",
-    "gate.exact_promise_guard_samples": "平均の通話時間を使い始める本数",
-    "gate.max_dials_per_contact_per_day": "同じ連絡先へ1日にかける回数",
-    "gate.other_contractor_interval": "ほかの契約者がかけた番号への間隔",
-    "gate.same_contact_min_interval": "同じ連絡先への最小の間隔",
-    "gate.same_number_gap": "ほかの業務がかけた番号への間隔",
-    "judge.models": "意味の判定に使う AI",
-    "judge.outage_bypass": "判定が止まったときの道",
-    "line.answer_drop_baseline_days": "応答率の「いつも」を見る日数",
-    "line.answer_drop_baseline_min_dials": "「いつも」を決める本数",
-    "line.answer_drop_hour_min_dials": "時間帯ごとの「いつも」を使う本数",
-    "line.answer_drop_min_dials": "応答率の低下を知らせる本数",
-    "line.answer_drop_ratio": "応答率の低下とみなす比",
-    "line.answer_drop_significance": "応答率の低下の確からしさ",
-    "line.lease": "回線を借りる期限",
-    "line.lease_renew": "回線の借用を延ばす間隔",
-    "line.max_dials_per_day": "1つの回線の1日の本数の上限",
-    "line.test_number": "テスト番号",
-    "line.test_ring_gaps": "テスト番号を鳴らす間隔",
-    "line.test_ring_hours": "テスト番号を鳴らしてよい時間",
-    "measure.draw_after": "抜き取りを選ぶまでの間",
-    "measure.sample_per_week": "1週間に抜き取る電話の数",
-    "pc.auto_update": "PC のプログラムを自動で更新するか",
-    "pc.down_after": "PC が止まったとみなすまで",
-    "quality.max_complaint": "苦情の割合の上限",
-    "quality.max_ear_disagreement": "聞き取りが食い違った割合の上限",
-    "quality.max_forbidden_speech": "言ってはいけないことの件数の上限",
-    "quality.max_technical_error": "技術的な失敗の割合の上限",
-    "quality.max_unknown_judgments": "判定できない件数の上限",
-    "quality.mock.calls": "模擬通話の本数",
-    "quality.mock.min_judgment_match": "模擬通話の判定の一致の下限",
-    "quality.mock.min_value_match": "模擬通話の値の一致の下限",
-    "quality.stage.sizes": "立ち上げの段ごとの件数",
-    "recording.keep_days_cloud": "録音をクラウドに残す日数",
-    "recording.keep_days_drive": "録音をハードディスクに残す日数",
-    "retry.apology_max": "お詫びの電話の回数の上限",
-    "retry.ask_number_again_max": "番号の聞き直しの回数の上限",
-    "retry.max_attempts_per_task": "1人のお客様にかける回数の上限",
-    "retry.no_opening_recheck": "かけられる時間が無い行の見直し",
-    "retry.time_band_boundaries": "時間帯の区切り",
-    "stop.ai.probe_interval": "AI の回復を試す間隔",
-    "stop.ai.resume_after_successes": "AI の回復とみなす回数",
-    "stop.ai_quota.rest": "上限に当たったキーを休ませる長さ",
-    "stop.ai_rate_limit.backoff": "混雑のときの待ち",
-    "stop.trouble.stop_after_rows": "不具合で止めるお客様の数",
-    "verification.recording_wait": "録音が届くのを待つ長さ",
-    "verification.retry_wait": "確かめをやり直すまでの待ち",
-}
+SETTING_LABELS: dict[str, str] = json.loads((Path(__file__).with_name("setting_labels.json")).read_text(encoding="utf-8"))
+# ↑ 画面の言葉のデータ（設定の名前 → 短い名前）。値を読むものではないので、コードの中に設定の名前を並べず、データのファイルに置く
+#   （設定の値を読んでよいのは決めた1か所だけ＝CL-2 の見張り。その見張りとぶつからないように）。
 
 
 _DEV_MARK = re.compile(r"Intent|DESIGN|ユーザー|管理者「|✅|⏳|⛔|20\d\d-\d\d|CL-\d|0\d{3}|計画書|設計書")
@@ -349,6 +247,10 @@ def screen_help(key: str, text: str) -> str:
     for inner, plain in _INNER_WORDS.items():
         out = out.replace(inner, plain)
     return re.sub(r"\s+([。、）])", r"\1", out).strip()
+
+
+# 赤字の確認ボタンの名前（承認待ちと、費用と報酬・依頼者のタブの知らせで同じ名前＝1か所）
+DEFICIT_CONFIRM = "確かめた（これ以上お知らせしない）"
 
 
 # 発信禁止の一覧の取り込みの欄の名前（欄の正本は core の dnc_import.FIELDS。試験が突き合わせる）
@@ -387,7 +289,7 @@ CALL_END_CLIENT: dict[str, str] = {
 
 # 単価の表の言葉と、見せる単位（データベースの price_versions の source・unit・tier の決まりのすべて。試験が突き合わせる）。
 # 単価はデータベースでは「1単位あたりの円」。画面では管理者・契約者が読みやすい量あたりで見せ・入れる（PRICE_UNITS の倍数。決めるのはここだけ）
-PRICE_SOURCE_WORDS: dict[str, str] = {"ai": "会話AI", "ear": "別の耳（聞き取りの確かめ）", "line": "回線", "judge": "意味の判定"}
+PRICE_SOURCE_WORDS: dict[str, str] = {"ai": "会話AI", "ear": "聞き取りの確かめ", "line": "回線", "judge": "意味の判定"}
 PRICE_TIER_WORDS: dict[str, str] = {"free": "無料枠", "paid": "有料枠"}
 PRICE_UNITS: dict[str, tuple[int, str]] = {"input_tokens": (1_000_000, "入力 100万トークンあたり"),
                                            "output_tokens": (1_000_000, "出力 100万トークンあたり"), "seconds": (60, "1分あたり")}

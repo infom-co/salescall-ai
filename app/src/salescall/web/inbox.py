@@ -92,7 +92,7 @@ def _deficit(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     return [Item(kind="deficit", key={"warning_id": str(n["warning_id"])}, title="赤字の確認",
                  decide="報酬より費用が多くなっていることを確かめたか", evidence=[("今月の費用と報酬", str(n["figures"]))],
                  if_not="発信は止めていません。確かめるまで、決めた時刻に知らせが届きます。",
-                 at=n["warned_at"], deadline=n["deadline"], buttons=(Button("confirm", "確かめた", main=True),))]
+                 at=n["warned_at"], deadline=n["deadline"], buttons=(Button("confirm", words.DEFICIT_CONFIRM, main=True),), link="/t/costs")]
 
 
 # 録音を聞く仕組み（録音の置き場の参照 audio_ref から音を読み出す部品）は、まだ無い（CL-2・CL-1 へのお願い）。お詫びの電話は「承認のときに

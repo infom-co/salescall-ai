@@ -65,7 +65,7 @@ class Csv(unittest.TestCase):
         got = list(csv.reader(io.StringIO(files.to_csv([self._row(company="=HYPERLINK(\"x\")", client_ref="@1", person="+1", phone="-2")])
                                           .decode("utf-8-sig"))))[1]
         row = dict(zip(result_rows.COLUMNS, got))
-        self.assertEqual([row["管理番号"], row["会社名"], row["お呼びした方"], row["電話番号"]], ["'@1", "'=HYPERLINK(\"x\")", "'+1", "'-2"])
+        self.assertEqual([row["管理番号"], row["会社名"], row["お呼びする方"], row["電話番号"]], ["'@1", "'=HYPERLINK(\"x\")", "'+1", "'-2"])
 
     def test_the_blanks_to_fill_say_so_in_the_csv(self):   # ✅ 2026-11-18 管理者「(ア)でOK」
         r = self._row(full_name="", department="営業部", to_fill=("お呼びする方のフルネーム",))

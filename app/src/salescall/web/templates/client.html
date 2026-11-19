@@ -50,7 +50,7 @@
 <div class="grid cols-3 stats" {% if stopped or needs %}style="margin-top:16px"{% endif %}>
   <div class="card">{{ stat("今日かけた電話", today.dialed_today) }}<div class="muted hint" style="margin-top:6px">日本時間の今日・発信まで進んだ電話</div></div>
   <div class="card">{{ stat("かけ直し待ち", today.call) }}<div class="muted hint" style="margin-top:6px">次の電話の予定がある行</div></div>
-  <div class="card {{ 'attention-wait' if today.hold }}">{{ stat("判定待ち", today.hold, "wait" if today.hold else "") }}<div class="muted hint" style="margin-top:6px">結果を確かめ直している行（依頼者へは出しません）</div></div>
+  <div class="card">{{ stat(words.NEXT_KINDS["hold"].screen, today.hold) }}<div class="muted hint" style="margin-top:6px">システムが結果を決め直しているお客様です（することはありません。依頼者へは出しません）</div></div>
 </div>
 {% endif %}
 {% if waiting %}
@@ -66,7 +66,7 @@
 {% if not fresh %}
 <section class="grid cols-2 outcome" style="margin-top:16px">
   <div class="card">
-    <h2>結果別の行の数</h2>
+    <h2>結果別のお客様の数</h2>
     {% set total = f.results.values()|sum %}
     {% if total %}
     <ul class="bars">
@@ -76,7 +76,7 @@
         <span class="num">{{ f.results[k] }}</span></li>
       {% endfor %}
     </ul>
-    <p class="muted">合わせて {{ total }} 行。結果は、行ごとの最新の結果です（確定していないものも入ります）。</p>
+    <p class="muted">合わせて {{ total }} 件。お客様ごとの最新の結果です（確定していないものも入ります）。</p>
     {% else %}{{ empty("まだ行がありません", "お客様リストを取り込むと、ここに結果ごとの数が出ます。") }}{% endif %}
   </div>
   <div class="card {{ 'attention-wait' if unconfirmed }}">
@@ -85,9 +85,9 @@
       <a class="mini {{ 'wait' if f.unconfirmed.awaiting_check }}" href="/t/inbox?kind=result_check&client={{ client.client_id }}">
         <b class="num">{{ f.unconfirmed.awaiting_check }}</b><span>確かめ待ち</span><small>承認待ちで確かめる</small></a>
       <div class="mini"><b class="num">{{ f.unconfirmed.blocked }}</b><span>決定待ち</span><small>取り消せない決定・あとの電話を待つ</small></div>
-      <div class="mini {{ 'wait' if f.unconfirmed.unknown }}"><b class="num">{{ f.unconfirmed.unknown }}</b><span>判定できない</span><small>判定し直すまで渡さない</small></div>
+      <div class="mini"><b class="num">{{ f.unconfirmed.unknown }}</b><span>判定できない</span><small>判定し直すまで渡さない</small></div>
     </div>
-    <h3 style="margin-top:14px">今日、門で止め始めた行（理由別）</h3>
+    <h3 style="margin-top:14px">今日、システムが電話を見送り始めたお客様（理由別）</h3>
     {% if f.denied_today %}
     <ul class="reasons">{% for r, n in f.denied_today %}<li><span>{{ words.gate_reason(r) }}</span><b class="num">{{ n }}</b></li>{% endfor %}</ul>
     {% else %}<p class="muted">今日、新しく止めた行はありません。</p>{% endif %}

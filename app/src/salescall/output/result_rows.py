@@ -22,7 +22,7 @@ from salescall.output import words
 
 DELIVERABLE_STAGES: tuple[str, ...] = ("verification", "production")
 
-COLUMNS: tuple[str, ...] = ("管理番号", "会社名", "お呼びした方", "お呼びする方のフルネーム", "お呼びする方の部署", "電話番号", "処理", "結果",
+COLUMNS: tuple[str, ...] = ("管理番号", "会社名", "お呼びする方", "お呼びする方のフルネーム", "お呼びする方の部署", "電話番号", "処理", "結果",
                             "通話の終わり方", "かけた回数", "最後にかけた日時")
 
 # 依頼者に埋めていただく欄（「お名前だけではどの方か分からなかった」行。どの行のどの欄かは core の business_settings.who_unclear_blanks の

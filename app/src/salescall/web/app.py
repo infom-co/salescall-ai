@@ -1038,7 +1038,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 except business_settings.SettingsInvalid as e:
                     s, problem = None, f"この版は、いまの確かめに通りません：{e}"
                 except LookupError:   # 中身をまだ置いていない版（業務の取り込みで置く）
-                    s, problem = None, "この版には、まだ業務設定の中身がありません（業務の取り込みで作ります）。"
+                    s, problem = None, "この版には、まだ業務設定の中身がありません。業務の資料を取り込む画面は準備中です（入ると、業務のタブの「はじめかた」から取り込めます）。"
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem}
             return page(request, "version.html", person, ctx, **ctx.client(client_id, read, read_only=True))
