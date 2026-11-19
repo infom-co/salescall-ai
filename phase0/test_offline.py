@@ -46,11 +46,19 @@ CL2_PENDING = frozenset({
                          "elsewhere_whole",
                          # 決め手を伺う一言（E5＝callback_question("elsewhere_point")・共通の一言の録音 callback_elsewhere_point）・その事実 elsewhere_point・前の通話の答えの
                          # whole_fact（伺い47 のイ・まとめ役 CL-1 の頼み (1)(3)。CL-2 への知らせは分身 S の書き置き＝rv110/S/notes.md）
-                         "elsewhere_point", "callback_elsewhere_point", "callback_elsewhere_point_midway", "callback_elsewhere_point_lead_soredeha", "E5", "whole_fact",
+                         # （E5 へは戻らない＝戻る一言のあとの形・伺い直す形は作らない＝phrases.NOT_ASKED_AGAIN。分身 W）
+                         "elsewhere_point", "callback_elsewhere_point", "E5", "whole_fact",
                          # 呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（名前の録音の台帳の続く言葉 target_transfer・
                          # 後任のご担当者様の形の共通の一言の録音 successor_transfer）と頭のお詫びの相づちの録音 taihen_shitsurei「大変失礼いたしました。」（伺い51 のイ＝
                          # ✅ 2026-11-19 日本時間15時10分27秒。CL-2 への知らせは分身 R の書き置き＝rv110/R/notes.md）
-                         "target_transfer", "successor_transfer", "taihen_shitsurei"})
+                         "target_transfer", "successor_transfer", "taihen_shitsurei",
+                         # 頭のお詫びを、予約証のお詫びの理由ごとに最後まで流せたか（会話の報告の鍵 apologies_delivered＝Flow.apologies_delivered。CL-2 の連絡帳
+                         # 4-387 の (7) の伺いへの答え＝まとめ役 CL-1 の頼み (2)。CL-2 への知らせは分身 W の書き置き＝rv120/W/notes.md）
+                         "apologies_delivered",
+                         # 会話の処理が読める設定の名前の頭（CL-2 の conversation_io.CALL_SETTING_PREFIXES）に、お客様の営業時間・歯止め時間の頭 callee. を足していただく
+                         # （instruction.CALL_SETTINGS の callee.business_hours・callee.designated_limit。CL-2 の連絡帳 4-405 の (1) への答え＝まとめ役 CL-1 の頼み (11)。
+                         # CL-2 への知らせは分身 W の書き置き＝rv120/W/notes.md）
+                         "callee."})
 # （2026-11-19 に外した：手短に伺っている途中の少し焦った「承知しました。」の録音 shouchi_hurried＝CL-2 の common_phrases.TEXTS に入った＝CL-2 の
 # 連絡帳 4-426 の (1)・CL-1.md 4-190）
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す。2026-11-18 に「どうなさいますか？」の
@@ -59,7 +67,13 @@ CL2_PENDING = frozenset({
 CL2_RETIRED: frozenset[str] = frozenset({"callback_later_time", "callback_later_time_lead_soredeha", "callback_later_time_midway",
                                          "callback_later_time_answering", "callback_later_time_answering_lead_soredeha",
                                          "callback_later_time_answering_midway", "callback_hurry_when", "callback_hurry_when_lead_soredeha",
-                                         "callback_hurry_when_midway"})
+                                         "callback_hurry_when_midway",
+                                         # 流れの制御が伺い直さない役目（ほかの会社のことを伺う一言 E1・深める一言 E2〜E4）の、戻る一言のあとの形と伺い直す形（流れない＝
+                                         # phrases.NOT_ASKED_AGAIN の1か所で表から外した。CL-2 の連絡帳 4-411 の (1)＝まとめ役 CL-1 の頼み (4)・分身 W）
+                                         "callback_elsewhere_lead_soredeha", "callback_elsewhere_midway",
+                                         "callback_deepen_lead_soredeha", "callback_deepen_midway",
+                                         "callback_deepen_measures_lead_soredeha", "callback_deepen_measures_midway",
+                                         "callback_deepen_ahead_lead_soredeha", "callback_deepen_ahead_midway"})
 # 共通の一言の録音の文を替えて、CL-2 が名前と文の写し（common_phrases.TEXTS）を作り直すまで、文だけを比べない名前（CL-2 の 4-403 の (1)）。
 # CL-2 の文がそろったら落ちる＝外す
 CL2_TEXT_PENDING: frozenset[str] = frozenset()
@@ -5971,7 +5985,8 @@ class PlayRecordingsTest(unittest.TestCase):
         # forbidden_speech・承認したお詫びの文）は、前の電話でお話ししていない方には、誤った案内の訂正だけを、その電話にいなかった方向けの文（契約者が承認する
         # 文＝CL-2 の作り）で流し、不適切な発言だけのお詫びは流さない。CL-2 の作り（訂正が入っているかの印・その電話にいなかった方向けの文）ができるまでは
         # 流さない（案2＝伺いの文の「CL-2 の作りができるまでは案2で流しません」）。決まりは途中で切れたお詫びと同じ1か所（sorry_texts の talked＝earlier_talked）・
-        # 名乗りの録音の文（opening_parts）も同じ。伝えられなかったので、会話の報告の apology_delivered は False（CL-2 が印を外さない）。
+        # 名乗りの録音の文（opening_parts）も同じ。伝えられなかったので、会話の報告の apologies_delivered の forbidden_speech は False（CL-2 が印を外さない。
+        # 頭のお詫びを流せたかは理由ごとの鍵の1か所＝Cl2Answers1119Test の 2。それまでは apology_delivered で報告した）。
         # ⛔ 直す前は、後任の方・担当の方が替わった電話の新しい方・前の答えが代わりの方の答えだけのご本人にも「先日のお電話では大変失礼なことを…」を流した
         from flowctl import Question, facts_reading
         from instruction import Business, Target
@@ -6013,11 +6028,11 @@ class PlayRecordingsTest(unittest.TestCase):
                                   ("代わりの方の答えだけのご本人", sub1, {}), ("この担当の期にお話しした電話が無いご本人", {}, {"when": None})):
             b, f, said = start(earlier, **kw)
             self.assertNotIn(approved, said, name)
-            self.assertIs(f.apology_delivered, False, name)
+            self.assertEqual((f.apologies_delivered, f.apology_delivered), ({"forbidden_speech": False}, None), name)
         # 前の電話でお話ししたご本人には今までどおり流す（伝えられた）
         b, f, said = start(mine)
         self.assertIn(approved, said)
-        self.assertIs(f.apology_delivered, True)
+        self.assertEqual((f.apologies_delivered, f.apology_delivered), ({"forbidden_speech": True}, None))
         # 目的の人の無い業務：名乗りの録音の文（opening_parts＝会話AIへの「プログラムが流す録音」の知らせ）と流れの制御が同じ1か所（この担当の期にお話しした
         # 電話が無い＝流さない・ある＝流す）
         for when, said_it in ((None, False), ("later", True)):
@@ -13835,7 +13850,7 @@ class TargetTest(unittest.TestCase):
     def test_a_promise_call_after_forbidden_speech_opens_with_the_approved_apology(self):
         # 約束の電話などの頭のお詫びの理由 forbidden_speech（前の電話で言ってはいけないことを言った＝CL-2 の 4-350 の (2)）：承認したお詫びの文（apology_text＝
         # CL-2 の apology.for_task の text）を、お詫びだけの電話と同じ流し方（kind apology＝お詫びの案ごとの録音）で、ほかの理由のお詫びと並べて（apology_order の
-        # 1か所＝前の電話で起きたことのお詫びが先）流し、そのまま約束の用件へ。伝えられたかは同じ材料（最後まで流れた録音の文）で apology_delivered。名乗りの録音の
+        # 1か所＝前の電話で起きたことのお詫びが先）流し、そのまま約束の用件へ。伝えられたかは同じ材料（最後まで流れた録音の文）で理由ごとの apologies_delivered。名乗りの録音の
         # 文（opening_parts）も同じ1か所（sorry_texts）。知らない理由・文の無い forbidden_speech は黙って捨てずに ValueError。⛔ 直す前は Flow.__init__ が知らない理由を
         # 黙って捨てていた（お詫びを流さずに約束の用件へ進み、CL-2 は目的のお客様と話せた締めで伝えたとみなす＝取り消せない害に近い）
         import dataclasses
@@ -13850,9 +13865,9 @@ class TargetTest(unittest.TestCase):
         self.assertEqual([(p["kind"], p.get("id")) for p in r["play"]][:2], [("apology", None), ("recorded", "apology_missed_promise")])
         self.assertEqual([p["text"] for p in r["play"]][:2], [sorry, APOLOGY_FIRST["missed_promise"]])
         self.assertEqual([p.get("part") or p.get("id") or p["kind"] for p in r["play"]][2:], ["purpose", "Q1"])
-        self.assertFalse(f.apology_delivered)   # 流すように頼んだだけ
+        self.assertEqual(f.apologies_delivered, {"forbidden_speech": False, "missed_promise": False})   # 流すように頼んだだけ
         f.on_played([sorry])
-        self.assertTrue(f.apology_delivered)
+        self.assertEqual(f.apologies_delivered, {"forbidden_speech": True, "missed_promise": False})
         t = dataclasses.replace(BUSINESS, apology=("cut_off", "forbidden_speech"), apology_text=sorry)
         self.assertEqual(t.opening_parts()[2:4], [sorry, APOLOGY_FIRST["cut_off"]])
         self.assertEqual(apology_order(("missed_promise", "cut_off", "forbidden_speech"), sorry), list(APOLOGY_REASONS))
@@ -18022,12 +18037,16 @@ class NoneOfThemTest(unittest.TestCase):
         self.assertEqual({k: RECORDED.get(k) for k in ("callback_email_bare", "callback_email_midway")}, {p["id"]: p["text"] for p in got[1:]})
         # システムの質問の録音はどれも、2回目・3回目の形の録音を持つ（決まりは1か所＝phrases.back_fit）。続きの電話の前置きのある一言（RESUMED_IDS）は、
         # 戻るときは前置きを言い直さず同じ役目のそれだけで伺う（Question.plain＝2026-11-08 の B-5）ので、その一言の2回目・3回目の形は流れない＝持たない
-        from phrases import AGAIN_FIT, RESUMED_IDS
+        # 流れの制御が伺い直さない役目（phrases.NOT_ASKED_AGAIN＝ほかの会社のことを伺う一言・深める一言）は戻らない＝どの形も持たない（流しうるかの1か所。CL-2 の
+        # 連絡帳 4-411 の (1)）
+        from phrases import AGAIN_FIT, NOT_ASKED_AGAIN, RESUMED_IDS
+        never = {f"callback_{r}" for r in NOT_ASKED_AGAIN}
         for rid, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and not k.endswith(("_bare", "_midway")) and k not in AGAIN_FIT]:
-            self.assertEqual(f"{rid}_midway" in RECORDED, rid not in RESUMED_IDS, rid)
-            self.assertEqual(f"{rid}_bare" in RECORDED, text.startswith("それでは"), rid)
+            self.assertEqual(f"{rid}_midway" in RECORDED, rid not in RESUMED_IDS and rid not in never, rid)
+            self.assertEqual(f"{rid}_bare" in RECORDED, text.startswith("それでは") and rid not in never, rid)
             # 戻る一言なしに伺い直す形（頭「それでは」＝phrases.again_fit。見直し (12) の B-9）：文がまだつなぎの言葉で始まらない問いだけ持つ
-            self.assertEqual(f"{rid}_lead_soredeha" in RECORDED, rid not in RESUMED_IDS and not text.startswith("それでは") and text.endswith("？"), rid)
+            self.assertEqual(f"{rid}_lead_soredeha" in RECORDED,
+                             rid not in RESUMED_IDS and rid not in never and not text.startswith("それでは") and text.endswith("？"), rid)
         # ほかのご希望を伺う一言（依頼主の単位の録音）も同じ形を録音の表に持つ：方法を並べて伺う一言（問い）は2回目・3回目の形、ご案内の申し出（問いでない一言）は
         # 2回目の形だけ（3回目の一言をつながない）
         import dataclasses
@@ -26314,7 +26333,9 @@ class BackLineReviewTest(unittest.TestCase):
                 continue   # その役目には無い形
         from flowctl import CALLBACK_IDS
         made += [Flow(b.questions, number_again=reason).questions[CALLBACK_IDS["number"]] for reason in NUMBER_AGAIN]
-        missing = {(q.recording, i) for q in made for i, (_, bt) in enumerate(BACK_LINES, 1)
+        # 流れの制御が伺い直さない役目（phrases.NOT_ASKED_AGAIN）へは戻らない＝戻る一言のあとの形は流れない（流しうるかの1か所。CL-2 の連絡帳 4-411 の (1)）
+        from phrases import NOT_ASKED_AGAIN
+        missing = {(q.recording, i) for q in made if q.callback not in NOT_ASKED_AGAIN for i, (_, bt) in enumerate(BACK_LINES, 1)
                    if (closes(bt) or q.text.endswith("？")) and question_play([q], q.id, again=True, before=bt)["id"] not in RECORDED}
         self.assertEqual(missing, set())
 
@@ -30327,7 +30348,8 @@ class OtherCompanyClueSendWayTest(unittest.TestCase):
         line = "さようでございますか。弊社ではキャンセルのご連絡は前日までにお電話かメールでいただければ、キャンセル料はかかりません。"
         grounded(f, line, "知っていることだけ")
         self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": line})["result"], "own_answer")
-        self.assertEqual([(x["question"], "対応が遅くて" in x["said"], x["answer"]) for x in f.facts.get("elsewhere", [])], [(n1, True, line)])
+        # 記録の question は N1 のもとの業務の質問（ご承認の質問 Q3。依頼者へ渡る番号＝Flow._business_of の1か所。⛔ 66eb3d76 まで N1＝CL-2 の 4-408 の (2b)）
+        self.assertEqual([(x["question"], "対応が遅くて" in x["said"], x["answer"]) for x in f.facts.get("elsewhere", [])], [("Q3", True, line)])
         self.assertNotIn("concern", f.facts)
 
     def test_end_refused_is_only_for_refusing_the_call_itself(self):
@@ -38090,3 +38112,392 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
                 self.assertEqual(asked, it["asked"], it)   # 最終の確かめは、正解の表の行と同じ本番の1か所（accepted_line）の文
         self.assertEqual([m[0] for m in missing], ["R7"], missing)
         self.assertIn("聞き取れなかった", missing[0][1])
+
+
+class Cl2Answers1119Test(unittest.TestCase):
+    """まとめ役 CL-1 の頼み（2026-11-19 日本時間17時台・分身 W）：CL-2 の連絡帳 4-387・4-405〜4-411 の、会話の側への頼みと伺いへの答え。"""
+
+    def test_1_a_concern_names_the_business_question_or_none(self):
+        # CL-2 の 4-408 の (2b)：気になる点 concern・ほかの会社 elsewhere の記録の question（依頼者へ渡る＝CL-2 の読み手の説明は「業務の質問の番号か null」）に、
+        # システムの質問の番号（W1・N1・C1 など）を書かない。システムの質問なら、そのもとの業務の質問・もとが無ければ None（決めるのは書く1か所 Flow._business_of）。
+        # ⛔ 直す前は、ご承認の手順の N1 の位置でほかの会社のことを伺った記録に N1、時刻の質問 C1 の途中の取り消しのあとの気になる点に C1 が入った
+        from flowctl import CALLBACK_IDS
+        # (a) ご承認の質問 Q3 の「いいえ」のあとの N1 の位置で E1 を伺い、困りごとを言っていただいた：もとの業務の質問＝ご承認の質問 Q3
+        t = DeepenApprovalEndTest()
+        f = t.flow(True)
+        t.to_trouble(f)
+        self.assertEqual([e["question"] for e in f.facts["elsewhere"]], ["Q3"])
+        # (b) 受付の方のかけ直しの申し出 C7 の「はい」のあとの時刻 C1 の途中で取り消され、D2 に問題を言った：C1 にもとの業務の質問は無い＝None
+        f, _ = RecallProposalWithdrawTest().withdrawn("again")
+        Review13RecallTest.turn(f, "いや、また電話で長々と話されるのかなと思って。", Review13RecallTest.rd("again", "問題を言った"), "record_answer",
+                                question_id=CALLBACK_IDS["concern"], condition_id="問題を言った", value="電話で長々と話されるのが気になる")
+        self.assertEqual([e["question"] for e in f.facts["concern"]], [None])
+
+    def test_2_each_apology_reason_reports_whether_it_was_heard_to_the_end(self):
+        # CL-2 の 4-387 の (7)：お詫びを最後まで流せたかを、言ってはいけないことのお詫びだけでなく、途中で切れた・約束の時間にかけられなかったお詫びにも、理由ごとに
+        # 報告する（会話の報告の鍵 apologies_delivered＝{予約証のお詫びの理由: 真偽}。CL-2 は流した理由ごとに印を外す）。材料は同じ（最後まで流れた録音の文
+        # heard_lines・お客様が出た）・並びは sorry_texts の1か所。今の apology_delivered は、お詫びだけの電話（予約証の目的 apology）の文だけ（頭のお詫びは理由ごとの鍵の
+        # 1か所＝同じことを2つの鍵で言わない）。⛔ 直す前は、途中で切れた・約束の時間にかけられなかったお詫びを流せたかが報告に無く、CL-2 は目的のお客様と話せたら
+        # 印を外した（流す前に切れても、前の電話でお話ししていない方に替わって流さなかったときも）
+        from flowctl import Flow
+        from phrases import APOLOGY_FIRST
+        sorry = "先日のお電話では大変失礼なことを申し上げてしまい誠に申し訳ございませんでした。"
+        b = TargetTest().business()
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(),
+                 apology=("missed_promise", "cut_off", "forbidden_speech"), apology_text=sorry)
+        self.assertEqual(f.apologies_delivered, {"forbidden_speech": False, "cut_off": False, "missed_promise": False})
+        r = TargetTest.say(f, "はい、岡田は私ですが。", "report_party", party="target")
+        self.assertEqual([p["text"] for p in r["play"]][:3], [sorry, APOLOGY_FIRST["cut_off"], APOLOGY_FIRST["missed_promise"]])
+        self.assertEqual(f.apologies_delivered, {"forbidden_speech": False, "cut_off": False, "missed_promise": False})   # 流すように頼んだだけ
+        f.on_opening_cut([sorry, APOLOGY_FIRST["cut_off"]])   # 約束の時間のお詫びの途中で、お客様が話し始めた
+        self.assertEqual(f.apologies_delivered, {"forbidden_speech": True, "cut_off": True, "missed_promise": False})
+        rep = f.report()
+        self.assertEqual((rep["apologies_delivered"], rep["apology_delivered"]),
+                         ({"forbidden_speech": True, "cut_off": True, "missed_promise": False}, None))
+        # お詫びの理由の無い電話は空・お詫びだけの電話は今の apology_delivered（理由ごとの鍵は空）
+        g = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts())
+        self.assertEqual((g.report()["apologies_delivered"], g.report()["apology_delivered"]), ({}, None))
+
+    def test_3_the_wish_said_before_the_ways_always_has_its_utterance(self):
+        # CL-2 の 4-407：ほかのご希望の記録の before_ways の turn が null になりうる作り（Flow._wish_step の ev = self._evidence(wid) or {}）。流れの制御で確かめた道：
+        # _wish_step へ報告の入口（apply・judged_turn）の外から入るのは、黙ったとき（on_silence → 待つかかけ直すかの伺い）・第一声のあと（on_first_words_end）・
+        # 電話接続側の知らせ（on_signal）の3つで、どれも W1 の答えが新しく「方法は言っていない」になる所ではない＝試験の全部（1346件）でも0件。それでも、報告の外で
+        # 答えの材料（_material）が空のまま読むと null になる作りなので、根拠の発話が必ず入る形にする：材料が無ければ、いまの発話（その答えを受けた言葉＝報告の外では
+        # お客様の最後のお言葉）。⛔ 66eb3d76 まで null を書きえた（CL-2 は「turn が null なら said は空」で受けていた）
+        from flowctl import CALLBACK_IDS, NONE, WAY_UNSAID
+        t = OtherCompanyClueSendWayTest()
+        w1 = CALLBACK_IDS["other_wish"]
+        words = "営業の方じゃなくて、説明書を送ってほしいです。"
+        f = t.flow(offer_ways=("メール", "郵送"))
+        t.turn(f, "はい、しています。", t.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        t.turn(f, "どちらも要らないです。", t.rd(NONE), "record_answer", question_id="Q2", condition_id=NONE)
+        f.on_callee(); f.on_heard(words)
+        # 報告の外で W1 の答えが決まった（受け取りの記録 taken を書く報告の入口を通っていない）ところから、手順を進める
+        it = f.items[w1]
+        it.condition, it.value = WAY_UNSAID, "方法は言わずに説明書を送ってほしい"
+        it.set("accepted", "報告の外で受け取った（試験）")
+        f._wish_step()
+        self.assertEqual(f.wish["before_ways"], {"turn": f.callee_turns, "said": words, "value": "方法は言わずに説明書を送ってほしい"})
+
+    def test_4_recorded_has_only_forms_the_flow_may_play(self):
+        # CL-2 の 4-411 の (1)：共通の一言の録音の一覧（phrases.RECORDED）に、流れの制御が流さない形（ほかの会社のことを伺う一言 E1・深める一言 E2〜E5 の、戻る一言の
+        # あとの形 _midway と伺い直す形 _lead_soredeha）が入っていた。CL-2 は一覧の全部がそろわないと、その声で話さない＝流れない録音まで契約者に録って聞いていただく
+        # ことになる。流しうるかの決まりは1か所（phrases.NOT_ASKED_AGAIN＝流れの制御が伺い直さない役目。戻り方を決める Flow._elsewhere_left も同じ表を読む）。
+        # 試験の全部で流した録音の名前が一覧にあることは、試験の全部を見る1か所（FlowWatch）が確かめる
+        from flowctl import DEEPEN_ROLES
+        from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, NOT_ASKED_AGAIN, RECORDED, again_fit, back_fit
+        self.assertEqual(set(NOT_ASKED_AGAIN), {"elsewhere", *DEEPEN_ROLES})
+        forms = {n for r in NOT_ASKED_AGAIN for base in [f"callback_{r}"] if base in RECORDED
+                 for n in {back_fit(base, RECORDED[base], b)[0] for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY)} | {again_fit(base, RECORDED[base])[0]} if n != base}
+        self.assertEqual(sorted(forms & set(RECORDED)), [])
+        self.assertIn("callback_elsewhere_lead_soredeha", forms)   # 確かめの材料が空でない（形の作り方が替わったら、ここで気づく）
+
+    def test_5_may_wish_matches_cl2_wish_may_follow(self):
+        # CL-2 の 4-406：答えのあとにほかのご希望（W1）を伺いうるか（会話の側 flowctl.may_wish・CL-2 の business_settings.wish_may_follow）を、同じ業務設定の質問の形で
+        # 比べる（片方だけ変えると、方法を並べて伺う録音が無い・方法が渡らない）。CL-2 の関数と使う名前だけを ast で取り出して別の名前空間で動かす（CL-2 の部品は
+        # 読み込まない＝test_offer_do_end_and_means_in_match_cl2 と同じ形）。形は業務設定の欄（型・選択肢・ご承認・最終目的・断る答え・事実を伺う・どちらの場合も
+        # ありうる）の組み合わせ全部（会話の側の質問が受けない組は除く）。2026-11-19 に当てて食い違いは0（食い違えば落ちる＝どちらかを直す）
+        import __future__
+        import ast
+        import itertools
+        import pathlib
+        import types
+        from flowctl import Question, may_wish
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "business_settings.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の業務設定の部品（app/）がまだ無い")
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        funcs, names = {"possible_answers", "wish_may_follow", "declined_answers"}, {"SYSTEM_CHOICES", "ANY_CHOICE", "NONE_CHOICE", "CHOICE_TYPES"}
+        nodes = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name in funcs)
+                 or (isinstance(n, ast.Assign) and any(getattr(t, "id", None) in names for t in n.targets))]
+        self.assertEqual(len(nodes), len(funcs) + len(names), "CL-2 の business_settings に wish_may_follow と、使う名前がある")
+        space = {}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(src), "exec", flags=__future__.annotations.compiler_flag, dont_inherit=True), space)
+        shapes, differ = 0, []
+        for typ, choices in (("yes_no", ("はい", "いいえ")), ("choice", ("電話", "メール")), ("choice", ("はい", "いいえ")), ("datetime", ("答えた",)),
+                             ("number", ("答えた",))):
+            for approval, goal, fact in itertools.product((False, True), repeat=3):
+                for declines in ((), choices[1:2], ("どれも要らない",)):
+                    for maybe in ((), (choices[0], "どちらの場合もありうる")):
+                        try:
+                            mine = Question("Q1", "テスト？", typ, conditions=choices, approval=approval, final_goal=goal, declines=declines,
+                                            asks_fact=fact, maybe=maybe)
+                        except AssertionError:
+                            continue   # 会話の側の質問が受けない形（CL-2 の取込も通さない）
+                        shapes += 1
+                        theirs = types.SimpleNamespace(type=typ, choices=choices, approval=approval, final_goal=goal, declines=declines, asks_fact=fact,
+                                                       maybe=maybe)
+                        if may_wish(mine) != space["wish_may_follow"](theirs):
+                            differ.append((typ, choices, approval, goal, declines, fact, maybe, may_wish(mine)))
+        self.assertGreater(shapes, 50)
+        self.assertEqual(differ, [])
+
+    def test_6_names_match_cl2(self):
+        # CL-2 の 4-405 の (4)：同じ決まりが両側にあるのに比べる試験が無かった名前（片方だけ変えると本番で報告が丸ごと断られる・判定が割れる）。会話の側に対の名前が
+        # 無かったもの（値を聞く質問の選択肢・はい／いいえの選択肢・W1 の答えの状態・申し出の結び）は名前を作り、作りがその名前を読む（1か所）。根拠の発話の長さの
+        # 上限の写し（[:80]）は FACT_SAID_MAX の1か所（fact_said）
+        from flowctl import (AMBIGUOUS_WORDS, CHOICE_TYPES, CYCLE_LABEL, DECLINED_ENDS, FACT_SAID_MAX, JUDGMENTS, LINE_HOW, NOT_A_PERSON, OFFER_ENDS,
+                             OFFER_ROLES, PARTY_LABEL, POINT_ENDS, PROPOSAL_TERMS, SMS_KINDS, TAKEN, TARGET_IS_THERE, CARRIED_YES, UNTIL_LABEL, GOT,
+                             VALUE_CHOICE, WISH_MEANS, WISH_STATES, YES_NO_CHOICES, callback_question, label)
+        from phrases import NUMBER_AGAIN
+        carried = callback_question("carried")
+        table = (("call_report.py", "PARTY_KINDS", set(PARTY_LABEL)), ("call_report.py", "UNTIL_WHYS", set(UNTIL_LABEL)),
+                 ("call_report.py", "CALLBACK_CYCLES", set(CYCLE_LABEL)), ("call_report.py", "JUDGES", set(JUDGMENTS)),
+                 ("call_report.py", "TARGET_IS_THERE", {TARGET_IS_THERE}), ("call_report.py", "CARRIED_YES", {CARRIED_YES}),
+                 # 引き継ぎを確かめる一言の答え（通話の事実 carried の answer＝_carried_decided が書く日本語の名前＝その質問の選べる答え。CL-2 の並びは
+                 # CARRIED_YES の名前を含む＝その値も読む）
+                 ("call_report.py", ("CARRIED_ANSWERS", "CARRIED_YES"), {label(c) for c in carried.all_conditions}),
+                 ("call_report.py", "OTHER_WISH_MEANS", set(WISH_MEANS)), ("call_report.py", "OTHER_WISH_VIA", {via for via, _ in LINE_HOW.values()}),
+                 ("call_report.py", "WISH_STATES", set(WISH_STATES)), ("call_report.py", "OFFER_OUTCOMES", set(OFFER_ENDS)),
+                 ("call_report.py", "NOT_AGREED_OUTCOMES", set(POINT_ENDS)), ("call_report.py", "HURRIED_ENDS", set(DECLINED_ENDS)),
+                 ("call_report.py", "MACHINE_ENDS", set(NOT_A_PERSON)), ("call_report.py", "OFFER_KINDS", set(OFFER_ROLES)),
+                 ("call_report.py", "PROPOSAL_KEYS", set(PROPOSAL_TERMS)),
+                 ("business_settings.py", "REPLY_WORDS", set(AMBIGUOUS_WORDS)), ("business_settings.py", "CHOICE_TYPES", set(CHOICE_TYPES)),
+                 ("business_settings.py", "VALUE_CHOICE", {VALUE_CHOICE}), ("business_settings.py", "YES_NO_CHOICES", set(YES_NO_CHOICES)),
+                 ("next_action.py", "NUMBER_AGAIN", set(NUMBER_AGAIN)), ("judge.py", ("ANSWERED", "TAKEN"), set(TAKEN)),
+                 ("judge.py", "TAKEN", set(GOT)),   # CL-2 の ANSWERED は TAKEN（取れた）の名前を含む＝その値も読む
+                 ("phone.py", "SMS_KINDS", set(SMS_KINDS)))
+        compared = []
+        for path, var, mine in table:
+            parts = [TargetTest.cl2_names(path, v) for v in ((var,) if isinstance(var, str) else var)]
+            if None in parts:
+                continue
+            theirs = set().union(*parts)
+            compared.append(var)
+            self.assertEqual((sorted(without_cl2_pending(self, mine, theirs) - theirs), sorted(theirs - mine)), ([], []), f"{path} の {var}（こちらだけ, CL-2 だけ）")
+        if not compared:
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        self.assertEqual(len(compared), len(table))
+        self.assertEqual(TargetTest.cl2_value("call_report.py", "SAID_MAX"), FACT_SAID_MAX)
+        self.assertEqual(YES_NO_CHOICES, ("はい", "いいえ"))   # 並び（はい＝真）は CL-2 と同じ＝_yes_no の1か所が読む
+        # 会話の側に [:80] の写しを残さない（根拠の発話の長さは fact_said の1か所）
+        import pathlib
+        import re
+        self.assertEqual(re.findall(r"\[:80\]", (pathlib.Path(__file__).resolve().parent / "flowctl.py").read_text(encoding="utf-8")), [])
+
+    def test_6_hedged_is_read_only_for_a_taken_answer(self):
+        # CL-2 の 4-405 の (4) の終わり：言い切っていない答えか（Item.hedged＝依頼者へ渡すお客様の言葉）を、CL-2 の judge.hedged_words は取れた答えのときだけ読み、
+        # 会話の側の並びの決まりの読み（Flow._read）はどの状態でも読んでいた（わからない・答えたくない・聞き取れないの答えにお客様の言葉が付くと、業務設定の
+        # 「言い切っていないときだけ伺う質問」の当たりが割れる）。読みは1か所（flowctl.earlier_hedged＝取れた答えのときだけ）にそろえる。CL-2 の hedged_words と、
+        # 状態ごとに同じ答えか（CL-2 の関数を ast で取り出して動かす）
+        import ast
+        import pathlib
+        from flowctl import STATES, Flow, Question
+        f = Flow([Question("Q1", "ご予算はお決まりでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        it = f.items["Q1"]
+        it.hedged = "まだはっきりとは決めていなくて"
+        mine = {}
+        for state in STATES:
+            it.state = state
+            mine[state] = f._read("Q1")[2]
+        self.assertEqual(mine, {s: s in ("confirmed", "accepted") for s in STATES})
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "judge.py"
+        if not src.is_file():
+            return
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        nodes = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name == "hedged_words")
+                 or (isinstance(n, ast.Assign) and any(getattr(t, "id", None) == "TAKEN" for t in n.targets))]
+        space = {}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(src), "exec"), space)
+        self.assertEqual({s: bool(space["hedged_words"](s, it.hedged)) for s in STATES}, mine)
+
+    def test_8_name_tails_come_from_one_place(self):
+        # CL-2 の 4-405 の (3)：名前の録音の台帳の続く言葉（target・promise_again など）の録音は、CL-2 が鍵（名前）だけで選び、文を比べていない（共通の一言と同じ穴）。
+        # 続く言葉の名前 → 文を phrases の1か所（NAME_TAILS＝お名前の入る一言の形 NAME_FORMS の「お名前の呼び方」より後ろ＝助詞から。CL-1.md 4-55 の (2)）から出し、
+        # CL-2 が共通の一言と同じ道具で写しを作れる形にする。お名前の前に言葉のある形（「恐れ入りますが」）は NAME_HEADS。流れの制御が流す文（instruction.Business.replay_parts）
+        # が、どの形の目的のお客様でも「頭＋呼び方＋続く言葉」になっているかを確かめる（続く言葉を替えたら写しと文で比べられる）
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import Target
+        from phrases import NAME_FORMS, NAME_HEADS, NAME_TAILS, target_who, role_honorific
+        self.assertEqual(set(NAME_TAILS), set(NAME_FORMS))
+        self.assertTrue(all(NAME_TAILS.values()))
+        # 名前の部分の名前 → 続く言葉の名前（フルネームでお呼びし直す一言は呼ぶ一言と同じ続く言葉＝CL-2 の recordings.name_needs）
+        tail_of = {"target_full": "target", "target_successor_full": "target_successor"}
+        for t in (Target(name="岡田", reading="おかだ", role="営業部部長", full_name="岡田太郎", full_reading="おかだたろう"),
+                  Target(kind="個人", name="岡田", reading="おかだ"), Target(role="社長")):
+            parts = dataclasses.replace(BUSINESS, target=t).replay_parts()
+            for part in [p for p in parts if p in NAME_TAILS or p in tail_of]:
+                key = tail_of.get(part, part)
+                key = "target_individual" if key == "target" and t.kind == "個人" and t.name else key
+                text = parts[part]
+                self.assertTrue(text.startswith(NAME_HEADS.get(key, "")) and text.endswith(NAME_TAILS[key]), (t, part, text))
+                who = text[len(NAME_HEADS.get(key, "")):len(text) - len(NAME_TAILS[key])]
+                self.assertTrue(who.endswith("様") or who in (role_honorific(t.role), target_who(t.kind, "", t.role)), (part, who))
+        theirs = TargetTest.cl2_names("recordings.py", "NAME_TAILS")
+        if theirs is not None:
+            self.assertEqual((sorted(without_cl2_pending(self, set(NAME_TAILS), theirs) - theirs), sorted(theirs - set(NAME_TAILS))), ([], []))
+
+    def test_11_call_settings_reach_the_flow_from_one_place(self):
+        # CL-2 の 4-405 の (1) の後半：お客様の営業時間・歯止め時間・待つ上限・黙ったときの秒（流れの制御 Flow の business_hours・designated_limit・hold_wait_s・
+        # silence_prompt_after・wait_ask_after）を、業務の入口（instruction.Business.flow）が業務設定から渡す。CL-2 の設定の名前 → 業務の入口の欄は1か所
+        # （instruction.CALL_SETTINGS）・読むのは CL-2 の conversation_io.call_setting（渡す読み手 read＝設定の名前 → 値）。⛔ 66eb3d76 まで、営業時間と歯止め時間は
+        # 業務の入口に欄が無く、流れの制御はいつも初めの値（9〜19時・7〜22時）で午前・午後を決めていた
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import CALL_SETTINGS
+        values = {"callee.business_hours": ["10:00", "02:00"], "callee.designated_limit": ["08:00", "21:30"], "call.hold_wait": 120,
+                  "call.silence_prompt_after": 4, "call.wait_ask_after": 15}
+        self.assertEqual(set(CALL_SETTINGS), set(values))
+        b = BUSINESS.with_call_settings(values.__getitem__)
+        f = b.flow(play_recordings=True)
+        self.assertEqual((f.business_hours, f.designated_limit, f.hold_wait_s, f.silence_prompt_after, f.wait_ask_after),
+                         (("10:00", "02:00"), ("08:00", "21:30"), 120, 4, 15))
+        # 午前・午後を決めるのは、その業務の営業時間と歯止め時間（10時〜翌2時・8時〜21時半の業務の「7時」は、朝の7時がどちらの外＝午後。初めの値の業務では
+        # 朝の7時が歯止め時間の端・夜の7時が営業時間の端で、どちらも入る＝伺う）
+        from flowctl import fill_ampm
+        self.assertEqual(fill_ampm("7時", f.business_hours, f.designated_limit), ("午後7時", False))
+        self.assertEqual(fill_ampm("7時", BUSINESS.flow().business_hours, BUSINESS.flow().designated_limit), ("7時", True))
+        # 業務設定に無い欄は初めの値のまま（Business の既定＝流れの制御の既定と同じ）
+        g = dataclasses.replace(BUSINESS).flow()
+        from flowctl import DEFAULT_BUSINESS_HOURS, DEFAULT_DESIGNATED_LIMIT
+        self.assertEqual((g.business_hours, g.designated_limit, g.hold_wait_s, g.wait_ask_after), (DEFAULT_BUSINESS_HOURS, DEFAULT_DESIGNATED_LIMIT, 300, 20))
+        # CL-2 との比べ：設定の名前はどれも CL-2 の設定にあり（表の作りの system の行）、会話の処理が読める名前の頭（conversation_io.CALL_SETTING_PREFIXES）に入っている
+        # （callee. は CL-2 に足していただくまで CL2_PENDING＝CL-2 への知らせは分身 W の書き置き）
+        import pathlib
+        mig = pathlib.Path(__file__).resolve().parent.parent / "app" / "db" / "migrations"
+        prefixes = TargetTest.cl2_names("conversation_io.py", "CALL_SETTING_PREFIXES")
+        if prefixes is None or not mig.is_dir():
+            return
+        sql = "".join(p.read_text(encoding="utf-8") for p in sorted(mig.glob("*.sql")))
+        self.assertEqual([k for k in CALL_SETTINGS if f"('{k}', 'system'" not in sql], [])
+        mine = {k.split(".")[0] + "." for k in CALL_SETTINGS}
+        self.assertEqual(sorted(without_cl2_pending(self, mine, prefixes) - prefixes), [])
+
+
+class FlowWatch:
+    """試験の全部で作った流れの制御（Flow）を見る唯一の場所（load_tests が試験ごとに当てる。試験の終わりに、その試験で作った Flow ごとに確かめ、外れたら
+    その試験を落とす）：
+    (1) 報告（Flow.report）を CL-2 の会話の報告の読み手（app/ の call_report.from_json）に通す（CL-2 の連絡帳 4-408 の (3)＝CL-2 の道具 app/tools/report_probe.py と
+        同じこと。名前ごとの比べる試験では見えない鍵の中身・空の値・組み合わせの食い違いを、実際の報告で見る）。CL-2 の読み手にまだ無い名前（CL2_PENDING のうち、
+        読み手の文字に無いもの）は、通す前に外す。CL-2 の部品（app/）が無い所では飛ばす
+    (2) 流した共通の一言の録音の名前（返事の play の recorded・closing と相づち ack）が、録音の表 phrases.RECORDED にある（CL-2 の 4-411 の (1)。表の名前がどれも
+        流しうるかは Cl2Answers1119Test の 4）
+    CL-2 の部品は、この確かめのときだけ読み、読んだあとは名前を外す（phase0 の作りから CL-2 の部品を呼ばない＝I-30 の逆向き）。接続の部品（access）の psycopg が無い所
+    では、その部品だけを中身の無い名前で置き換える（報告の読み手は接続を使わない）。"""
+    flows: list = []
+    played: list = []
+    reader = None
+    strip: frozenset = frozenset()
+    installed = False
+
+    @classmethod
+    def install(cls) -> None:
+        import functools
+        import flowctl
+        if cls.installed:
+            return
+        cls.installed = True
+        init = flowctl.Flow.__init__
+
+        @functools.wraps(init)
+        def watched_init(self, *a, **k):
+            init(self, *a, **k)
+            cls.flows.append(self)
+        flowctl.Flow.__init__ = watched_init
+        for name, fn in list(vars(flowctl.Flow).items()):
+            if name.startswith("_") or not callable(fn) or name in ("report", "export", "unchecked", "readings", "known_lines"):
+                continue
+
+            def wrap(fn):
+                @functools.wraps(fn)
+                def watched(self, *a, **k):
+                    r = fn(self, *a, **k)
+                    cls.scan(r)
+                    return r
+                return watched
+            setattr(flowctl.Flow, name, wrap(fn))
+        cls.reader, cls.strip = cls._load_reader()
+
+    @classmethod
+    def scan(cls, v) -> None:
+        if isinstance(v, dict):
+            if v.get("kind") in ("recorded", "closing") and isinstance(v.get("id"), str):
+                cls.played.append(v["id"])
+            if isinstance(v.get("ack"), str):
+                cls.played.append(v["ack"])
+            for x in v.values():
+                cls.scan(x)
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                cls.scan(x)
+
+    @staticmethod
+    def _load_reader():
+        import ast
+        import importlib
+        import pathlib
+        import sys
+        import types
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src"
+        path = src / "salescall" / "core" / "call_report.py"
+        if not path.is_file():
+            return None, frozenset()
+        saved_path, saved_mods = list(sys.path), {k: v for k, v in sys.modules.items() if k == "salescall" or k.startswith("salescall.")}
+        sys.path.insert(0, str(src))
+        try:
+            try:
+                importlib.import_module("psycopg")
+            except ModuleNotFoundError:
+                stub = types.ModuleType("salescall.core.access")
+                stub.Tx = object
+                sys.modules["salescall.core.access"] = stub
+            reader = importlib.import_module("salescall.core.call_report")
+        finally:
+            sys.path[:] = saved_path
+            for k in [k for k in sys.modules if k == "salescall" or k.startswith("salescall.")]:
+                del sys.modules[k]
+            sys.modules.update(saved_mods)
+        theirs = {x.value for x in ast.walk(ast.parse(path.read_text(encoding="utf-8"))) if isinstance(x, ast.Constant) and isinstance(x.value, str)}
+        return reader, frozenset(CL2_PENDING - theirs)
+
+    @classmethod
+    def _stripped(cls, v):
+        if isinstance(v, dict):
+            return {k: cls._stripped(x) for k, x in v.items() if k not in cls.strip}
+        if isinstance(v, list):
+            return [cls._stripped(x) for x in v]
+        return v
+
+    @classmethod
+    def check(cls, case: unittest.TestCase) -> None:
+        """その試験で作った Flow と、流した録音の名前を確かめて、空にする。"""
+        from phrases import RECORDED
+        flows, played = list(cls.flows), list(cls.played)
+        cls.flows.clear()
+        cls.played.clear()
+        case.assertEqual(sorted(set(played) - set(RECORDED)), [], "流した共通の一言の録音の名前が、録音の表（phrases.RECORDED）に無い")
+        if cls.reader is None:
+            return
+        for f in flows:
+            report = json.loads(json.dumps(f.report(), ensure_ascii=False, default=str))
+            try:
+                cls.reader.from_json(cls._stripped(report))
+            except Exception as e:   # CL-2 の読み手の断り（ReportInvalid）も、読み手の誤りも、報告を受けない＝落とす
+                case.fail(f"CL-2 の会話の報告の読み手（call_report.from_json）が報告を断った：{type(e).__name__}: {e}")
+
+
+def load_tests(loader, tests, pattern):
+    """試験の全部に FlowWatch を当てる（試験ごとに、その試験の終わりに確かめる）。"""
+    import functools
+    FlowWatch.install()
+
+    def cases(s):
+        for t in s:
+            if isinstance(t, unittest.TestSuite):
+                yield from cases(t)
+            else:
+                yield t
+    for t in cases(tests):
+        name = getattr(t, "_testMethodName", None)
+        method = getattr(t, name, None) if name else None
+        if method is None:
+            continue
+
+        def run(method=method, t=t):
+            FlowWatch.flows.clear()
+            FlowWatch.played.clear()
+            method()
+            FlowWatch.check(t)
+        setattr(t, name, functools.wraps(method)(run))
+    return tests
