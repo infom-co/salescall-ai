@@ -1072,9 +1072,23 @@ QUESTION_FIRST = "添えた質問に先に答えてから："
 ASKED_ACTS = {"asked": ANSWER_FIRST, "offer": AWAY_ACT, "help": HESITATE_ACT[True], "concern": CONCERN_ACT}
 
 
+# 判定がそろって「不快な様子だが電話は続けてよい」（flowctl.END_UPSET）と読んだ言葉に、受けの言葉・「はい、」の代わりにお詫び「失礼いたしました。」から話し始めた返事
+# （flowctl.Flow._ack の1か所＝apology_turn）の動きの名前の頭（お客様に聞こえる頭が変わる＝帳面 0-3「判定の項目・選べるものを足したら…数える1か所に入れる」。分身 AG）
+APOLOGY = "お詫びから："
+
+
 def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) -> str:
     """流れの制御の返事 rep から、動きの名前（唯一の名前の作り＝読みの動き flow_act・正解の動き flow_wants が通る）。名前はお客様に聞こえること（締める・伺う一言・
-    確かめ・受け取って次へ・待つ）で付ける。どの名前にも当たらない返事は「その他：」（数え漏れを黙って出さない）。"""
+    確かめ・受け取って次へ・待つ）で付ける。どの名前にも当たらない返事は「その他：」（数え漏れを黙って出さない）。不快な様子の言葉への返事の頭のお詫び（APOLOGY）も
+    名前に入れる（同じ動きでも、お客様に聞こえる頭が違う）。"""
+    name = _flow_name(f, qid, rep, it, asked)
+    if rep.get("ack") == "shitsurei" and f.apology_turn == f.callee_turns:
+        return APOLOGY + name
+    return name
+
+
+def _flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) -> str:
+    """flow_name の名前（お詫びの頭を除く）。"""
     res, item = rep.get("result"), f.items.get(qid)
     plays = [str(p.get("id") or "") for p in rep.get("play") or []]
     from flowctl import CALLBACK_IDS
@@ -1230,6 +1244,10 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     want = step_wants(it, q, it.get(f"{key}終わり") is not None)
     if act in want:
         return None
+    if act.startswith(APOLOGY) and act.removeprefix(APOLOGY) in want:
+        return "要らないお詫び（不快な様子の言葉ではないのに「失礼いたしました。」から話した・動きは正しい）"
+    if APOLOGY + act in want:
+        return "お詫びが落ちた（不快な様子の言葉に、受けの言葉で応えた・動きは正しい）"
     ends = {w for w in want if end_step(w)}
     closes = {w for w in ends if w.removeprefix(QUESTION_FIRST) not in (END_TOPIC, END_ASK)}
     if end_step(act):

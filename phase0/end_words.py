@@ -21,7 +21,7 @@
 """
 from __future__ import annotations
 
-from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, END_ANGRY, END_BRIEF, END_HURRY, END_NONE, END_REASONED, END_REFUSED, END_UNCLEAR, END_WHO,
+from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, END_ANGRY, END_BRIEF, END_HURRY, END_NONE, END_REASONED, END_REFUSED, END_UNCLEAR, END_UPSET, END_WHO,
                      LATER, QUERY, QUERY_NO, REFUSED_LABEL, THINKING, UNDECIDED, WHY_NOT_SAID)
 
 YES_NO = ("はい", "いいえ")
@@ -86,6 +86,9 @@ ANSWER = [
     (RESERVED, "たぶん予約してると思います。", (END_NONE,), ("はい" + HEDGED,), False, "事実を伺う質問（6時05分・依頼者がすること＝初めの値の記録）"),
     (RESERVED, "そういうお電話はちょっと……。", (UNDECIDED,), (UNDECIDED,), False, "電話を断っていそうだが言い切っていない・答えでもない"),
     (RESERVED, "結構です。", (UNDECIDED, END_NONE), (UNDECIDED,), False, "10-17「その言葉だけで通話の断りとして締めない」"),
+    # 答えを断る言葉が強いとき（分身 AE の書き置き rv140/AE/notes.md の 2 の (2) 型 (c)＝まとめ役が決まりで決めた・分身 AG）：電話を終える言葉ではない（11-02 日本時間
+    # 3時59分・4時16分・11-01 23時59分「(a) OK」）・その質問は答えたくない＝✕で二度と伺わない（10-13）・受け取る返事の頭はお詫び「失礼いたしました。」（10-14）
+    (RESERVED, "言う筋合いはないと思います。", (END_UPSET,), ("refused",), False, "答えを断る言葉が強い＝不快な様子だが電話は続けてよい（お詫びから）"),
 ]
 
 # 答えとは別に読む項目（こちらへ尋ねた問いか・別のお話か）と、わからない・答えたくない理由の正解（g53_labels.json の行と同じ欄・同じ決め方＝F5 の 11-15：
@@ -113,6 +116,7 @@ SIDE = {
     (RESERVED, "忙しいんで。"): {**_Q, "reason": _WHY_UNSAID},
     (RESERVED, "そういうお電話はちょっと……。"): {**_Q, "reason": _WHY_UNSAID},
     (RESERVED, "結構です。"): {**_A, "reason": _WHY_UNSAID},
+    (RESERVED, "言う筋合いはないと思います。"): {**_A, "reason": _WHY_REFUSED},
     (RESERVED, "たぶん予約してると思います。"): _A,
     (PAMPHLET, "うーん。"): {**_Q, "reason": _WHY_UNSAID},
     (PAMPHLET, "結構です。もうかけてこないでください。"): _Q,
