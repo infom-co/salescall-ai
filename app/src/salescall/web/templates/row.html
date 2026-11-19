@@ -30,14 +30,14 @@
             <button class="btn main small" type="submit" data-submit disabled>直す</button></form></details>
         {% endif %}</dd>
       <dt>かけた回数</dt><dd class="num">{{ row.attempts }}</dd>
-      <dt>印</dt><dd>{{ tag(words.exclusion_level(level), "stop" if level == "force" else ("" if level != "call" else "ok")) }}</dd>
+      <dt>かけるか</dt><dd>{{ tag(words.exclusion_level(level), "stop" if level == "force" else ("" if level != "call" else "ok")) }}</dd>
     </dl>
     <form class="inline-mark" method="post" action="{{ base }}/exclude" data-needs-reason>
       {{ csrf(token) }}
       <input type="hidden" name="task_id" value="{{ row.task_id }}"><input type="hidden" name="back" value="row">
-      <select name="level" aria-label="付ける印">{% for k, label in level_names.items() %}<option value="{{ k }}" {% if k == level %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+      <select name="level" aria-label="かけるか・かけないか">{% for k, label in level_names.items() %}<option value="{{ k }}" {% if k == level %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
       <input type="text" name="reason" placeholder="理由（記録に残ります）" aria-label="理由">
-      <button class="btn small" type="submit" data-submit disabled>印を変える</button>
+      <button class="btn small" type="submit" data-submit disabled>変える</button>
     </form>
     <h3 style="margin-top:18px">電話番号</h3>
     <ul class="numbers">

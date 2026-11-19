@@ -22,7 +22,7 @@
   {{ csrf(token) }}
   <div class="bulk card">
     <span class="bulk-count"><b data-checked-count>0</b> 行を選んでいます</span>
-    <select name="level" aria-label="付ける印">
+    <select name="level" aria-label="かけるか・かけないか">
       {% for k, label in level_names.items() %}<option value="{{ k }}" {% if k == "exclude" %}selected{% endif %}>{{ label }}にする</option>{% endfor %}
     </select>
     <input type="text" name="reason" placeholder="理由（記録に残ります）" aria-label="理由">
