@@ -24,10 +24,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 from typing import Any, Protocol
 
+from salescall.core import calling_hours
 from salescall.core.access import Access, Actor, Tx
 from salescall.output import words
 
@@ -98,6 +100,97 @@ def delivery_state(statuses: Sequence[str]) -> str:
     return "trying" if "failed" in statuses else "none"
 
 
+# ── いつ送るか（✅ 2026-11-19 管理者「(1) (2)はすぐ　そのほかはそれでいい。ダッシュボードには全てすぐに報告」）──────────────
+# CL-3 の案（同じ日に伺った）：(1) 停止・再開と緊急のものは、いつでもすぐ (2) 承認待ち（契約者が決めること）はすぐ（管理者のご決定で「すぐ」）
+# (3) 電話の中で起きた問題 (4) 仕組み・機械の不具合 (5) お金 は、送ってよい時間ならすぐ。外（夜中・休みの日）に起きた分は、次に時間が開いたときに
+# 1通にまとめて送る (6) そのほかの報告は、毎朝（その日の最初に時間が開いたとき）の1通にまとめる。ダッシュボードの「知らせ」には、どれも起きたときに
+# すぐ出す（画面に出すのは送信ではない＝台帳をそのまま読む）。送ってよい時間は契約者ごとの設定 `SEND_HOURS`（曜日ごと・祝日ごとの時間の幅＝
+# かける時間帯と同じ形。休みの日もこれで表す。⏳ 設定の定義は CL-2 へのお願い 52。無い間は、どれもすぐ送る＝知らせを止めて取りこぼさない側）。
+NOW, DAYTIME, MORNING = "now", "daytime", "morning"
+TIMING: dict[str, str] = {
+    # (1) 停止・再開
+    "stopped": NOW, "resumed": NOW, "emergency_route": NOW,
+    # (2) 契約者に決めていただくこと（承認待ち・選ぶこと。言ってはいけないことの知らせは、お詫びの電話の案の承認を求める）
+    "forbidden_speech": NOW, "old_promise_choice": NOW, "more_calls": NOW, "correction_call": NOW, "month_ahead_approval": NOW,
+    "month_ahead_unanswered": NOW, "solution_held": NOW, "solution_earlier": NOW, "solution_unconfirmed": NOW, "decision_approval": NOW,
+    "recording_needed": NOW, "recording_list_needed": NOW,
+    # (3) 電話の中で起きた問題
+    "complaint": DAYTIME, "judge_unknown": DAYTIME, "declared_after_settle": DAYTIME, "decision_assumed": DAYTIME,
+    # (4) 仕組み・機械の不具合
+    "error_notice": DAYTIME, "calendar_sync_failed": DAYTIME, "calendar_next_year_missing": DAYTIME, "program_update": DAYTIME,
+    "backup_failed": DAYTIME, "pc_down": DAYTIME, "line_undecided": DAYTIME, "task_resting": DAYTIME, "line_none_to_switch": DAYTIME,
+    "pc_line_conflict": DAYTIME, "ai_version_missing": DAYTIME, "ai_version_unchecked": DAYTIME, "version_not_derived": DAYTIME,
+    "setting_missing": DAYTIME,
+    # (5) お金
+    "budget": DAYTIME, "deficit_warning": DAYTIME,
+    # (6) そのほかの報告
+    "quality_stage": MORNING, "answer_rate_drop": MORNING, "sample_ready": MORNING, "ai_newer_version": MORNING, "apology": MORNING,
+}
+SEND_HOURS = "notice.send_hours"   # 知らせを送ってよい時間（契約者ごと。値の形は calling.hours と同じ weekly_hours）
+
+
+@dataclass(frozen=True)
+class SendTime:
+    at: datetime        # 送る時刻（日本時間・時差なし）
+    bundled: bool       # まとめて1通で送る（`deliver_bundle`）か、1件ずつ送る（`deliver_event`）か
+
+
+def send_time(kind: str, urgent: bool, occurred: datetime, hours: dict | None, is_holiday: Callable[[date], bool]) -> SendTime:
+    """その知らせをいつ・どう送るか（1か所。送る処理と、知らせの画面の「送る予定」が同じものを読む）。occurred＝起きた時刻（日本時間・時差なし）。
+    hours＝送ってよい時間（設定 `SEND_HOURS`。無ければ None＝すぐ送る）。"""
+    timing = TIMING.get(kind, DAYTIME)
+    if urgent or timing == NOW or hours is None:
+        return SendTime(occurred, False)
+    if timing == DAYTIME:
+        if calling_hours.covers(hours, is_holiday, occurred, occurred):
+            return SendTime(occurred, False)
+        opens = calling_hours.next_opening(hours, is_holiday, occurred, timedelta(0))
+        return SendTime(opens, True) if opens is not None else SendTime(occurred, False)
+    morning = _next_morning(hours, is_holiday, occurred)
+    return SendTime(morning, True) if morning is not None else SendTime(occurred, False)
+
+
+def _next_morning(hours: dict, is_holiday: Callable[[date], bool], after: datetime, horizon_days: int = 31) -> datetime | None:
+    """after より後の、その日の最初に送ってよい時間が開く時刻（毎朝の1通の時刻）。"""
+    for offset in range(horizon_days + 1):
+        d = after.date() + timedelta(days=offset)
+        starts = sorted(calling_hours.clock_seconds(a) for a, _ in hours[calling_hours.day_key(d, is_holiday)])
+        if starts:
+            first = datetime.combine(d, time()) + timedelta(seconds=starts[0])
+            if first > after:
+                return first
+    return None
+
+
+def schedule(tx: Tx, tenant_id: Any | None) -> Callable[[dict[str, Any]], SendTime]:
+    """取引の中で、知らせ（kind・urgent・occurred_at を持つ行）の `send_time` を答える関数を作る（送る処理と知らせの画面が使う1か所）。
+    送ってよい時間は、契約者あて＝その契約者の値・管理者あて（tenant_id＝None）＝システムの値。祝日の暦が無い年は、曜日で決める
+    （暦が無いことで知らせを止めない。暦が無いことは別の知らせ calendar_next_year_missing が伝える）。"""
+    from salescall.core import calendar, settings
+    try:
+        hours = settings.resolve(tx, SEND_HOURS, tenant_id=tenant_id, client_id=None, business_id=None)
+    except settings.SettingMissing:   # ⏳ 設定の定義がまだ無い（CL-2 へのお願い 52）＝すぐ送る
+        hours = None
+    check = calendar.holiday_checker(tx)
+
+    def is_holiday(d: date) -> bool:
+        try:
+            return check(d)
+        except calendar.CalendarOutOfRange:
+            return False
+    return lambda e: send_time(e["kind"], bool(e["urgent"]), calling_hours.local(e["occurred_at"]), hours, is_holiday)
+
+
+def bundle_text(kinds: Sequence[str]) -> str:
+    """まとめて送る1通の文（1か所。70文字に収める）：何件か・種類ごとの件数。詳しくは画面で。"""
+    counts: dict[str, int] = {}
+    for k in kinds:
+        counts[k] = counts.get(k, 0) + 1
+    parts = "・".join(f"{words.notice_kind(k)}{'×' + str(n) if n > 1 else ''}" for k, n in counts.items())
+    body = f"{HEAD}知らせ{len(kinds)}件：{parts}"
+    return body if len(body) <= SMS_LIMIT else body[:SMS_LIMIT - len(TAIL)] + TAIL
+
+
 def _attempt_no(history: Sequence[tuple[str, str]], channel: str) -> int:
     return sum(1 for c, _ in history if c == channel) + 1
 
@@ -114,7 +207,8 @@ def _record(tx: Tx, event_id: int, step: Step, status: str, error: str | None) -
 
 def deliver_event(access: Access, actor: Actor, tenant_id: Any | None, event_id: int,
                   transports: Mapping[str, Transport], max_tries: int) -> str:
-    """出来事を1つ送る（1回の一手だけ。呼ぶ側が、送り終わるまで繰り返す）。答え：sent／failed／gave_up／done（もう済み）。
+    """出来事を1つ送る（1回の一手だけ。呼ぶ側が、送り終わるまで繰り返す）。答え：sent／failed／gave_up／done（もう済み）／bundled（まとめて
+    送る知らせ＝`deliver_bundle` が送る）。
     契約者あて（tenant_id あり）は契約者の取引で、管理者あて（for_admin。tenant_id＝None）は全体の取引で読み書きする（管理者あては
     全体の取引でしか読めない決まり＝0084）。送る順・文・送り直し・記録は、どちらもこの1か所。
     送る処理は同時に1つだけ（`Access.exclusive`。取れなければ busy＝ほかの処理が送っている）。"""
@@ -125,15 +219,17 @@ def deliver_event(access: Access, actor: Actor, tenant_id: Any | None, event_id:
         if not mine:
             return "busy"
 
-        def plan(tx: Tx) -> tuple[Step | None, dict[str, Any] | None]:
-            e = tx.one("SELECT kind, summary FROM salescall.notification_events WHERE event_id = %s", (event_id,))
+        def plan(tx: Tx) -> tuple[Step | None, dict[str, Any] | None, bool]:
+            e = tx.one("SELECT kind, summary, urgent, occurred_at FROM salescall.notification_events WHERE event_id = %s", (event_id,))
             if e is None:
                 raise LookupError(f"その知らせは無い（または範囲の外）：{event_id}")
-            return next_step(_history(tx, event_id), list(transports), max_tries), e
+            return next_step(_history(tx, event_id), list(transports), max_tries), e, schedule(tx, tenant_id)(e).bundled
 
-        step, event = in_tx(plan)
+        step, event, bundled = in_tx(plan)
         if step is None:
             return "done"
+        if bundled:   # 送ってよい時間の外の (3)〜(5)・毎朝の (6)：1件ずつは送らず、まとめた1通で送る（`deliver_bundle`）
+            return "bundled"
         if step.action == "give_up":
             in_tx(lambda tx: _record(
                 tx, event_id, step, "gave_up", f"{max_tries}回送っても届きませんでした"))
@@ -146,3 +242,48 @@ def deliver_event(access: Access, actor: Actor, tenant_id: Any | None, event_id:
             return "failed"
         in_tx(lambda tx: _record(tx, event_id, step, "sent", None))
         return "sent"
+
+
+def deliver_bundle(access: Access, actor: Actor, tenant_id: Any | None, transports: Mapping[str, Transport], max_tries: int,
+                   *, days: int = 7) -> dict[str, int]:
+    """まとめて送る知らせ（`send_time` の bundled）のうち、送る時刻が来たものを、1通にまとめて送る（1回の一手。呼ぶ側が決まった間隔で呼ぶ）。
+    送る順・送り直し・回数・記録は1件ずつと同じ（知らせごとに `next_step`。同じ一手になった知らせを1通にまとめ、送れたら・送れなかったら、
+    含めた知らせのそれぞれに記録する）。契約者あて（tenant_id）と管理者あて（None）は別々に呼ぶ。答え：一手ごとの件数。"""
+    def in_tx(work: Any) -> Any:
+        return access.in_system(actor, work) if tenant_id is None else access.in_tenant(actor, tenant_id, work)
+
+    with access.exclusive(f"notice-bundle:{tenant_id or 'admin'}") as mine:
+        if not mine:
+            return {"busy": 1}
+
+        def plan(tx: Tx) -> dict[tuple[str, str], list[tuple[int, str, Step]]]:
+            when = schedule(tx, tenant_id)
+            now = calling_hours.local(tx.one("SELECT now() AS t")["t"])
+            groups: dict[tuple[str, str], list[tuple[int, str, Step]]] = {}
+            for e in tx.all("SELECT event_id, kind, urgent, occurred_at FROM salescall.notification_events"
+                            " WHERE for_admin = %s AND occurred_at > now() - make_interval(days => %s) ORDER BY occurred_at, event_id",
+                            (tenant_id is None, days)):
+                st = when(e)
+                if not st.bundled or st.at > now:
+                    continue
+                step = next_step(_history(tx, e["event_id"]), list(transports), max_tries)
+                if step is not None:
+                    groups.setdefault((step.channel, step.action), []).append((e["event_id"], e["kind"], step))
+            return groups
+
+        done: dict[str, int] = {}
+        for (channel, action), items in in_tx(plan).items():
+            if action == "give_up":
+                in_tx(lambda tx: [_record(tx, eid, st, "gave_up", f"{max_tries}回送っても届きませんでした") for eid, _, st in items])
+                done["gave_up"] = done.get("gave_up", 0) + len(items)
+                continue
+            try:
+                transports[channel].send(bundle_text([k for _, k, _ in items]))   # 取引の外で1回だけ
+            except SendFailed as err:
+                reason = str(err).strip() or "理由が返っていません"
+                in_tx(lambda tx: [_record(tx, eid, st, "failed", reason) for eid, _, st in items])
+                done["failed"] = done.get("failed", 0) + len(items)
+                continue
+            in_tx(lambda tx: [_record(tx, eid, st, "sent", None) for eid, _, st in items])
+            done["sent"] = done.get("sent", 0) + len(items)
+        return done

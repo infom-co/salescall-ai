@@ -12,7 +12,8 @@
       <td>{{ r.where or "全体" }}{% if r.who %}<div class="muted">{{ r.who }}</div>{% endif %}</td>
       <td>{{ words.plain(r.summary) }}</td>
       <td class="num wide">{{ time(r.occurred_at) }}</td>
-      <td class="wide">{{ tag(state_words[r.state], {"sent": "ok", "gave_up": "stop", "trying": "wait"}.get(r.state, "")) }}</td>
+      <td class="wide">{% if r.later %}{{ tag("まとめて送ります", "") }}<div class="muted">{{ time(r.later) }}に、ほかの知らせと1通で</div>
+        {% else %}{{ tag(state_words[r.state], {"sent": "ok", "gave_up": "stop", "trying": "wait"}.get(r.state, "")) }}{% endif %}</td>
       <td class="nowrap">{% if r.link %}<a href="{{ r.link }}">見る</a>{% endif %}</td>
     </tr>
   {% endfor %}

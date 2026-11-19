@@ -72,6 +72,49 @@ class Text(unittest.TestCase):
         self.assertTrue(t.endswith(notices.TAIL))
 
 
+class Timing(unittest.TestCase):
+    """いつ送るか（✅ 2026-11-19 管理者「(1) (2)はすぐ　そのほかはそれでいい。ダッシュボードには全てすぐに報告」）。"""
+    HOURS = {k: [["07:00", "22:00"]] for k in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")} | {"holiday": []}
+
+    def at(self, kind, when, urgent=False, holiday=False, hours=HOURS):
+        from datetime import datetime
+        return notices.send_time(kind, urgent, datetime(*when), hours, lambda d: holiday and d == datetime(*when).date())   # その日だけ祝日
+
+    def test_every_notice_kind_has_a_timing(self):
+        self.assertEqual(set(notices.TIMING), set(notify.KINDS))
+
+    def test_stops_and_approvals_go_at_once_even_at_night(self):
+        for kind in ("stopped", "resumed", "more_calls", "correction_call", "forbidden_speech"):
+            with self.subTest(kind=kind):
+                st = self.at(kind, (2026, 11, 19, 3, 0))
+                self.assertEqual((st.at.hour, st.bundled), (3, False))
+
+    def test_urgent_ones_go_at_once_whatever_the_kind(self):
+        self.assertFalse(self.at("quality_stage", (2026, 11, 19, 3, 0), urgent=True).bundled)
+
+    def test_problems_go_at_once_in_the_hours_and_are_bundled_for_the_next_opening_outside(self):
+        self.assertEqual(self.at("complaint", (2026, 11, 19, 10, 0)), notices.SendTime(self.at("complaint", (2026, 11, 19, 10, 0)).at, False))
+        night = self.at("complaint", (2026, 11, 19, 23, 0))
+        self.assertEqual((night.at.day, night.at.hour, night.bundled), (20, 7, True))     # 翌朝、まとめて
+        off = self.at("deficit_warning", (2026, 11, 23, 10, 0), holiday=True)            # 休みの日（送ってよい時間が無い日）
+        self.assertTrue(off.bundled)
+        self.assertGreater(off.at.day, 23)
+
+    def test_reports_wait_for_the_morning_bundle(self):
+        late = self.at("quality_stage", (2026, 11, 19, 10, 0))
+        self.assertEqual((late.at.day, late.at.hour, late.bundled), (20, 7, True))
+        early = self.at("quality_stage", (2026, 11, 19, 3, 0))
+        self.assertEqual((early.at.day, early.at.hour, early.bundled), (19, 7, True))     # その日の朝
+
+    def test_without_the_setting_everything_goes_at_once(self):   # 設定の定義が届くまで（CL-2 へのお願い 52）は取りこぼさない側
+        self.assertFalse(self.at("quality_stage", (2026, 11, 19, 3, 0), hours=None).bundled)
+
+    def test_a_bundle_fits_one_sms(self):
+        t = notices.bundle_text(["complaint", "complaint", "deficit_warning", "quality_stage", "pc_down", "backup_failed", "budget"])
+        self.assertLessEqual(len(t), notices.SMS_LIMIT)
+        self.assertTrue(t.startswith(notices.HEAD + "知らせ7件："))
+
+
 class Delivery(unittest.TestCase):
     """実際のデータベースで：1回届けば終わり・送れなければ回数まで・使い切れば記録して止める（止めない＝ほかは何も変わらない）。"""
 
@@ -108,6 +151,33 @@ class Delivery(unittest.TestCase):
         part = watch[watch.index('id="undelivered"'):]
         self.assertIn("PC のプログラムに新しい版があります（試験）", part[:3000])
         self.assertIn("送れていない知らせ", http.get("/t").text)               # ホームの「気をつけること」に出る
+
+    def test_bundled_notices_are_sent_in_one_message_and_recorded_for_each(self):
+        import unittest.mock
+        from salescall.core import calling_hours
+        eids = [self._event() for _ in range(3)]
+        due = lambda tx, tenant_id: (lambda e: notices.SendTime(calling_hours.local(e["occurred_at"]), True))   # noqa: E731  いま送る時刻の、まとめる知らせ
+        sms = FakeTransport()
+        with unittest.mock.patch.object(notices, "schedule", due):
+            self.assertEqual(self._deliver(eids[0], {"sms": sms}), "bundled")             # 1件ずつは送らない
+            got = notices.deliver_bundle(app_access(), SYSTEM, self.s["tenant"], {"sms": sms}, 2)
+            self.assertEqual(len(sms.sent), 1)                                            # 1通にまとめた
+            self.assertGreaterEqual(got["sent"], 3)
+            for eid in eids:
+                self.assertEqual(self._rows(eid), [("sms", "sent", 1)])                   # 含めた知らせのそれぞれに記録
+            self.assertEqual(notices.deliver_bundle(app_access(), SYSTEM, self.s["tenant"], {"sms": sms}, 2), {})   # もう送らない
+            self.assertEqual(len(sms.sent), 1)
+
+    def test_a_bundle_that_cannot_be_sent_is_retried_then_given_up_for_each(self):
+        import unittest.mock
+        from salescall.core import calling_hours
+        due = lambda tx, tenant_id: (lambda e: notices.SendTime(calling_hours.local(e["occurred_at"]), True))   # noqa: E731
+        broken = FakeTransport("試験：つながらない")
+        with unittest.mock.patch.object(notices, "schedule", due):
+            eid = self._event()
+            for _ in range(6):
+                notices.deliver_bundle(app_access(), SYSTEM, self.s["tenant"], {"sms": broken}, 1)
+            self.assertEqual(notices.delivery_state([r[1] for r in self._rows(eid)]), "gave_up")
 
     def test_a_delivered_notice_is_not_sent_twice(self):
         eid, sms = self._event(), FakeTransport()

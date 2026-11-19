@@ -531,6 +531,20 @@ class Web(_World):
                 self.assertIn("業務の土台の担当に修正依頼：架空の不具合", page)
                 self.assertNotRegex(page, r"CL-\d")
 
+    def test_a_notice_waiting_for_the_bundle_is_on_the_screen_at_once_with_when(self):   # ✅ 2026-11-19 管理者「ダッシュボードには全てすぐに報告」
+        import unittest.mock
+        from datetime import datetime
+        from salescall.core import notify
+        from salescall.output import notices
+        app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: notify.emit(
+            tx, "quality_stage", key="試験：朝にまとめる知らせ", summary="架空の朝にまとめる知らせ"))
+        later = lambda tx, tenant_id: (lambda e: notices.SendTime(datetime(2030, 1, 2, 7, 0), True))   # noqa: E731
+        with unittest.mock.patch.object(notices, "schedule", later):
+            page = self.get("A", "/t/notices").text
+        row = page[page.index("架空の朝にまとめる知らせ"):]
+        self.assertIn("まとめて送ります", row[:600])                              # 送る前でも、画面にはすぐ出る
+        self.assertIn("1月2日7時", row[:600])                                      # いつ送るか（書き方は画面の1か所）
+
     def test_every_fixer_has_a_screen_name(self):
         from salescall.core import fix_requests
         from salescall.output import words

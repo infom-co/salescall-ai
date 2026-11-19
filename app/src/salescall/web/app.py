@@ -411,7 +411,15 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     "       ARRAY(SELECT d.status FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id) AS statuses"
                     " FROM salescall.notification_events e WHERE e.for_admin = %s"
                     " ORDER BY e.urgent DESC, e.occurred_at DESC, e.event_id DESC LIMIT 200", (only_admin,))
-                return [{**r, "state": notices.delivery_state(r["statuses"])} for r in rows]
+                # まだ送っていない知らせのうち、まとめて送るもの（送ってよい時間の外・毎朝の1通）は「いつ送るか」を添える（決まりは
+                # output/notices.send_time の1か所＝送る処理と同じ。画面には、どの知らせも起きたときにすぐ出す＝2026-11-19 管理者）
+                when = notices.schedule(tx, None if only_admin else tx.one("SELECT salescall.cur_tenant() AS t")["t"])
+                out = []
+                for r in rows:
+                    state = notices.delivery_state(r["statuses"])
+                    st = when(r) if state == "none" else None
+                    out.append({**r, "state": state, "later": calling_hours.from_local(st.at) if st is not None and st.bundled else None})
+                return out
             return run
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             rows = ctx.tenant(read(False))
