@@ -845,9 +845,11 @@ WHICH_ACT, ESTIMATE_ACT, HOW_NOW_ACT, TROUBLE_ACT = "どのあたりかを伺う
 ELSEWHERE_ACT = "ほかの会社で解決できない問題や心配事を伺う"   # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。flowctl.Flow._elsewhere_ask）
 # ✅ 2026-11-16 日本時間0時42分38秒・12時48分22秒 ユーザー（伺い30・伺い31。flowctl.Flow._brief_ask）。⛔ 96579d84 まで「お礼と営業の要約を伝える」
 BRIEF_ACT = "お礼と要約のあと後ほどかけ直してよいかを伺う"
+# かけ直しの時刻を伺う一言は日時の2択の段の共通の一言（phrases.TIME_LADDER_IDS の callback_time_kind・callback_time_half＝頭で当てる。✅ 2026-11-19 日本時間14時18分13秒。
+# ⛔ 894b082f まで callback_later_time）
 PLAY_ACTS = (("callback_hurry", END_ACTS[END_HURRY]), ("callback_refusal", END_ASK), ("callback_topic", END_TOPIC), ("callback_concern", TROUBLE_ACT), ("ai_answer", TROUBLE_ACT),
              ("callback_elsewhere", ELSEWHERE_ACT),
-             ("callback_wait_or_later", WAIT_ACT[WAIT_OR_LATER]), ("callback_later_time", WAIT_ACT[LATER]), ("callback_not_agreed_which", WHICH_ACT),
+             ("callback_wait_or_later", WAIT_ACT[WAIT_OR_LATER]), ("callback_time_", WAIT_ACT[LATER]), ("callback_not_agreed_which", WHICH_ACT),
              ("callback_other_point_which", WHICH_ACT), ("estimate_ask", ESTIMATE_ACT), ("how_now", HOW_NOW_ACT), ("hesitate_point", HESITATE_ACT[False]))
 PENDING_ACT = "保留でよいかを伺う"
 WISH_ACT = "ほかのご希望を伺う"

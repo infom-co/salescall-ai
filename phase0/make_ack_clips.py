@@ -32,7 +32,7 @@ from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
 from phrases import POINT_FALLBACK
-from phrases import _CONTACT_RESUMED, APOLOGY_FIRST, APOLOGY_SAME_DAY, CALLBACK_ASK_ANSWERING, CALLBACK_PENDING, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, CALLBACK_ASK_RESUMED, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
+from phrases import _CONTACT_RESUMED, APOLOGY_FIRST, APOLOGY_SAME_DAY, TIME_LADDER_IDS, CALLBACK_PENDING, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, CALLBACK_ASK_RESUMED, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -132,7 +132,9 @@ HOW_OF.update({f"callback_{k}_which{t}": "question" for k in CALLBACK_ASK_WHICH 
 HOW_OF.update({f"callback_{k}_again": "question" for k in CALLBACK_ASK_RESUMED})   # 続きの電話で切れた所から伺う一言も質問の読み方（2026-11-04）
 HOW_OF.update({f"callback_{k}_chosen": "question" for k in CALLBACK_ASK_CHOSEN})
 HOW_OF.update({f"callback_{k}_pending": "question" for k in CALLBACK_PENDING})   # 申し出の保留でよいかを伺う一言も質問の読み方（2026-11-09）
-HOW_OF.update({f"callback_{k}_answering": "question" for k in CALLBACK_ASK_ANSWERING})   # 答えの段のかけ直しの一言も質問の読み方（2026-11-06）   # LINE の伺い方を選んでいただいたあとの一言も質問の読み方（2026-11-04 20時27分）
+# 日時の2択の段の共通の一言（phrases.TIME_LADDER。✅ 2026-11-19 日本時間14時18分13秒）：平日と土日・午前と午後は質問の読み方・土日の受けはこちらがすることの言い切りと
+# 同じ読み方（CALL_AGAIN_TAKEN と同じ）。⛔ 894b082f まで答えの段のかけ直しの一言 callback_later_time_answering（2026-11-06）
+HOW_OF.update({TIME_LADDER_IDS[k]: "question" for k in ("kind", "half")} | {TIME_LADDER_IDS["weekend"]: "own_fallback"})   # LINE の伺い方を選んでいただいたあとの一言も質問の読み方（2026-11-04 20時27分）
 # LINE の伺い方で選んでいただいた方法の連絡先が無いときに、ほかの方法を伺う一言と、その伺い直しも質問の読み方（2026-11-05 0時48分。phrases.CALLBACK_ASK_OTHER_WAYS）。
 # ほかの方法を伺う一言は、LINE の伺い方の一言（callback_line_how）と同じく長い質問の上限（1時19分47秒のメールの一言は40字＝見込み 6.5秒）
 HOW_OF.update({f"callback_line_how_without_{k}": "question" for k in CALLBACK_ASK_OTHER_WAYS})
