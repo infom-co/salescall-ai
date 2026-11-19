@@ -7282,9 +7282,9 @@ class MeasureCallingFlowTest(unittest.TestCase):
                 continue
             right = {k: sorted(v)[0] for k, v in facts.items()}
             self.assertIsNone(t.flow_miss(right, facts, r), (text, before))
-        # 取り次ぎの言葉のあとの確かめ（表の前の言葉に、確かめたきっかけの言葉が無い）・「お電話代わりました。担当の山田です。」のあとの確かめへの返事（その言葉の
-        # 正しい読み＝前と違う方・別の方は、確かめずに名乗ってからお呼びする＝本書 9-4 の (5)。⛔ 9e707d0a までは会話AIの「目的の人」の報告で確かめていた）
-        self.assertEqual(missing, [("はい、そうです。", g.TO_TARGET), ("いいえ、私は山田と申します。", "お電話代わりました。担当の山田です。")])
+        # ⛔ e055c397 までは2行（取り次ぎの言葉のすぐあとの確かめ・「お電話代わりました。担当の山田です。」のすぐあとの確かめ）を組めなかった＝表の前の言葉に
+        # 確かめのきっかけの言葉を足した（MeasureCallingConfirmTriggerTest・頼み rv123/Y3 の (2)）
+        self.assertEqual(missing, [])
 
     def test_reports_are_every_report_the_ai_can_give(self):
         # 流す報告は、お呼びする段で会話AIが出せる相手の報告の全部（流れの制御の名前の表 PARTY_LABEL の人の相手）・代わった方・報告なし
@@ -22255,9 +22255,8 @@ class G73WordsTest(unittest.TestCase):
         import g73_system_words as g
         from flowctl import HEAR_LOST, HEAR_OK
         sc = g._scenes()
-        _, f, _ = g59.flows()
         calling = {s["asked"]: s["question"] for s in sc if s["set"] == "HEAR_CALL"}
-        self.assertEqual(calling, {a: g59.question_of(f, a).text for a in (False, True)})
+        self.assertEqual(calling, {a: g59.judge_questions(g59.hear_scene(a))[0].text for a in (False, True)})
         self.assertEqual([s["question"] for s in sc if s["set"] == "HEAR"], list(g.HEAR_QUESTIONS))
         self.assertTrue(all(set(s["kinds"]) == {HEAR_LOST, HEAR_OK} for s in sc if s["set"].startswith("HEAR") and "truths" not in s))
         # お呼びする段の紛らわしい言葉だけの場面（2つの一言とも）：正解は「そういう様子は無い」（作らせた種類の名前のままにしない）
@@ -38940,3 +38939,256 @@ class MeasureBookWordsTest(unittest.TestCase):
             self.assertEqual(it["label"][AWAY], [AWAY_YES if "定休日" in text or "祝日" in text else AWAY_NO], text)
             g.judge_inputs(it, qs[qid])   # 本番の場面で組める
             self.assertIsNone(g.flow_miss({**it, "j": want[0], "j言い切り": True, "j別の話": it["label"][AWAY][0]}, qs[qid], "j"), text)
+
+
+class MeasureCallingConfirmTriggerTest(unittest.TestCase):
+    """お呼びする段の正解の表（g59_calling_judge.cases）の行は、聞こえ方だけを数える行も含めて、どれも本番の流れの制御で行の場面（確かめたあとか・判定に渡す
+    前の言葉）に組める＝確かめへの返事の行の前の言葉には、確かめのきっかけになった言葉（目的のお客様か決まらない読みとご本人の報告＝流れの制御が確かめる一言を
+    流す言葉）がある（帳面 docs/team/CL-1.md の 1 の (13) の (c)・頼み rv123/Y3 の (2)）。
+    ⛔ e055c397 まで、26行は本番の流れの制御では組めなかった：(c) 取り次ぎの言葉「岡田ですね。少々お待ちください。」のすぐあとの確かめへの「はい、そうです。」
+       （本番は取り次ぎの言葉のあとは黙って待つ＝確かめる一言を流さない）・「お電話代わりました。担当の山田です。」のあとの確かめへの「いいえ、私は山田と申します。」
+       （本番は「別の方」の読みでは確かめずにお呼びし直す）・試しの言葉（G-73）の確かめる一言のあとの24行（前の言葉が無い＝本番は確かめる一言の前に必ず
+       お客様の言葉がある）。判定には、本番が渡さない前の言葉で読ませていた。"""
+
+    def test_every_row_including_the_hearing_rows_is_built_in_the_production_flow(self):
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        missing = []
+        for text, _, before, asked, succ, _ in g.cases("確かめる一言"):
+            try:
+                fc.row_scene({"text": text, "before": before, "asked": asked, "successor": succ})
+            except fc.NoScene:
+                missing.append((text, before, bool(asked)))
+        self.assertEqual(missing, [])
+
+    def test_the_hold_confirm_row_reads_like_the_other_confirm_replies(self):
+        # (c)：取り次ぎの言葉のあとに出た方の「はい。」（確かめのきっかけ＝取り次ぐと言われたことだけでは前と違う方にしない）のあとの、確かめへの「はい、そうです。」
+        # ＝前の方（「はい。」の方）と同じ方・ご本人。ほかの確かめへの「はい、そうです。」の行（前の言葉「はい。」）と同じ正解
+        import g59_calling_judge as g
+        rows = {(t, b): f for t, _, b, a, s, f in g.cases("x") if a and not s}
+        self.assertNotIn(("はい、そうです。", g.TO_TARGET), rows)
+        self.assertEqual(rows[("はい、そうです。", f"{g.TO_TARGET}／{g.ASKED_AFTER}")], rows[("はい、そうです。", g.ASKED_AFTER)])
+        # 「お電話代わりました。担当の山田です。」のあと、お呼びし直した一言への「はい。」で確かめた：正解は前と同じ（前の言葉に「代わって出た」山田様がいる＝別の方）
+        self.assertNotIn(("いいえ、私は山田と申します。", "お電話代わりました。担当の山田です。"), rows)
+        yamada = rows[("いいえ、私は山田と申します。", f"お電話代わりました。担当の山田です。／{g.ASKED_AFTER}")]
+        self.assertEqual((yamada["speaker"], yamada["who"]), ({"前と同じ方"}, {"別の方（どなたかは分からない）"}))
+
+    def test_the_hearing_rows_after_the_confirm_have_its_trigger_and_are_still_hearing_only(self):
+        # 試しの言葉（G-73）の確かめる一言のあとの行：前の言葉は確かめのきっかけ（g59_calling_judge.hear_before の1か所）。聞こえ方だけを数える行の見分け
+        # （g59_tally.hear_only）も同じ1か所で見る
+        import g59_calling_judge as g
+        import g59_tally as t
+        hear = g.lines_hear()
+        self.assertTrue(any(a for _, a, _ in hear) and any(not a for _, a, _ in hear))
+        keys = {(x, b, bool(a)) for x, _, b, a, s, _ in g.cases("x") if not s}
+        for text, asked, _ in hear:
+            self.assertEqual(g.hear_before(asked), g.ASKED_AFTER if asked else None)
+            self.assertIn((text, g.hear_before(asked), asked), keys)
+            self.assertTrue(t.hear_only({"text": text, "before": g.hear_before(asked), "asked": asked, "successor": False}), text)
+
+
+class MeasureCallingShownQuestionTest(unittest.TestCase):
+    """お呼びする段の測り（g59_calling_judge の run・指紋 prompts_fingerprint）と数え（g59_tally.cascade）と G-73 の場面の質問が判定に見せる質問は、行の場面を
+    本番の流れの制御に組んだ所の Flow.judge_context・Flow.asks_context（どちらも本番の1か所 Flow._calling_asked・_calling_heard）から作る（頼み rv123/Y3 の (1)・
+    分身 M の穴 (c)・分身 K の穴 (d)）。⛔ e055c397 まで、道具が自分で質問を組んでいた（question_of＝確かめたあとなら確かめる一言・ほかは呼ぶ一言）＝ご事情を
+    伺った一言・詳しい呼ぶ一言のあとの言葉を表に足すと、本番と違う質問で測ることになった。"""
+
+    @staticmethod
+    def row(text, before, asked, succ, **kw):
+        return {"text": text, "before": before, "asked": asked, "successor": succ, **kw}
+
+    def test_the_tools_do_not_compose_the_question(self):
+        import inspect
+
+        import g59_calling_judge as g
+        import g59_tally as t
+        import g73_system_words as g73
+        self.assertFalse(hasattr(g, "question_of"))
+        for fn in (g.run, g.prompts_fingerprint, t.cascade, g73.calling_questions):
+            src = inspect.getsource(fn)
+            for made in (".confirm_questions", ".calling_question", ".asks_questions", "question_of(", "for_judge("):
+                self.assertNotIn(made, src, (fn.__name__, made))
+
+    def test_every_row_is_shown_the_production_question_and_the_text_sent_is_unchanged(self):
+        # どの行も、判定に見せる質問は行の場面の本番の流れの制御の judge_context・asks_context。表の行（呼ぶ一言・確かめる一言のあと）では、前の形（確かめたあとなら
+        # 確かめる一言・後任の方の場面は後任の方の一言）と送る文が1字も変わらない（指紋は同じ）
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        from meaning_judge import sent_text
+        for hide in (None, False):
+            b, f, fs = g.flows(hide)
+            for text, _, before, asked, succ, _ in g.cases(b.target.confirm()):
+                r = self.row(text, before, asked, succ)
+                q, aq = g.judge_questions(r, hide)
+                built = fc.row_scene(r, hide)
+                self.assertEqual((q, aq), (built.judge_context()[0], built.asks_context()[0]), text)
+                fl = fs if succ else f
+                old = fl.for_judge(fl.confirm_questions["target_confirm"] if asked else fl.calling_question)
+                self.assertEqual(sent_text(q, text, None, before), sent_text(old, text, None, before), (text, before))
+                self.assertEqual(sent_text(aq, text, None, before), sent_text(fl.for_judge(fl.asks_questions[old.id]), text, None, before), text)
+
+    def test_the_inquiry_and_detailed_call_candidates_are_built_in_production_scenes(self):
+        # 分身 M の候補 5場面50行（rv100/M/label_candidates.md・正解は無し。頼みの文の「60行」は数え違い＝表の行は 19・6・9・6・10）：本番の場面で組め、
+        # 判定に見せる質問はお客様が最後に聞いた一言（ご事情を伺った一言は
+        # 印 inquiry つき・詳しい呼ぶ一言はフルネーム・確かめたあとに答えてお呼びし直した一言は呼ぶ一言）。正解の表（cases）には入れない（指紋は同じ）
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        rows = g.candidates()
+        self.assertEqual([sum(1 for r in rows if r["scene"] == s) for s in ("S1", "S2", "S3", "S4", "S5")], [19, 6, 9, 6, 10])
+        self.assertEqual(len({(r["text"], r["before"], r["asked"], r["full"]) for r in rows}), 50)
+        want = {"S1": ("岡田（おかだ）様は今お電話に出られないご状況ということでしょうか？", True),
+                "S2": ("岡田（おかだ）様は今お電話に出られないご状況ということでしょうか？", True),
+                "S3": ("営業部部長の岡田太郎（おかだたろう）様はいらっしゃいますでしょうか？", False),
+                "S4": ("営業部部長の岡田太郎（おかだたろう）様はいらっしゃいますでしょうか？", False),
+                "S5": ("営業部部長の岡田（おかだ）様はいらっしゃいますでしょうか？", False)}
+        for r in rows:
+            fc.row_scene(r)   # 組めない行は NoScene
+            q, aq = g.judge_questions(r)
+            self.assertEqual((q.text, bool(getattr(q, "inquiry", False))), want[r["scene"]], r["id"])
+            self.assertEqual(aq.text, q.text, r["id"])
+            self.assertNotIn("label", r)
+        table = {(t, b, bool(a), s) for t, _, b, a, s, _ in g.cases("x")}
+        self.assertFalse(any((r["text"], r["before"], bool(r["asked"]), r["successor"]) in table for r in rows if not r["full"]))
+
+    def test_the_words_before_a_candidate_are_read_like_the_answer_table(self):
+        # 候補の前の言葉の正しい読み（BEFORE_READ・電話を終える言葉かも）は、その言葉が表の行にもあれば、その行の正解の中
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        from flowctl import END
+        table = {t: f for t, _, b, a, s, f in g.cases("x") if not b and not a and not s}
+        seen = 0
+        for p in {p for r in g.candidates() for p in r["before"].split("／")}:
+            code, _, *side = g.BEFORE_READ[p]
+            reading = fc.facts(code) | (side[0] if side else {})
+            if p in table:
+                seen += 1
+                for k, v in reading.items():
+                    self.assertIn(v, table[p][k], (p, k))
+        self.assertEqual(seen, 3)   # 「結構です。」「どちらの岡田でしょうか？」「お名前だけでは…」
+        self.assertEqual(g.BEFORE_READ["お名前だけではどの者か分かりかねますので、お繋ぎできかねます。"][2][END], "どの方か分からず取り次げない")
+
+    def test_g73_scene_questions_come_from_the_same_place(self):
+        import g59_calling_judge as g
+        import g73_system_words as g73
+        self.assertEqual(g73.calling_questions(), {a: g.judge_questions(g.hear_scene(a))[0].text for a in (False, True)})
+
+
+class TalkWordsRegressionTest(unittest.TestCase):
+    """会話AIの通話の試験（G-57＝scenes.py）に、試しの言葉の表の別のお話（review_words.TALK_WORDS の1か所）を場面として組み込む（流さない＝組み立てだけ。
+    頼み rv123/Y3 の (3)・頼み rv121/Y の (6)）。--dry-run は、外へつながずに、表の行の数と、本番の流れの制御が組み立てた会話AIへの知らせの文を出す。"""
+
+    def test_each_talk_row_is_a_scene_with_its_business_and_line(self):
+        import make_callee_samples as m
+        import review_words
+        import scenes
+        talk = [(n, sc) for n, sc in scenes.SCENES.items() if n.startswith(scenes.TALK_SCENE)]
+        self.assertEqual(len(talk), len(review_words.TALK_WORDS))
+        for (know, words, truth), (name, sc) in zip(review_words.TALK_WORDS, talk):
+            self.assertEqual(sc.business.knowledge(), scenes.talk_business(know).knowledge(), name)
+            self.assertEqual([q.id for q in sc.business.questions], [scenes.TALK_QUESTION], name)
+            lines, _ = sc.call()
+            said = [m.text_and_how(m.UTTERANCES[x["wav"][len("Puck_"):-len(".wav")]])[0] for x in lines]
+            self.assertEqual(said[1], words, name)   # 第一声のあと、いまの質問に別のお話
+            self.assertIn(truth, sc.note)
+        # 支払日の事実の無い業務の場面がある（決まりの例の答えを写しただけで通らない＝D-13）
+        self.assertTrue(any(know is review_words.KNOW_NO_DAY for know, _, _ in review_words.TALK_WORDS))
+
+    def test_dry_run_counts_the_rows_and_shows_the_composed_notes_without_calling(self):
+        import contextlib
+        import io
+
+        import review_words
+        import scenes
+        from flowctl import TALK_RECEIVE
+        out = io.StringIO()
+        with unittest.mock.patch("sys.argv", ["scenes.py", "--dry-run"]), contextlib.redirect_stdout(out), \
+                unittest.mock.patch.object(common, "DRY_RUN", False), \
+                unittest.mock.patch.object(scenes, "save_result", side_effect=AssertionError("保存しない")), \
+                unittest.mock.patch.object(scenes, "KeyRing", side_effect=AssertionError("鍵を読まない")):
+            scenes.main()
+        text = out.getvalue()
+        self.assertIn(f"試しの言葉の表（G-57）の行：{len(review_words.TALK_WORDS)} 行", text)
+        notes = scenes.talk_notes()
+        self.assertEqual(len(notes), len(review_words.TALK_WORDS))
+        for n, (_, words, _) in zip(notes, review_words.TALK_WORDS):
+            self.assertIn(TALK_RECEIVE, n["note"])
+            self.assertIn(words, n["note"])
+            self.assertIn(n["note"], text)
+
+    def test_the_talk_checks_read_the_call_record(self):
+        import scenes
+        name = next(n for n in scenes.SCENES if n.startswith(scenes.TALK_SCENE))
+        good = "さようでございますか。お支払いはカードでしたら曜日を問わずお使いいただけますよ。"
+
+        def call(answer, result="replayed", got=True):
+            log = [{"op": "replay_opening", "args": {"part": "talk", "answer": answer, "fallback": "talk_heard_nod"}, "reply": {"result": result}}]
+            if got:
+                log.append({"op": "record_answer", "args": {"question_id": scenes.TALK_QUESTION, "condition_id": "カード"}, "reply": {"result": "next"}})
+            items = {scenes.TALK_QUESTION: {"state": "accepted", "condition": "カード"}} if got else {}
+            return {"flow_log": log, "facts": {}, "turns": [], "items": items}
+        exp = scenes.SCENES[name].expect
+        self.assertTrue(all(exp(call(good)).values()), exp(call(good)))
+        self.assertFalse(exp(call("さようでございますか。"))["相づちだけで終えない"])
+        self.assertFalse(exp(call(good + "ご都合のよい曜日はございますか？"))["問いかけ・約束を入れない"])
+        self.assertFalse(exp(call(good + "改めてご連絡いたします。"))["問いかけ・約束を入れない"])
+        self.assertFalse(exp(call(good, result="rejected"))["ひとこと応えた"])
+
+
+class CallingReadersPacketTest(unittest.TestCase):
+    """答えを伏せた読み手に渡す束（g59_readers・頼み rv123/Y3 の (4)・頼み rv121/Y の (8)）：(a) 正解の表の候補（分身 M の5場面50行）の全部の項目と尋ねているか
+    (b) 正解の表の全部の行の、相手の申し出（flowctl.offer_choices）と電話に出られない理由（absent_why_choices）。読み手に見せるのは、判定が見る文（説明の文と
+    選べるもの＝meaning_judge.prompt_parts の1か所）と、行の場面の会話（本番の流れの制御で組んだ場面）だけ。正解は渡さない。答えの欄の書き方の例は形だけの置き場。"""
+
+    def test_packet_a_has_every_candidate_with_its_production_question(self):
+        import g59_calling_judge as g
+        import g59_readers as rd
+        p = rd.packet("a")
+        self.assertEqual(len(p["rows"]), 50)
+        for r, row in zip(g.candidates(), p["rows"]):
+            q, aq = g.judge_questions(r)
+            self.assertIn(q.text, p["variants"][row["p"]], r["id"])
+            self.assertIn(aq.text, p["variants"][row["asks"]], r["id"])
+            self.assertEqual(row["talk"][-1], ("お客様", r["text"]))
+        self.assertEqual(set(p["items"]), {"speaker", "who", "phone", "target", "end", "hear", "offer", "absent_why", "asks"})
+
+    def test_packet_b_has_every_table_row_and_only_the_two_items(self):
+        import g59_calling_judge as g
+        import g59_readers as rd
+        from flowctl import ABSENT_WHY, OFFER
+        p = rd.packet("b")
+        self.assertEqual(len(p["rows"]), len(g.cases("x")))
+        self.assertEqual(p["items"], [OFFER, ABSENT_WHY])
+        for v in p["variants"].values():
+            self.assertIn("相手の申し出", v)
+            self.assertIn("電話に出られない理由", v)
+
+    def test_the_conversation_is_the_production_flow_of_the_row_scene(self):
+        # ご事情を伺った一言の場面（S1）：名乗りと呼ぶ一言 → 受付の方の「お取り次ぎすることはできません」→ ご事情を伺う一言 → 行の言葉
+        import g59_calling_judge as g
+        import g59_readers as rd
+        r = g.candidates()[0]
+        talk = rd.conversation(r)
+        self.assertEqual([w for w, _ in talk], ["こちら", "お客様", "こちら", "お客様"])
+        self.assertIn("いらっしゃいますでしょうか？", talk[0][1])
+        self.assertEqual(talk[1][1], g.UNCLEAR_CALL)
+        self.assertIn("今お電話に出られないご状況ということでしょうか？", talk[2][1])
+        self.assertEqual(talk[3][1], r["text"])
+
+    def test_no_answer_reaches_the_reader_and_the_example_is_only_a_placeholder(self):
+        import g59_calling_judge as g
+        import g59_readers as rd
+        real = g.cases("x")
+        marked = [(t, acc, b, a, s, {k: {"★正解の印★"} for k in f}) for t, acc, b, a, s, f in real]
+        with unittest.mock.patch.object(g, "cases", lambda confirm: marked):
+            for name in ("a", "b"):
+                text = rd.packet_text(name) + rd.request_text(name, "/x")
+                self.assertNotIn("★正解の印★", text)
+                self.assertNotIn("正解は", rd.packet_text(name))
+        for name in ("a", "b"):
+            req = rd.request_text(name, "/x")
+            example = next(line for line in req.splitlines() if line.startswith('{"no": 0'))
+            self.assertIn("（名前）", example)
+            for t, *_ in real:
+                self.assertNotIn(t, example)
+            for r in g.candidates():
+                self.assertNotIn(r["text"], example)

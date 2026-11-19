@@ -5,12 +5,14 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import time
 
 from common import base_parser, require_python, save_result, say
 from convo import answers
-from flowctl import ABOUT, ABSENT_WHY, END, END_HURRY, END_NONE, HEAR, HEAR_LOST, HEAR_OK, OFFER, PHONE, SPEAKER, WHO
+from flowctl import (ABOUT, ABSENT_WHY, END, END_HURRY, END_NONE, END_UNCLEAR, END_WHO, HEAR, HEAR_LOST, HEAR_OK, OFFER, PHONE, SPEAKER, UNDECIDED,
+                     WHO)
 from g53_meaning import spread_record
 from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, measured_judges
 
@@ -100,13 +102,20 @@ LINES_AFTER = [
 # 正しく設計できているんですか？」で足した（確かめに「いいえ」と答えた方を「ご本人」と読めば、AIの読み違いと重なったときに別の方に繋ぐ）。
 # 前の言葉は、本番と同じに、確かめるきっかけになった言葉（ASKED_AFTER）か、取り次いだ方の言葉。⛔ 2026-10-30 まで、前の言葉の無い確かめへの返事を
 # 測っていた（本番では、呼んでいる段の相手の言葉は消えない＝Flow.judge_context。前の言葉が無いのは、呼ぶ一言のあとに初めて話した言葉だけ）
+# 確かめのきっかけは、前の言葉の最後に必ずある（本番は、目的のお客様か決まらない読みとご本人の報告のあとにだけ確かめる一言を流す＝取り次ぎの言葉のすぐあと・
+# 「別の方」と読んだ言葉のすぐあとには流さない）。⛔ e055c397 まで、取り次ぎの言葉「岡田ですね。少々お待ちください。」のすぐあとの「はい、そうです。」（正解
+# 前と違う方・ご本人）と、「お電話代わりました。担当の山田です。」のすぐあとの「いいえ、私は山田と申します。」を確かめへの返事として測っていた＝本番では組めない
+# 場面（帳面 1 の (13) の (c)・頼み rv123/Y3 の (2)）
 ASKED_AFTER = "はい。"
 LINES_CONFIRMED = [
     ("はい、そうです。", ASKED_AFTER, F("同", "本", "無", "無")),
     ("はい、私です。", ASKED_AFTER, F("同", "本", "無", "無")),
-    ("はい、そうです。", TO_TARGET, F("違", "本", "無", "無")),            # 前の言葉は取り次いだ方（ご本人ではない）＝話している方は違う方
+    # 取り次ぎのあとに出た方の「はい。」で確かめた（取り次ぐと言われたことだけでは前と違う方にしない＝「はい。」の方と同じ方）。⛔ e055c397 まで前の言葉は
+    # 取り次ぎの言葉だけで、正解は前と違う方だった
+    ("はい、そうです。", f"{TO_TARGET}／{ASKED_AFTER}", F("同", "本", "無", "無")),
     ("いいえ、私は山田と申します。", ASKED_AFTER, F("同", "受", "無", "無")),
-    ("いいえ、私は山田と申します。", "お電話代わりました。担当の山田です。", F("同", "別", "無", "無")),   # 電話を代わった方が違うお名前を名乗っただけ
+    # 電話を代わった方が違うお名前を名乗ったのでお呼びし直し、「はい。」で確かめた（前の言葉で「代わって出た」山田様が、違うお名前を名乗っただけ＝別の方）
+    ("いいえ、私は山田と申します。", f"お電話代わりました。担当の山田です。／{ASKED_AFTER}", F("同", "別", "無", "無")),
     ("いえ、違います。", ASKED_AFTER, F("同", "受", "無", "無")),
     ("いえ、受付の者です。少々お待ちください。", ASKED_AFTER, F("同", "受", "待", "無")),
     ("いえ、岡田は席を外しております。", ASKED_AFTER, F("同", "受", "無", "在")),
@@ -204,18 +213,37 @@ EXTRA = {("お電話代わりました。山田です。", AWAY_TO_OTHER): ["不
 # 流す）。表の行にある言葉は、その行の正解と同じ読み（試験 MeasureCallingFlowTest が確かめる）。見直し (13) の D1・D2（2026-11-18）で、測りの数えの
 # 手の写し（g59_tally.flow_flags と、その写しが使った取り次ぎの言葉の表 HELD_BEFORE＝取り次ぎの言葉のあとの方の「前と違う方」は動きを変えない、という
 # Flow._new_speaker の決まりの写し）を外して本番の流れの制御に通すために足した
+# 値＝(読みの字, 会話AIの操作, 足す読み)：操作は相手の報告の名前（report_party）か (操作, 引数)。足す読み（電話を終える言葉か など）は無ければ省く。
+# ご事情を伺う一言・詳しい呼ぶ一言・確かめたあとに答えてお呼びし直した一言の場面（候補の行 CANDIDATES）の前の言葉も同じ形（頼み rv123/Y3 の (1)。
+# 読みと操作は分身 M の場面の作り rv100/M/tools/labels.py のとおり。表の行にある言葉は、その行の正解の中の読み＝「結構です。」の電話を終える言葉かは表の正解の
+# 「決められない」）
 _HOLDING = ("同受待x", "reception")
+UNCLEAR_CALL = "申し訳ございませんが、お取り次ぎすることはできません。"   # 理由を言わずに取り次げない（ご事情を伺う一言を流す言葉）
+WHO_UNCLEAR_CALL = "お名前だけではどの者か分かりかねますので、お繋ぎできかねます。"   # どの方か分からず取り次げない（詳しい呼ぶ一言を流す言葉）
+WHOIS_AFTER = "失礼ですが、どちら様でしょうか？"   # 確かめる一言のあとに聞かれた名乗り（名乗りと呼ぶ一言で答える言葉）
 BEFORE_READ = {TO_TARGET: _HOLDING, "それでは岡田にお繋ぎします。": _HOLDING, TO_OTHER: _HOLDING,
                "岡田は外出しておりますので、別の者に代わります。": ("同受待在", "reception"), AWAY_TO_OTHER: ("同受待在", "reception"),
                TO_SUCCESSOR_NOW: ("同受待籍", "reception"), "岡田は退職しておりますので、後任の者に代わります。少々お待ちください。": ("同受待籍", "reception"),
                TO_SUCCESSOR: _HOLDING, "公認は田中になります。少々お待ちください。": _HOLDING, "後任の者に代わりますので、少々お待ちください。": _HOLDING,
-               ASKED_AFTER: ("同不xx", "target"), "お電話代わりました。担当の山田です。": ("違別xx", "target")}
+               ASKED_AFTER: ("同不xx", "target"), "お電話代わりました。担当の山田です。": ("違別xx", "target"),
+               UNCLEAR_CALL: ("同受xx", ("request_end", {"reason": "transfer_unclear"}), {END: END_UNCLEAR}),
+               "結構です。": ("同受xx", ("request_end", {"reason": "callee_refused_call"}), {END: UNDECIDED}),
+               "どちらの岡田でしょうか？": ("同受xx", ("replay_opening", {"part": "target"})),
+               WHO_UNCLEAR_CALL: ("同受xx", ("request_end", {"reason": "who_unclear"}), {END: END_WHO}),
+               WHOIS_AFTER: ("同不xx", ("replay_opening", {"part": "intro"}))}
 
 
 def steps_before(before: str | None) -> list:
-    """行の「その前に相手が言ったこと」を、場面を組む1か所（g59_flow_check.scene）の手順 [(相手の言葉, 読みの字, 会話AIの報告)] にする（唯一の作り）。
-    後任の方へ切り替えた退職の言葉（DEPARTED_SAID）は、場面が後任の方の場面として先に流すので入れない。"""
-    return [(p, BEFORE_READ[p][0], ("report_party", {"party": BEFORE_READ[p][1]})) for p in (before or "").split("／") if p and p != DEPARTED_SAID]
+    """行の「その前に相手が言ったこと」を、場面を組む1か所（g59_flow_check.scene）の手順 [(相手の言葉, 読み, 会話AIの操作)] にする（唯一の作り）。
+    読みは読みの字（足す読みがあれば項目ごとの答えに足した形）。後任の方へ切り替えた退職の言葉（DEPARTED_SAID）は、場面が後任の方の場面として先に流すので入れない。"""
+    from g59_flow_check import facts
+    out = []
+    for p in (before or "").split("／"):
+        if not p or p == DEPARTED_SAID:
+            continue
+        code, op, *side = BEFORE_READ[p]
+        out.append((p, facts(code) | side[0] if side else code, ("report_party", {"party": op}) if isinstance(op, str) else op))
+    return out
 
 
 def lines_end() -> list[tuple[str, str | None, dict[str, set]]]:
@@ -255,6 +283,13 @@ def unsure_of(target: bool, exc: NoJudgment) -> str | None:
     first = next(iter(exc.unsure), None)
     counted = unsure_counts("judge" if target else "asks", first["unsure"]) if first else None
     return label(counted) if counted else None
+
+
+def hear_before(asked: bool) -> str | None:
+    """試しの言葉（G-73）の行の「その前に相手が言ったこと」（唯一の決まり＝正解の表 cases・聞こえ方だけを数える行の見分け g59_tally.hear_only・G-73 の
+    場面の質問 g73_system_words.calling_questions）：確かめる一言のあとの行は、確かめのきっかけ（ASKED_AFTER）。呼ぶ一言のあとの行は無し。
+    ⛔ e055c397 まで、確かめる一言のあとの行も前の言葉が無かった（本番は確かめる一言の前に必ずお客様の言葉がある＝本番では組めない場面）"""
+    return ASKED_AFTER if asked else None
 
 
 def lines_hear() -> list[tuple[str, bool, dict[str, set]]]:
@@ -314,7 +349,7 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
             + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED]
             + [(t, successor_before(t, b, c), c, True, f) for t, b, c, f in LINES_SUCCESSOR]
-            + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, None, a, False, f) for t, a, f in lines_hear()])
+            + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, hear_before(a), a, False, f) for t, a, f in lines_hear()])
     # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉の正解は、行に END を書いたもの（ご本人の「…会議中で手が離せないのですが。」＝
     #    急いでいる）のほかは「言っていない」（断り・取り次げない・急ぎ・怒りの言葉は無い。⛔ 11-01 は1つずつ読まずに全部を「言っていない」にしていた＝
     #    2026-11-05 に71の言葉を1つずつ読み直した）。
@@ -327,7 +362,8 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
 
 
 def flows(sees_target: bool | None = None):
-    """測る業務と、2つの流れの制御（ふつうの場面・後任の方をお呼びしたあと）。測る所（run）と送る文の指紋（prompts_fingerprint）の1か所。
+    """測る業務と、2つの流れの制御（ふつうの場面・後任の方をお呼びしたあと）。測る所（run）と送る文の指紋（prompts_fingerprint）は業務だけを使う
+    （判定に見せる質問は行の場面の本番の流れの制御＝judge_questions の1か所。2026-11-19 の頼み rv123/Y3 の (1) まで、ここの流れの制御から道具が組んでいた）。
     sees_target＝お呼びする方の名前と読みを判定に見せるか（既定は本番の形。False＝名前を伏せる形＝--hide-names・CL-1.md 4-165）。"""
     from flowctl import Flow
     from instruction import Target
@@ -340,9 +376,62 @@ def flows(sees_target: bool | None = None):
     return b, f, fs
 
 
-def question_of(fl, asked) -> "Question":
-    """判定に見せる質問：確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）。名前の形も本番と同じ1か所（Flow.for_judge）。"""
-    return fl.for_judge(fl.confirm_questions["target_confirm"] if asked else fl.calling_question)
+@functools.cache
+def _judge_questions(text: str, before: str | None, asked: bool, successor: bool, full: bool, sees_target: bool | None):
+    from g59_flow_check import row_scene
+    f = row_scene({"text": text, "before": before, "asked": asked, "successor": successor, "full": full}, sees_target)
+    return f.judge_context()[0], f.asks_context()[0]
+
+
+def judge_questions(r: dict, sees_target: bool | None = None) -> tuple["Question", "Question"]:
+    """行 r（text・before・asked・successor・印 full）の場面で判定に見せる質問：(目的のお客様の判定の質問, 尋ねているかの質問)（唯一の作り＝測り run・
+    送る文の指紋 prompts_fingerprint・数え g59_tally.cascade・G-73 の場面の質問 g73_system_words.calling_questions）。行の場面を本番の流れの制御に組み
+    （g59_flow_check.row_scene）、行の言葉を聞いた所の Flow.judge_context・Flow.asks_context（どちらも本番の1か所 Flow._calling_asked・_calling_heard＝
+    お客様が最後に聞いた、お返事を待つ一言の文。ご事情を伺った一言なら印 inquiry）。組めない行は g59_flow_check.NoScene。sees_target＝--hide-names。
+    ⛔ e055c397 まで、ここは道具が自分で組んでいた（question_of＝確かめたあとなら確かめる一言・ほかは呼ぶ一言＝ご事情を伺った一言・詳しい呼ぶ一言のあとの
+       言葉を本番と違う質問で測る形。分身 M の穴 (c)・分身 K の穴 (d)・頼み rv123/Y3 の (1)）"""
+    return _judge_questions(r["text"], r["before"] or None, bool(r["asked"]), bool(r["successor"]), bool(r.get("full")), sees_target)
+
+
+def hear_scene(asked: bool, text: str = "はい。") -> dict:
+    """試しの言葉（G-73）の場面の行（呼ぶ一言のあとか・確かめる一言のあとか）。言葉を作らせる場面の質問（g73_system_words.calling_questions）も、測りと
+    同じ1か所（judge_questions）で作る。"""
+    return {"text": text, "before": hear_before(asked), "asked": asked, "successor": False}
+
+
+# 正解の表の候補（正解は付けていない＝答えを伏せた読み手が付ける・rv100/M/label_candidates.md の5場面50行）：(場面, 場面の説明, その前に相手が言ったこと,
+# 確かめたあとか, フルネームのある業務か, 相手の言葉の並び)。場面は本番の流れの制御で組む（前の言葉の読みと会話AIの操作は BEFORE_READ）。指紋の道具・測りの
+# 道具・数えは正解の表（cases）だけを数える＝候補は数えない（正解を付けてから表に移す）。⚠️ 分身 M の場面は電話に出た方の第一声「はい、テスト商事でござい
+# ます。」から始め、業務の呼ぶ一言は「部長の…」だった。ここは表の行と同じ場面の作り（第一声なし・営業部部長）＝判定に見せる前の言葉に第一声が入らない
+CANDIDATES = [
+    ("S1", "ご事情を伺った一言のあと（理由を言わずに取り次げないと言われた）", UNCLEAR_CALL, False, False,
+     ["はい、そうです。", "はい。", "ええ、そういうことです。", "はい、申し訳ございません。", "いえ、そういうわけではないのですが、お繋ぎはできかねます。",
+      "いえ、営業のお電話はお断りしております。", "いいえ、営業のお電話はお繋ぎしない決まりになっております。", "はい、本日は外出しておりまして。",
+      "はい、3時には戻る予定です。", "はい、会議が長引いておりまして。", "いえ、本人はおりますが、お繋ぎはできないことになっております。",
+      "はい、今週いっぱい出張しております。", "いいえ、岡田は先月退職いたしました。", "そうですね、戻りましたら折り返しさせましょうか？",
+      "はい、ご用件でしたら私が承ります。", "少々お待ちください。", "失礼ですが、どういったご用件でしょうか？", "申し上げられません。", "結構です。"]),
+    ("S2", "ご事情を伺った一言のあと（受付の方に「結構です。」とだけ言われた）", "結構です。", False, False,
+     ["はい、そうです。", "いえ、営業のお電話でしたら結構です。", "はい、本日は休みをいただいております。", "いえ、そういうことではなくて、お繋ぎできないんです。",
+      "ですから、結構です。", "はい。"]),
+    ("S3", "詳しい呼ぶ一言のあと（「どちらの岡田でしょうか？」と聞かれた）", "どちらの岡田でしょうか？", False, True,
+     ["かしこまりました。少々お待ちください。", "岡田太郎ですね。少々お待ちください。", "岡田太郎は本日休みをいただいております。",
+      "あいにく席を外しております。", "営業部には岡田太郎という者はおりませんが。", "岡田太郎は先月退職いたしました。", "はい、私ですが。",
+      "失礼ですが、どういったご用件でしょうか？", "はい。"]),
+    ("S4", f"詳しい呼ぶ一言のあと（「{WHO_UNCLEAR_CALL}」と言われた）", WHO_UNCLEAR_CALL, False, True,
+     ["承知しました。少々お待ちください。", "申し訳ございませんが、それでもお繋ぎできかねます。", "岡田太郎は本日外出しております。",
+      "営業部の岡田太郎ですね。少々お待ちください。", "そういった者はおりませんが。", "はい、お電話代わりました。岡田です。"]),
+    ("S5", "確かめる一言のあとに「どちら様でしょうか？」と聞かれ、名乗りと呼ぶ一言で答えたあと（確かめたあとに答えてお呼びし直した一言）",
+     f"{ASKED_AFTER}／{WHOIS_AFTER}", True, False,
+     ["はい。", "岡田ですね。", "岡田ですね。少々お待ちください。", "はい、岡田です。", "ああ、私です。失礼しました。", "岡田はただいま外出しております。",
+      "アオバ物流さんですね。少々お待ちください。", "そういったお電話はお繋ぎしておりません。", "失礼ですが、どういったご用件でしょうか？", "はい、それで？"]),
+]
+
+
+def candidates() -> list[dict]:
+    """正解の表の候補の行（正解なし）：{番号・場面・場面の説明・相手の言葉・その前に相手が言ったこと・確かめたあとか・後任の方の場面か・フルネームの印}。
+    行の形は測りの行と同じ（row_scene・judge_questions にそのまま渡せる）。"""
+    return [{"id": f"{sid}-{i}", "scene": sid, "title": title, "text": t, "before": before, "asked": asked, "successor": False, "full": full}
+            for sid, title, before, asked, full, words in CANDIDATES for i, t in enumerate(words, 1)]
 
 
 def prompts_fingerprint(sees_target: bool | None = None) -> dict[str, tuple[int, str]]:
@@ -355,19 +444,19 @@ def prompts_fingerprint(sees_target: bool | None = None) -> dict[str, tuple[int,
        同じ ⇒ 本番の2つ目の判定の組のうち、その質問に答える判定それぞれへ送る中身（meaning_judge.sent_text＝送る1か所 other_request）から作る"""
     import hashlib
     from meaning_judge import sent_text
-    b, f, fs = flows(sees_target)
+    b, _, _ = flows(sees_target)
     target = asks = ""
     for text, _, before, asked, succ, _ in cases(b.target.confirm()):
-        fl = fs if succ else f
-        q = question_of(fl, asked)
+        q, aq = judge_questions({"text": text, "before": before, "asked": asked, "successor": succ}, sees_target)   # 本番の場面の1か所
         target += sent_text(q, text, None, before)
-        asks += sent_text(fl.for_judge(fl.asks_questions[q.id]), text, None, before)
+        asks += sent_text(aq, text, None, before)
     return {name: (len(s), hashlib.sha256(s.encode()).hexdigest()[:16]) for name, s in (("目的のお客様の判定", target), ("尋ねているか", asks))}
 
 
 async def run(args) -> dict:
     from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Question, label
-    b, f, fs = flows(False if args.hide_names else None)
+    sees = False if args.hide_names else None
+    b, _, _ = flows(sees)
     if args.batch:
         # 正しさだけを見る測り：1つの Anthropic の判定を、まとめて送る（meaning_judge.batch_judge。料金は半分・答えまでの秒は測らない）
         name = args.judge2
@@ -377,7 +466,7 @@ async def run(args) -> dict:
     else:
         judges = measured_judges(args)   # 測るのは選んだ意味の判定だけ（中身の判定は g63_grounding。選んでいなければ止める）
     rows, items, where = [], [], {}
-    hear_only = {(t, a) for t, a, _ in lines_hear()}   # 聞こえ方だけを数える行（試しの言葉 G-73）
+    hear_only = {(t, hear_before(a), a) for t, a, _ in lines_hear()}   # 聞こえ方だけを数える行（試しの言葉 G-73）
 
     def finish(row) -> None:
         # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える
@@ -392,10 +481,10 @@ async def run(args) -> dict:
     for text, ok, before, asked, successor, facts in cases(b.target.confirm()):
         if args.only and text not in args.only:   # 外れた言葉だけを、本番と同じ送り方でくり返して確かめるとき（測る言葉を選ぶだけ）
             continue
-        fl = fs if successor else f
-        q = question_of(fl, asked)
+        # 判定に見せる質問は、行の場面の本番の流れの制御の1か所（judge_questions＝Flow._calling_asked）
+        q, aq = judge_questions({"text": text, "before": before, "asked": asked, "successor": successor}, sees)
         for rep in range(args.repeat):
-            only = (text, bool(asked)) in hear_only
+            only = (text, before, bool(asked)) in hear_only
             truths = asks_truths(text, only)   # 尋ねているかの正しい読み（1か所）：1つに決まる言葉だけ数える（「尋ねている」か＝ASKED に入るか）
             want = truths[0] in ASKED if len(truths) == 1 else None
             kind = truths[0] if len(truths) == 1 and truths[0] in ASKED else None
@@ -405,7 +494,7 @@ async def run(args) -> dict:
                    "both": (text, before, bool(asked)) in {(t, b, c) for t, b, c, _ in LINES_BOTH}}
             rows.append(row)
             # 目的の人の判定と、こちらに尋ねているかの問い合わせ（本番と同じに、同じ言葉・同じ前の言葉で同時に出す＝convo.check_handler）
-            pairs = ((q, ""), (fl.for_judge(fl.asks_questions[q.id]), "_asks"))
+            pairs = ((q, ""), (aq, "_asks"))
             if only:   # 聞こえ方だけを数える行：数えない尋ねているかは問い合わせない（聞こえ方は目的のお客様の判定の項目＝flowctl.SIDE_ITEMS）
                 pairs = () if args.asks_only else pairs[:1]
             elif args.asks_only:   # ⛔ 2026-10-31：文が変わったのは尋ねているかだけなのに、目的のお客様の判定まで流して、お伝えした額を超えた

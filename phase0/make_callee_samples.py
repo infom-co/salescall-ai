@@ -176,7 +176,24 @@ UTTERANCES = {
     "thanks_for_call": "わざわざお電話ありがとうございます。",
     "small_talk_busy": "毎日お電話されてて大変ですね。",
     "business_hours_q": "そちらの営業時間って、なんじまでですか？",
+    # 会話AIの通話の試験（G-57）の別のお話の場面で、ひとことのあとにお支払いの質問へ答える（scenes.TALK_SCENE）
+    "pay_card": "カードでお願いします。",
 }
+
+
+def talk_name(words: str) -> str:
+    """別のお話の台詞の名前（唯一の決め方＝言葉から決める。言葉は試しの言葉の表 review_words.TALK_WORDS の1か所＝ここに書き写さない）。"""
+    import hashlib
+    return "talk_" + hashlib.sha1(words.encode("utf-8")).hexdigest()[:8]
+
+
+def _talk_lines() -> dict[str, str]:
+    """会話AIの通話の試験（G-57）の別のお話の台詞（試しの言葉の表 review_words.TALK_WORDS の言葉）。"""
+    from review_words import TALK_WORDS
+    return {talk_name(words): words for _, words, _ in TALK_WORDS}
+
+
+UTTERANCES |= _talk_lines()
 # 人の声でない相手の音（作った声ではないので、別の耳の確かめは無い）。ファクスの答える音（CED 2100Hz のあと、V.21 の信号＝1650・1850Hz を
 # 300ボーで切り替える音。ITU-T T.30）。声の名前ごとに同じ音のファイルを置く（台詞の声の読み替え＝convo.callee_wav が使えるように）
 TONES = {"fax_tone": "fax"}
