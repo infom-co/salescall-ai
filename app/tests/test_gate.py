@@ -2088,6 +2088,22 @@ class NameLedger(Content):
         self.assertFalse({"mobile_confirm", "target_transfer"} & parts)
         self.assertLessEqual({"E5", "mobile_confirm", "target_transfer", *recordings.NAME_TAILS}, business_settings.RESERVED_IDS)
 
+    def test_every_name_tail_and_name_part_is_reserved(self):
+        """名前の録音の台帳の続く言葉の名前（写しの1か所 common_phrases.NAME_TAILS）と、台帳から流す名乗りの部分（役職の方の一言・携帯電話の番号で別の方と言われ続けた
+        ときの確かめ）・顧客獲得型の部分とシステムの質問（CL-1 の連絡帳 4-208・4-211〜4-214）は、どれも業務の質問の番号に使えない（会話の側で取り違える）。
+        データベースの続く言葉の名前の守り（recording_sets_name_key）は、写しの名前をどれも受ける（前に使っていた target_reconfirm は、台帳に残る録音のため受けたまま）。"""
+        from salescall.core import business_settings
+        self.assertLessEqual(set(common_phrases.NAME_TAILS), business_settings.RESERVED_IDS)
+        self.assertLessEqual({"mobile_owner", "target_role", "target_role_confirm", "target_role_unavailable", "target_role_transfer",
+                              "reception_purpose_role", "Y1", "Y2", "yes", "but", "acquire_special", "meeting_time", "pain1", "case3"},
+                             business_settings.RESERVED_IDS)
+        self.assertNotIn("target_reconfirm", recordings.NAME_TAILS)
+        got = self.w.a.in_system(ADMIN, lambda tx: tx.one("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint"
+                                                           " WHERE conname = 'recording_sets_name_key'"))["d"]
+        for t in (*common_phrases.NAME_TAILS, "target_reconfirm"):
+            with self.subTest(tail=t):
+                self.assertIn(f"'{t}'", got)
+
     def test_the_parts_cl1_added_for_their_callback_on_other_reasons_are_received(self):
         """CL-1 の連絡帳 4-161（✅ 2026-11-15 日本時間11時59分07秒 ユーザー「伺い17はアでOK」）：お言葉に甘えて受けたあと、不在のほかの理由でも伺う一言の録音
         （お休み theirs_workday・長期の不在 theirs_date・ご事情とあとで theirs_later）と、それぞれの3回目から戻る形（_midway）・頭「それでは」の形（_lead_soredeha）の
@@ -2211,12 +2227,15 @@ class NameLedger(Content):
         a = self.named(s, "岡田", "おかだ")
         got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
         K = recordings.NameKey
-        self.assertEqual((got.roles, got.names), (("営業部部長",), (K(reading="おかだ"),)))
+        # 役職の方の名乗りの部分（後任の方もいらっしゃらないときにお呼びする「部長様」。CL-1 の連絡帳 4-213）の名前の部分は、役職の呼び方の鍵
+        self.assertEqual((got.roles, got.names), (("営業部部長",), (K(reading="おかだ"), K(role="営業部部長"))))
         # 取り次げないの確かめの一言（CL-1 が 11-01 に足した）・引き継ぎを確かめる一言の名前の入る形（carried_target。CL-1 の連絡帳 4-151 の伺い11）も、
         # 目的のお客様のいる行はいつも要る。法人の行はお取り次ぎをお願いし直す一言（target_transfer）・お名前のある行は携帯電話の番号のときの確かめる一言
         # （mobile_confirm）も（CL-1 の連絡帳 4-197 の (a)・4-192 の (b) の (2)。どの行が携帯電話の番号になるかは前もって決めない）
-        self.assertEqual(got.tails, ("target", "target_confirm", "target_reconfirm", "promise_again", "unavailable_confirm",
-                                     "carried_target", "target_successor", "target_transfer", "mobile_confirm"))
+        # （target_reconfirm は会話の側が流さなくなったので求めない＝CL-1 の連絡帳 4-210。携帯電話の番号で別の方と言われ続けたときの確かめ mobile_owner は、続く言葉
+        # target_individual の録音を使う＝4-212）
+        self.assertEqual(got.tails, ("target", "target_confirm", "promise_again", "unavailable_confirm", "carried_target",
+                                     "target_successor", "target_transfer", "mobile_confirm", "target_individual"))
         b = self.ready()
         got = self.tx(b, lambda tx: recordings.name_needs(tx, b["task"]))
         self.assertEqual((got.roles, got.names), ((), (K(role=support.DEFAULT_ROLE),)))
@@ -2224,15 +2243,28 @@ class NameLedger(Content):
         c = self.ready()
         self.switch_to(c, {"kind": "anyone", "role": None})
         self.assertIsNone(self.tx(c, lambda tx: recordings.name_needs(tx, c["task"])))
-        person = {"target": {"kind": "個人", "name": "岡田", "reading": "おかだ", "role": "", "full_name": "", "full_reading": "",
+        person = {"call_type": "confirm", "target": {"kind": "個人", "name": "岡田", "reading": "おかだ", "role": "", "full_name": "", "full_reading": "",
                              "department": ""}}
         with mock.patch.object(recordings.business_settings, "target_of", return_value=person):
             got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
         self.assertEqual((got.roles, got.names), ((), (K(reading="おかだ"),)))
-        self.assertEqual(got.tails, ("target_individual", "target_confirm", "target_reconfirm", "promise_again", "unavailable_confirm",
+        self.assertEqual(got.tails, ("target_individual", "target_confirm", "promise_again", "unavailable_confirm",
                                      "carried_target", "mobile_confirm"))     # 個人の行は、後任の方・お取り次ぎをお願いし直す一言が無い
         with self.assertRaises(ValueError):                                   # 名前の部分の鍵は、読みか役職のどちらか1つ
             K(reading="おかだ", role="社長")
+
+    def test_an_acquiring_row_needs_the_main_talk_tails(self):
+        """顧客獲得型の業務の行（CL-1 の連絡帳 4-208・4-211・4-214）は、2回目からの受け止めの終わり（yes_received）・本題の段のお名前の入る文（acquire_glad・pain_ask・
+        listen_why・listen_reason・listen_ask）の続く言葉も初めから要る。法人の行は受付の方への一文（reception_purpose）も。確認の電話の業務の行には要らない。"""
+        s = self.ready()
+        self.switch_to(s, {"kind": "role_and_name", "role": "営業部部長"})
+        a = self.named(s, "岡田", "おかだ")
+        real = recordings.business_settings.target_of
+        with mock.patch.object(recordings.business_settings, "target_of", side_effect=lambda tx, t: {**real(tx, t), "call_type": "acquire"}):
+            got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
+        self.assertLessEqual({*recordings.ACQUIRE_TAILS, "reception_purpose"}, set(got.tails))
+        plain = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
+        self.assertFalse({*recordings.ACQUIRE_TAILS, "reception_purpose"} & set(plain.tails))
 
     def test_the_full_name_call_needs_its_parts_only_when_it_adds_something(self):
         """お名前だけではどの方か分からないと言われたときに、部署とフルネームでお呼びし直す一言（会話の側の Target.full_call・
@@ -2300,23 +2332,25 @@ class NameLedger(Content):
         """名前と役職は別の部分（2026-10-24 ユーザー：「総務課長の同じ名前の人が必要な時に、また録音し直さねばならず、永遠に録音が
         必要ですよ。」）：「営業部部長の」「「おかだ」様」をそろえた声は、総務課長の「おかだ」様の行では「総務課長の」だけが足りない
         （名前の部分はシステムの共通の録音＝どの業務も使う・役職の部分は業務の録音）。足りる行の数は、役職の部分と名前の部分を別々に
-        数える。"""
+        数える。お名前と役職のある法人の行は、後任の方もいらっしゃらないときにその役職の方をお呼びする一言の名前の部分（役職の呼び方「営業部部長様」）も要る
+        （CL-1 の連絡帳 4-213。業務の録音）。"""
         s = self.ready()
         self.switch_to(s, {"kind": "role_and_name", "role": "営業部部長"})
         reading = unique_kana()   # システムの共通の録音は、試験のデータベースのどの契約者にも見える（ほかの試験と重ならない鍵）
         a = self.named(s, "岡田", reading)
         K = recordings.NameKey
         self.w.approve_names(None, [K(reading=reading)], ("Leda",), tails=())
-        self.w.approve_names(s, [], ("Leda",), roles=("営業部部長",), tails=())
+        self.w.approve_names(s, [K(role="営業部部長")], ("Leda",), roles=("営業部部長",), tails=())
         self.assertIsInstance(self.claim(a), gate.Claim)
         t = self.ready(tenant=s["tenant"])
         self.switch_to(t, {"kind": "role_and_name", "role": "総務課長"})
         c = self.named(t, "丘田", reading)
         needs = self.tx(c, lambda tx: recordings.name_needs(tx, c["task"]))
-        self.assertEqual(self.tx(c, lambda tx: recordings.name_missing(tx, needs, "Leda")), ["総務課長の（役職の部分）"])
+        self.assertEqual(self.tx(c, lambda tx: recordings.name_missing(tx, needs, "Leda")), ["総務課長の（役職の部分）", "総務課長（役職の呼び方）"])
         got = self.tx(t, lambda tx: recordings.name_coverage(tx, t["run"], "Leda"))
-        self.assertEqual((got["roles"], got["names"]), ({"総務課長の（役職の部分）": 1}, {"総務課長（役職の呼び方）": 1}))   # 名前の無い初めの行は役職の呼び方
-        self.w.approve_names(t, [], ("Leda",), roles=("総務課長",), tails=())
+        # 名前の無い初めの行は役職の呼び方・お名前のある行（c）も、その役職の方をお呼びする一言で役職の呼び方（CL-1 の連絡帳 4-213）
+        self.assertEqual((got["roles"], got["names"]), ({"総務課長の（役職の部分）": 1}, {"総務課長（役職の呼び方）": 2}))
+        self.w.approve_names(t, [K(role="総務課長")], ("Leda",), roles=("総務課長",), tails=())
         self.assertEqual(self.tx(c, lambda tx: recordings.name_missing(tx, needs, "Leda")), [])
 
     def test_another_business_ledger_is_not_used(self):
