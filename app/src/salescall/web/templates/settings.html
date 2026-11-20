@@ -5,8 +5,8 @@
 {% set w = forms.FORMS[r.value_type].widget if r.value_type in forms.FORMS else "" %}
 {% set v = r.got.value if r.got else none %}
 {% if w == "yesno" %}
-  <label class="choice"><input type="radio" name="f_v" value="1" {% if v %}checked{% endif %}> はい</label>
-  <label class="choice"><input type="radio" name="f_v" value="0" {% if v == false %}checked{% endif %}> いいえ</label>
+  <label class="choice"><input type="radio" name="f_v" value="1" {% if v %}checked{% endif %}> {{ words.yes_no(r.key, true) }}</label>
+  <label class="choice"><input type="radio" name="f_v" value="0" {% if v == false %}checked{% endif %}> {{ words.yes_no(r.key, false) }}</label>
 {% elif w in ("number", "seconds", "percent") %}
   <div class="unit-input"><input type="text" inputmode="decimal" name="f_v" value="{{ (v * 100)|round(2) if w == 'percent' and v is not none else (v if v is not none else '') }}" aria-label="値">
   <span>{{ {"seconds": "秒", "percent": "%"}.get(w, r.unit) }}</span></div>
@@ -46,6 +46,15 @@
 <h1>設定：{{ where }}</h1>
 <p class="lead">ここで決めた値は、{% if level == "system" %}すべての契約者の初めの値になります（契約者・依頼者・業務で決めた値が勝ちます。「システムだけ」の設定は、この値だけを使います）{% elif level == "tenant" %}すべての依頼者・業務の初めの値になります（依頼者・業務で決めた値が勝ちます）{% elif level == "client" %}この依頼者のすべての業務に効きます（業務で決めた値が勝ちます）{% else %}この業務だけに効きます{% endif %}。変えた値と前の値は、記録に残ります。{% if level != "system" %}どこで決めたかを添えていない値は、システムの初めの値のままです。{% endif %}</p>
 {{ flash(done, ok) }}
+{#- この段で決めている値の一覧（どれを変えたかを一目で。押すとその行を開く）。システムの段は、どれもこの段の値なので出さない -#}
+{% set mine = rows|selectattr("own")|list %}
+{% if level != "system" %}
+<section class="card own-list">
+  <h2>この段で決めている値 <span class="muted">（{{ mine|length }}）</span></h2>
+  {% if mine %}<ul>{% for r in mine %}<li><a href="#s-{{ r.key|replace('.', '-') }}">{{ r.label }}</a>：<b>{{ r.shown }}</b></li>{% endfor %}</ul>
+  {% else %}<p class="muted">まだありません。ほかの段（システム・契約者・依頼者）で決めた値のまま動いています。変えるときは、下の行を開きます。</p>{% endif %}
+</section>
+{% endif %}
 <div class="settings-filter"><input type="text" placeholder="設定を探す（例：時間帯・回数・間隔）" data-filter=".setting" aria-label="設定を探す"></div>
 <nav class="filters setting-toc" aria-label="設定のまとまり">
   {% for group, items in words.grouped_settings(rows) %}<a class="chip" href="#g-{{ group }}">{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }} <b>{{ items|length }}</b></a>{% endfor %}
@@ -54,10 +63,11 @@
 <section class="setting-group" id="g-{{ group }}">
   <h2>{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }}</h2>
   {% for r in items %}
-  <details class="setting card {{ 'own' if r.own }}">
+  <details class="setting card {{ 'own' if r.own }}" id="s-{{ r.key|replace('.', '-') }}">
     <summary>
       <span class="meaning"><b>{{ r.label }}</b></span>
       <span class="now">{% if r.got %}<b>{{ r.shown }}</b>{% if r.got["from"] != "system" and not r.own %} <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% endif %}{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if r.own and level != "system" %} {{ tag("この段で決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag("仮の値（見直す時：" ~ words.plain(r.provisional.review_when) ~ "）", "wait") }}{% endif %}</span>
+      <span class="change" aria-hidden="true">変える</span>
     </summary>
     <form method="post" action="{{ action }}" class="setting-form" data-needs-reason>
       {{ csrf(token) }}<input type="hidden" name="key" value="{{ r.key }}">
@@ -69,7 +79,7 @@
       <input type="text" name="review_when" placeholder="仮なら、いつ見直すか" style="max-width:260px"></div>
       {% endif %}
       <label class="field">理由（記録に残ります）</label>
-      <input type="text" name="reason" placeholder="例：依頼者のご希望で、夕方はかけない">
+      <input type="text" name="reason" placeholder="なぜ変えるか（例：依頼者からのご希望・試してみて合わなかった）">
       <div class="actions"><button class="btn main small" type="submit" data-submit disabled>この段の値にする</button></div>
     </form>
   </details>

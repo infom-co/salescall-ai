@@ -139,6 +139,10 @@ ul.numbers li.old .num { color: var(--muted); font-weight: 500; text-decoration:
 .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .stack > * + * { margin-top: 16px; }
+/* 塊（札・並び・表・まとまり）が続くときの間は、ここ1か所で決める（2026-11-20 の見直し：ページごとの書き込みに頼っていて、
+   書き忘れた所で札どうしがくっついていた＝お客様の行の画面・設定の画面） */
+.content > :is(.card, .grid, section, .stack, .table-scroll, .settings-filter, .filters, form.card, article)
+  + :is(.card, .grid, section, .stack, .table-scroll, .settings-filter, .filters, form.card, article) { margin-top: 16px; }
 .stat { display: flex; flex-direction: column; gap: 2px; }
 .stat .label { color: var(--muted); font-size: 13px; }
 .stat .value { font-size: 30px; font-weight: 800; line-height: 1.2; font-variant-numeric: tabular-nums; }
@@ -343,6 +347,14 @@ details.setting > summary { list-style: none; cursor: pointer; display: flex; fl
 details.setting > summary::-webkit-details-marker { display: none; }
 details.setting[open] > summary { border-bottom: 1px solid var(--line); }
 details.setting.own { border-left: 4px solid var(--info); }
+/* 開くと変えられることを示す印（閉じているとき「変える ›」、開いたら「閉じる」） */
+details.setting .change { align-self: center; font-size: 13px; font-weight: 600; color: var(--primary); white-space: nowrap; }
+details.setting .change::after { content: " ›"; }
+details.setting[open] .change { color: var(--muted); }
+details.setting[open] .change::after { content: ""; }
+details.setting[open] .change { font-size: 0; } details.setting[open] .change::before { content: "閉じる"; font-size: 13px; }
+.own-list ul { margin: 8px 0 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.own-list h2 { margin: 0; font-size: 16px; }
 details.setting .meaning { flex: 1 1 420px; }
 details.setting .now { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }   /* 長い値（曜日ごとの時間帯など）は折り返す */
 details.setting .now b, details.setting .now .tag { overflow-wrap: anywhere; white-space: normal; }   /* 長い札（仮の値・見直す時）も折り返す */

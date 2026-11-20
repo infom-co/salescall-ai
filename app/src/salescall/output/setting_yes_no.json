@@ -1,0 +1,42 @@
+{
+ "approval.human": [
+  "使う（承認してからかけ、結果を確かめてから確定する）",
+  "使わない（フルオート）"
+ ],
+ "business.call_declined_again": [
+  "かける（おすすめしません）",
+  "かけない（おすすめ）"
+ ],
+ "callback.call_alternate_number": [
+  "かける",
+  "かけない"
+ ],
+ "calling.allow_navi_dial": [
+  "かける（通話料がかかります）",
+  "かけない"
+ ],
+ "calling.allow_toll_free": [
+  "かける",
+  "かけない"
+ ],
+ "calling.call_after_refusal": [
+  "かける",
+  "かけない"
+ ],
+ "decision.undecided_as_decided": [
+  "決まったとみなす（そのお客様にはかけない）",
+  "契約者に委ねる（確かめるまでかけない）"
+ ],
+ "dnc.client_ref_is_stable_id": [
+  "止める（管理番号でも止める）",
+  "止めない（番号だけで止める）"
+ ],
+ "dnc.former_refusal_calls_new_person": [
+  "かける",
+  "その番号ではかけない"
+ ],
+ "pc.auto_update": [
+  "自動で更新する",
+  "知らせて、画面の「更新」で反映する"
+ ]
+}

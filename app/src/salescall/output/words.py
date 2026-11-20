@@ -339,6 +339,17 @@ def grouped_settings(rows: list[dict[str, Any]]) -> list[tuple[str, list[dict[st
 # 言葉の表のファイルに置く＝設定を読む所ではない）。値の横と入れる欄の横に出す。
 # 「秒」の並び（integer_list）は、1つずつ人の時間（例：5分）に直して見せる。秒の形（seconds）の設定は、形そのものが秒なので書かない
 SETTING_UNITS: dict[str, str] = json.loads((Path(__file__).with_name("setting_units.json")).read_text(encoding="utf-8"))
+# はい／いいえの設定の、はいのとき・いいえのときの言葉（setting_yes_no.json。はい／いいえの設定のすべてを書く。試験が突き合わせる）。
+# 見出しが問いの形でない設定（例「決められない決定の扱い」）でも、答えが「はい／いいえ」で浮かないように、値そのものを言葉で見せる
+SETTING_YES_NO: dict[str, list[str]] = json.loads((Path(__file__).with_name("setting_yes_no.json")).read_text(encoding="utf-8"))
+
+
+def yes_no(key: str, value: bool) -> str:
+    """はい／いいえの設定の値の言葉（1か所。表の無い設定は「はい」「いいえ」）。"""
+    w = SETTING_YES_NO.get(key) or ["はい", "いいえ"]
+    return w[0] if value else w[1]
+
+
 UNIT_VALUE_TYPES = ("integer", "limit", "integer_list")   # 単位を書く値の形（試験が突き合わせる）
 
 

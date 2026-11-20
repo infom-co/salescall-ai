@@ -6,7 +6,12 @@
 {% block main %}
 {% set base = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
 <h1>{{ row.source_name or "（会社名なし）" }}</h1>
-<p class="lead">{% if row.target_name %}お呼びする方：{{ row.target_name }}{% if row.target_role %}（{{ row.target_role }}）{% endif %}・{% endif %}行 {{ row.source_row or "" }}{% if row.client_ref %}・管理番号 {{ row.client_ref }}{% endif %}</p>
+{#- 添える事実は、あるものだけを「・」でつなぐ（無い値の見出しだけを残さない） -#}
+{% set facts = [] %}
+{% if row.target_name %}{% set _ = facts.append("お呼びする方：" ~ row.target_name ~ ("（" ~ row.target_role ~ "）" if row.target_role else "")) %}{% endif %}
+{% if row.source_row %}{% set _ = facts.append("取り込んだファイルの " ~ row.source_row ~ " 行目") %}{% endif %}
+{% if row.client_ref %}{% set _ = facts.append("管理番号 " ~ row.client_ref) %}{% endif %}
+{% if facts %}<p class="lead">{{ facts|join("・") }}</p>{% endif %}
 {{ flash(done, ok) }}
 {% if pending %}
 <section class="stack row-pending" aria-label="この行の承認待ち">
@@ -36,7 +41,15 @@
             <button class="btn main small" type="submit" data-submit disabled>直す</button></form></details>
         {% endif %}</dd>
       <dt>かけた回数</dt><dd class="num">{{ row.attempts }}</dd>
-      <dt>かけるか</dt><dd>{{ tag(words.exclusion_level(level), "stop" if level == "force" else ("" if level != "call" else "ok")) }}</dd>
+      <dt>かけるか</dt><dd>{{ tag(words.exclusion_level(level), "stop" if level == "force" else ("" if level != "call" else "ok")) }}
+        {#- その場で変える操作は、どれも「押すと開く小窓」の1つの形（結果を直す・手で戻すと同じ） -#}
+        <details class="adder"><summary class="btn small">かけるかを変える</summary>
+          <form class="panel" method="post" action="{{ base }}/exclude" data-needs-reason>{{ csrf(token) }}
+            <input type="hidden" name="task_id" value="{{ row.task_id }}"><input type="hidden" name="back" value="row">
+            <label class="field" for="row-level">この行に、かけるか</label>
+            <select id="row-level" name="level">{% for k, label in level_names.items() %}<option value="{{ k }}" {% if k == level %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+            <label class="field" for="row-level-reason">理由（記録に残ります）</label><input id="row-level-reason" type="text" name="reason" placeholder="例：依頼者から、この会社にはかけないでと連絡があった">
+            <button class="btn main small" type="submit" data-submit disabled>この行の「かけるか」を変える</button></form></details></dd>
     </dl>
     {% if answers %}
     <h3 style="margin-top:16px">答え（依頼者へ渡す書き方のまま）</h3>
@@ -46,13 +59,6 @@
     </table></div>
     <p class="muted">答えの根拠は、下の「電話の記録」から、その電話のやり取りの全文で確かめられます。</p>
     {% endif %}
-    <form class="inline-mark" method="post" action="{{ base }}/exclude" data-needs-reason>
-      {{ csrf(token) }}
-      <input type="hidden" name="task_id" value="{{ row.task_id }}"><input type="hidden" name="back" value="row">
-      <select name="level" aria-label="かけるか・かけないか">{% for k, label in level_names.items() %}<option value="{{ k }}" {% if k == level %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
-      <input type="text" name="reason" placeholder="理由（記録に残ります）" aria-label="理由">
-      <button class="btn small" type="submit" data-submit disabled>変える</button>
-    </form>
     <h3 style="margin-top:18px">電話番号</h3>
     <ul class="numbers">
       {% for n in row.contacts.numbers %}

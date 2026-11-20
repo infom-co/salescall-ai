@@ -104,6 +104,16 @@ class Forms(unittest.TestCase):
         self.assertEqual(setting_forms.show("limit", None, "本"), "上限なし")
         self.assertEqual(setting_forms.show("integer_list", [60, 600], "秒"), "1分（60秒）、10分（600秒）")
 
+    def test_every_yes_no_setting_answers_in_its_own_words(self):
+        """はい／いいえの設定は、値を言葉で見せる（見出しが問いの形でなくても答えが浮かない。例「決められない決定の扱い：いいえ」だった）。"""
+        keys = app_access().in_system(SYSTEM, lambda tx: {r["key"] for r in tx.all(
+            "SELECT key FROM salescall.setting_definitions WHERE value_type::text = 'boolean'")})
+        self.assertEqual(set(words.SETTING_YES_NO), keys)
+        for k, (yes, no) in words.SETTING_YES_NO.items():
+            with self.subTest(key=k):
+                self.assertTrue(yes and no and yes != no)
+        self.assertEqual(words.yes_no("decision.undecided_as_decided", False), "契約者に委ねる（確かめるまでかけない）")
+
     def test_the_groups_are_in_the_order_of_the_work_not_of_the_internal_names(self):
         rows = [{"group": g, "key": g + ".x"} for g in ("login", "approval", "calling", "business", "zzz")]
         self.assertEqual([g for g, _ in words.grouped_settings(rows)], ["business", "calling", "approval", "login", "zzz"])
@@ -171,7 +181,11 @@ class Screens(unittest.TestCase):
             "salescall.core.settings", fromlist=["x"]).resolve_detail(tx, self.key, tenant_id=self.a["tenant"], client_id=self.a["client"],
                                                                       business_id=self.a["business"]))
         self.assertEqual((got["value"], got["from"]), (5, "business"))
-        self.assertIn("この段で決めた値", self.get("A", biz).text)
+        page = self.get("A", biz).text
+        self.assertIn("この段で決めた値", page)
+        anchor = "s-" + self.key.replace(".", "-")                                 # 上の「この段で決めている値」から、その行へ飛べる
+        self.assertIn(f'href="#{anchor}"', page.split("この段で決めている値", 1)[1].split("</section>", 1)[0])
+        self.assertIn(f'id="{anchor}"', page)
 
     def test_the_system_values_are_for_the_admin_only(self):
         self.assertEqual(self.get("A", "/admin/settings").status_code, 404)
