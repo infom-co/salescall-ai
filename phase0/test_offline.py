@@ -20504,6 +20504,13 @@ class ApprovalTest(unittest.TestCase):
         g.use_checks("judge")
         AmbiguousAnswerTest.say(g, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
         AmbiguousAnswerTest.say(g, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+        # （分身 O の L15：ご承認のお断りの言葉は N1 の先に言われた答え＝N1 はまだ流していない。本番どおり、その言葉を判定が N1 について読み直し（決められない）、
+        # 質問に戻って N1 を流してから、N1 へのお返事を読む。⛔ 50d51fd0 までは読み直しを渡さずに次の発話を当て、まだ聞いていない N1 の答えとして受けていた）
+        self.assertEqual(g.ahead_context()[0].id, n1)
+        for k in ("judge@ahead",):
+            g.on_check(k, UNDECIDED, g.callee_turns)
+        g.apply("replay_opening", {"part": "resume"})
+        self.assertTrue(g.items[n1].played)
         g.on_callee(); g.on_heard("うーん、全体的にというか。"); g.on_check("judge", Reading(UNDECIDED))
         r = g.apply("record_answer", {"question_id": n1, "condition_id": "unknown"})
         # 1回目は「承知しました。その中でも…」を1回伺う（✅ 2026-11-09 日本時間3時46分53秒）。2回目もどちらとも取れなければ、頭は「はい、」で手順を終える
@@ -47252,3 +47259,40 @@ class AiAskedWatchTest(unittest.TestCase):
         self.assertEqual((ai.get("silence_s"), ai.get("hold_wait_s")), (rec.get("silence_s"), rec.get("hold_wait_s")))
         self.assertIsNotNone(ai.get("silence_s"))
         self.assertIsNotNone(ai.get("hold_wait_s"))
+
+
+class AheadUnaskedUndecidedTest(unittest.TestCase):
+    """分身 O（L15＝分身 N の書き置き (7-2)・2章の (9)）：先に言われた答えを伺う番（まだ流していない質問＝Flow._offer_ahead。日時の2択の C1 など）のあいだに、
+    読み直した判定（AHEAD_CHECKS）が1つも届かないまま次の発話が来て、判定がその発話を「決められない」と読んだ：お客様はまだその質問を聞いていない＝「わからない」の
+    答えにしない。報告の無いターンの1か所（Flow._undecided_report）は、会話AIが「入っていない」と選んだときと同じ報告（質問に戻る＝_return_note・_resume）を渡す＝
+    プログラムが質問を流す。F0（本書 9-5 の (6)：確かな読みが1つも無ければ、受け取らずにその場で確かめる）・11-04 日本時間20時27分「答えが無ければ質問を流す」。
+    ⛔ d8b0d355 まで、まだ聞いていない C1 を「わからない」で受け、かけ直しで締めた（rv179/I/probe/j13.py）"""
+
+    QS = (("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", ("はい", "いいえ")),
+          ("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", ("カード", "振込")))
+
+    def say(self, f, words, cond):
+        from flowctl import JUDGMENTS
+        from meaning_judge import Reading
+        f.on_callee(); f.on_heard(words)
+        for k in JUDGMENTS:
+            r = Reading(cond); r.end = "言っていない"; f.on_check(k, r)
+        return f.judged_turn(voiced=False)
+
+    def test_the_unasked_question_is_played_not_taken_as_unknown(self):
+        from flowctl import JUDGMENTS, LATER, UNDECIDED, Flow, Question
+        for play in (True, False):
+            f = Flow([Question(i, t, k, conditions=c) for i, t, k, c in self.QS], play_recordings=play)
+            f.use_checks(*JUDGMENTS)
+            first = self.say(f, "今日は夕方まで会議が続くんです。", LATER)
+            self.assertEqual((first["result"], first["question_id"], first.get("ahead_offer")), ("next", "C1", True), play)
+            self.assertFalse(f.items["C1"].played, play)   # C1 はまだ流していない（先に言われた答えを伺う番）
+            rep = self.say(f, "それ以降でお願いします。", UNDECIDED)
+            self.assertIsNone(f.end_reason, play)           # かけ直しで締めない
+            self.assertNotEqual(rep["result"], "end", play)
+            self.assertNotEqual(f.items["C1"].state, "dont_know", play)
+            self.assertEqual(f.current, "C1", play)
+            self.assertTrue(f.items["C1"].played, play)     # 質問（2択）を流した
+            asked = heard_words(rep) if play else rep.get("message") or ""
+            self.assertIn("平日と土日のどちらがよろしいでしょうか", asked, play)
+
