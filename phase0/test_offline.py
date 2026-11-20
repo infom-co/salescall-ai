@@ -33,32 +33,6 @@ CL2_PENDING = frozenset({
                          # 深める一言に入れる困りごとの言葉・困りごとが続く形の句を会話AIが書く道具の引数（replay_opening の trouble・kept。伺い29＝✅ 2026-11-16
                          # 日本時間0時42分38秒・12時48分22秒 ユーザー。CL-2 への知らせはまとめ役）
                          "trouble", "kept",
-                         # 名乗りの部分（名前の録音の台帳の続く言葉）：かけた番号が携帯電話の番号のときの、聞き取れないお返事への2回目の聞き返しの確かめる一言
-                         # 「（お名前）様で大丈夫でしょうか？」（instruction.Business.replay_parts の mobile_confirm。伺い54 のイ＝✅ 2026-11-19 日本時間14時18分13秒。
-                         # CL-2 への知らせは分身 O の書き置き rv105/O/notes.md の下書き＝まとめ役が送る）
-                         "mobile_confirm",
-                         # 日時の2択の段の共通の一言の録音（phrases.TIME_LADDER・TIME_LADDER_IDS と、戻る一言・伺い直しに続ける形。✅ 2026-11-19 日本時間14時18分13秒の
-                         # 伺い52 場面B・C。CL-2 への知らせは分身 Q の書き置き＝rv105/Q/notes.md）
-                         "callback_time_kind", "callback_time_kind_bare", "callback_time_kind_midway", "callback_time_half",
-                         "callback_time_half_lead_soredeha", "callback_time_half_midway", "time_weekend",
-                         # ご案内全体をほかの会社に頼んでいると言われ、残りの業務の質問を伺わなかった通話の事実（flowctl.FACT_KINDS の elsewhere_whole。伺い48 ア-2＝
-                         # ✅ 2026-11-19 日本時間15時10分27秒。CL-2 への知らせは分身 S の書き置き＝rv110/S/notes.md）
-                         "elsewhere_whole",
-                         # 決め手を伺う一言（E5＝callback_question("elsewhere_point")・共通の一言の録音 callback_elsewhere_point）・その事実 elsewhere_point・前の通話の答えの
-                         # whole_fact（伺い47 のイ・まとめ役 CL-1 の頼み (1)(3)。CL-2 への知らせは分身 S の書き置き＝rv110/S/notes.md）
-                         # （E5 へは戻らない＝戻る一言のあとの形・伺い直す形は作らない＝phrases.NOT_ASKED_AGAIN。分身 W）
-                         "elsewhere_point", "callback_elsewhere_point", "E5", "whole_fact",
-                         # 呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（名前の録音の台帳の続く言葉 target_transfer・
-                         # 後任のご担当者様の形の共通の一言の録音 successor_transfer）と頭のお詫びの相づちの録音 taihen_shitsurei「大変失礼いたしました。」（伺い51 のイ＝
-                         # ✅ 2026-11-19 日本時間15時10分27秒。CL-2 への知らせは分身 R の書き置き＝rv110/R/notes.md）
-                         "target_transfer", "successor_transfer", "taihen_shitsurei",
-                         # 頭のお詫びを、予約証のお詫びの理由ごとに最後まで流せたか（会話の報告の鍵 apologies_delivered＝Flow.apologies_delivered。CL-2 の連絡帳
-                         # 4-387 の (7) の伺いへの答え＝まとめ役 CL-1 の頼み (2)。CL-2 への知らせは分身 W の書き置き＝rv120/W/notes.md）
-                         "apologies_delivered",
-                         # 会話の処理が読める設定の名前の頭（CL-2 の conversation_io.CALL_SETTING_PREFIXES）に、お客様の営業時間・歯止め時間の頭 callee. を足していただく
-                         # （instruction.CALL_SETTINGS の callee.business_hours・callee.designated_limit。CL-2 の連絡帳 4-405 の (1) への答え＝まとめ役 CL-1 の頼み (11)。
-                         # CL-2 への知らせは分身 W の書き置き＝rv120/W/notes.md）
-                         "callee.",
                          # 通話の事実 offer_terms の、どの申し出か（こちらがかけ直す申し出の役目の名前＝flowctl.RECALL_ROLES。業務の申し出の質問なら null。question は業務の
                          # 質問の番号か null＝Flow._business_of。CL-1.md 4-199 の約束・まとめ役 CL-1 の頼み rv129/AA の (1)。CL-2 への知らせは分身 AA の書き置き＝rv129/AA/notes.md）
                          "recall",
@@ -107,32 +81,19 @@ CL2_PENDING = frozenset({
 # その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
 # CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
 CL2_PENDING_VALUES = {
-    # 判定の組の読みで分かった電話口の種別（flowctl.PARTY_BY の judge＝お呼びする段の番号違い＝分身 Z の (3)。CL-2 への知らせは CL-1.md 4-200）
-    ("party", "by"): ("PARTY_SOURCES", frozenset({"judge"})),
     # 顧客獲得型の Yes の質問の段で材料も会話AIの中身も尽きて日を改めた締め（flowctl.END_REASONS の yes_used_up＝分身 K1。CL-2 への知らせは rv174/K1/notes.md）
     ("end", "reason"): ("END_REASONS", frozenset({"yes_used_up", "no_pain"})),   # no_pain＝本題の段で悩みがどれも無く日を改めた締め（分身 K2）
     # 「〇時まで」の理由を伺い直した一言（phrases.UNTIL_ASK）に「はい」＝それまでは出られる（伺い63 ア＝分身 N。CL-2 への知らせは rv175/N/notes.md）
     ("callback", "until_why"): ("UNTIL_WHYS", frozenset({"available_until"})),
 }
+# （2026-11-20 に外した：CL-2 の枝が main に入った＝546303a6・CL-2 の連絡帳 4-443・4-444＝CL-1.md 4-209：CL2_PENDING の callee.・mobile_confirm・target_transfer・whole_fact・
+# elsewhere_point・elsewhere_whole・E5・apologies_delivered・共通の一言の録音10個（日時の2択の段の7つ・callback_elsewhere_point・successor_transfer・
+# taihen_shitsurei）／CL2_PENDING_VALUES の (party, by) の judge／CL2_RETIRED の20個＝CL-2 の部品から外れた）
 # （2026-11-19 に外した：手短に伺っている途中の少し焦った「承知しました。」の録音 shouchi_hurried＝CL-2 の common_phrases.TEXTS に入った＝CL-2 の
 # 連絡帳 4-426 の (1)・CL-1.md 4-190）
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す。2026-11-18 に「どうなさいますか？」の
 # dounasaimasu が外れた＝CL-1.md 4-109）
-# 2026-11-19 日本時間14時18分13秒のお言葉（伺い52 場面B・C）で、「いつ頃」と伺う一言（答えの段・お呼びする段の「あとで」・H1 のあと）は日時の2択の段に替わった
-CL2_RETIRED: frozenset[str] = frozenset({"callback_later_time", "callback_later_time_lead_soredeha", "callback_later_time_midway",
-                                         "callback_later_time_answering", "callback_later_time_answering_lead_soredeha",
-                                         "callback_later_time_answering_midway", "callback_hurry_when", "callback_hurry_when_lead_soredeha",
-                                         "callback_hurry_when_midway",
-                                         # 流れの制御が伺い直さない役目（ほかの会社のことを伺う一言 E1・深める一言 E2〜E4）の、戻る一言のあとの形と伺い直す形（流れない＝
-                                         # phrases.NOT_ASKED_AGAIN の1か所で表から外した。CL-2 の連絡帳 4-411 の (1)＝まとめ役 CL-1 の頼み (4)・分身 W）
-                                         "callback_elsewhere_lead_soredeha", "callback_elsewhere_midway",
-                                         "callback_deepen_lead_soredeha", "callback_deepen_midway",
-                                         "callback_deepen_measures_lead_soredeha", "callback_deepen_measures_midway",
-                                         "callback_deepen_ahead_lead_soredeha", "callback_deepen_ahead_midway",
-                                         # 流れの制御が流さない形（試験の全部で一度も流れない名前を、流しうる道ごとに分けた＝分身 AA＝穴 (C)。CL-2 への知らせは
-                                         # rv129/AA/notes.md）：保留でよいかを伺う一言の戻る形（言い直しへの戻りは会話AIが言う＝phrases.PENDING_IDS）・後任の方への
-                                         # はっきりしない返事への聞き返し（target_reconfirm を流さなくなった＝伺い50 イ）
-                                         "callback_handoff_pending_bare", "callback_handoff_pending_midway", "successor_reconfirm",
+CL2_RETIRED: frozenset[str] = frozenset({
                                          # 名前の録音の台帳の続く言葉（CL-2 の写し NAME_TAILS）：はっきりしない返事への聞き返し（伺い50 イで流さなくなった。CL-2 の連絡帳 4-443 の
                                          # (c)「外してよいです。あなたが NAME_FORMS から外せば、私が道具で写しを作り直すと NAME_TAILS から外れます」＝分身 L）
                                          "target_reconfirm"})
@@ -15908,8 +15869,10 @@ class TargetTest(unittest.TestCase):
                   and isinstance(n.targets[0], ast.Name) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)}
         def names(var):
             node = next(n.value for n in tree.body if isinstance(n, ast.Assign) and any(getattr(t, "id", None) == var for t in n.targets))
+            # CL-2 は名乗りの部分の名前を写し common_phrases.NAME_TAILS から読む（*common_phrases.NAME_TAILS。2026-11-19 から＝手で並べた二重を外した）
+            tails = set(self.cl2_tails() or ()) if any(isinstance(x, ast.Attribute) and x.attr == "NAME_TAILS" for x in ast.walk(node)) else set()
             return {x.value for x in ast.walk(node) if isinstance(x, ast.Constant) and isinstance(x.value, str)} | \
-                   {consts[x.id] for x in ast.walk(node) if isinstance(x, ast.Name) and x.id in consts}
+                   {consts[x.id] for x in ast.walk(node) if isinstance(x, ast.Name) and x.id in consts} | tails
         theirs = names("ANSWER_RESERVED")
         self.assertEqual((sorted(without_cl2_pending(self, set(RESERVED_PART_NAMES), theirs) - theirs), sorted(theirs - set(RESERVED_PART_NAMES))), ([], []))
         self.assertEqual(consts.get("ANSWER_PART_PREFIX"), ANSWER_PREFIX)
@@ -38026,8 +37989,13 @@ class CallingTransferAskTest(unittest.TestCase):
 
     def test_6_cl2_names(self):
         # 新しい名前（名前の録音の台帳の続く言葉 target_transfer・共通の一言の録音 taihen_shitsurei・successor_transfer）は CL-2 に頼む名前の一覧に入れる
+        # （CL-2 の部品に入ったら待ちの一覧から外れる＝2026-11-20 に3つとも入った＝CL-2 の部品か待ちの一覧のどちらかにある）
+        texts, tails = TargetTest.cl2_value("common_phrases.py", "TEXTS"), TargetTest.cl2_tails()
+        if texts is None and tails is None:
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        theirs = set(texts or ()) | set(tails or ())
         for name in ("target_transfer", "taihen_shitsurei", "successor_transfer"):
-            self.assertIn(name, CL2_PENDING)
+            self.assertIn(name, CL2_PENDING | theirs)
 
 
 class NameHeadTest(unittest.TestCase):
@@ -39566,7 +39534,7 @@ class PartyByTest(unittest.TestCase):
         theirs = TargetTest.cl2_names("call_report.py", "PARTY_SOURCES")
         if theirs is None:
             self.skipTest("CL-2 の部品（app/）がまだ無い")
-        const, pending = CL2_PENDING_VALUES[("party", "by")]
+        const, pending = CL2_PENDING_VALUES.get(("party", "by"), ("PARTY_SOURCES", frozenset()))   # CL-2 に入ったら待ちの一覧から外れる
         self.assertEqual(const, "PARTY_SOURCES")
         self.assertEqual(sorted(pending & theirs), [], "CL-2 の読み手に入った値は CL2_PENDING_VALUES から外す")
         self.assertEqual((sorted(set(flowctl.PARTY_BY) - pending - theirs), sorted(theirs - set(flowctl.PARTY_BY))), ([], []))
@@ -39830,7 +39798,10 @@ class HolesAATest(unittest.TestCase):
         # (e2) 後任の方への、はっきりしない返事への聞き返し（target_reconfirm を流さなくなった＝伺い50 イ）
         removed = ("callback_handoff_pending_bare", "callback_handoff_pending_midway", "successor_reconfirm")
         self.assertEqual([n for n in removed if n in RECORDED], [])
-        self.assertEqual([n for n in removed if n not in CL2_RETIRED], [])
+        # CL-2 の部品にまだある間は、外すのを待つ一覧（CL2_RETIRED）にある（2026-11-20 に3つとも CL-2 の部品から外れた＝待ちの一覧からも外した）
+        texts, tails = TargetTest.cl2_value("common_phrases.py", "TEXTS"), TargetTest.cl2_tails()
+        theirs = set(texts or ()) | set(tails or ())
+        self.assertEqual([n for n in removed if n in theirs and n not in CL2_RETIRED], [])
 
 
 # 試験の全部で流れない録音の表の名前のうち、流れの制御の外で流すもの（名前ごとの理由。唯一の表＝RecordedWatchTest が読む。分身 AA＝穴 (C)）
