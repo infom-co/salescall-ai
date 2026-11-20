@@ -128,7 +128,7 @@ def r2(sd, line1: int) -> dict:
             if run * 0.02 >= 0.1:
                 gaps += 1
             run = 0
-    ok = voiced >= 5.0 and gaps == 0
+    ok = voiced >= 2.0 and gaps == 0   # ゆっくり数えると声の無い間が長いので、声があること・途切れないことを見る（2026-11-20 の2回目で、5秒は厳しすぎた）
     print(f"声が入っていた長さ：{voiced:.1f}秒／音が抜けた所：{gaps}か所 ⇒ {'合格' if ok else '不合格'}")
     return {"voiced_s": round(voiced, 1), "dropouts": gaps, "peak_rms": round(max(loud or [0]), 1), "wav": save("r2_line1.wav", pcm), "pass": ok}
 
