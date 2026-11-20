@@ -40,7 +40,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (approval, attempts, business_rules, calendar, call_report, calling_hours, common_phrases, notify, quality_stage,
+from salescall.core import (approval, attempts, business_rules, calendar, call_report, calling_hours, notify, quality_stage,
                             readings)
 from salescall.core.access import Refused, Tx
 
@@ -85,10 +85,18 @@ RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "
                           "H3",   # 手短になら聞くと言われたときの「後ほどお時間のある時にかけ直しさせていただきましょうか？」のシステムの質問（同じ 4-173 の (3)）
                           "greeting", "intro",
                           "purpose", "ai", "target_full", "target_successor_full",
-                          # 名前の録音の台帳の続く言葉の名前（名乗りの部分の名前＝target・target_confirm・target_reconfirm・promise_again・target_successor・
-                          # unavailable_confirm・carried_target・mobile_confirm・target_transfer ほか）。名前の1か所は写し common_phrases.NAME_TAILS（CL-1 の正本
-                          # phrases.NAME_TAILS から道具で作る）。⛔ 2026-11-19 まで、ここにも名前を手で並べていた（二重。片方を外しても守りが変わらなかった）
-                          *common_phrases.NAME_TAILS,
+                          # 名前の録音の台帳の続く言葉の名前（名乗りの部分の名前。写しの1か所 common_phrases.NAME_TAILS の名前がどれもここにあることは試験が見る＝
+                          # test_gate の test_every_name_tail_is_reserved。会話の側の比べる試験はこの一覧を書いた文字で読むので、名前で書く）
+                          "target", "target_individual", "target_confirm", "promise_again", "target_successor", "unavailable_confirm",
+                          "carried_target", "mobile_confirm", "target_transfer", "yes_received", "acquire_glad", "pain_ask", "listen_why",
+                          "listen_reason", "listen_ask", "reception_purpose",
+                          # 名前の録音の台帳から流す名乗りの部分（続く言葉は今あるもの＝会話の側の phrases.NAME_PART_TAILS）：携帯電話の番号で別の方と言われ続けたときの
+                          # 確かめ（mobile_owner）・その役職の方をお呼びする一言（target_role ほか・顧客獲得型の受付の方への一文 reception_purpose_role。CL-1 の連絡帳
+                          # 4-212〜4-214）
+                          "mobile_owner", "target_role", "target_role_confirm", "target_role_unavailable", "target_role_transfer", "reception_purpose_role",
+                          # 顧客獲得型（CL-1 の連絡帳 4-208・4-211）：Yes の質問 Y1・悩みの伺い Y2 のシステムの質問、部分 yes・but、依頼主の単位の録音の部分
+                          "Y1", "Y2", "yes", "but", "acquire_special", "meeting_time",
+                          "pain1", "pain2", "pain3", "case1", "case2", "case3",
                           "voicemail", "message", "busy",   # busy＝引き止めの一言の業務の録音の部分（CL-1 の連絡帳 4-75。ai・voicemail・message と同じ）
                           # 手短になら聞くと言われたときの「（要約）の件でお電話させていただきましたが…かけ直しさせていただきましょうか？」の業務の録音の部分（CL-1 の
                           # 連絡帳 4-173 の (2)。busy と同じ）。⛔ 4-170 の部分 summary（営業の要約の文を流す）は、これに替わって無くなった（業務設定の欄 summary は残る）
@@ -118,6 +126,17 @@ VALUE_CHOICE = "答えた"                            # 値を聞く質問の選
 YES_NO_CHOICES = ("はい", "いいえ")
 OUTPUT_MARKS = ("-", "✕")                         # 依頼者へ渡す印の既定（DESIGN.md 7-1b。依頼者ごとの印は出力の型で。⏳ 出力の型を作るとき足す）
 TARGET_CLASSES = ("corporate", "individual")      # お客様の区分：法人／個人（Intent.md 6-2・13章。業務ごとに必ず書く）
+# 電話の型（会話の側の flowctl.CALL_TYPES と同じ名前。CL-1 の連絡帳 4-207 の (a)・4-208。✅ 2026-11-20 日本時間0時32分21秒 ユーザー「伺い78：…ア」＝業務ごとに選ぶ）：
+# confirm＝確認の電話（お客様のほうから連絡をくださった方への電話。既定）／acquire＝顧客獲得型（こちらからおかけする営業の電話。法人の業務だけ）。型ごとに違う決まりは
+# 尺度の表の1か所（会話の側は flowctl.SCALES・こちらは発信禁止と切れ方・次の実施回＝`CALL_TYPE_RULES`）。PAINS_MAX＝悩みと事例の組の上限（会話の側の flowctl.PAINS_MAX）
+CALL_CONFIRM, CALL_ACQUIRE = "confirm", "acquire"
+CALL_TYPES = (CALL_CONFIRM, CALL_ACQUIRE)
+# 同じ業務で用件・最終目的を断られたお客様に、次の実施回でかけるか（電話の型ごとの扱いの表。ここだけ。CL-1 の尺度の表 flowctl.SCALES の goal_refused_next と同じ分け方）：
+# setting＝業務の設定 business.call_declined_again（いいえ＝かけない＝初め／はい）。✅ 2026-11-01 管理者：伺い8／after_days＝その実施回ではかけず、次の実施回で、
+# 前の電話から業務の設定 business.declined_wait_days の日数あけてかける（読むのは core/target_policy の1か所）。✅ 2026-11-20 ユーザー（計画書 9-9）「伺い83：…切られたり
+# 起こっていなかったらウ（間をあけてかける。30日）」。切られた・怒っていたら発信禁止・苦情＝ここに来ない
+DECLINED_NEXT = {CALL_CONFIRM: "setting", CALL_ACQUIRE: "after_days"}
+PAINS_MAX = 3
 TARGET_CLASSES_OPEN = ("corporate",)              # いま選べる区分：法人だけ（Intent.md 3-1・18-3）。個人は、13章の確かめが済み、
 #                                                   名乗りの法定事項と拒否の即時登録をシステムが強制する形を作ってから開く（設定では開けない）
 TARGET_PERSON_KINDS = ("role", "role_and_name", "name", "anyone")
@@ -614,6 +633,14 @@ class Settings:
     # instruction.Business.purpose_noun・業務の録音 purpose_again_*。CL-1 の連絡帳 4-128＝✅ 2026-11-09 日本時間9時48分09秒の (4)）。決めるのは取込のときの
     # 文字の AI 2つ（CL-1 の import_ai.decide_purposes。そろって、文の中の言葉のときだけ。人は確かめない）
     purpose_noun: str = ""
+    # 電話の型と、顧客獲得型の材料（`_acquire` の1か所で確かめる。会話の側の instruction.Business の同じ名前の欄＝CL-1 の連絡帳 4-208・4-211。どれも依頼者の業務の事実
+    # だけ＝依頼者が書く＝取込のファイルの欄。事実でない特別感・事例は言わない＝CL-1 の本書 9-9）：yes_asks＝Yes の質問の中身の並び（伺う順）／special＝特別感の条件／
+    # pains＝(悩み, 事例) の組の並び（1〜PAINS_MAX・伺う順）／meeting_time＝お時間（例「1時間」）。確認の電話の業務には書かない
+    call_type: str = CALL_CONFIRM
+    yes_asks: tuple[str, ...] = ()
+    special: str = ""
+    pains: tuple[tuple[str, str], ...] = ()
+    meeting_time: str = ""
     # 営業の要約（「〜の件」の前に置ける名詞の形。急いでいるが手短になら聞くと言われたとき「（要約）の件でお電話させていただきましたが後ほどお時間のある時に
     # かけ直しさせていただきましょうか？」に入る＝会話の側の instruction.Business.summary・業務の録音 brief。空＝用件の名詞で作る・どちらも無ければ共通の一言
     # callback_brief）。決めるのは取込のときの文字の AI（CL-1 の import_ai.decide_summaries＝形の決まり summaries.fits もそちらの1か所）。
@@ -652,7 +679,8 @@ KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voic
 POLICIES = {f"{k}_policy": v for k, v in call_report.RESPONSE_POLICIES.items()}
 RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
 OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode", "earliest", "answers_off", "offer_ways", "handoff_ways", "close_offer", "purpose_noun",
-                                 "way_words", "summary"}   # summary＝営業の要約（CL-1 の連絡帳 4-170）   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
+                                 "way_words", "summary",   # summary＝営業の要約（CL-1 の連絡帳 4-170）
+                                 "call_type", "yes_asks", "special", "pains", "meeting_time"}   # 電話の型と顧客獲得型の材料（CL-1 の連絡帳 4-208・4-211）   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
 #                                                                 4-65 の (c)。goal_mode＝最終目的の果たし方。最終目的が2つ以上の業務だけ書く。
 #                                                                 earliest＝最短の日。DAY_SLOT を書いた業務だけ書く。4-71 の (c)。answers_off＝使わない
 #                                                                 標準の想定問答の問いの名前＝業務の上書き。0174。handoff_ways・close_offer・purpose_noun＝
@@ -1187,6 +1215,7 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
         problems.append("営業に引き継ぐ架電（詳しい者からのお話の方法 handoff_ways のある業務）には、締める前の申し出（close_offer）は書きません"
                         "（会話の側は詳しい者からのお話を伺い、締める前の申し出は使いません）")
     purpose_noun = _purpose_noun(raw.get("purpose_noun"), purpose_line, problems)
+    acquire = _acquire(raw, target_class, purpose_noun, questions, problems)
     summary = "" if raw.get("summary") in (None, "") else (_text(raw["summary"], "営業の要約（summary）", problems) or "")   # 空＝無い（用件の一文の録音）
     way_words = _way_words(raw.get("way_words"), {*offer_ways, *handoff_ways, *(close_offer.ways if close_offer is not None else ())}, problems)
     problems += _day_slot_problems(raw, earliest is not None or raw.get("earliest") is not None)
@@ -1195,6 +1224,7 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
                  **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None, earliest=earliest,
                  offer_ways=offer_ways, handoff_ways=handoff_ways, close_offer=close_offer, purpose_noun=purpose_noun, way_words=way_words, summary=summary,
+                 **acquire,
                  standard_id=standard.standard_id, standard_answers=from_standard)
     if flowed:
         try:   # 業務の決まりの確かめ（core/business_rules.py の1か所。版の番号は、版を作るときに付く）
@@ -1301,6 +1331,54 @@ def _close_offer(raw: Any, problems: list[str]) -> CloseOffer | None:
                         f"使いません。例「改めて資料をお送り{OFFER_DO_END}」）：{do!r}")
         return None
     return CloseOffer(text, topic, ways, do.strip()) if text is not None else None
+
+
+def _acquire(raw: dict[str, Any], target_class: Any, purpose_noun: str, questions: list[Question], problems: list[str]) -> dict[str, Any]:
+    """電話の型と顧客獲得型の材料を確かめて読む1か所（会話の側の instruction.Business._check_call_type と同じ決まり＝CL-1 の連絡帳 4-208 の (1)・4-211。取込でも版でも
+    ここを通る）：選べる型だけ（書かなければ確認の電話）。確認の電話には顧客獲得型の材料を書かない。顧客獲得型は法人の業務だけ（個人のお客様は再勧誘の禁止＝角度を変えて
+    伺い直さない。Intent.md 13章）・用件の名詞・Yes の質問の材料（1つ以上）・特別感の条件・お時間・悩みと事例の組（1〜PAINS_MAX）が要る・最初の業務の質問はアポの日時
+    （日時の型）。"""
+    call_type = raw.get("call_type") or CALL_CONFIRM
+    if call_type not in CALL_TYPES:
+        problems.append(f"電話の型（call_type）は {list(CALL_TYPES)} のどれかです（confirm＝確認の電話・acquire＝顧客獲得型）")
+        call_type = CALL_CONFIRM
+    yes_asks = _text_list(raw.get("yes_asks"), "Yes の質問の材料（yes_asks）", problems)
+    special = "" if raw.get("special") in (None, "") else (_text(raw["special"], "特別感の条件（special）", problems) or "")
+    meeting_time = "" if raw.get("meeting_time") in (None, "") else (_text(raw["meeting_time"], "お時間（meeting_time）", problems) or "")
+    pains_raw = raw.get("pains") or []
+    pains: tuple[tuple[str, str], ...] = ()
+    if not isinstance(pains_raw, list) or any(not isinstance(x, list) or len(x) != 2 or not all(isinstance(y, str) and y.strip() for y in x)
+                                              for x in pains_raw):
+        problems.append("悩みと事例の組（pains）は、[悩み, 事例] の並びです（悩みと事例のどちらも書きます）")
+    else:
+        pains = tuple((a.strip(), b.strip()) for a, b in pains_raw)
+    if call_type == CALL_CONFIRM:
+        if yes_asks or special or pains or meeting_time:
+            problems.append("Yes の質問の材料（yes_asks）と本題の段の材料（special・pains・meeting_time）は、顧客獲得型の業務だけに書きます")
+    else:
+        if target_class == "individual":
+            problems.append("顧客獲得型は法人の業務だけです（個人のお客様の業務は、断られたら受け止めて締める＝Intent.md 13章の再勧誘の禁止）")
+        if not purpose_noun:
+            problems.append("顧客獲得型の業務には、用件の一言（「（用件の名詞）の件でお電話しているんですけど、」）の名詞（purpose_noun）が要ります")
+        if not yes_asks:
+            problems.append("顧客獲得型の業務には、用件のすぐあとに伺う Yes の質問の材料（yes_asks）が1つ以上要ります")
+        if not special or not meeting_time:
+            problems.append("顧客獲得型の業務には、特別感の条件（special）とお時間（meeting_time）が要ります")
+        if not 1 <= len(pains) <= PAINS_MAX:
+            problems.append(f"顧客獲得型の業務には、悩みと事例の組（pains）が1つから{PAINS_MAX}つまで要ります（悩みと事例のどちらも書きます）")
+        if not questions or questions[0].type != "datetime":
+            problems.append("顧客獲得型の業務の最初の質問は、日時の2択で伺うアポの日時の質問（日時の型）です")
+    return {"call_type": call_type, "yes_asks": yes_asks, "special": special, "pains": pains, "meeting_time": meeting_time}
+
+
+def _text_list(raw: Any, what: str, problems: list[str]) -> tuple[str, ...]:
+    """空でない文字の並び（無ければ空。同じ文は1回）を確かめて読む。"""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(x, str) and x.strip() for x in raw) or len({x.strip() for x in raw}) != len(raw):
+        problems.append(f"{what}は、空でない文字の並び（同じ文は1回）です")
+        return ()
+    return tuple(x.strip() for x in raw)
 
 
 def _purpose_noun(raw: Any, purpose_line: str | None, problems: list[str]) -> str:
@@ -1998,7 +2076,7 @@ def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
         "full_name": full["text"] if full and full_reading else "",
         "full_reading": full_reading if full else "",
         "department": department or ""}
-    return {"kind": kind, "role": role, "person": person, "company": name("source"), "target": target}
+    return {"kind": kind, "role": role, "person": person, "company": name("source"), "target": target, "call_type": s.call_type}
 
 
 WHO_UNCLEAR_FIELDS = ("full_name", "department")   # 「お名前だけではどの方か分からなかった」行で、依頼者に埋めていただく欄（4-65 の (g)）
@@ -2018,6 +2096,11 @@ def who_unclear_blanks(tx: Tx, task_id: UUID, *, before: datetime | None = None)
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
     have = {"full_name": t["target_full_name"], "department": t["target_department"]}
     return tuple(f for f in WHO_UNCLEAR_FIELDS if not have[f])
+
+
+def call_type(tx: Tx, version_id: UUID) -> str:
+    """その版の業務の電話の型（CALL_TYPES。読むのはここだけ＝中身は置いた時に確かめ済みの `load` の1か所。書いていない前の版は確認の電話）。"""
+    return load(tx, version_id).call_type
 
 
 def anyone_target(tx: Tx, version_id: UUID) -> bool:

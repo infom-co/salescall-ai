@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import timedelta
 
 from salescall.core import attempts, business_rules, call_report, conversation_io, customer_contacts, dnc, gate, next_action, settings
 from salescall.core.access import Rejected
@@ -122,6 +123,36 @@ class Materials(SettleBase):
         self.assertEqual(self.tx(s, lambda tx: conversation_io.call_setting(tx, aid, "call.hold_wait")), 600)
         with self.assertRaises(ValueError):
             self.tx(s, lambda tx: conversation_io.call_setting(tx, aid, "dial.failed_retry_days"))
+
+    def test_the_call_dates_carry_both_free_schedules(self):
+        """会話へ渡す日と時刻（`call_dates` の1か所）に、空いている予定の2つ（CL-1 の連絡帳 4-212）：call_free＝この電話のかけ直しに使える、電話をかけられる日時の
+        空き（`gate.call_free` と同じもの）・accept_free＝依頼者が受けられる日時の空き（`free_slots.current`＝その電話をかけた時刻より後に始まる空き）。"""
+        from salescall.core import calling_hours, free_slots, gate
+        s = self.ready()
+        aid = self.answered(s)
+        at = self.tx(s, lambda tx: tx.one("SELECT claimed_at FROM salescall.attempts WHERE attempt_id = %s", (aid,)))["claimed_at"]
+        later = calling_hours.local(at + timedelta(days=2)).date().isoformat()
+        self.tx(s, lambda tx: free_slots.put(tx, s["business"], [["2000-01-04", "10:00", "11:00"], [later, "10:00", "11:00"]]), OPERATOR)
+        got = self.tx(s, lambda tx: conversation_io.call_dates(tx, aid))
+        scope = dict(tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"])
+        self.assertEqual((got["call_free"], got["accept_free"]),
+                         (self.tx(s, lambda tx: gate.call_free(tx, at, **scope)), [[later, "10:00", "11:00"]]))   # 過ぎた空きは渡さない
+
+    def test_the_listed_contacts_carry_their_sources_and_the_dialed_number(self):
+        """会話へ渡す、分かっている連絡先と出どころ（conversation_io.listed_contacts＝customer_contacts.listed の1か所。CL-1 の連絡帳 4-212）：dialed は、その通話で
+        かけている番号か（いまお電話している番号を、こちらから言って確かめる）。通話で伺った連絡先は、お客様から。"""
+        s = self.ready()
+        aid = self.answered(s)
+        phone = self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.attempts WHERE attempt_id = %s", (aid,)))["phone_e164"]
+        self.tx(s, lambda tx: customer_contacts.add(tx, s["task"], "email", "okada@example.com", origin="call", attempt_id=aid))   # 通話で伺った＝お客様から
+        got = self.tx(s, lambda tx: conversation_io.listed_contacts(tx, aid))
+        self.assertIn({"kind": "email", "value": "okada@example.com", "source": "customer", "dialed": False}, got)
+        self.assertEqual(self.tx(s, lambda tx: customer_contacts.listed(tx, s["task"], phone)), got)
+        from salescall.core.phone import normalize
+        mobile = normalize("090-0000-0151")
+        self.tx(s, lambda tx: customer_contacts.add_number(tx, s["task"], mobile, "mobile", origin="call", attempt_id=aid))
+        self.assertIn({"kind": "mobile", "value": mobile.e164, "source": "customer", "dialed": False},
+                      self.tx(s, lambda tx: conversation_io.listed_contacts(tx, aid)))
 
     def test_earlier_answers_and_the_handlings_of_a_question(self):
         """前の通話で取れた答え（続きから聞く電話で、取れた質問を伺わない）と、質問ごとの「理由×扱い」（業務の決まりの1か所）。"""

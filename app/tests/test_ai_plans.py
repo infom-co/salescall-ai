@@ -75,3 +75,8 @@ class Tiers(Plans):
         self.assertIsNone(self.tier("conversation"))                     # システムのキー：契約者の枠ではない
         with self.assertRaises(Rejected):
             self.choose("ai.tier_import", "cheap", actor=OPERATOR)
+        # 画面が読む名前（CL-3 の 55）：枠の設定は、プランの設定と同じ AI ごとに1つずつ・選べる値は TIERS とそろう
+        self.assertEqual(set(ai_plans.TIER_SETTINGS), set(ai_plans.PLAN_SETTINGS))
+        rows = self.w.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: tx.all(
+            "SELECT key, choices FROM salescall.setting_definitions WHERE key = ANY(%s)", (list(ai_plans.TIER_SETTINGS.values()),)))
+        self.assertEqual({r["key"]: tuple(r["choices"]) for r in rows}, {k: ai_plans.TIERS for k in ai_plans.TIER_SETTINGS.values()})

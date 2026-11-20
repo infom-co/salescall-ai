@@ -142,6 +142,9 @@ REASONS: dict[str, Reason] = {
     "same_number_interval": Reason("同じ番号へ、ほかの業務・実施回・依頼者の電話がかかったばかりです（依頼者ごとの設定の間をあけます）",
                                    "wait", "plan"),
     "cross_client_interval_other_tenant": Reason("同じ番号へかけたばかりです", "wait", "plan"),   # 契約者の外は、中身を出さない
+    # 顧客獲得型で、同じ業務の前の実施回にアポ（最終目的）を断られたお客様：前の電話から業務の設定 business.declined_wait_days の日数をあける（✅ 2026-11-20
+    # ユーザー（計画書 9-9）「伺い83：…切られたり起こっていなかったらウ（間をあけてかける。30日）」。待つ時刻は core/target_policy.declined_wait_until の1か所。0263）
+    "declined_wait": Reason("同じ業務の前の実施回で、アポを断られたお客様です（業務の設定の日数をあけてかけます）", "wait", "plan"),
     "other_client_promise": Reason("同じ番号へ、ほかの約束の電話がかかります（契約者の設定で、その電話が済むまで待ちます）", "wait", "plan_if_known"),
     "number_promise_soon": Reason("同じ番号へ、お客様が時刻を指定した約束の電話が、もうすぐかかります（その電話が済むまで待ちます）", "wait", "plan_if_known"),
     "line_unknown": Reason("その回線はありません", "cannot_judge", "line"),
@@ -244,6 +247,9 @@ class Claim:
     earlier_when: str | None = None  # この電話で会話へ渡す前の通話の答えを取った、いちばん新しい電話が今日か（same_day／later。答えが無ければ None。決めるのは
     #                                core/apology.earlier_when の1か所）。引き継ぎを確かめる一言「先日（先ほど）お話しさせていただいた方から…」の言い分け
     #                                （CL-1 の連絡帳 4-148）。担当の方が替わった電話（handover）でも渡る（apology_when は同じ担当の期の話せた電話なので None）
+    role_call: bool = False        # 目的のお客様の代わりに、その役職の方をお呼びする（前の電話で、お呼びした方が在籍しておらず、後任の方も
+    #                                いらっしゃらなかった。次の予定の印 role_call を写す。0261。✅ 2026-11-20 ユーザー「伺い69」＝CL-1 の連絡帳 4-213）。
+    #                                successor と両方は立たない。会話の処理（CL-1）は、これを読んで役職の方をお呼びする（名前の録音の役職の部分）
 
 
 @dataclass(frozen=True)
@@ -337,23 +343,35 @@ def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: 
     return _usable_hours(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))[1]
 
 
-def call_days(tx: Tx, at: datetime, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None, days: int = 14) -> tuple[date, ...]:
-    """その業務が電話をかけられる日（at の日本時間の次の日から days 日の間で、かけてよい時間帯＝`calling_hours_for` が空でない日。祝日は暦の1か所＝
-    `holiday_checker`）。会話の側の日時の2択の段が、お客様に伺う曜日・日の候補を作る材料（CL-1 の連絡帳 4-192 の (d) の (2)。会話の側の Flow の call_days）。
-    暦の無い日に当たったら、その前の日までで止める（決めつけない。暦の無い日は門がかけない）。"""
+def call_free(tx: Tx, at: datetime, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None, days: int = 14) -> list[list[str]]:
+    """その業務が電話をかけられる日時の空き（1か所。[["YYYY-MM-DD","HH:MM","HH:MM"], …]＝日・時刻の順）：at の日本時間のその日（at より後の分だけ）から days 日後
+    までの、かけてよい時間帯（`calling_hours_for`＝依頼者の時間帯から NG時間を引いた残り。祝日は暦の1か所＝`holiday_checker`）。会話の側が、かけ直しの日時の2択を
+    この中から作る（✅ 2026-11-20 ユーザー（計画書 9-4・伺い60）「空スケジュールの中から2つ」＝CL-1 の連絡帳 4-212 の call_free）。暦の無い日に当たったら、その前の
+    日までで止める（決めつけない。暦の無い日は門がかけない）。"""
     hours = calling_hours_for(tx, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
     check = holiday_checker(tx)
-    start = calling_hours.local(at).date()
-    out: list[date] = []
-    for n in range(1, days + 1):
-        d = start + timedelta(days=n)
+    now = calling_hours.local(at)
+    after = f"{now + timedelta(seconds=59):%H:%M}"   # その分の途中なら次の分から（過ぎた時刻を並べない）
+    out: list[list[str]] = []
+    for n in range(days + 1):
+        d = now.date() + timedelta(days=n)
         try:
             key = calling_hours.day_key(d, check)
         except CalendarOutOfRange:
             break
-        if hours.get(key):
-            out.append(d)
-    return tuple(out)
+        for a, b in hours.get(key) or ():
+            if n == 0 and (b <= after or now.date() != (now + timedelta(seconds=59)).date()):
+                continue
+            out.append([d.isoformat(), max(a, after) if n == 0 else a, b])
+    return out
+
+
+def call_days(tx: Tx, at: datetime, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None, days: int = 14) -> tuple[date, ...]:
+    """その業務が電話をかけられる日（at の日本時間の次の日から days 日の間で、かけてよい時間帯のある日＝`call_free` の1か所）。会話の側の日時の2択の段が、
+    お客様に伺う曜日・日の候補を作る材料（CL-1 の連絡帳 4-192 の (d) の (2)。会話の側の Flow の call_days）。"""
+    today = calling_hours.local(at).date().isoformat()
+    return tuple(sorted({date.fromisoformat(s[0]) for s in call_free(tx, at, tenant_id=tenant_id, client_id=client_id, business_id=business_id,
+                                                                     days=days) if s[0] != today}))
 
 
 def _usable_hours(tx: Tx, scope: dict[str, Any]) -> tuple[dict, dict]:
@@ -462,6 +480,13 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
                                             business_id=task["business_id"]) or r["wait_until"], "same_number_interval", True))
             else:
                 limits.append((r["wait_until"], "cross_client_interval_other_tenant", True))
+    # 顧客獲得型で、同じ業務の前の実施回にアポを断られたお客様（target_policy.declined_wait_until の1か所。その日の、かけてよい時間帯の始まりから）
+    if not promised:
+        wait = target_policy.declined_wait_until(tx, task["task_id"], normalize(task["phone_e164"]), client_ref=task["client_ref"],
+                                                 tenant_id=task["tenant_id"], client_id=task["client_id"], business_id=task["business_id"])
+        if wait is not None:
+            limits.append((next_opening(tx, wait, tenant_id=task["tenant_id"], client_id=task["client_id"], business_id=task["business_id"])
+                           or wait, "declined_wait", True))
     # 同じ番号へ、お客様が時刻を指定した約束の電話（同じ契約者のほかの行。同じ依頼者・ほかの依頼者とも）が、約束の前に回線を空ける
     # 長さ（promise_guard_seconds＝この業務の平均通話時間）のうちに来るなら、約束でない電話は待つ（約束の電話より先に、同じお客様へ
     # ほかの電話が届かない。⛔ 見直し15：前は回線の取り置きだけで、同じ番号へのふつうの電話は約束の直前でもかかった）。約束の時刻を
@@ -973,7 +998,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (1) 次の予定（Q4 の記録を読むだけ）
     nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at,"
-                 "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, cut_call, successor, handover,"
+                 "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, cut_call, successor, role_call, handover,"
                  "       salescall.number_again_of(purpose, number_again) AS number_again,"   # 前の予定の読み替えは1か所（0136）
                  "       salescall.jst(window_from) AS window_from, window_said, window_day_said,"
                  "       salescall.jst(window_recover_until) AS window_recover_until,"
@@ -1231,4 +1256,4 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
                  nxt["purpose"], row["wrong_phone"], voice, reasons, bool(nxt["promised"]),
                  bool(nxt["successor"]), nxt["number_again"], apology_when=when, apology_call=said, apology_text=sorry,
                  judge_route=row["judge_route"], handover=bool(nxt["handover"]),
-                 earlier_when=apology.earlier_when(tx, task["task_id"], row["attempt_id"]))
+                 earlier_when=apology.earlier_when(tx, task["task_id"], row["attempt_id"]), role_call=bool(nxt["role_call"]))
