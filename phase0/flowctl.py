@@ -16727,6 +16727,12 @@ class Flow:
             return self._wait_for_words()
         if self._hold_now():
             return self._hold()
+        if self.unavailable_asked and self._declined_again():
+            # ご事情を伺う一言のあとも、ご事情ではないと答えて理由を言わずに（または事情を言って）また取り次げないと言われた：事情があって取り次げなかった扱い（お礼の締め・
+            # もうかけない印は付けない・日を改めて1回＝取り次いでいただけなかったときの1か所 _not_transferred・同じ繋がらなかった理由）。✅ 2026-11-21 日本時間1時27分51秒
+            # ユーザー「伺い95：ア」（本書 9-4 の「担当者が不在」の行の 10-22 の3つの分け方の「事情があって取り次げなかった」）。⛔ f37daf42 まで、会話AIに報告を選び直させ、
+            # 報告の無いターンでは何も言わずに待ち、5分の待つ上限で締めた（分身 S3 の (A)）
+            return self._not_transferred()
         if self.unavailable_asked:
             return self._reject("取り次げないご事情かは、もう伺いました。受付の方の返事の中身に合う報告を選んでください（はい・ご事情なら"
                                 f" request_callback を{ARG_LABEL['why']}「{CALLBACK_LABEL['unavailable']}」で、戻る時刻なら「{CALLBACK_LABEL['absent']}」で、"
@@ -16743,6 +16749,19 @@ class Flow:
             return head | {"play": [self._part_play("unavailable_confirm")],
                            "message": f"{played_note(text, "受付の方への")}何も言わずに、{then}"}
         return head | {"say": text, "message": f"{say_note(text, '受付の方に')}そのあと、{then}"}
+
+    def _declined_again(self) -> bool:
+        """ご事情を伺う一言（_transfer_unclear）を流したあとの言葉が、また取り次げないという言葉か（唯一の決まり＝_transfer_unclear が、事情があって取り次げなかった扱いの
+        お礼の締めにするか）：この発話の判定の読みのどれか（決まらないときの寄り＝_end_lean も）が「理由を言わずに取り次げない」か「事情を言って取り次げない」。判定の組が割れても
+        （取り次げないと断ったの割れ・取り次げないと言っていないの割れ・1つだけ届いた）当たる＝お礼の締めは取り消せる側（日を改めて1回。もうかけない印は付けない＝本書 1-3）。
+        判定の読みが1つも届かない（判定が止まった＝_end_late・判定を使わない通話）なら、会話AIの「取り次げない」の報告のまま（判定が止まったときの決まり＝取り次げない2つは
+        取り消せる側）。電話を終える言葉か決められないだけの読み（受付の方の「結構です」だけ＝本書 9-5 の (3)。そろって断ったなら通話を断られた＝_ambiguous_only の今の道）は
+        当たらない（今の道）。✅ 2026-11-21 日本時間1時27分51秒「伺い95：ア」"""
+        reads = list(self._judged_now().values()) if self.judging and self.words_complete else []
+        if not reads:
+            return True
+        ends = {getattr(v, "end", None) for v in reads} | self._end_lean()
+        return bool(ends & {END_UNCLEAR, END_REASONED})
 
     def _who_unclear(self) -> dict:
         """受付の方が、こちらが伝えたお名前などではどの方か分からないので取り次げないと言った（「お名前だけではどの者か分かりかねますので、お繋ぎ

@@ -13659,8 +13659,12 @@ class TargetTest(unittest.TestCase):
         r = self.say(f, "申し訳ございません、取り次ぐことはできません。", "request_end", reason="transfer_unclear")
         self.assertEqual((r["result"], r["play"]), ("confirm_unavailable", [{"kind": "opening", "part": "unavailable_confirm", "text": parts["unavailable_confirm"]}]))
         self.assertEqual(f.phase, "calling")
-        again = self.say(f, "取り次ぐことはできません。", "request_end", reason="transfer_unclear")   # 伺うのは1回だけ
-        self.assertEqual(again["result"], "rejected")
+        # 伺うのは1回だけ：伺ったあとにまた理由を言わずに取り次げないと言われたら、事情があって取り次げなかった扱いのお礼の締め（もうかけない印なし）。
+        # ✅ 2026-11-21 日本時間1時27分51秒 ユーザー「伺い95：ア」（⛔ f37daf42 まで差し戻して、会話AIに報告を選び直させた＝報告の無いターンは何も言わずに待った）
+        again = self.say(f, "取り次ぐことはできません。", "request_end", reason="transfer_unclear")
+        self.assertEqual((again["result"], f.end_reason, f.not_reached, "do_not_call" in f.facts), ("end", "not_transferred", "not_transferred", False))
+        f = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
+        self.say(f, "申し訳ございません、取り次ぐことはできません。", "request_end", reason="transfer_unclear")
         r = self.say(f, "はい、そうです。会議が続いておりまして。", "request_callback", why="unavailable")
         self.assertIn(CALLBACK_ASK["transfer_time"], r.get("say") or "".join(x["text"] for x in r.get("play", [])))
         # 伺う前の「今はお電話に出られないご事情」は差し戻す（伺ったあとの返事だけ）
@@ -46361,3 +46365,141 @@ class XAskedAgainDescTest(unittest.TestCase):
         g = fc.scene([("はい、そうです。", "同本xx", fc.T)])[0]
         g.on_callee(); g.on_heard("もう一度お名前をよろしいですか？"); g.on_check("judge", query_reading())
         self.assertEqual(g.apply("replay_opening", {"part": "intro"})["result"], "replayed")
+
+
+class XUnclearAgainTest(unittest.TestCase):
+    """お呼びする段で、理由を言わずに取り次げないと言われてご事情を伺う一言（「（お名前）様は今お電話に出られないご状況ということでしょうか？」）を流したあと、ご事情ではないと
+    答えて理由を言わずにまた取り次げないと言われたら、事情があって取り次げなかった扱い＝お礼の締め（「はい、お忙しいところお時間をいただきましてありがとうございました。それでは
+    失礼いたします。」）・もうかけない印は付けない・日を改めて1回（✅ 2026-11-21 日本時間1時27分51秒 ユーザー「伺い95：ア」・本書 9-4 の「担当者が不在」の行の 10-22 の3つの
+    分け方の「事情があって取り次げなかった」）。決めるのはご事情を伺う一言の1か所（Flow._transfer_unclear）。判定の組がそろった・割れた・届かない・会話AIの報告のどれでも、
+    もうかけない印は付けない（11-08 日本時間12時11分40秒「会話AIは判定に加えない」・本書 1-3）。受付の方の「結構です」だけの段（9-5 の (3)）と営業のお断りは今のまま。
+    ⛔ f37daf42 まで、何も言わずに待ち、5分の待つ上限で締めた（分身 S3 の (A)＝rv178/S3/notes.md の 14・G-59 の表の S1-5・S1-11・S2-4）"""
+
+    CLOSE = "はい、お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+
+    @staticmethod
+    def scene(cid):
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        row = next(c for c in g._candidate_rows() if c["id"] == cid)
+        c = next(c for c in g.cases("確かめる一言") if (c[0], c[2]) == (row["text"], row["before"]))
+        r = g.case_row(c)
+        f, _, _ = fc.scene(g.steps_before(r["before"]), successor=r["successor"], checks=("judge", "judge2"))
+        f.on_callee(); f.on_heard(r["text"])
+        return f, c[5]
+
+    @staticmethod
+    def judged(f, facts, *tweaks, asks=None):
+        import json
+        from flowctl import ASKS_NO
+        from meaning_judge import read
+        q = f.judge_context()[0]
+        truth = {k: sorted(v)[0] for k, v in facts.items()}
+        for kj, tw in zip(("judge", "judge2"), tweaks):
+            if tw is not None:
+                got = read(q, json.dumps(truth | tw, ensure_ascii=False))
+                assert got is not None, tw
+                f.on_check(kj, got)
+        said = read(f.asks_context()[0], json.dumps({"choice": asks or ASKS_NO}, ensure_ascii=False))
+        for a in ("asks", "asks2"):
+            f.on_check(a, said)
+
+    def closed(self, f, r, why, words=CLOSE):
+        self.assertEqual((r.get("result"), f.end_reason, f.not_reached, Answers2217Test.heard(r)), ("end", "not_transferred", "not_transferred", words), why)
+        self.assertNotIn("do_not_call", f.facts, why)
+
+    def reasoned(self, op):
+        """同じ報告で、事情を言って取り次げなかったとき（判定の組がそろって「事情を言って取り次げない」と読んだ）に聞こえる締め＝比べる相手。
+        頭の「はい、」は会話AIの操作で決まる今の1か所（Flow._ack_choice：受付の方だと報告したときは付けない）のまま。"""
+        from flowctl import END, END_REASONED
+        f, facts = self.scene("S1-5")
+        self.judged(f, facts, {END: END_REASONED}, {END: END_REASONED})
+        r = f.apply(*op) if op else f.judged_turn(voiced=False)
+        self.assertEqual((r.get("result"), f.end_reason), ("end", "not_transferred"), op)
+        return Answers2217Test.heard(r)
+
+    def test_1_declined_again_without_reason_closes_with_thanks(self):
+        from flowctl import END, END_UNCLEAR
+        for cid in ("S1-5", "S1-11", "S2-4"):
+            f, facts = self.scene(cid)
+            self.assertTrue(f.unavailable_asked, cid)   # 前の言葉でご事情を伺う一言を流した
+            self.judged(f, facts, {END: END_UNCLEAR}, {END: END_UNCLEAR})
+            self.closed(f, f.judged_turn(voiced=False), cid)
+
+    def test_2_every_report_and_every_split_takes_the_same_close(self):
+        # 聞こえる言葉は、同じ報告で事情を言って取り次げなかったときの締めと同じ（受付の方だと報告したときは頭の「はい、」が付かない＝今の1か所のまま）。
+        # 会話AIがどう報告しても（会話AIは判定を待つきっかけ）・判定の組が割れても（取り次げないと断ったの割れ・取り次げないと言っていないの割れ・1つだけ届いた）、印の付かないお礼の締め
+        from flowctl import END, END_NONE, END_REFUSED, END_UNCLEAR
+        import g59_flow_check as fc
+        reports = (None, fc.R, ("request_end", {"reason": "transfer_unclear"}), ("request_end", {"reason": "callee_refused_call"}),
+                   ("request_end", {"reason": "not_transferred"}))
+        for readings in (({END: END_UNCLEAR}, {END: END_UNCLEAR}), ({END: END_UNCLEAR}, {END: END_REFUSED}), ({END: END_UNCLEAR}, {END: END_NONE}),
+                         ({END: END_UNCLEAR}, None)):
+            for op in reports:
+                f, facts = self.scene("S1-5")
+                self.judged(f, facts, *readings)
+                self.closed(f, f.apply(*op) if op else f.judged_turn(voiced=False), (readings, op), words=self.reasoned(op))
+
+    def test_3_without_judgments_the_ai_report_closes_on_the_revocable_side(self):
+        # 判定が止まった（読みが1つも届かない）：会話AIの「取り次げない」の報告のまま（判定が止まったときの決まり Flow._end_late＝取り次げない2つは取り消せる側）
+        f, _ = self.scene("S1-5")
+        f.on_decided()
+        r = f.apply("request_end", {"reason": "transfer_unclear"})
+        if r.get("result") != "end":
+            r = f.apply("request_end", {"reason": "transfer_unclear"})
+        self.closed(f, r, "判定が届かない")
+
+    def test_4_the_other_endings_are_unchanged(self):
+        # 受付の方の「結構です。」だけ（S1-19＝伺ったあとにまた言われた）：判定の組がそろって断ったなら今までどおりもうかけない・決められないなら締めない（9-5 の (3)）。
+        # 営業のお断り（S1-6）は今までどおりもうかけない
+        from flowctl import END, END_REFUSED, UNDECIDED
+        f, facts = self.scene("S1-19")
+        self.judged(f, facts, {END: END_REFUSED}, {END: END_REFUSED})
+        f.judged_turn(voiced=False)
+        self.assertEqual((f.end_reason, "do_not_call" in f.facts), ("callee_refused_call", True))
+        f, facts = self.scene("S1-19")
+        self.judged(f, facts, {END: UNDECIDED}, {END: UNDECIDED})
+        f.judged_turn(voiced=False)
+        self.assertEqual((f.end_reason, "do_not_call" in f.facts), (None, False))
+        f, facts = self.scene("S1-6")
+        self.judged(f, facts, {}, {})
+        f.judged_turn(voiced=False)
+        self.assertEqual((f.end_reason, "do_not_call" in f.facts), ("callee_refused_call", True))
+
+    def test_5_the_first_unclear_still_asks_once(self):
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        from flowctl import END, END_UNCLEAR
+        f = fc.scene([], checks=("judge", "judge2"))[0]
+        f.on_callee(); f.on_heard(g.UNCLEAR_CALL)
+        self.judged(f, {k: {v} for k, v in fc.facts("同受xx").items()}, {END: END_UNCLEAR}, {END: END_UNCLEAR})
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((r["result"], [p.get("part") for p in r["play"]], f.end_reason), ("confirm_unavailable", ["unavailable_confirm"], None))
+
+
+class XReadersXLabelsTest(unittest.TestCase):
+    """答えの段の「はい、代わりました〇〇です。ご用件を伺います。」（帳面 E|G11・E|G18）に、答えを伏せた読み手2人（束 x）の答えを当てた（まとめ役 CL-1 の頼み rv178/X の7回目 (2)）。
+    こちらへ尋ねた問いがあるか＝2人がそろって「ある」・一つに決まる。別のお話か＝束 x の2人は「別のお話」、F5 の2人は書かなかった（答えの話の側）で、説明の文
+    （ご事情・世間話・ほかの話題）に電話を代わった方のあいさつが入るかが書かれていない＝境目（どちらも正解）。どちらの読みでも正解の動きは同じ（流し直す）。
+    ⛔ f37daf42 まで「無い」・「答えの話」"""
+
+    W = "はい、代わりました〇〇です。ご用件を伺います。"
+
+    def test_labels(self):
+        import json
+        from flowctl import AWAY, AWAY_NO, AWAY_YES, QUERY, QUERY_YES
+        labels = json.load(open("g53_labels.json", encoding="utf-8"))["labels"]
+        for k in (f"E|G11|{self.W}|", f"E|G18|{self.W}|念のためご訪問は平日でよろしいでしょうか？"):
+            self.assertEqual((labels[k]["accept"], labels[k][QUERY], labels[k][AWAY]), (["代わった人が話し始めた"], [QUERY_YES], [AWAY_YES, AWAY_NO]), k)
+
+    def test_the_correct_action_does_not_change(self):
+        import json
+        import g53_meaning as G
+        from review_words import questions
+        items = [G.g73_scene(it) for it in json.load(open("results/G-53d1base_20261107_020602.json", encoding="utf-8"))["items"]]
+        rows = [it for it in items if it["text"] == self.W]
+        self.assertEqual(sorted(it["qid"] for it in rows), ["G11", "G18"])
+        qmap = G.question_map() | questions()
+        for it in rows:
+            got = {h: G.step_wants(it, qmap[it["qid"]], h) for h in (True, False)}
+            self.assertEqual(got, {h: {"「失礼いたしました。」のあと伺ったことを流し直す"} for h in (True, False)}, it["qid"])
