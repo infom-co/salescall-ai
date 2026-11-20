@@ -3657,17 +3657,27 @@ def near_answer(q: "Question", readings) -> str | None:
 
 
 # 迷っているお客様に応じる質問（hears_hesitation）への言葉で、迷っている点（決めかねているわけ）をもう言ったか（答えとは別の項目＝答えは「迷っている」のまま。読む質問は
-# hears_hesitation の質問だけ＝meaning_judge.answer_items が決める＝ほかの質問・お呼びする段の文は変わらない）。読みを組み合わせるのは misgiving_said の1か所・使うのは迷っている方への
+# misgiving_fits の質問だけ＝meaning_judge.answer_items が決める＝ほかの質問・お呼びする段の文は変わらない）。読みを組み合わせるのは misgiving_said の1か所・使うのは迷っている方への
 # 応じ方の1か所（Flow._hesitation：言ったなら「どういった点でお迷いでしょうか？」を伺わずに、その点に会話AIが応える選ぶ助けへ＝お客様に尋ねられて答える1か所と同じ道）。本書 9-3
 # 「取得済みのことを重ねて聞かない」（OPEN-A25・H-6）。説明は意味で書き、試しの言葉と同じ言い方の例は書かない。分身 P（CL-1 の頼み rv183/P の (4)＝n2）
 MISGIVING, MISGIVING_HEADING = "misgiving", "迷っている点を言ったか"
 MISGIVING_SAID, MISGIVING_UNSAID, MISGIVING_OFF = "迷っている点を言った", "迷っているが点は言っていない", "迷っていない"
 
 
+def misgiving_fits(q: "Question") -> bool:
+    """迷っている点を言ったか（MISGIVING）を判定に見せる質問か（唯一の決まり＝選べるもの misgiving_choices・答えの段の項目 meaning_judge.answer_items・正解の表の行の付け方）：
+    迷っているお客様に応じる質問（hears_hesitation）のうち、説明した内容のご承認の質問（approval）を除くもの（最初の答えも言い直しへの返事も）。
+    ご承認の質問への迷いは、ご承認いただけなかったときの手順（N1＝「はい、」＋「どういった点でお迷いでしょうか？」＝Flow._point_step）が受け持ち、点をもう言っていれば伺わない
+    のは、本書 9-5 の W1 の段の終わりの決まり（N1 を流す前に、先に言われた答えの1か所で判定が N1 について読み直し、点を言っていれば伺い直さずにご説明へ＝Flow._point_ahead。
+    迷いの N1 も同じ読み直しを通る）が同じ問いに答える＝同じ問いに答える所を2つ作らない。分身 Q（CL-1 の頼み rv183/Q の (2)＝分身 P の書き置き (6-4)。⛔ それまでは
+    ご承認の質問にも項目を見せ、流れの制御は使っていなかった）"""
+    return hears_hesitation(q) and not q.approval
+
+
 def misgiving_choices(calling: bool, q: "Question | None" = None) -> dict:
-    """迷っている点を言ったかの選べるもの（{中の名前: 説明}）。答えの段の、迷っているお客様に応じる質問（hears_hesitation）だけ（ほかは {}＝段ごとの項目 side_items には出ない）。
+    """迷っている点を言ったかの選べるもの（{中の名前: 説明}）。答えの段の、項目を見せる質問（misgiving_fits）だけ（ほかは {}＝段ごとの項目 side_items には出ない）。
     点を言ったかの境目は、この3つの説明の1か所。"""
-    if calling or q is None or not hears_hesitation(q):
+    if calling or q is None or not misgiving_fits(q):
         return {}
     return {MISGIVING_SAID: (f"答えの選べるものは「{HESITATING}」で、決めかねているわけ（気になっていること・比べている中身・決め手にしたいこと）も言った"
                              "（答えの名前を並べただけ・同じ問いを言い直しただけは、わけを言ったことにはならない）"),

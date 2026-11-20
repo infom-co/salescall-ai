@@ -24,7 +24,7 @@ import json
 from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices, LADDER_OTHER, LADDER_SIDE_TAIL, ladder_choice_desc, ladder_other_choices, ladder_sides,
-                     NEAR, near_choices, near_fits, MISGIVING, misgiving_choices)
+                     NEAR, near_choices, near_fits, MISGIVING, misgiving_choices, misgiving_fits)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -863,10 +863,10 @@ def answer_items(q, asked: str | None = None) -> dict:
     # flowctl.near_answer の1か所・使うのは Flow._check_again）。✅ 2026-11-05 日本時間23時56分48秒「ア」・⛔✅ 11-08 日本時間16時34分23秒（答えは決められない＝近さは別の項目）。
     # ほかの質問の文・返事の形は変わらない（分身 B（rv179 の束1 の B1））
     near = {NEAR: near_choices(False, q)} if asked is None and near_fits(q) else {}
-    # 迷っているお客様に応じる質問（flowctl.hears_hesitation＝答えの選べるもの「迷っている」を出す質問と同じ1か所。最初の答えも言い直しへの返事も）だけ、迷っている点を言ったか
+    # 迷っているお客様に応じる質問のうち、ご承認の質問を除くもの（flowctl.misgiving_fits の1か所。最初の答えも言い直しへの返事も）だけ、迷っている点を言ったか
     # （MISGIVING。読みを組み合わせるのは flowctl.misgiving_said の1か所・使うのは Flow._hesitation）。本書 9-3「取得済みのことを重ねて聞かない」・OPEN-A25・H-6。
-    # ほかの質問の文・返事の形は変わらない（分身 P の (4)＝n2）
-    misgiving = {MISGIVING: misgiving_choices(False, q)} if hears_hesitation(q) else {}
+    # ほかの質問の文・返事の形は変わらない（分身 P の (4)＝n2）。ご承認の質問は、N1 を流す前の判定の読み直し（Flow._point_ahead）が同じ問いに答える＝見せない（分身 Q の (2)）
+    misgiving = {MISGIVING: misgiving_choices(False, q)} if misgiving_fits(q) else {}
     return (side_items(False) | purpose | own | ({PROMPT_REPLY: prompt_reply_choices(False, q.prompted)} if getattr(q, "prompted", "") and not asks_wrong(q.prompted) else {})
             | ({AWAY: away_choices(False, True, PROMPTED if getattr(q, "prompted", "") else "")} if away_fits(q, bool(asked)) else {}) | ladder | near | misgiving)
 

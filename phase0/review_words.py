@@ -118,7 +118,9 @@ WHY_HESITATING = (DONT_KNOW_LABEL["undecided"], *WHY_OTHER)
 
 
 # 迷っている点を言ったか（flowctl.MISGIVING）の正解の理由（行ごとに答えの正解を読んで当てた。帳面 0-3 の (2)＝一括で既定を付けない。分身 P の (4)＝n2）：
-# 答えの正解に「迷っている」が無い行は、項目の説明「答えの選べるものが「迷っている」ではない」から決まる
+# 答えの正解に「迷っている」が無い行は、項目の説明「答えの選べるものが「迷っている」ではない」から決まる。説明した内容のご承認の質問（R7）の行には付けない（項目を見せない＝
+# flowctl.misgiving_fits。迷いの点は N1 を流す前の判定の読み直し Flow._point_ahead が答える。分身 Q の (2)：前に付けていた「迷っていない」の 12 行を1行ずつ外した＝外した行と理由は
+# rv183/Q/probe/q2/unset_misgiving_rw.py）
 MG_OFF_WHY = "答えの正解に「迷っている」が無い＝項目の説明から「迷っていない」（行の答えの正解を読んで当てた）"
 # 迷っている・決めかねているとだけ言った行（答えの正解の「迷っている」の読みでは、わけを言っていない。ほかの答えの読みでは「迷っていない」）
 MG_UNSAID_WHY = ("迷っている・どれがよいか決めかねている、とだけ言い、決めかねているわけは言っていない＝「迷っているが点は言っていない」。答えの正解のほかの読み"
@@ -204,16 +206,16 @@ def answer_words() -> list[dict]:
         # 言い直し・最終の確かめ（分身 O2・N の行）
         # ご承認の質問（はい／いいえ）の最終の確かめは、判定の選べるものが「はい」「いいえ」（⛔ F5 の 11-15 まで、値の言い直しへの返事の名前 affirmed・denied で
         # 書いていた＝判定が選べない名前＝正しい読みも外れと数えた）
-        {**_row("R7", "はい、大丈夫です。", ["はい"], asked=accepted, why="最終の確かめへのご了承", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY), "set": "D"},
-        {**_row("R7", "いや、それはちょっと困るんですけど。", ["いいえ"], asked=accepted, why="ご了承いただけない", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY), "set": "D"},
+        {**_row("R7", "はい、大丈夫です。", ["はい"], asked=accepted, why="最終の確かめへのご了承"), "set": "D"},
+        {**_row("R7", "いや、それはちょっと困るんですけど。", ["いいえ"], asked=accepted, why="ご了承いただけない"), "set": "D"},
         {**_row("R7", "はい、大丈夫ですよ。", ["はい"], AWAY_NO, asked=unheard,
                 why="聞き取れなかったお知らせの最終の確かめへのご了承（分身 O2）。束 t の #1：読み手2人とも答えは「はい」・別のお話かは「答えの話」＝そろった読みにした"
-                    "（直す前の値＝別のお話か付けていない＝どちらの読みも正解。どちらの読みでも流れの制御はお礼の締め＝rv178/S4/probe/split_t.txt）", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY), "set": "D"},
+                    "（直す前の値＝別のお話か付けていない＝どちらの読みも正解。どちらの読みでも流れの制御はお礼の締め＝rv178/S4/probe/split_t.txt）"), "set": "D"},
         # 黙ったあとの一言のあと（分身 N・O2）
         _row("R7", "あ、それとですね、うちは月曜が定休日なんですよ。", [UNDECIDED], (AWAY_YES, AWAY_NO), prompt=PROMPT_REPLY_NO, reason=WHY_OTHER,
              why="声かけへのお返事だけではない別のお話。別のお話かは境目：声かけ（気になる点）へのお返事として話したご事情＝答えの話（CL-1 の 9-3 の案の (別のお話か)）とも、"
-                 "どの答えの向きも示さないご事情＝別のお話とも読める（2026-11-20 rv176/S2 の束 n の #1＝答えを伏せた読み手2人が2人とも両方を挙げた・ご判断は無い。直す前の値＝別のお話）", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
-        _row("R7", "いえ、大丈夫です。", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, why="声かけへのお返事だけ", reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
+                 "どの答えの向きも示さないご事情＝別のお話とも読める（2026-11-20 rv176/S2 の束 n の #1＝答えを伏せた読み手2人が2人とも両方を挙げた・ご判断は無い。直す前の値＝別のお話）"),
+        _row("R7", "いえ、大丈夫です。", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, why="声かけへのお返事だけ", reason=WHY_OTHER),
         # 帳面 1 の (1) の「この1回の測りに足す」と書かれた答えの段の言葉（分身 Y2 が入れた。正解は帳面に書かれたとおり＝お言葉・決まった説明の文から決まる）
         # 言い直し・最終の確かめへのお返事の別のお話か（分身 N＝5a7f04ce・見直し (12) の A-9・B-3）：金額の言い直し・ご承認のお知らせの最終の確かめ
         {**_row("R8", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, asked=budget_again, why="言い直しへの別のお話（分身 N の行）", reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
@@ -224,12 +226,12 @@ def answer_words() -> list[dict]:
         # こちらへ尋ねた問いは無い＝そろった読みで表に入れた（分身 S3 の続き (3)）
         {**_row("R8", "うーん、どうでしょうねえ。", [UNDECIDED, THINKING, HESITATING], AWAY_NO, asked=budget_again, reason=WHY_HESITATING,
                 why="言い直しへの迷い・言いよどみ（rv178/S3/readers の束 s の #26 の読み手2人がそろった）", misgiving=[MISGIVING_UNSAID, MISGIVING_OFF], misgiving_why=MG_UNSAID_WHY), "set": "D"},
-        {**_row("R7", "そういえば来週は祝日なんですよ。", [UNDECIDED], AWAY_YES, asked=accepted, why="最終の確かめへの別のお話（分身 N の行）", reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
+        {**_row("R7", "そういえば来週は祝日なんですよ。", [UNDECIDED], AWAY_YES, asked=accepted, why="最終の確かめへの別のお話（分身 N の行）", reason=WHY_OTHER),
          "set": "D"},
-        {**_row("R7", "あ、はい、分かりました。", ["はい"], AWAY_NO, asked=accepted, why="最終の確かめへのご了承＝答えの話（分身 N の行）", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY), "set": "D"},
+        {**_row("R7", "あ、はい、分かりました。", ["はい"], AWAY_NO, asked=accepted, why="最終の確かめへのご了承＝答えの話（分身 N の行）"), "set": "D"},
         # お知らせへの最初のお返事の別のお話か（見直し (13) の持ち場 C の C4）
-        _row("R7", "なるほど。", [UNDECIDED], AWAY_NO, why="お知らせへの相づちだけ＝答えの話（決められない。C4）", reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
-        _row("R7", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, why="お知らせへの別のお話（C4）", reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
+        _row("R7", "なるほど。", [UNDECIDED], AWAY_NO, why="お知らせへの相づちだけ＝答えの話（決められない。C4）", reason=WHY_OTHER),
+        _row("R7", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, why="お知らせへの別のお話（C4）", reason=WHY_OTHER),
         # 別のお話か の答えの話（分身 E＝092f2317：分からない・答えたくない、は答えの話）
         _row("R1", "ちょっと分からないですね。", ["unknown"], AWAY_NO, why="分からないとだけ言った＝答えの話（分身 E の行）",
              reason=(DONT_KNOW_LABEL["unspecified"],), misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
@@ -406,14 +408,14 @@ PREP3_ROWS = [
     _row("R7", "はい、分かりました。", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, scene=ANSWERED_SCENE, reason=WHY_OTHER,
          why="こちらの答えへのお返事だけ（ご了承ではない）＝帳面 1 の (1) の分身 R13C の段の (a) の試しの言葉と正解そのまま（✅ 2026-11-13 日本時間20時06分19秒「「あ、はい、分かりました。」は、"
              "…に対して答えてる可能性がある」）。束 s の #11：答えは読み手2人とも「決められない」だけ（注意書き「お返事だけで、質問への答えをはっきり言っていなければ「決められない」」）"
-             "＝そろった読みにした（直す前の値＝[はい, 決められない]）", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
+             "＝そろった読みにした（直す前の値＝[はい, 決められない]）"),
     _row("R7", "分かりました。キャンセルの件も大丈夫です。", ["はい"], AWAY_NO, prompt=PROMPT_REPLY_NO, scene=ANSWERED_SCENE,
-         why="こちらの答えに応え、お知らせ（キャンセル）も了承した＝答え「はい」・お返事だけではない（同じ (a) の試しの言葉と正解そのまま）", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
+         why="こちらの答えに応え、お知らせ（キャンセル）も了承した＝答え「はい」・お返事だけではない（同じ (a) の試しの言葉と正解そのまま）"),
     {**_row("R7", "え、何ておっしゃいました？", [REPEAT], (AWAY_NO, UNDECIDED), prompt=PROMPT_REPLY_NO, scene=ANSWERED_SCENE,
          why="こちらの答えが聞き取れなかった＝もう一度言ってほしい（帳面 1 の (1) の 11-19 日本時間23時台の段＝伺い76 の試しの言葉「お答え「はい、店舗の前に駐車場がございます。」への"
              "「え、何ておっしゃいました？」」そのまま）。こちらへ尋ねた問いは無い（言い直しを頼んだだけ＝正解の表の HEAR の「すみません、今なんて言いました？」と同じ）。声かけへの"
              "お返事だけではない（説明の「お返事だけ＝分かった、と言っただけ」に当たらない・「こちらに尋ねた など」はお返事だけではない側。お返事だけと読むと、流れの制御は答えを"
-             "言い直さずに最終の確かめへ進む）。束 s の #13：#4 と同じ（別のお話かは境目・届いていない様子に替えた）", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY), "hear_truth": HEAR_LOST},
+             "言い直さずに最終の確かめへ進む）。束 s の #13：#4 と同じ（別のお話かは境目・届いていない様子に替えた）"), "hear_truth": HEAR_LOST},
     # (5) 申し出の最終の確かめ（OFFER_FINAL_SCENE＝パンフレットの申し出に「うーん、送ってもらおうかな…。」→ 言い直し → 「送ってもらったほうがいいですかね？」に答えた → 「そうなんですね。」→
     #     「はい、それではパンフレットをお送りさせていただきましょうか？」）
     _row("R9", "そういえば来週は祝日なんですよ。", [UNDECIDED], AWAY_YES, scene=OFFER_FINAL_SCENE, reason=WHY_OTHER,

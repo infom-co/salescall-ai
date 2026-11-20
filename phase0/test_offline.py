@@ -47666,10 +47666,10 @@ class MisgivingTest(unittest.TestCase):
         self.assertEqual(G.step_wants(rows[("G16", "カードか振込か迷っています。")], qmap["G16"], False), {G.HESITATE_ACT[False]})
         self.assertEqual(G.misgiving_truths({"label": {"accept": [HESITATING, "いいえ"], MISGIVING: [MISGIVING_UNSAID, MISGIVING_OFF]}}, "いいえ"), (MISGIVING_OFF,))
         self.assertEqual(G.misgiving_truths({"label": {"accept": [HESITATING, "いいえ"], MISGIVING: [MISGIVING_UNSAID, MISGIVING_OFF]}}, HESITATING), (MISGIVING_UNSAID,))
-        # 迷っているお客様に応じる質問の行は、どれも正解を付けた（帳面 0-3 の (2)）
-        from flowctl import hears_hesitation
+        # 項目を見せる質問（迷っているお客様に応じる質問のうち、ご承認の質問を除く＝misgiving_fits。分身 Q の (2)）の行は、どれも正解を付けた（帳面 0-3 の (2)）
+        from flowctl import misgiving_fits
         for k, v in labels.items():
-            if hears_hesitation(qmap[k.split("|")[1]]):
+            if misgiving_fits(qmap[k.split("|")[1]]):
                 self.assertIn(MISGIVING, v, k)
                 self.assertTrue(v.get("misgiving_why"), k)
 
@@ -47706,3 +47706,69 @@ class RefusalNoHeadTest(unittest.TestCase):
         f, r = self.refusal("はい、もうかけないでください。", "はい", 0)
         self.assertEqual(f.end_reason, "callee_refused_call", heard_words(r))
         self.assertNotEqual(r.get("ack"), "hai", heard_words(r))
+
+
+class MisgivingApprovalTest(unittest.TestCase):
+    """分身 Q（CL-1 の頼み rv183/Q の (2)＝分身 P の書き置き (6-4)）：説明した内容のご承認の質問（approval）には、項目「迷っている点を言ったか」（MISGIVING）を見せない。
+    ご承認の質問への迷いは、ご承認いただけなかったときの手順（N1＝「はい、どういった点でお迷いでしょうか？」）が受け持ち、点をもう言っていれば伺わないのは、本書 9-5 の W1 の段の
+    終わりの決まり（N1 を流す前に、先に言われた答えの1か所で判定が N1 について読み直す＝Flow._point_ahead）が同じ問いに答える＝同じ問いに答える所を2つ作らない。
+    見せる質問の1か所は flowctl.misgiving_fits（迷っているお客様に応じる質問のうち、ご承認の質問を除く）。
+    ⛔ 直す前は、ご承認の質問にも項目を見せ（判定に送る文に項目の段）、流れの制御は使っていなかった（正解の表のご承認の質問の行にも正解を付けていた）"""
+
+    def test_the_item_is_not_shown_for_the_approval(self):
+        from flowctl import MISGIVING, hears_hesitation, misgiving_choices, misgiving_fits
+        from meaning_judge import answer_items, items_text
+        a = ApprovalTest().flow()
+        q = a.for_judge(a.questions["Q2"])
+        self.assertTrue(q.approval and hears_hesitation(q))
+        self.assertFalse(misgiving_fits(q))
+        self.assertNotIn(MISGIVING, answer_items(q))
+        self.assertNotIn(MISGIVING, answer_items(q, "念のため以上の内容でよろしいでしょうか？"))
+        self.assertNotIn(f"（{MISGIVING}）", items_text(q))
+        self.assertEqual(misgiving_choices(False, q), {})
+        # 迷っているお客様に応じるほかの質問（ご希望から選んでいただく質問）は今のまま見せる
+        m = MisgivingTest().flow()
+        p = m.for_judge(m.questions["Q1"])
+        self.assertTrue(misgiving_fits(p))
+        self.assertIn(MISGIVING, answer_items(p))
+
+    def test_a_stated_point_over_the_approval_is_read_again_for_n1(self):
+        # (a) ご承認の質問への迷いの言葉に点があれば、N1（「どういった点でお迷いでしょうか？」の形）を流す前に、先に言われた答えの1か所で判定が N1 について読み直し、
+        # 点を言っていれば N1 を流さずに、聞いた答えの報告へ（_point_ahead・ahead_context）。言っていなければ N1 を流す
+        from flowctl import AHEAD_CHECKS, CALLBACK_IDS, HESITATING, JUDGMENTS, POINT_SAID, UNDECIDED
+        from meaning_judge import Reading
+        from phrases import HESITATE_POINT
+        n1 = CALLBACK_IDS["not_agreed"]
+        for read, played in ((POINT_SAID["not_agreed"], False), (UNDECIDED, True)):
+            f = ApprovalTest().flow(play=True)
+            f.use_checks(*JUDGMENTS)
+            for words, qid, cond, rd in (("届いてないです。", "Q1", "いいえ", "いいえ"), ("料金が高いのが気になって、同意するか迷っています。", "Q2", "unknown", HESITATING)):
+                f.on_callee(); f.on_heard(words)
+                for k in JUDGMENTS:
+                    f.on_check(k, Reading(rd))
+                r = f.apply("record_answer", {"question_id": qid, "condition_id": cond})
+            self.assertEqual((f.current, r.get("ahead_offer"), f.questions[n1].text), (n1, True, HESITATE_POINT))
+            ctx = f.ahead_context()
+            self.assertEqual(ctx[0].id, n1)
+            f.on_check(AHEAD_CHECKS[0], Reading(read), f.callee_turns)
+            r = f.apply("replay_opening", {"part": "resume"})
+            self.assertEqual(HESITATE_POINT in "".join(p["text"] for p in r.get("play") or []), played, (read, r))
+
+    def test_the_approval_rows_carry_no_misgiving(self):
+        # 正解の表（試しの言葉の行 review_words.answer_words・正解の表 g53_labels.json）のご承認の質問の行には、この項目の正解を付けない。見せる質問の行は、どれも付けた
+        import g53_meaning as G
+        from flowctl import MISGIVING, misgiving_fits
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        with open("g53_labels.json", encoding="utf-8") as fp:
+            labels = json.load(fp)["labels"]
+        rows = [(k.split("|")[1], k, v) for k, v in labels.items()] + [(it["qid"], (it["qid"], it["text"]), it["label"]) for it in answer_words()]
+        seen = 0
+        for qid, k, v in rows:
+            if qmap[qid].approval:
+                seen += 1
+                self.assertNotIn(MISGIVING, v, k)
+                self.assertNotIn("misgiving_why", v, k)
+            elif misgiving_fits(qmap[qid]):
+                self.assertIn(MISGIVING, v, k)
+        self.assertGreater(seen, 0)
