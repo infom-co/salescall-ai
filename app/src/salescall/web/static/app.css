@@ -120,6 +120,11 @@ ul.numbers li.old .num { color: var(--muted); font-weight: 500; text-decoration:
 .nav .group { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .08em; padding: 14px 10px 6px; }
 .nav a { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 8px; color: var(--text); }
 .nav a:hover { background: var(--surface-2); text-decoration: none; }
+.nav .account { margin-top: 20px; padding: 14px 10px 4px; border-top: 1px solid var(--line); font-size: 13px; display: grid; gap: 6px; overflow-wrap: anywhere; }
+.nav .account .logout { margin-top: 4px; }
+.top > * { flex-shrink: 0; }   /* 上の帯の部品は縮めない（縮めると「緊急停止」が1文字ずつ縦に折れた）。縮めてよいのは契約者の名前と間だけ */
+.top > .tenant { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.top > .spacer { flex-shrink: 1; }
 .nav a[aria-current="page"] { background: var(--primary-soft); color: var(--primary); font-weight: 700; }
 .content { padding: 24px 28px 48px; max-width: 1240px; width: 100%; }
 .lead { color: var(--muted); margin: 0 0 20px; }
@@ -239,7 +244,7 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   .nav { display: none; position: fixed; inset: 56px 0 0 0; z-index: 11; overflow: auto; }
   body.nav-open .nav { display: block; }
   .menu-toggle { display: inline-flex; }
-  .tenant, .who { display: none; }
+  .top > .tenant { display: none; }   /* スマホでは、契約者の名前は道しるべ（≡）の下の1か所で見せる */
   .content { padding: 16px; }
   .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
   .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -286,6 +291,10 @@ table.list td.co, table.list th.co { min-width: 10em; }
 table.list td.person, table.list th.person { min-width: 8em; }
 /* 取込 */
 .title-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+/* ページの見出し（どの画面も同じ形）：見出し → 説明 → 操作の順。PC は操作を右に、狭い幅では説明の下に置く（説明より先に操作が出ていた） */
+.title-row:has(> .titles) { align-items: flex-start; margin-bottom: 16px; }
+.title-row > .titles { flex: 1 1 380px; min-width: 0; }
+.title-row > .titles .lead { margin-bottom: 0; }
 ol.steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 4px 0 20px; counter-reset: step; flex-wrap: wrap; }
 ol.steps li { counter-increment: step; display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 8px; border-radius: 999px;
   background: var(--surface-2); color: var(--muted); font-weight: 600; font-size: 13px; }

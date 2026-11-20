@@ -2,7 +2,8 @@
 {% from "parts.html" import tag, flash, csrf, empty %}
 {% block title %}回線と PC{% endblock %}
 {% block main %}
-<div class="title-row"><h1>回線と PC</h1>
+<div class="title-row"><div class="titles"><h1>回線と PC</h1>
+  <p class="lead">回線（スマホ1台＝発信番号1つ）と、電話をつなぐ PC です。回線の休みは、直ったことが確かめられると自動で戻ります。</p></div>
   <details class="adder inline"><summary class="btn main">＋ 回線を足す</summary>
     <form class="panel" method="post" action="/t/lines">
       {{ csrf(token) }}
@@ -15,7 +16,6 @@
       <button class="btn main small" type="submit">足す</button>
     </form>
   </details></div>
-<p class="lead">回線（スマホ1台＝発信番号1つ）と、電話をつなぐ PC です。回線の休みは、直ったことが確かめられると自動で戻ります。</p>
 {{ flash(done, ok) }}
 <h2>回線</h2>
 {% if lines %}

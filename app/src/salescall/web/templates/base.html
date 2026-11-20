@@ -13,12 +13,11 @@
 <header class="top">
   <button class="btn small menu-toggle" type="button" aria-label="メニューを開く">≡</button>
   <a class="brand" href="/t">Sales<b>Call</b></a>
-  <span class="tenant">{{ ctx.tenant_name }}</span>
+  <span class="tenant">契約者：{{ ctx.tenant_name }}</span>
   <span class="spacer"></span>
   <div class="badges" hx-get="/t/badges" hx-trigger="load, every 30s" hx-swap="innerHTML"></div>
+  {#- 緊急停止は上の帯の右端に1つだけ。ログアウトは隣に置かない（押し間違えない。スマホでは指1本の幅で並んでいた）＝左の道しるべの下 -#}
   <button class="btn small danger" type="button" data-open="emergency-dialog">緊急停止</button>
-  <span class="who">{{ person.name or person.login_id }}{% if person.is_admin %}（管理者）{% endif %}</span>
-  <form method="post" action="/logout" class="logout"><input type="hidden" name="{{ token_field }}" value="{{ token }}"><button class="btn small" type="submit">ログアウト</button></form>
 </header>
 <dialog id="emergency-dialog" aria-labelledby="emergency-title">
   <form method="post" action="/t/emergency">
@@ -58,6 +57,12 @@
     {% if person.is_admin %}<div class="group">管理者だけ</div>
     <a href="/admin/tenants" {% if active == "admin_tenants" %}aria-current="page"{% endif %}>契約者を選ぶ</a>
     <a href="/admin/settings" {% if active == "system_settings" %}aria-current="page"{% endif %}>システムの初めの値</a>{% endif %}
+    {#- だれとして・どの契約者を操作しているか、とログアウト（どの幅でも、この1か所） -#}
+    <div class="account">
+      <div><span class="muted">契約者：</span>{{ ctx.tenant_name }}</div>
+      <div><span class="muted">ログイン中：</span>{{ person.name or person.login_id }}{% if person.is_admin %}（管理者）{% endif %}</div>
+      <form method="post" action="/logout" class="logout"><input type="hidden" name="{{ token_field }}" value="{{ token }}"><button class="btn small" type="submit">ログアウト</button></form>
+    </div>
   </nav>
   <main class="content">
     {% if ctx.acting_for_other %}
