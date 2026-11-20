@@ -6099,6 +6099,8 @@ class Item:
                                       # 答えていただいている。提案を受けていただけないまま戻るとき、Flow._elsewhere_back が提案の欄と一緒に消す）
     dash_heard: bool = False         # 「-」にしたとき、お客様のお声は聞き取れていたか（別のお話・意味が決まらない答え＝Flow._dash の1か所が _heard_clearly で覚える）。締めの前の
                                       # 念のための確認の言い方を選ぶ（聞き取れていた＝電話のせいにしない「恐れ入ります。…もう一度だけ…」＝9-5 の (3)・10-14）
+    kept_say: str | None = None       # その場で3回目に戻らずに「-」にした問いでない言い直し（「…承っておきますね。」）の文：締めの前の念のための確認で、その言い直しを
+                                      # 1回（値を保ったまま＝言い直した値は捨てない）。置くのは「-」にする1か所 Flow._talk_dash の keep・読むのは確認の段（_advance_to）
 
     def set(self, state: str, why: str) -> None:
         assert state in STATES, state
@@ -11643,10 +11645,15 @@ class Flow:
                else self.phase == "rechecking" and bool(self.recheck_queue))
         return "next" if due and (self.phase == "asking" or not all(self._recheck_off(x) for x in self.recheck_queue)) else "close"
 
-    def _talk_dash(self, qid: str, why: str) -> dict:
+    def _talk_dash(self, qid: str, why: str, keep: bool = False) -> dict:
         """別のお話にひとこと応えたあと、その場ではもう伺い直さない質問を「-」にして次へ進む返事（唯一の場所＝_talk_again・お話に沿った受け答えで待ったあとの相づち
-        だけのお返事 _resume）：必須なら締めの前の念のための確認で1回（_dash がお声は聞き取れていた印 dash_heard を覚える＝「はい、恐れ入りますが（聞くこと）を
-        もう一度だけ…」）。why＝「-」にする理由（Item の記録）。"""
+        だけのお返事 _resume・問いでない一言へその場で3回目に戻らない _continue）：必須なら締めの前の念のための確認で1回（_dash がお声は聞き取れていた印 dash_heard を
+        覚える＝「はい、恐れ入りますが（聞くこと）をもう一度だけ…」）。why＝「-」にする理由（Item の記録）。
+        keep＝お返事を待っていた言い直しの値を捨てない（問いでない言い直しへ、その場で3回目に戻らずに回す＝_continue の言い直しの枝）：その言い直しの文を覚え
+        （Item.kept_say）、締めの前の念のための確認では、質問ではなく、その言い直しを1回（値は Item.value のまま＝本書 9-5 の 11-15 の見直し (12) の (3)「言い直した値は
+        捨てない」。L14）"""
+        if keep and self.awaiting_confirm == qid:
+            self.items[qid].kept_say = self.awaiting_say
         self.awaiting_confirm = None
         self.items[qid].set("unresolved", why)
         return self._dash(qid)
@@ -12496,6 +12503,14 @@ class Flow:
         # 番号が役目ごとに1つのシステムの質問だけ（of・callback）
         return "" if q is None else f"{q.id}@{q.of or ''}@{q.text if (q.of or q.callback) else ''}"
 
+    def _third_back_off(self, asks: bool, moved: bool) -> bool:
+        """もう伺った問いでない一言（ご案内の申し出・振り返りの一言・問いでない言い直し「…承っておきますね。」）へ、その場で3回目に戻るか（唯一の決まり＝戻る1か所
+        _continue の質問の枝と言い直しの枝）：3回目からの一言「確認の途中でしたので…が」がつながらない（_back_play の asks）＝その場で戻らずに、「-」にして締めの前へ
+        回す。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い13 3回目は最後に回したほうがよくないですか？」と同じ理由・同じ回数（TALK_ON_SPOT）＝CL-1 が決めた形
+        （束 n8・L14）。問いの形の質問・言い直しは 11-07 日本時間4時40分35秒の形のまま（3回目からは「確認の途中でしたので…」）。asks＝戻った先が問いか・moved＝お話に
+        応えたあとの戻り（digressed）か、お話に応えたあとでない戻り（質問の plain・言い直しの soft）"""
+        return not asks and moved and self.back_counts.get(self._place(), 0) >= TALK_ON_SPOT
+
     def _back_count(self) -> int:
         """いまお返事を待っている所（_place）へ戻った回数を1つ足して返す唯一の場所（戻る一言を選ぶ _back_play と、戻る一言の代わりに決まった伺い直しで戻る所＝
         会話が繋がらないお返事への「ところで」の伺い直し _aside_again・ご承認のお知らせの伝え直し _announce_again が呼ぶ。そのあとの別のお話への伺い直し
@@ -12598,7 +12613,14 @@ class Flow:
             # 「改めまして（値）で大丈夫でしょうか？」と言うのと同じ形）。問いでない言い直し（「…承っておきますね。」）には文を終えない一言をつながない（asks）
             # お話に沿った受け答えで待ったあとの相づちだけのお返事（soft）も、お話に応えたあとの戻り（言い直しには意向が分からないまま戻る形が無い＝戻る一言から）
             # 重ねて急かされた3回目から（fresh）は戻りに数えず・戻る一言を付けない（伺い41・伺い46 イ。言い直しは形が1つ＝同じ文）
-            back = [] if fresh else self._back_play(digressed or soft, asks=self.awaiting_say.endswith(("？", "?")))
+            asks = self.awaiting_say.endswith(("？", "?"))
+            if not fresh and self._third_back_off(asks, digressed or soft):
+                # 問いでない言い直しへ、その場で3回目に戻る：質問の枝と同じ決まり（_third_back_off）で、その場で戻らずに「-」にして締めの前へ回す。言い直した値は捨てない
+                # （_talk_dash の keep＝締めの前の念のための確認で、その言い直しを1回。本書 9-5 の 11-15 の見直し (12) の (3)）。⛔ 50d51fd0 まで、何回目も2回目の一言
+                # 「それではもう一度確認させていただきますね。」＋同じ言い直し（L14＝分身 N の書き置き (7-1)）
+                return self._led(play, "", self._talk_dash(self.awaiting_confirm, "問いでない言い直しへ、その場で3回目に戻る（伺い13 と同じ理由で締めの前へ回す・"
+                                                           "言い直した値は保つ）", keep=True))
+            back = [] if fresh else self._back_play(digressed or soft, asks=asks)
             # 手短にお伺いする一言（_brief_go の1か所。戻る一言があれば流さない＝質問へ戻るときと同じ）
             go = [] if back else self._brief_go(self.questions.get(self.awaiting_confirm), shown)
             btext = "".join(p["text"] for p in back + go)
@@ -12631,12 +12653,9 @@ class Flow:
         plain = (final or soft) and again and not digressed and not repeat and not fresh
         base = self.soft_plain.get(q.id, q) if q is not None else None
         stuck = plain and soft_fits(q) and soft_form(base, lead) is base
-        if (q is not None and not asks and not q.reading_of and not fresh and (digressed or plain)
-                and self.back_counts.get(self._place(), 0) >= TALK_ON_SPOT):
-            # 問いでない一言（ご案内の申し出・振り返りの一言）へ、その場で3回目に戻る：3回目からの一言「確認の途中でしたので…が」がつながらない＝その場で戻らずに、
-            # 「-」にして締めの前へ回す（_talk_dash＝必須なら締めの前の念のための確認で1回）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い13 3回目は最後に
-            # 回したほうがよくないですか？」と同じ理由・同じ回数（TALK_ON_SPOT）＝CL-1 が決めた形。問いの形の質問は 11-07 日本時間4時40分35秒の形のまま（_back_play）。
-            # ⛔ 3cd6ec5c まで、何回目も2回目の一言「それではもう一度確認させていただきますね。」＋同じ申し出（束 n8＝OPEN-A11）
+        if q is not None and not q.reading_of and not fresh and self._third_back_off(asks, digressed or plain):
+            # 問いでない一言（ご案内の申し出・振り返りの一言）へ、その場で3回目に戻る：その場で戻らずに、「-」にして締めの前へ回す（_talk_dash＝必須なら締めの前の
+            # 念のための確認で1回）。⛔ 3cd6ec5c まで、何回目も2回目の一言「それではもう一度確認させていただきますね。」＋同じ申し出（束 n8＝OPEN-A11）
             return self._led(play, "", self._talk_dash(q.id, "問いでない一言へ、その場で3回目に戻る（伺い13 と同じ理由で締めの前へ回す）"))
         back = [] if fresh else self._back_play(digressed, asks=asks, plain=plain, stuck=stuck)
         # 手短にお伺いする一言（_brief_go の1か所。戻る一言があれば、その一言が質問へのつなぎ＝流さない）。戻る一言と同じく質問の前の言葉（頭を重ねない）だが、お客様の
@@ -19421,6 +19440,17 @@ class Flow:
                 r = self._accepted_ask(q.id, "締めの前の念のための確認：「-」にしたお知らせの最終の確かめ",
                                        f"{prefix}念のための確認です。{q.id} の{'別のお話が続いた' if reason == 'form' else '聞き取れなかった'}お知らせについて、",
                                        heard=reason == "form")
+            elif (kept := self.items[self.current].kept_say) is not None:
+                # その場で3回目に戻らずに回した問いでない言い直し（_talk_dash の keep）：質問を伺い直さずに、その言い直しを1回（値を保ったまま＝言い直した値は捨てない。
+                # 本書 9-5 の 11-15 の見直し (12) の (3)）。もう一度言う文は、言い直しへ戻るときと同じ1か所（restated_again＝頭の受けの言葉を外して「それでは」から）。
+                # お返事は言い直しへのお返事（confirm_field）として受ける（L14＝分身 N の書き置き (7-1)）
+                it = self.items[self.current]
+                it.kept_say = None
+                it.set("checking", "締めの前の念のための確認：その場で3回目に戻らずに回した問いでない言い直しを、値を保ったまま1回")
+                say = self.awaiting_say = restated_again(kept)
+                self.awaiting_confirm, self.confirm_requested_at = q.id, self.callee_turns
+                r = {"result": "confirm_required", "question_id": q.id, "value": it.value, "say": say,
+                     "message": f"{prefix}念のための確認です。{q.id} の言い直しを、もう1回だけ伝えます。{say_note(say)}相手の返事を待ってください。"}
             else:
                 say = self._ask_again_say(q.id, self.items[self.current].ask_backs + 1, reason, last=True)
                 r = {"result": "recheck", "question_id": q.id, "question": q.text, "say": say,

@@ -47296,3 +47296,68 @@ class AheadUnaskedUndecidedTest(unittest.TestCase):
             asked = heard_words(rep) if play else rep.get("message") or ""
             self.assertIn("平日と土日のどちらがよろしいでしょうか", asked, play)
 
+
+class NotAQuestionRestateThirdBackTest(unittest.TestCase):
+    """分身 O（L14＝分身 N の書き置き (7-1)）：問いでない言い直し（「それでは15日あたりでお考えということで承っておきますね。」）へ、その場で3回目に戻るときは、
+    3回目からの一言「確認の途中でしたので…が」がつながらない＝その場で戻らずに締めの前へ回す（伺い13＝✅ 2026-11-14 日本時間14時31分38秒「3回目は最後に回したほうが
+    よくないですか？」・束 n8 と同じ理由・同じ回数 TALK_ON_SPOT・同じ1か所＝戻る Flow._continue）。言い直した値は捨てない（本書 9-5 の 11-15 の見直し (12) の (3)）＝
+    締めの前の念のための確認で、その言い直しを1回（値を保ったまま）。問いの言い直し（「100万円でよろしいでしょうか？」）は 11-07 日本時間4時40分35秒の形のまま。
+    ⛔ 50d51fd0 まで、問いでない言い直しへは何回目も2回目の一言「それではもう一度確認させていただきますね。」＋同じ言い直し（11-01「全く同じ質問を2度したら、機械だと
+    思われてしまいませんか？」にも反した）"""
+
+    MEET = "お打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？"
+
+    def three_backs(self, q1, words, value, play=True):
+        """V1 の言い直しへ、別のお話2回（その場の回数）のあと、「もういいです。」に本心を伺う一言 D2 →「いえ、別に問題はないです。」で伺う前の位置へ戻る（3回目）。"""
+        from end_words import _reading
+        from flowctl import CALLBACK_IDS, Flow, Question, UNDECIDED
+        from meaning_judge import Reading
+        a = AwayEntryTest()
+
+        def say(f, words, reading, qid=None, cond=None, op="record_answer", **extra):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", reading)
+            if qid is None:
+                return f.judged_turn(voiced=False)
+            return f.apply(op, {"question_id": qid, **({"condition_id": cond} if op == "record_answer" else {}), **extra})
+
+        f = Flow([Question("Q0", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True), q1,
+                  Question("Q2", self.MEET, "choice", conditions=("オンライン", "訪問"))], play_recordings=play)
+        f.use_checks("judge")
+        say(f, "はい、予約しています。", Reading("はい", firm=True), "Q0", "はい")
+        first = say(f, words, Reading("答えた", firm=True), "V1", "答えた", value=value)
+        backs = []
+        for _ in range(2):
+            a.away(f, "confirm_field", result="no_answer")
+            backs.append(a.talk(f))
+        say(f, "もういいです。", _reading(UNDECIDED, UNDECIDED))
+        self.assertEqual(f.current, CALLBACK_IDS["concern"])
+        backs.append(say(f, "いえ、別に問題はないです。", Reading("問題は無い", firm=True), CALLBACK_IDS["concern"], "問題は無い"))
+        return f, first, backs, say
+
+    def test_the_third_back_to_a_restatement_goes_to_the_end_with_the_value(self):
+        from flowctl import Question
+        from meaning_judge import Reading
+        from phrases import BACK_TO_AGAIN
+        noted = "15日あたりでお考えということで承っておきますね。"
+        for play in (True, False):
+            f, first, (b1, b2, third), say = self.three_backs(
+                Question("V1", "ご訪問の日にちのご希望はございますでしょうか？", "date", conditions=("答えた",), required=True), "15日あたりですかね。", "15日", play)
+            self.assertTrue(first["say"].endswith(noted), play)
+            self.assertIn(BACK_TO_AGAIN, str(b2), play)   # 2回目は「それではもう一度確認させていただきますね。」＋言い直し（今のまま）
+            # 3回目：その場で言い直しへ戻らず、「-」にして次へ（言い直した値は保つ）
+            self.assertNotIn(noted, heard_words(third) + (third.get("message") or ""), play)
+            self.assertEqual((f.current, f.awaiting_confirm, f.items["V1"].state, f.items["V1"].value), ("Q2", None, "unresolved", "15日あたり"), play)
+            # 締めの前の念のための確認で、その言い直しを1回（値を保ったまま）
+            r = say(f, "オンラインでお願いします。", Reading("オンライン", firm=True), "Q2", "オンライン")
+            self.assertEqual((f.phase, f.current, f.awaiting_confirm), ("rechecking", "V1", "V1"), play)
+            self.assertTrue(r["say"].endswith("それでは" + noted), (play, r["say"]))
+            r = say(f, "はい、お願いします。", Reading("affirmed", firm=True), "V1", op="confirm_field", result="affirmed")
+            self.assertEqual((f.items["V1"].state, f.export()["V1"]), ("confirmed", "15日あたり"), play)
+
+    def test_a_question_restatement_keeps_the_third_back_line(self):
+        from flowctl import Question
+        from phrases import BACK_TO_MIDWAY
+        f, first, (b1, b2, third), _ = self.three_backs(
+            Question("V1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), required=True), "100万円で考えています。", "100万円")
+        self.assertEqual((f.current, f.awaiting_confirm), ("V1", "V1"))
+        self.assertIn(BACK_TO_MIDWAY + "100万円でよろしいでしょうか？", heard_words(third))   # 問いの言い直しは、3回目も「確認の途中でしたので…」＋言い直し
