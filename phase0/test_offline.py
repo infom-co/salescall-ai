@@ -45056,7 +45056,7 @@ class S2AskedSceneTest(unittest.TestCase):
         q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
         f = g.asked_flow([q, g.SCENE_NEXT])
         self.assertEqual((f.current, f.items["Q1"].played), ("Q1", True))
-        self.assertEqual(f._heard_purpose(), "")   # 用件の一文は入れない（測りの行はどの業務の用件かが決まらない＝判定に送る文は今のまま）
+        self.assertEqual(f._heard_purpose(), "ご予約の確認でお電話いたしました。")   # 用件の一文は行の質問の業務の用件（S2ScenePurposeTest）
 
     def test_4_concern_ask_is_an_end_step_in_the_count(self):
         # 本題の電話を終える言葉か決まらないときの本心を伺う一言（D2＝Flow._refusal_confirm → _concern_ask）は、数えの1か所で電話を終える読みによる動き（ご遠慮の一言と同じ側）。
@@ -45094,6 +45094,49 @@ class S2AskedSceneTest(unittest.TestCase):
         it = next(x for x in g.set_r() if x.get("set") == "D" and not x.get("scene") and (q := qm.get(x["qid"])) is not None and q.approval and q.announce)   # ご承認のお知らせ R7 の最終の確かめ
         f, qid = g.flow_scene(it, qm[it["qid"]])
         self.assertTrue(f._main_talk())
+
+
+class S2ScenePurposeTest(unittest.TestCase):
+    """分身 S2（CL-1 の決め：測りの場面に名乗りの用件を見せる。帳面 0-3・1 の (1) の F1＝判定に送る問い合わせは行の場面の本番の流れの制御が判定に渡すもの
+    Flow.judge_context から作る・本番は用件を見せている・本書 9-5 の伺い48 ア-2 の ⏳「用件の一文を場面に置く欄を測りの道具に足す」）：測りの場面を組む1か所
+    （g53_meaning.asked_flow）が、行の質問の業務の用件の一文を、本番と同じ入口（業務設定の用件の一文 purpose_line → 名乗りの録音の用件 → Flow._heard_purpose）で入れる。
+    用件は、行の質問が属する試しの業務があればその用件（g14_listen.business＝Q1・Q2・Q3・Q5）・無ければ、行の質問ごとの用件の表（g53_meaning.SCENE_PURPOSES の1か所＝
+    質問の文 → 用件の名詞。用件の一文は「（名詞）でお電話いたしました。」＝試しの業務の用件の一文と同じ形・質問の文に無い事実は足さない）。"""
+
+    def test_1_purpose_comes_from_the_rows_question(self):
+        import g53_meaning as g
+        qm = g.question_map()
+        self.assertEqual(g.asked_flow([qm["G16"], g.SCENE_NEXT])._heard_purpose(), "お支払い方法の確認でお電話いたしました。")
+        self.assertEqual(g.asked_flow([qm["Q2"], g.SCENE_NEXT])._heard_purpose(), "ご予約の確認でお電話いたしました。")   # 試しの業務の用件
+        self.assertEqual(g.scene_purpose(qm["G8"]), "パンフレットのご案内")
+
+    def test_2_every_scene_question_has_a_purpose(self):
+        import g53_meaning as g
+        from review_words import questions
+        for q in list(g.question_map().values()) + list(questions().values()):
+            if q.id.startswith(("N", "W1")) or q.id in ("H2", "C1", "Y2", "D2"):   # システムの質問（場面の業務の質問の用件で組む）・顧客獲得型の場面（業務の用件がある）
+                continue
+            self.assertTrue(g.scene_purpose(q), q.id)
+
+    def test_3_judge_sees_the_purpose_in_every_built_scene(self):
+        # 既定の場面・黙ったあとの一言の場面・ほかのご希望の場面・ご承認いただけなかったときの場面・繋いだあとの場面も、判定に見せる質問に用件（heard_purpose）がある
+        import g53_meaning as g
+        from review_words import answer_words, questions
+        qm = g.question_map() | questions()
+        rows = g.set_f() + g.set_n() + g.set_h() + g.set_r() + answer_words()
+        want = {"F": None, "N1": None, "HEAR": None, "W1": None}
+        for it in rows:
+            key = it.get("set") if it.get("set") in want else ("scene:" + it["scene"] if it.get("scene") else None)
+            if key is None or key in ("scene:顧客獲得型の悩みの伺い（Y2）", "scene:顧客獲得型の本心を伺う一言（D2）") or (key in want and want[key] is not None):
+                continue
+            q = qm.get(it["qid"])
+            try:
+                shown = g.judge_inputs(it, q)[0]
+            except g.NoScene:
+                continue
+            want[key] = getattr(shown, "heard_purpose", "")
+            self.assertTrue(want[key], (key, it["text"]))
+        self.assertTrue(all(want[k] for k in ("F", "N1", "HEAR", "W1")), want)
 
 
 class VLadderFarDaysTest(unittest.TestCase):

@@ -747,18 +747,87 @@ CONNECTED_SCENES = {"繋いだあと・会社の電話": {"name": "岡田", "rea
 FIRST_WORDS = "はい、テスト商事でございます。"   # 場面の電話に出た方の第一声（判定には渡らない）
 
 
-def asked_flow(qs: list[Question]) -> Flow:
-    """業務の最初の質問（qs の先頭）を、本番と同じ始まり方で流した所までの流れの制御（唯一の場所＝答えの段の測りの場面 _flow_scene の既定の枝・場面の印の場面
-    （日時の2択の段 _ladder_scene・番号違いを伺う一言のあと _wrong_ask_scene・待っていただく一言のあと _wait_scene）・ご承認のお知らせの最終の確かめ _final_scene・
-    電話を終える言葉の表の場面 end_words.answer_flow）：お呼びする方の無い業務（g22_opening.BUSINESS の名乗りで、質問を qs に替えたもの）で、電話が繋がる → 第一声 → 人の報告 → 名乗りの録音
-    （最初の質問まで＝Flow._opening_reply が流した印 Item.played を付ける）→ 流し終えた知らせ on_played。判定の待ち方（use_checks）は呼ぶ所が決める。
-    用件の一文は入れない：測りの行はいろいろな業務の質問で、どの業務の用件かが決まらない（入れると、本番が判定に見せる用件＝Flow._heard_purpose が、ほかの会社に頼んでいるかの
-    項目の説明に入り、行の質問と合わない用件で判定に送る文が変わる＝分身 S2 が確かめた 2,754行。今までの測りの文と同じ＝用件なし）。
-    ⛔ 分身 S2 の 223f5b58 まで、ここを質問を並べた流れの制御だけで組み、最初の質問を流した印が無かった＝本番と違って序盤の扱い（本題か Flow._main_talk が偽＝電話を終える
-    言葉か決まらないときにご遠慮の一言）を正解の動きにしていた（✅ 2026-11-08 日本時間3時48分03秒「(ア)既定は「最初の質問を流したあと」」＝本題は最初の質問を流したあと）"""
+# 測りの場面の業務の用件の名詞（唯一の表＝行の質問の文 → 用件の名詞。用件の一文は「（名詞）でお電話いたしました。」＝試しの業務 g22_opening.BUSINESS・g14_listen.business の
+# 用件の一文と同じ形）。行の質問が属する試しの業務（g14_listen.business＝Q1・Q2・Q3・Q5）があれば、その業務の用件（scene_purpose）。名詞は質問の文にある事柄だけで作る（質問の
+# 文に無い事実＝商品の名前・会社のこと・日にちなどは足さない）。CL-1 の決め（2026-11-20 日本時間20時10分ごろの知らせ）：測りの場面に名乗りの用件を見せる（帳面 0-3・1 の (1) の F1＝
+# 判定に送る問い合わせは行の場面の本番の流れの制御が判定に渡すものから作る・本番は用件を見せている・本書 9-5 の伺い48 ア-2 の ⏳「用件の一文を場面に置く欄を測りの道具に足す」）
+SCENE_PURPOSES = {
+    "ご予約はされていますでしょうか？": "ご予約の確認",
+    "資料はお手元に届いていますでしょうか？": "資料のお届けの確認",
+    "現在ほかの業者様とのご契約はございますでしょうか？": "ご契約の状況の確認",
+    "ご来店は初めてでしょうか？": "ご来店の確認",
+    "当日はお車でお越しになりますでしょうか？": "当日のご来店の確認",
+    "駐車場はご利用になりますでしょうか？": "駐車場のご利用の確認",
+    "担当者からまたお電話を差し上げてもよろしいでしょうか？": "担当者からのお電話のご案内",
+    "パンフレットをお送りしてもよろしいでしょうか？": "パンフレットのご案内",
+    "説明会にはご参加いただけますでしょうか？": "説明会のご案内",
+    "ご予約の日時に変更はございませんでしょうか？": "ご予約の日時の確認",
+    "予約日は決まっていますか？": "ご予約の確認",
+    "複合機は現在リースでご利用でしょうか？": "複合機のご利用の確認",
+    "前回のご案内はご覧いただけましたでしょうか？": "前回のご案内の確認",
+    "今月中のご導入をお考えでしょうか？": "ご導入のご検討の確認",
+    "お支払いはカードと振込のどちらがよろしいでしょうか？": "お支払い方法の確認",
+    "ご連絡はお電話とメールのどちらがよろしいでしょうか？": "ご連絡方法の確認",
+    "ご訪問は平日と土日のどちらがよろしいでしょうか？": "ご訪問の日程の確認",
+    "ご希望のプランはスタンダードとプレミアムのどちらでしょうか？": "ご希望のプランの確認",
+    "お打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？": "お打ち合わせの方法の確認",
+    "お部屋は禁煙と喫煙のどちらをご希望でしょうか？": "お部屋のご希望の確認",
+    "従業員数は10名未満と10名から50名と50名以上のどれにあたりますでしょうか？": "従業員数の確認",
+    "お使いの回線は光回線とモバイル回線のどちらでしょうか？": "お使いの回線の確認",
+    "お見積もりは郵送とメールのどちらでお送りすればよろしいでしょうか？": "お見積もりの送付方法の確認",
+    "お席はカウンターとテーブルのどちらがよろしいでしょうか？": "お席のご希望の確認",
+    "ご不明な点はございませんでしょうか？": "ご不明な点の確認",
+    "お急ぎではございませんか？": "お急ぎかどうかの確認",
+    "当日のキャンセルはございませんか？": "当日のキャンセルの確認",
+    "ご担当者様は本日ご在席でしょうか？": "ご担当者様のご在席の確認",
+    "お子様もご一緒でしょうか？": "お子様のご同伴の確認",
+    "ご希望の日時をお聞かせいただけますでしょうか？": "ご希望の日時の確認",
+    "何名様でのご来店でしょうか？": "ご来店の人数の確認",
+    "お電話番号をお伺いしてもよろしいでしょうか？": "お電話番号の確認",
+    "ご予算はおいくらくらいでしょうか？": "ご予算の確認",
+    "ご来店のご希望日はいつでしょうか？": "ご来店のご希望日の確認",
+    "ご住所をお伺いしてもよろしいでしょうか？": "ご住所の確認",
+    "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？": "担当者からの詳しいご案内",
+    "担当者がご訪問させていただいてもよろしいでしょうか？": "担当者のご訪問のご案内",
+    "ご訪問の日にちはいつがよろしいでしょうか？": "ご訪問の日にちの確認",
+    "その後ご予算はおいくらほどかお決まりになりましたでしょうか？": "ご予算の確認",
+    "その後ご担当者様のお名前かお分かりになりましたでしょうか？": "ご担当者様のお名前の確認",
+    "お支払いの方はカードと振込のどちらにされますか？": "お支払い方法の確認",
+    "カードになさいますかそれともお振込の方がよろしいでしょうか？": "お支払い方法の確認",
+    "キャンセルについてご了承いただけますでしょうか？": "キャンセルについての確認",
+}
+TRIAL_BUSINESS_IDS = ("Q1", "Q2", "Q3", "Q5")   # 試しの業務の質問（g14_listen.business＝業務の用件がある）
+
+
+def scene_purpose(q: Question) -> str:
+    """測りの場面の業務の用件の名詞（唯一の決まり）：行の質問 q が属する試しの業務があれば、その用件（g14_listen.business）・無ければ表 SCENE_PURPOSES（質問の文）。
+    表に無い質問は KeyError（黙って用件なしにしない）。"""
+    if q.id in TRIAL_BUSINESS_IDS:
+        from g14_listen import business
+        return business(q.id, with_meanings=False).purpose
+    return SCENE_PURPOSES[q.text]
+
+
+def scene_business(about: Question, qs: list[Question], **kw):
+    """測りの場面の業務設定（唯一の作り＝asked_flow・繋いだあとの場面 _connected_scene）：試しの業務 g22_opening.BUSINESS の名乗りで、質問を qs に・用件を行の質問 about の
+    用件（scene_purpose）に替えたもの。用件は業務設定の入口と同じ欄（purpose・purpose_line）に入れる＝名乗りの録音の用件の一文 → 判定に見せる用件（Flow._heard_purpose）。"""
     import dataclasses
     from g22_opening import BUSINESS
-    f = dataclasses.replace(BUSINESS, target=None, questions=list(qs), purpose="", purpose_line="", purpose_noun="").flow(play_recordings=True)
+    noun = scene_purpose(about)
+    return dataclasses.replace(BUSINESS, questions=list(qs), purpose=noun, purpose_line=f"{noun}でお電話いたしました。", purpose_noun="", **kw)
+
+
+def asked_flow(qs: list[Question], about: Question | None = None, **kw) -> Flow:
+    """業務の最初の質問（qs の先頭）を、本番と同じ始まり方で流した所までの流れの制御（唯一の場所＝答えの段の測りの場面 _flow_scene の既定の枝・黙ったあとの一言などの場面の頭
+    _played_flow・場面の印の場面（日時の2択の段 _ladder_scene・番号違いを伺う一言のあと _wrong_ask_scene・待っていただく一言のあと _wait_scene・確認の電話の本心を伺う一言
+    _confirm_concern_scene）・ご承認のお知らせの最終の確かめ _final_scene・ご承認いただけなかったときの手順 _approval_scene・ほかのご希望の場面・電話を終える言葉の表の場面
+    end_words.answer_flow）：お呼びする方の無い業務（scene_business＝用件は行の質問 about の用件。既定は qs の先頭）で、電話が繋がる → 第一声 → 人の報告 → 名乗りの録音
+    （用件の一文と最初の質問まで＝Flow._opening_reply が流した印 Item.played を付ける）→ 流し終えた知らせ on_played。判定の待ち方（use_checks）は呼ぶ所が決める。kw＝業務設定の
+    ほかの欄（想定問答 answers など）。
+    ⛔ 分身 S2 の 223f5b58 まで、ここを質問を並べた流れの制御だけで組み、最初の質問を流した印が無かった＝本番と違って序盤の扱い（本題か Flow._main_talk が偽＝電話を終える
+    言葉か決まらないときにご遠慮の一言）を正解の動きにしていた（✅ 2026-11-08 日本時間3時48分03秒「(ア)既定は「最初の質問を流したあと」」＝本題は最初の質問を流したあと）。
+    ⛔ 1a0f69a1 まで用件の一文を入れていなかった＝判定に見せる用件が本番と違った（ほかの会社に頼んでいるかの項目の説明に入る）"""
+    f = scene_business(about or qs[0], qs, target=None, **kw).flow(play_recordings=True)
     f.on_connect(); f.on_callee(); f.on_heard(FIRST_WORDS)
     r = f.apply("report_party", {"party": "person"})
     r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
@@ -768,12 +837,10 @@ def asked_flow(qs: list[Question]) -> Flow:
 
 def _connected_scene(q: Question, scene: str) -> Flow:
     """お呼びした方に繋ぎ、名乗り・用件のあと質問 q を伺った所までの本番の流れの制御（業務設定の入口 instruction.Business.flow と、繋ぐ1か所 Flow._connect）。"""
-    import dataclasses
-    from g22_opening import BUSINESS
     from instruction import Target
     if scene not in CONNECTED_SCENES:
         raise NoScene(f"場面の印が無い（{scene}）")
-    f = dataclasses.replace(BUSINESS, target=Target(**CONNECTED_SCENES[scene]), questions=[q, SCENE_NEXT]).flow(recorded=True, play_recordings=True)
+    f = scene_business(q, [q, SCENE_NEXT], target=Target(**CONNECTED_SCENES[scene])).flow(recorded=True, play_recordings=True)
     f.use_checks("judge")
     f._connect({"judge"})
     return f
@@ -809,9 +876,9 @@ def _approval_scene(step: str) -> Flow:
     """ご承認いただけなかったときの手順（N1〜N3）の場面＝試しの言葉を作った場面（g73_system_words の APPROVAL_SAID・EXPLAINED）と同じ台本。"""
     from flowctl import CALLBACK_IDS
     from g73_system_words import APPROVAL_SAID, EXPLAINED
-    f = Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
-              Question("Q2", "以上の内容でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, ask_if=("Q1", ("いいえ", "unknown"))),
-              SCENE_NEXT], play_recordings=True, answers={"料金": EXPLAINED})
+    f = asked_flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
+                    Question("Q2", "以上の内容でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, ask_if=("Q1", ("いいえ", "unknown"))),
+                    SCENE_NEXT], answers=[("料金", EXPLAINED)])
     _say(f, APPROVAL_SAID[0], "record_answer", question_id="Q1", condition_id="いいえ")
     _say(f, APPROVAL_SAID[1], "record_answer", question_id="Q2", condition_id="いいえ")
     if step != "not_agreed":
@@ -836,7 +903,7 @@ SCENE_PRE_SAID = "はい、しています。"
 
 def _played_flow(q: Question) -> Flow:
     """q を、前の質問（SCENE_PRE）のお返事への返事で流した所までの本番の流れの制御（黙ったあとの一言・伺い直しの形の場面の頭）。"""
-    f = Flow([SCENE_PRE, q, SCENE_NEXT], play_recordings=True)
+    f = asked_flow([SCENE_PRE, q, SCENE_NEXT], about=q)
     f.use_checks("judge")
     _scene_turn(f, SCENE_PRE_SAID, "はい", "record_answer", question_id=SCENE_PRE.id, condition_id="はい")
     return f
@@ -1055,7 +1122,7 @@ def _confirm_concern_scene(q: Question) -> Flow:
     from end_words import PAMPHLET, YES_NO, question
     qs = [Question("Q0", "ご予約はされていますでしょうか？", "yes_no", conditions=YES_NO, asks_fact=True), question(PAMPHLET, qid="Q1"),
           Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=YES_NO)]
-    f = Flow(qs, play_recordings=True)
+    f = asked_flow(qs)
     f.use_checks("judge")
     _scene_say(f, SCENE_RESERVED, _scene_read("はい"), "record_answer", question_id="Q0", condition_id="はい")
     _scene_say(f, SCENE_ENOUGH, _scene_read(UNDECIDED, UNDECIDED))
@@ -1152,7 +1219,7 @@ def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
         if it.get("qid") not in scenes:
             raise NoScene(f"ほかのご希望の場面が無い（{it.get('qid')}）")
         of, w, said = scenes[it["qid"]]
-        f = Flow([of, SCENE_NEXT], play_recordings=True)
+        f = asked_flow([of, SCENE_NEXT])
         f.use_checks("judge")
         firm = of.id == "G17"   # 組 G17 は「どちらも要らない」と言い切った・組 E1 は言い切らずに断った（試しの場面の作り＝g73_system_words.WISH_SCENES）
         r = Reading(NONE if of.id == "G17" else "いいえ", firm)
