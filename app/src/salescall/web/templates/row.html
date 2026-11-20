@@ -48,6 +48,7 @@
             <input type="hidden" name="task_id" value="{{ row.task_id }}"><input type="hidden" name="back" value="row">
             <label class="field" for="row-level">この行に、かけるか</label>
             <select id="row-level" name="level">{% for k, label in level_names.items() %}<option value="{{ k }}" {% if k == level %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+            <p class="muted">{{ words.EXCLUSION_HELP }}</p>
             <label class="field" for="row-level-reason">理由（記録に残ります）</label><input id="row-level-reason" type="text" name="reason" placeholder="例：依頼者から、この会社にはかけないでと連絡があった">
             <button class="btn main small" type="submit" data-submit disabled>この行の「かけるか」を変える</button></form></details></dd>
     </dl>

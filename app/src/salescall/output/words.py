@@ -502,9 +502,16 @@ def notice_kind(name: str) -> str:
     return NOTICE_KIND_WORDS.get(name, NO_WORD) if name in notify.KINDS else NO_WORD
 
 
+# 行ごとの「かけない」の印の、画面の名前（段の正本は core の exclusions.LEVEL_NAMES。そのすべてを書く＝試験が突き合わせる）。core の名前
+# 「かけない」「強制かけない」は、依頼者のファイルの列の言葉でもあるので変えない。画面では意味が分かる名前にする（2026-11-20 の見直し：
+# 発信禁止の「かけない」＝1本もかけない、と印の「かけない」＝お約束・お詫びの電話はかける、が同じ言葉で、取り違えうる）
+EXCLUSION_WORDS: dict[str, str] = {"call": "かける", "exclude": "新しくはかけない", "force": "1本もかけない"}
+EXCLUSION_HELP = "「新しくはかけない」でも、お約束・お詫び・途中で切れたあとの電話だけはかけます。「1本もかけない」は、どの電話もかけません。"
+
+
 def exclusion_level(name: str | None) -> str:
-    """「かけない」の印の段（正本は exclusions.LEVEL_NAMES）。印が無ければ「かける」。"""
-    return exclusions.LEVEL_NAMES.get(name or "call", NO_WORD)
+    """行ごとの「かけない」の印の画面の名前（EXCLUSION_WORDS の1か所）。印が無ければ「かける」。"""
+    return EXCLUSION_WORDS.get(name or "call", NO_WORD)
 
 
 def word(table: dict[str, Word], name: str | None) -> Word:

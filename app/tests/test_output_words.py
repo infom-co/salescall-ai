@@ -70,8 +70,8 @@ class EveryNameHasAWord(unittest.TestCase):
             self.assertEqual(words.stop_scope(scope), stops.SCOPE_NAMES[scope])
         for kind in notify.KINDS:   # 知らせの種類は、core の定義（開発の説明）ではなく、画面の短い名前（NOTICE_KIND_WORDS。下の試験）
             self.assertEqual(words.notice_kind(kind), words.NOTICE_KIND_WORDS[kind])
-        for level in exclusions.LEVEL_NAMES:
-            self.assertEqual(words.exclusion_level(level), exclusions.LEVEL_NAMES[level])
+        for level in exclusions.LEVEL_NAMES:   # 行の印は、core の名前（依頼者のファイルの列の言葉）ではなく、画面の名前（EXCLUSION_WORDS。下の試験）
+            self.assertEqual(words.exclusion_level(level), words.EXCLUSION_WORDS[level])
         for stage in ai_troubles.STAGES:
             self.assertEqual(words.ai_trouble_stage(stage), ai_troubles.STAGES[stage])
         for k in stops.KEEPING_KINDS:
@@ -185,6 +185,15 @@ class QuestionChoices(unittest.TestCase):
         self.assertNotIn(business_settings.VALUE_CHOICE, words.question_choices(value))
         pick = SimpleNamespace(type="choice", choices=("カード", "現金"))
         self.assertEqual(words.question_choices(pick), "カード・現金")
+
+
+class ExclusionWords(unittest.TestCase):
+    def test_every_exclusion_level_has_a_clear_screen_name(self):
+        """行の「かけない」の印の画面の名前は、core の段のすべてにあり、発信禁止と取り違えない言葉（「かけない」だけの名前を使わない）。"""
+        from salescall.core import exclusions
+        self.assertEqual(set(words.EXCLUSION_WORDS), set(exclusions.LEVEL_NAMES))
+        self.assertNotIn("かけない", words.EXCLUSION_WORDS.values())
+        self.assertNotIn("強制かけない", words.EXCLUSION_WORDS.values())
 
 
 class ColorRoles(unittest.TestCase):

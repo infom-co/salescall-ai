@@ -293,7 +293,7 @@ class Web(_World):
             r = self.post("A", url, {"form_token": tok, "task_id": str(self.a["task"]), "level": "force", "reason": "試験（架空）"})
             self.assertIn("ok=1", r.headers["location"])
             self.assertEqual(self._level(), "force")
-            self.assertIn("強制かけない", self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}").text)
+            self.assertIn("1本もかけない", self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}").text)
         finally:
             back = self.post("A", url, {"form_token": tok, "task_id": str(self.a["task"]), "level": "call", "reason": "試験の片付け",
                                         "back": "row"})

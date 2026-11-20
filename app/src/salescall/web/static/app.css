@@ -475,7 +475,9 @@ table.list .tag { white-space: normal; text-align: left; }
                                       color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1.5; }
   table.list td.num, table.list th.num { text-align: left; }
   table.list td:empty { display: none; }
-  table.list td.zero { display: none; }   /* 札の形では「0」の数の段を出さない（11の依頼者がほぼ「0」の7段ずつになり、ホームがとても長かった）。PC の表は出す */
+  table.list td.zero { display: none; }
+  table.list td { word-break: normal; line-break: strict; }   /* 札の形では、長い日本語を枠の中で折る（keep-all のままだと札が枠からはみ出した） */
+  .tag { max-width: 100%; white-space: normal; }   /* 札の形では「0」の数の段を出さない（11の依頼者がほぼ「0」の7段ずつになり、ホームがとても長かった）。PC の表は出す */
 }
 /* 4つの数の枠：狭い画面では2列（.grid.cols-4 の4列の決まりより後ろに置く＝上書きされない） */
 @media (max-width: 900px) { .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

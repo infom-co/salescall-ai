@@ -1555,7 +1555,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         "rows": customer_rows.progress(tx, run_id), "levels": _levels(tx, run_id),
                         # 「さらにかける」の承認待ち（受け箱の種類 more_calls の1か所。行のボタンは、受け箱と同じ鍵・同じ受け口で送る）
                         "more": {UUID(i.key["task_id"]): i for i in inbox.KINDS["more_calls"].collect(tx, None, run_id)}}
-            return page(request, "rows.html", person, ctx, done=done, ok=bool(ok), level_names=exclusions.LEVEL_NAMES,
+            return page(request, "rows.html", person, ctx, done=done, ok=bool(ok), level_names=words.EXCLUSION_WORDS,
                         **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 
@@ -1843,7 +1843,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         "run": tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s", (run_id,)),
                         "row": row, "calls": calls, **step}
             values = ctx.client(client_id, read, read_only=True)
-            return page(request, "row.html", person, ctx, draft=draft, level_names=exclusions.LEVEL_NAMES, fields=[(f, rowfix.field_name(f)) for f in rowfix.FIELDS],
+            return page(request, "row.html", person, ctx, draft=draft, level_names=words.EXCLUSION_WORDS, fields=[(f, rowfix.field_name(f)) for f in rowfix.FIELDS],
                         name_fields=list(rowfix.NAME_FIELDS), kind_names=customer_contacts.KIND_NAMES, done=done, ok=bool(ok), **values)
         return handle(request, render)
 
