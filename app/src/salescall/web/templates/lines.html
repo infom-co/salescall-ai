@@ -35,7 +35,7 @@
             <p class="muted">まだ発信していない予約は取り消します（話している電話は、そのまま最後まで）。</p>
             <button class="btn main small" type="submit">使い先を変える</button></form></details>{% endif %}</td>
       <td>{% if l.retired_at %}{{ tag("使用停止", "") }}<div class="muted">{{ l.retired_reason }}</div>
-          {% else %}{{ tag(l.stage.value, "ok" if l.stage.name == "HEALTHY" else ("stop" if l.resting else "wait")) }}
+          {% else %}{{ tag(l.stage.value, words.line_tone(l.stage)) }}
           {% if l.wait %}<div class="muted">待っていること：{{ l.wait.value }}{% if l.next_at %}（{{ time(l.next_at) }}）{% endif %}</div>{% endif %}{% endif %}</td>
       <td class="nowrap">{% if not l.retired_at %}
         {% if l.resting %}

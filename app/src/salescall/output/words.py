@@ -317,6 +317,29 @@ EXPORT_WORDS: dict[str, str] = {
 LIST_GO_WORDS: dict[str, str] = {"rows": "お客様リスト", "results": "結果を見て、依頼者へ渡す"}
 
 
+# 色の役割（1か所。札・数の色は、ここから引く。2026-11-20 の見直し：色の名前を画面ごとに書いていて、止めた知らせが青・急ぎが赤・
+# 休みが赤と橙・元気が緑と、ずれていた）。設計書 7-1「ふだんの画面は白と灰。止まっている・承認待ちだけに色が付く」：
+# stopped（止まっている・できなかった・基準の外）＝赤／waiting（決めること・待っていること・休み）＝橙／done（済んだ・通った）＝緑／
+# info（区別のための情報）＝青／normal（ふだんどおり・何もない・システムが進めているだけ）＝色なし
+TONES: dict[str, str] = {"stopped": "stop", "waiting": "wait", "done": "ok", "info": "info", "normal": ""}
+# 知らせの種類の役割（無い種類は、急ぎなら waiting・ほかは info。急ぎは色ではなく文の「【緊急】」で示す）
+NOTICE_ROLES: dict[str, str] = {"stopped": "stopped", "pc_down": "stopped", "resumed": "done"}
+
+
+def tone(role: str) -> str:
+    """色の役割の CSS の名前（TONES の1か所）。"""
+    return TONES[role]
+
+
+def notice_tone(kind: str, urgent: bool) -> str:
+    return TONES[NOTICE_ROLES.get(kind) or ("waiting" if urgent else "info")]
+
+
+def line_tone(stage: Any) -> str:
+    """回線の段の色：元気＝色なし・それ以外（確かめ中・休み）＝待っていること（段の正本は core の health_rules.LineStage）。"""
+    return TONES["normal" if getattr(stage, "name", "") == "HEALTHY" else "waiting"]
+
+
 # 全体の画面の名前と行き先（左の道しるべ・ページの見出し・ホームの数の札・上の帯の印が、同じ名前をここから引く1か所。並びは道しるべの順。
 # 2026-11-20 の見直し：左は「見張り」、ホームの札は「気をつけること」と、同じ画面が2つの名前で出ていた）
 PAGES: dict[str, tuple[str, str]] = {

@@ -77,7 +77,7 @@
     {% if total %}
     <ul class="bars">
       {% for k, w in words.BUSINESS_STATES.items() if f.results.get(k) %}
-      <li class="{{ 'warn' if k == 'unknown' }}"><span class="name">{{ w.screen }}</span>
+      <li><span class="name">{{ w.screen }}</span>
         <span class="bar" aria-hidden="true"><span style="width: {{ (f.results[k] * 100 / total)|round(1) }}%"></span></span>
         <span class="num">{{ f.results[k] }}</span></li>
       {% endfor %}

@@ -41,7 +41,7 @@
             <button class="btn main small" type="submit" data-submit disabled>直す</button></form></details>
         {% endif %}</dd>
       <dt>かけた回数</dt><dd class="num">{{ row.attempts }}</dd>
-      <dt>かけるか</dt><dd>{{ tag(words.exclusion_level(level), "stop" if level == "force" else ("" if level != "call" else "ok")) }}
+      <dt>かけるか</dt><dd>{{ tag(words.exclusion_level(level), words.tone("stopped" if level == "force" else "normal")) }}
         {#- その場で変える操作は、どれも「押すと開く小窓」の1つの形（結果を直す・手で戻すと同じ） -#}
         <details class="adder"><summary class="btn small">かけるかを変える</summary>
           <form class="panel" method="post" action="{{ base }}/exclude" data-needs-reason>{{ csrf(token) }}
@@ -65,7 +65,7 @@
       <li class="{{ 'dialing' if n.dialing else 'old' }}">
         <span class="num nowrap">{{ phone(n.phone) }}</span>
         <span class="muted">{{ words.NUMBER_LABEL_WORDS.get(n.label, words.NO_WORD) }}・{{ words.ORIGIN_WORDS.get(n.source, words.NO_WORD) }}</span>
-        {% if n.dialing %}{{ tag("いまかける番号", "ok") }}{% elif n.sub %}{{ tag("サブ", "info") }}{% endif %}
+        {% if n.dialing %}{{ tag("いまかける番号", words.tone("info")) }}{% elif n.sub %}{{ tag("サブ", "info") }}{% endif %}
       </li>
       {% endfor %}
     </ul>

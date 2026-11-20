@@ -11,7 +11,7 @@
 <p class="lead">「{{ file_name }}」をお客様リスト「{{ run.name }}」に取り込みます。まだ何も登録していません。</p>
 <div class="grid cols-4 stats">
   <div class="card">{{ stat("登録する行", counts.registered) }}</div>
-  <div class="card {{ 'attention-stop' if counts.stopped }}">{{ stat("登録できない行", counts.stopped, "stop" if counts.stopped else "") }}</div>
+  <div class="card {{ 'attention-stop' if counts.stopped }}">{{ stat("登録できない行", counts.stopped, words.tone("waiting")) }}</div>
   <div class="card">{{ stat("登録済みの行", counts.already) }}</div>
   <div class="card">{{ stat("空の行", counts.empty) }}</div>
 </div>

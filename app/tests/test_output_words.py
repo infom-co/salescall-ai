@@ -187,6 +187,19 @@ class QuestionChoices(unittest.TestCase):
         self.assertEqual(words.question_choices(pick), "カード・現金")
 
 
+class ColorRoles(unittest.TestCase):
+    def test_colors_come_from_one_table_and_follow_the_quiet_rule(self):
+        """色の役割は words.TONES の1か所（設計書 7-1：ふだんは色なし。止まっている・決めることだけに色）。"""
+        from salescall.core import health_rules
+        self.assertEqual(words.notice_tone("stopped", False), "stop")                   # 止めた知らせは赤（前は青）
+        self.assertEqual(words.notice_tone("month_ahead_unanswered", True), "wait")    # 急ぎは橙（赤は止まっているときだけ）
+        self.assertEqual(words.notice_tone("resumed", False), "ok")
+        self.assertEqual(words.line_tone(health_rules.LineStage.HEALTHY), "")          # 元気な回線は色なし（前は緑が11本並んだ）
+        others = [st for st in health_rules.LineStage if st.name != "HEALTHY"]
+        self.assertTrue(others and all(words.line_tone(st) == "wait" for st in others))   # 確かめ中・休みは、どこでも橙
+        self.assertEqual(set(words.TONES.values()), {"stop", "wait", "ok", "info", ""})
+
+
 class AnswerMarks(unittest.TestCase):
     def test_every_answer_mark_has_a_word(self):
         """必須の質問の答えの数の分け方（core の judge.ITEM_MARKS と not_asked）のすべてに、画面の言葉がある。"""

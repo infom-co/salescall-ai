@@ -1,8 +1,7 @@
 {#- 画面の部品の1か所（docs/DASHBOARD.md 6-6）。画面ごとに同じ形を書かない。文字は必ず「文字として」出す（自動のエスケープ）。 -#}
 
-{#- 色の役割（どの画面も同じ。1つの色に1つの意味＝docs/DASHBOARD.md 6-6）：
-    stop（赤）＝止まっている・できなかった・基準の外／wait（橙）＝決めること・待っていること／ok（緑）＝済んだ・通った・動いている／
-    info（青）＝区別のための情報／色なし＝何もない（0件・なし）。「何もない」を緑にしない（よい知らせと見分けがつかなくなる） -#}
+{#- 色の役割は output/words.TONES の1か所（赤＝止まっている・できなかった／橙＝決めること・待っていること・休み／緑＝済んだ・通った／
+    青＝区別のための情報／色なし＝ふだんどおり・何もない・システムが進めているだけ）。札の色は words.tone・notice_tone・line_tone から引く -#}
 {% macro tag(text, tone="") -%}<span class="tag {{ tone }}">{{ text }}</span>{%- endmacro %}
 
 {#- 行き先（別の画面へ移るだけ）の部品。押すと何かが始まる・決まるもの（取り込む・書き出す・渡す・やめる）だけをボタンの形にし、
@@ -39,7 +38,7 @@
    （色は、契約者がすることがあるときだけ＝設計書 7-9） #}
 {% macro next_tag(kind, call_at=None, end_reason=None, waiting="") -%}
 {%- if waiting -%}{{ tag(waiting ~ ("：" ~ words.end_reason(end_reason) if kind == "end" else ""), "wait") }}
-{%- elif kind == "hold" -%}{{ tag(words.word(words.NEXT_KINDS, "hold").screen, "wait") }}
+{%- elif kind == "hold" -%}{{ tag(words.word(words.NEXT_KINDS, "hold").screen, words.tone("normal")) }}
 {%- elif kind == "call" -%}{{ tag(words.word(words.NEXT_KINDS, "call").screen ~ ("（" ~ time(call_at) ~ "）" if call_at else ""), "info") }}
 {%- elif kind == "end" -%}{{ tag(words.word(words.NEXT_KINDS, "end").screen ~ "：" ~ words.end_reason(end_reason), "ok") }}
 {%- else -%}{{ tag("これから") }}{%- endif -%}

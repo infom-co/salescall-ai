@@ -53,7 +53,7 @@
 <div class="grid cols-3 stats">
   <div class="card">{{ stat("かけない番号に加える行", counts.registered) }}<span class="muted">番号 {{ counts.numbers }}件{% if client %}・管理番号 {{ counts.client_refs }}件{% endif %}</span></div>
   <div class="card">{{ stat("もう入っている行", counts.already) }}</div>
-  <div class="card">{{ stat("加えられない行", counts.stopped, "wait" if counts.stopped else "") }}</div>
+  <div class="card">{{ stat("加えられない行", counts.stopped, words.tone("waiting")) }}</div>
 </div>
 {% if stopped %}
 <h2>加えられない行（理由）</h2>
