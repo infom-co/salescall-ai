@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, flash, csrf, empty, deficit_card %}
+{% from "parts.html" import go, tag, flash, csrf, empty, deficit_card %}
 {% block title %}{{ words.page("costs") }}{% endblock %}
 {% block main %}
 <h1>{{ words.page("costs") }}</h1>
@@ -18,8 +18,11 @@
       <td class="num">{{ yen(m.cost) }}</td>
       <td class="num">{{ yen(m.cost_by_kind.measured) }}</td>
       <td class="num">{{ yen(m.cost_by_kind.estimated) }}</td>
-      <td>{% if not m.has_terms %}{{ tag("報酬の決まりが設定されていません", "wait") }}
-          {% for bid, name in m.without_terms %}<div><a href="/c/{{ m.client_id }}/b/{{ bid }}/reward">業務「{{ name }}」の報酬の決まりを入れる</a></div>{% endfor %}{% endif %}
+      <td>{#- 今月かけた業務に決まりが無い＝赤字を判断できない（いますること＝橙と、業務ごとの行き先）。今月まだかけていない＝今月の判断には
+             効かないので色を付けず、依頼者の画面への行き先だけ（11の依頼者すべてに橙が並んでいた） -#}
+          {% if m.without_terms %}{{ tag("報酬の決まりが設定されていません", "wait") }}
+          {% for bid, name in m.without_terms %}<div>{{ go("/c/" ~ m.client_id ~ "/b/" ~ bid ~ "/reward", "業務「" ~ name ~ "」の報酬の決まりを入れる") }}</div>{% endfor %}
+          {% elif not m.has_terms %}<span class="muted">報酬の決まりはまだありません</span> {{ go("/c/" ~ m.client_id, "業務ごとに入れる") }}{% endif %}
           {% if m.unpriced_entries %}{{ tag("単価の無い利用量が " ~ m.unpriced_entries ~ " 件（費用に入っていません）", "wait") }}{% endif %}
           {% if m.deficit %}{{ tag("赤字のお知らせ中", "wait") if not m.deficit.confirmed else tag("赤字（確かめ済み）") }}{% endif %}</td>
     </tr>
