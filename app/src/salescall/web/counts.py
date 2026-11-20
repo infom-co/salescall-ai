@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, business_settings, metrics, stops
+from salescall.core import agents, approval, business_settings, health, health_rules, metrics, reward, stops, usage
 from salescall.core.access import Tx
 from salescall.output import words
 from salescall.web.context import Ctx
@@ -72,6 +72,25 @@ def client_today(tx: Tx, business_id: UUID | None = None) -> dict[str, int]:
         " LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id WHERE true" + only + " GROUP BY 1", extra)}
     return {**metrics.day(tx, tx.today(), business_id=business_id), "call": kinds.get("call", 0), "hold": kinds.get("hold", 0),
             "end": kinds.get("end", 0), "none": kinds.get("none", 0)}
+
+
+def client_home(tx: Tx) -> dict[str, Any]:
+    """ホームの依頼者ごとの数（依頼者の取引）：今日の電話と行の予定（`client_today`）・今月の費用と報酬（core の reward.month の1か所）・
+    赤字のお知らせ中か（core の usage.deficit_notice の答え＝画面で割合を計算し直さない）。"""
+    m = reward.month(tx)
+    d = usage.deficit_notice(tx)
+    return {**client_today(tx), "cost": m["cost"], "revenue": m["revenue"], "deficit": d is not None and not d["confirmed"]}
+
+
+def tenant_system(tx: Tx) -> dict[str, Any]:
+    """ホームの「回線と PC」（契約者の取引）：使っている回線の数・休んでいる回線の数（段は core の health.line_of の1か所、休みかは
+    health_rules.RESTS）・ログインを外していない PC の数と、いちばん新しい合図の時刻（core の agents.pcs。止まったかは core の
+    agents.watch_down が知らせで決める＝ここでは決めない）。"""
+    lines = tx.all("SELECT line_id FROM salescall.lines WHERE retired_at IS NULL")
+    resting = sum(1 for ln in lines if health.line_of(tx, ln["line_id"]).stage in health_rules.RESTS)
+    pcs = [p for p in agents.pcs(tx) if p["revoked_at"] is None]
+    seen = [p["last_seen_at"] for p in pcs if p["last_seen_at"]]
+    return {"lines": len(lines), "resting": resting, "pcs": len(pcs), "last_seen": max(seen) if seen else None}
 
 
 def required_answers(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:

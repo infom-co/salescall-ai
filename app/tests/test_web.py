@@ -699,6 +699,16 @@ class Web(_World):
                 bare.append(f"{f.name}: {m.group(0)}")
         self.assertEqual(bare, [])
 
+    def test_the_home_shows_what_to_look_at_and_how_things_usually_are(self):
+        """ホームは2段：いま見ること（止まっている・承認待ち・気をつけること）と、ふだんの様子（今日の電話・回線と PC・今月の費用と報酬。
+        計画書 5-2）。どの数も core の答えを数えるだけ。"""
+        home = self.get("A", "/t").text
+        for word in ("いま見ること", "ふだんの様子", "今日かけた電話", "目的のお客様と話せた", "休んでいる回線", "使っている回線", "今月の費用", "今月の報酬"):
+            with self.subTest(word=word):
+                self.assertIn(word, home)
+        self.assertIn('href="/t/lines"', home)
+        self.assertIn('href="/t/costs"', home)
+
     def test_nothing_is_never_colored(self):
         """色の役割（parts.html の1か所）：0件・「なし」に色を付けない（緑は「済んだ・通った」だけ。何もないと見分けがつかなくなる）。"""
         for who in ("A", "B"):

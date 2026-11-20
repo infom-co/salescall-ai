@@ -9,7 +9,7 @@
   <span class="btn-row">
     <a class="btn main" href="{{ rbase }}/import">お客様を取り込む</a>
     {#- 書き出しの入口は「依頼者へ渡す内容」の画面の1か所（ここからは移るだけ） -#}
-    {{ go(rbase ~ "/results", "結果を見て、依頼者へ渡す") }}
+    {{ go(rbase ~ "/results", words.LIST_GO_WORDS.results) }}
   </span></div>
 {{ flash(done, ok) }}
 {% if more %}

@@ -25,9 +25,13 @@ html, body { margin: 0; }
 body { background: var(--bg); color: var(--text); font: 14px/1.6 var(--font); -webkit-font-smoothing: antialiased; }
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
-h1 { font-size: 22px; line-height: 1.4; margin: 0 0 4px; font-weight: 700; letter-spacing: .01em; }
-h2 { font-size: 16px; margin: 0 0 12px; font-weight: 700; }
-h3 { font-size: 14px; margin: 0 0 8px; font-weight: 700; color: var(--muted); }
+/* 文字の大きさの段（1か所。2026-11-20 の見直し：章の見出しと札の中の見出しが同じ大きさで、どこから新しい章かが分からなかった）：
+   ページの題（h1）＞ 章の見出し（札の外の h2）＞ 札の中の見出し（札の中の h2）＞ 小見出し（h3） */
+h1 { font-size: 24px; line-height: 1.35; margin: 0 0 4px; font-weight: 800; letter-spacing: .01em; }
+h2 { font-size: 18px; line-height: 1.4; margin: 0 0 12px; font-weight: 700; }
+.card h2, .card > summary h2, details.card h2 { font-size: 15px; margin-bottom: 10px; }
+.content > h2, .content > .title-row h2, .setting-group > h2, .watch-block > h2 { margin-top: 28px; }
+h3 { font-size: 13px; margin: 0 0 8px; font-weight: 700; color: var(--muted); letter-spacing: .02em; }
 .num { font-variant-numeric: tabular-nums; }
 .tel { font-variant-numeric: tabular-nums; white-space: nowrap; }   /* 電話番号：数字の幅はそろえるが、数量ではないので左寄せ（見出しとそろえる） */
 .muted { color: var(--muted); }
@@ -359,7 +363,7 @@ details.setting .change { align-self: center; display: inline-flex; align-items:
 details.setting > summary:hover .change { background: var(--surface-2); }
 details.setting[open] .change { font-size: 0; } details.setting[open] .change::before { content: "閉じる"; font-size: 13px; color: var(--muted); }
 .own-list ul { margin: 8px 0 0; padding-left: 1.2em; display: grid; gap: 4px; }
-.own-list h2 { margin: 0; font-size: 16px; }
+.own-list h2 { margin: 0; }
 details.setting .meaning { flex: 1 1 420px; }
 details.setting .now { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }   /* 長い値（曜日ごとの時間帯など）は折り返す */
 details.setting .now b, details.setting .now .tag { overflow-wrap: anywhere; white-space: normal; }   /* 長い札（仮の値・見直す時）も折り返す */
@@ -532,3 +536,10 @@ ol.codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 
 .login-or::before, .login-or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .login-page h2 { font-size: 18px; margin: 0 0 8px; }
 .login-page [data-passkey] { width: 100%; margin-top: 8px; }
+/* 設定の行：名前はふつうの太さ、値だけを太く（すべての行の名前が太字で、強調が効いていなかった） */
+details.setting .meaning b { font-weight: 500; }
+details.setting .now > b { font-weight: 700; }
+/* ホームの2つの段の名前（いま見ること／ふだんの様子）は、章の見出しより静かに */
+.content > h2.home-band { font-size: 13px; color: var(--muted); letter-spacing: .06em; margin: 22px 0 10px; }
+.content > h2.home-band:first-of-type { margin-top: 8px; }
+.nav .account a { padding: 6px 8px; margin: 0 -8px; }   /* 「ログインと安全」を上の文字とそろえる（道しるべの行の字下げを打ち消す） */

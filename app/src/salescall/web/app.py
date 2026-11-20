@@ -466,12 +466,13 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     def home(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             waiting = _waiting(ctx)
-            per_client = [{**c, **ctx.client(c["client_id"], counts.client_today, read_only=True),
+            per_client = [{**c, **ctx.client(c["client_id"], counts.client_home, read_only=True),
                            "waiting": sum(1 for wc, _ in waiting if wc["client_id"] == c["client_id"])} for c in ctx.clients()]
             found = watch.collect(ctx)
             noticed = [(w, got) for _, w, got in found if w.attention and got]
             return page(request, "home.html", person, ctx, stops=counts.open_stops(ctx), per_client=per_client, done=done, ok=bool(ok),
-                        waiting_total=len(waiting), first=waiting[:3], watch_total=watch.attention_count(found), watch_first=noticed[:1])
+                        waiting_total=len(waiting), first=waiting[:3], watch_total=watch.attention_count(found), watch_first=noticed[:1],
+                        system=ctx.tenant(counts.tenant_system))
         return handle(request, render)
 
     @app.get("/t/watch")

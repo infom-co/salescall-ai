@@ -31,7 +31,7 @@
 </form>
 {% endif %}
 {% if stopped %}
-<h2 style="margin-top:24px">登録できない行と理由</h2>
+<h2>登録できない行と理由</h2>
 <div class="table-scroll"><table class="list">
   <thead><tr><th class="num">行</th><th>理由</th><th class="wide">会社名</th></tr></thead>
   <tbody>{% for r in stopped %}<tr><td class="num">{{ r.row_no }}</td><td>{{ r.reason }}</td><td class="wide">{{ r.name or row_names.get(r.row_no, "") }}</td></tr>{% endfor %}</tbody>

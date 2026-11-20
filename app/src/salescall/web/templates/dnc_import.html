@@ -56,7 +56,7 @@
   <div class="card">{{ stat("加えられない行", counts.stopped, "wait" if counts.stopped else "") }}</div>
 </div>
 {% if stopped %}
-<h2 style="margin-top:20px">加えられない行（理由）</h2>
+<h2>加えられない行（理由）</h2>
 <div class="table-scroll"><table class="list"><thead><tr><th class="num">行</th><th class="wide">理由</th></tr></thead>
   <tbody>{% for r in stopped %}<tr><td class="num">{{ r.row_no }}</td><td class="wide">{{ r.reason }}</td></tr>{% endfor %}</tbody></table></div>
 <p class="muted">この行は加えません。ファイルを直して、もう一度取り込めます。</p>

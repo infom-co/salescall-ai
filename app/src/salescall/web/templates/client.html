@@ -162,7 +162,8 @@
     <tr>
       <td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}/runs/{{ r.run_id }}">{{ r.name }}</a></td>
       {% if not business %}<td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}">{{ r.business }}</a></td>{% endif %}
-      <td class="num">{{ go("/c/" ~ client.client_id ~ "/b/" ~ r.business_id ~ "/runs/" ~ r.run_id, "お客様リスト") }}</td>
+      {% set rb = "/c/" ~ client.client_id ~ "/b/" ~ r.business_id ~ "/runs/" ~ r.run_id %}
+      <td><span class="go-links">{{ go(rb, words.LIST_GO_WORDS.rows) }}{{ go(rb ~ "/results", words.LIST_GO_WORDS.results) }}</span></td>
     </tr>
   {% endfor %}
   </tbody>

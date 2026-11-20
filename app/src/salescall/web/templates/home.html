@@ -7,7 +7,9 @@
 <p class="lead">何もしなくても電話は進みます。色の付いた所だけ見てください。</p>
 {{ flash(done, ok) }}
 
-<div class="grid cols-4 stats">
+{#- 1段目：いま見ること（色が付くのは、することがあるときだけ） -#}
+<h2 class="home-band">いま見ること</h2>
+<div class="grid cols-3 stats">
   <a class="card {{ 'attention-stop' if stops }}" href="/t/stops" style="text-decoration:none;color:inherit">
     {{ stat(words.page("stops"), stops|length, "stop") }}
     <div class="muted hint" style="margin-top:6px">
@@ -22,13 +24,28 @@
     {{ stat(words.page("watch"), watch_total, "wait") }}
     <div class="muted hint" style="margin-top:6px">{% if watch_first %}{{ watch_first[0][0].title }}（{{ watch_first[0][1]|length }}件）{% if watch_total > watch_first[0][1]|length %}ほか{% endif %}{% else %}回線・休んでいる行に、気をつけることはありません{% endif %}</div>
   </a>
+</div>
+{#- 2段目：ふだんの様子（計画書 5-2 の発信状況・システム状況・費用。数えるのは core の答えだけ＝web/counts の1か所） -#}
+<h2 class="home-band">ふだんの様子</h2>
+<div class="grid cols-3 stats">
   <div class="card">
     {{ stat("今日かけた電話", per_client|sum(attribute="dialed")) }}
-    <div class="muted hint" style="margin-top:6px">うちお客様と話した {{ per_client|sum(attribute="talked") }}（日本時間の今日）</div>
+    <div class="muted hint" style="margin-top:6px">お客様と話した {{ per_client|sum(attribute="talked") }}・目的のお客様と話せた {{ per_client|sum(attribute="reached") }}（日本時間の今日）</div>
   </div>
+  <a class="card" href="/t/lines" style="text-decoration:none;color:inherit">
+    {{ stat("休んでいる回線", system.resting, "wait") }}
+    <div class="muted hint" style="margin-top:6px">使っている回線 {{ system.lines }}本・PC {{ system.pcs }}台{% if system.last_seen %}（最後の合図 {{ time(system.last_seen) }}）{% elif system.pcs %}（まだつながっていません）{% endif %}</div>
+  </a>
+  {#- 赤字は、承認待ち（赤字の確認）で目立たせる。ここは色を付けずに、今月の数と、お知らせ中の数を添えるだけ（同じことを2か所で目立たせない） -#}
+  {% set deficits = per_client|selectattr("deficit")|list %}
+  <a class="card" href="/t/costs" style="text-decoration:none;color:inherit">
+    <div class="stat"><span class="label">今月の費用</span><span class="value">{{ yen(per_client|sum(attribute="cost")) }}</span></div>
+    <div class="muted hint" style="margin-top:6px">今月の報酬 {{ yen(per_client|sum(attribute="revenue")) }}{% if deficits %}・赤字のお知らせ中の依頼者 {{ deficits|length }}（承認待ちで確かめます）{% endif %}</div>
+  </a>
+</div>
 </div>
 
-<h2 style="margin-top:28px">依頼者ごと</h2>
+<h2>依頼者ごと</h2>
 {% if per_client %}
 <div class="table-scroll"><table class="list">
   <thead><tr><th>依頼者</th><th class="num">今日かけた</th><th class="num">話せた</th><th class="num">かけ直し待ち</th><th class="num">{{ words.NEXT_KINDS["hold"].screen }}</th><th class="num">済み</th><th class="num wide">これから</th><th class="num">承認待ち</th></tr></thead>
