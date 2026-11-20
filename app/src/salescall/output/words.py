@@ -198,6 +198,11 @@ IMPORT_FIELD_WORDS: dict[str, str] = {
     "exclude": "かけない", "designated_phone": "お客様が指定した電話番号", "mobile": "携帯電話番号", "email": "メールアドレス",
     "fax": "ファクス番号", "address": "住所", "line_id": "LINE ID", "meeting_id": "オンライン面談用の ID",
     "meeting_service": "オンライン面談のサービス名",
+    # 連絡先の出どころ（2026-11-20 ユーザー「ア(お客様から伺ったものや会社の方から伺ったもの)…」。CL-2 の 0265）
+    "contact_source": "連絡先の出どころ（この行のすべて）", "phone_source": "会社の電話番号の出どころ",
+    "designated_phone_source": "指定の電話番号の出どころ", "mobile_source": "携帯電話番号の出どころ",
+    "email_source": "メールアドレスの出どころ", "fax_source": "ファクス番号の出どころ", "address_source": "住所の出どころ",
+    "line_id_source": "LINE ID の出どころ",
 }
 
 
@@ -299,7 +304,7 @@ SETTING_GROUPS: dict[str, str] = {
     "call": "通話の進め方", "callee": "お客様の扱い", "conversation": "会話", "line": "回線", "dial": "発信", "pc": "PC",
     "stop": "止める・解く", "quality": "品質の段（検証モード）", "verification": "通話のあとの確かめ", "judge": "判定",
     "decision": "取り消せない決定", "approval": "承認", "recording": "録音", "budget": "費用と予算", "backup": "控え",
-    "measure": "測り", "dnc": "発信禁止", "ai": "AI", "business": "業務", "notify": "知らせ", "login": "ログイン",
+    "measure": "測り", "dnc": "発信禁止", "ai": "AI", "business": "業務", "notify": "知らせ", "login": "ログイン", "output": "結果の出力",
 }
 SCOPE_WORDS: dict[str, str] = {"system": "初めの値（システム）", "tenant": "契約者の値", "client": "依頼者の値", "business": "業務の値",
                                "merged": "組み合わせた値"}
@@ -352,8 +357,10 @@ SETTING_CHOICE_WORDS: dict[str, dict[str, str]] = {
     "callback.month_ahead": {"never": "かけない（別の日に、時刻の決まっていない約束の方針でかける）", "with_approval": "契約者が認めたらかける"},
     "callback.until_other_party": {"now": "今から〇時まで", "after": "〇時から", "slot_after": "〇時から1回分"},
     "callback.until_preparing": {"now": "今から〇時まで", "after": "〇時から", "slot_after": "〇時から1回分"},
+    "callback.until_available": {"now": "今から〇時まで", "after": "〇時から", "slot_after": "〇時から1回分"},
     "callback.until_unavailable": {"now": "今から〇時まで", "after": "〇時から", "slot_after": "〇時から1回分"},
     "gate.before_other_promise": {"call_other_voice": "声を替えてかける", "wait": "約束の時刻が過ぎるまで待つ", "never": "その番号へはかけない"},
+    "output.customer_words": {"short": "縮める（最後の2つの言葉まで・1つ40字まで）", "full": "全部残す（言ったとおりに、縮めない）"},
     "judge.models": {"jev_and_sonnet": "先に安い判定を出し、確かでなければ Claude Sonnet 5.5", "sonnet": "Claude Sonnet 5.5 だけで判定する"},
 }
 # 契約プランの言葉（プランの名前の正本は core の ai_plans.PLANS。プランの設定の名前は ai_plans の1か所＝ここに書かない）
@@ -363,8 +370,8 @@ SETTING_VALUE_WORDS: dict[str, str] = {"never": "かけない", "next_day": "そ
 _SETTING_KEY = re.compile(r"(?<![A-Za-z0-9_])([a-z]+)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*(?![A-Za-z0-9_])")   # 漢字の隣でも当てる（\b は漢字を語の一部と見る）
 
 
-# 会話AI・業務を取り込む AI の枠の言葉（枠の名前の正本は core の ai_plans.TIERS。枠の設定の名前は ai_plans の1か所＝ここに書かない。
-# ⏳ 枠の設定の名前を外から読める名前にしてもらう＝CL-2 へのお願い 55。それまでは、選び肢が枠の名前のそろいと同じ設定を、枠の設定として読む）
+# 会話AI・業務を取り込む AI の枠の言葉（枠の名前の正本は core の ai_plans.TIERS。枠の設定の名前は ai_plans.TIER_SETTINGS の1か所＝ここに書かない。
+# CL-2 4-446 の 55 で外から読める名前になったので、選び肢のそろいで推し量る形をやめた）
 TIER_WORDS: dict[str, str] = {"free": "無料枠", "paid": "有料枠（おすすめ）"}
 
 
@@ -373,7 +380,7 @@ def _choices(key: str, choices: Any = None) -> dict[str, str]:
         return PLAN_WORDS
     if key in SETTING_CHOICE_WORDS:
         return SETTING_CHOICE_WORDS[key]
-    if choices is not None and set(choices) == set(ai_plans.TIERS):
+    if key in ai_plans.TIER_SETTINGS.values():   # 会話AI・業務を取り込む AI の枠の設定（どれが枠の設定かは ai_plans の1か所）
         return TIER_WORDS
     return {}
 

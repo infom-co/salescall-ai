@@ -32,7 +32,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
-from salescall.core import (agents, calling_hours, conversation_io, customer_contacts, customer_rows, destinations, dnc, dnc_import, exclusions,
+from salescall.core import (agents, ai_plans, calling_hours, conversation_io, customer_contacts, customer_rows, destinations, dnc, dnc_import, exclusions,
                             gate, health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
@@ -517,6 +517,15 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         "       finest_scope::text AS finest_scope, choices, bound_key FROM salescall.setting_definitions ORDER BY key"):
             if SCOPES.index(d["finest_scope"]) < SCOPES.index(level):
                 continue
+            # 会話AI・業務を取り込む AI の枠は、契約者が自分で API を契約するプランのときだけ出す（AI料金込みならシステムのキーなので、
+            # 契約者の枠は無い。決めるのは core の ai_plans.tier の1か所＝None なら出さない。CL-2 4-438・4-446 の 55）
+            if level != "system" and d["key"] in ai_plans.TIER_SETTINGS.values():
+                ai = next(k for k, v in ai_plans.TIER_SETTINGS.items() if v == d["key"])
+                try:
+                    if ai_plans.tier(tx, ai, tenant_id=tenant_id) is None:
+                        continue
+                except settings.SettingMissing:
+                    continue
             try:
                 got = settings.resolve_detail(tx, d["key"], tenant_id=tenant_id, client_id=client_id, business_id=business_id)
             except settings.SettingMissing:
@@ -1243,8 +1252,13 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
                 every = result_destinations.of_client(tx)
-                per = [dict(b, sends={d["destination_id"] for d in destinations.for_business(tx, b["business_id"])})
-                       for b in context.businesses(tx)]
+                # 業務ごとの渡し方（決めるのは core の destinations.chosen の1か所）：None＝依頼者の送り先すべて／空＝ファイルだけ／
+                # 送り先のそろい＝選んだ送り先だけ
+                per = []
+                for b in context.businesses(tx):
+                    picked = destinations.chosen(tx, b["business_id"])
+                    per.append(dict(b, mode="all" if picked is None else ("file" if not picked else "pick"),
+                                    sends={d["destination_id"] for d in destinations.for_business(tx, b["business_id"])}))
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "dests": every, "per_business": per}
             return page(request, "destinations.html", person, ctx, methods=result_destinations.METHODS, done=done, ok=bool(ok),
@@ -1268,12 +1282,19 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 if op == "business":
                     bid = actions.uuid_of(form, "business_id")
                     context.business(tx, bid)
+                    mode = str(form.get("mode") or "")
+                    if mode == "all":                       # 依頼者の送り先すべて（あとで足した送り先にも渡る）
+                        destinations.set_choosing(tx, bid, False)
+                        return None
+                    if mode not in ("pick", "file"):
+                        raise actions.Refused("渡し方を選んでください")
                     every = {d["destination_id"] for d in result_destinations.of_client(tx)}
-                    if not picked & every:
-                        # 1つも選ばないと、core の決まりでは「依頼者のすべての送り先へ」に戻る（for_business）。画面の見た目と逆になるので受けない
-                        raise actions.Refused("渡す送り先を1つ以上選んでください")
+                    want = set() if mode == "file" else picked & every
+                    if mode == "pick" and not want:
+                        raise actions.Refused("「選んだ送り先だけ」のときは、送り先を1つ以上選んでください（どこへも書き戻さないときは「ファイルだけ」）")
+                    destinations.set_choosing(tx, bid, True)   # 選ぶ業務にする（1つも選ばなければファイルだけ＝core の決まり）
                     for d in every:
-                        destinations.choose(tx, bid, d, d in picked)
+                        destinations.choose(tx, bid, d, d in want)
                     return None
                 raise NotFound()
             out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), done="送り先を変えました。")

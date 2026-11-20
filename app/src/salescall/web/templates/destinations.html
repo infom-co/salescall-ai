@@ -46,17 +46,24 @@
   {% endif %}
 </section>
 
-{% if dests %}
-<h2 style="margin-top:24px">業務ごとの送り先</h2>
-<p class="muted">業務ごとに、どの送り先へ渡すかを選べます。新しく足した送り先は、送り先を選んでいない業務にだけ自動で加わります。</p>
+<h2 style="margin-top:24px">業務ごとの渡し方</h2>
+<p class="muted">業務ごとに、結果をどこへ渡すかを選べます。どれを選んでも、結果のファイル（Excel・CSV）はいつでも書き出せます。</p>
 {% for b in per_business %}
 <section class="card" id="b-{{ b.business_id }}" style="margin-top:12px">
-  <h3 style="margin:0 0 8px">{{ b.name }}</h3>
-  <form method="post" action="/c/{{ client.client_id }}/destinations">{{ csrf(token) }}<input type="hidden" name="op" value="business"><input type="hidden" name="business_id" value="{{ b.business_id }}">
-    <div class="check-grid">{% for d in dests %}<label class="choice"><input type="checkbox" name="destination_id" value="{{ d.destination_id }}" {% if d.destination_id in b.sends %}checked{% endif %}> {{ d.name }}</label>{% endfor %}</div>
-    <button class="btn small main" type="submit" style="margin-top:8px">この業務の送り先を決める</button>
+  <div class="title-row"><h3 style="margin:0">{{ b.name }}</h3>
+    <span>{% if b.mode == "all" %}{{ tag("依頼者の送り先すべて", "info") }}{% elif b.mode == "file" %}{{ tag("ファイルだけ", "") }}{% else %}{{ tag("選んだ送り先だけ", "info") }}{% endif %}</span></div>
+  <form method="post" action="/c/{{ client.client_id }}/destinations" class="stack" style="margin-top:8px">{{ csrf(token) }}<input type="hidden" name="op" value="business"><input type="hidden" name="business_id" value="{{ b.business_id }}">
+    <div class="check-grid">
+      <label class="choice"><input type="radio" name="mode" value="all" {% if b.mode == "all" %}checked{% endif %}> 依頼者の送り先すべて（あとで足した送り先にも渡します）</label>
+      {% if dests %}<label class="choice"><input type="radio" name="mode" value="pick" {% if b.mode == "pick" %}checked{% endif %}> 選んだ送り先だけ</label>{% endif %}
+      <label class="choice"><input type="radio" name="mode" value="file" {% if b.mode == "file" %}checked{% endif %}> ファイルだけ（送り先へは書き戻しません）</label>
+    </div>
+    {% if dests %}
+    <fieldset class="pick-dests"><legend class="muted">「選んだ送り先だけ」のときに渡す送り先</legend>
+      <div class="check-grid">{% for d in dests %}<label class="choice"><input type="checkbox" name="destination_id" value="{{ d.destination_id }}" {% if b.mode == "pick" and d.destination_id in b.sends %}checked{% endif %}> {{ d.name }}</label>{% endfor %}</div>
+    </fieldset>{% endif %}
+    <div><button class="btn small main" type="submit">この業務の渡し方を決める</button></div>
   </form>
 </section>
 {% else %}<div class="card" style="margin-top:12px">{{ empty("業務はまだありません") }}</div>{% endfor %}
-{% endif %}
 {% endblock %}
