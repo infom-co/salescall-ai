@@ -563,14 +563,17 @@ def _date_words(day, today) -> str:
 def week_or_date(day, today) -> str:
     """電話の日 today から見た、その日 day の週か日付の言葉（唯一の決まり＝最短の日の言い方 day_words・日時の2択の候補の言い方 ladder_label の (2) の形）：
     同じ週＝「今週」・次の週＝「来週」・それより先は日付（同じ月なら「27日」・違う月なら「12月1日」＝_date_words）。週は月曜日から（✅ 2026-11-03 ユーザー＝day_words）。
-    ⛔ 090edbfa まで、この決まりは day_words の中だけにあった（日時の2択は7日より先の日も曜日だけで言った＝分身 V）"""
+    「今週・来週」を言うのは、電話の日と言う日がどちらも月曜日〜土曜日のときだけ（どちらの数え方でも同じ週）。電話の日か言う日が日曜日なら日付：週を日曜日から数える
+    お客様と月曜日から数えるお客様で、日曜日をまたぐ「今週・来週」は違う日に聞こえる（本書 1-3。CL-1 が決まりに当てて決めた＝分身 V の2回目）。
+    ⛔ 090edbfa まで、この決まりは day_words の中だけにあった（日時の2択は7日より先の日も曜日だけで言った＝分身 V）。⛔ e9ecb65d まで、日曜日も「今週・来週」と言った"""
     weeks = (day - today.fromordinal(today.toordinal() - today.weekday())).days // 7   # 電話の日の週の月曜日から何週目か
-    return ("今週", "来週")[weeks] if weeks in (0, 1) else _date_words(day, today)
+    return ("今週", "来週")[weeks] if weeks in (0, 1) and 6 not in (day.weekday(), today.weekday()) else _date_words(day, today)
 
 
 def _day_variants() -> tuple:
     """日によって変わる言い方のうち、日付を言わないもの（本日・明日・明後日・今週の〇曜日・来週・来週の〇曜日）の一覧（day_words の1か所から作る＝
-    どの曜日の電話でも、2週間先までに出る言い方）。録音で流す電話は、この言い方ごとに文を丸ごと録音する（✅ 2026-11-03 ユーザー：「(ア) お勧め：言い方ごとに
+    どの曜日の電話でも、2週間先までに出る言い方。日曜日の電話・日曜日の日は日付の言い方＝week_or_date なので、日曜日の言い方は無い＝12通り。⛔ e9ecb65d まで
+    「今週の日曜日以降」「来週の日曜日以降」もあった＝14通り）。録音で流す電話は、この言い方ごとに文を丸ごと録音する（✅ 2026-11-03 ユーザー：「(ア) お勧め：言い方ごとに
     文を丸ごと録音します。OK」）。⏳ 日付の言い方（〇日以降・〇月〇日以降）は、名前と同じつなぎ方で組む（まだ作っていない）"""
     import datetime as dt
     out = []
@@ -709,16 +712,16 @@ def _ladder_date(text: str, today) -> tuple:
     return None, None, None
 
 
-def _ladder_pair_day(text: str, pair: tuple):
-    """お答えの日の言葉（曜日だけ・日付）が当たる、いま並べた日の2つ pair の日（唯一の当て方＝ladder_read）：曜日だけならその曜日の日・日付ならその日の日。
-    1つに当たらなければ None（週を言った「来週の月曜日」・明日などの言葉は、言葉だけの読みのまま）。"""
-    if (m := _LADDER_DATE.search(text)):
-        hit = [c for c in pair if c.day == int(m.group("d")) and (not m.group("m") or c.month == int(m.group("m")))]
-    elif (m := _LADDER_WDAY.search(text)) and not m.group("week") and not _LADDER_WEEKEND.search(text):
-        hit = [c for c in pair if WEEKDAY_WORDS[c.weekday()] == m.group("w")]
-    else:
-        return None
-    return hit[0] if len(hit) == 1 else None
+def _ladder_pair_days(text: str, pair: tuple) -> tuple:
+    """お答えの日の言葉（曜日だけ・日付）が当たる、いま並べた日の2つ pair の日（唯一の当て方＝読む所 ladder_read・決めない見分け Flow._ladder_take）：曜日だけならその曜日の日・
+    日付ならその日の日。週を言った「来週の月曜日」・明日などの言葉は ()（言葉だけの読みのまま）。2つに当たる（並べた2つが同じ曜日＝「今週の金曜日と来週の金曜日」への
+    「金曜日」）なら、並べた2つで1つに決まらない＝決めない（VLadderSaysTest の (3)）。"""
+    t = re.sub(r"\s", "", text or "")
+    if (m := _LADDER_DATE.search(t)):
+        return tuple(c for c in pair if c.day == int(m.group("d")) and (not m.group("m") or c.month == int(m.group("m"))))
+    if (m := _LADDER_WDAY.search(t)) and not m.group("week") and not _LADDER_WEEKEND.search(t):
+        return tuple(c for c in pair if WEEKDAY_WORDS[c.weekday()] == m.group("w"))
+    return ()
 
 
 def ladder_read(text: str | None, slots: dict, today=None, pair: tuple = ()) -> dict:
@@ -726,15 +729,18 @@ def ladder_read(text: str | None, slots: dict, today=None, pair: tuple = ()) -> 
     （kind）・日（day＝言葉・date＝その日・today＝日を言わない今日）・週（week）・午前か午後か（half）・言葉の幅（band＝朝・夕方・夜）・時刻（clock＝言葉のまま。
     午前・午後の言葉のない1〜12時は午前・午後を補う1か所 fill_ampm が値を受け取ったあとに決める）・「いつでも」（any）。2択の外の答え（「金曜がいいです」「夕方5時以降で」）も
     同じ読みで、その所を埋める。幅を言った答え（「〜まで」「〜以降」「〜から」）は frame（その言葉のまま受け取る）。日を言わない時刻・午前午後は今日のこと（CL-2 の時刻の読み spoken_time の「いま話している今日の回」と同じ）。読める所が無ければ slots のまま。
-    pair＝いま並べた日の2つ（日時の2択の段の曜日の2択＝Flow._ladder_take が段の候補の1か所 ladder_step から渡す）：お答えの言葉だけの読みが並べた2つに無く、曜日だけ・日付の
-    言葉が並べた2つの1つに当たれば、その日。並べた2つに当たらないお答えだけ、言葉だけの読み。並べた日に決まり、並べた言い方が週と日の言葉の形（7日より先の日がある＝
-    ladder_far）か、言葉だけの読みと違う日なら、日の言葉は並べた言い方（ladder_label の1か所＝言い直し・通話の事実の値も同じ言い方。1〜6日先だけの2択はお客様の言葉のまま＝今のまま）。
+    pair＝いま並べた日の2つ（日時の2択の段の曜日の2択＝Flow._ladder_take が段の候補の1か所 ladder_step から渡す）：曜日だけ・日付の言葉は、まず並べた2つに当てる
+    （_ladder_pair_days の1か所）。1つに当たれば、その日。2つに当たれば日を決めない（Flow._ladder_take が、いま伺った2択の文で聞き直す）。並べた2つに当たらないお答えだけ、
+    言葉だけの読み。並べた日に決まり、並べた言い方が週と日の言葉の形（7日より先の日がある＝ladder_far）か、言葉だけの読みと違う日なら、日の言葉は並べた言い方（ladder_label の
+    1か所＝言い直し・通話の事実の値も同じ言い方。1〜6日先だけの2択はお客様の言葉のまま＝今のまま）。
     分身 V。⛔ 090edbfa まで、11-27・11-30 を並べた「金曜日と月曜日では…」への「月曜日で。」を、いちばん近い月曜日 11-23（祝日）と読んだ"""
     s, t = dict(slots), re.sub(r"\s", "", text or "")
     word, day, week = _ladder_date(t, today)
-    matched = False
-    if pair and word and day not in pair and (c := _ladder_pair_day(t, pair)) is not None:
-        day, week, matched = c, None, True
+    matched, hits = False, (_ladder_pair_days(t, pair) if pair and word else ())
+    if len(hits) > 1:
+        word = day = week = None   # 並べた2つで1つに決まらない＝決めない
+    elif hits and day != hits[0]:
+        day, week, matched = hits[0], None, True
     if matched or (word and day in pair and ladder_far(pair, today)):
         word = ladder_label("day", day, slots, pair, today)
     if _LADDER_WEEKEND.search(t) and not word:
@@ -16682,10 +16688,15 @@ class Flow:
             # 候補が無い＝今のまま依頼者の文で伺う（電話の日がまだ分からなければ、初めて伺うときに作り直す＝_next_question）
             self.questions[qid], it.ladder, it.ladder_start = self.given.get(qid, q), None, {}
 
-    def _ladder_set(self, qid: str) -> tuple | None:
+    def _ladder_set(self, qid: str, tell: bool = False, since: dict | None = None) -> tuple | None:
         """いまの段の質問の文・録音の名前・会話AIの声かを置き換える唯一の場所（判定に見せる質問・流す質問・伺い直し・急かされたときの「承知しました。」＋いまの質問は、
-        みなこの文を読む）。候補が1つだけの段は伺わずに入れる。決まった（時刻まで・「いつでも」・候補が無い）なら None（文は替えない）。"""
+        みなこの文を読む）。候補が1つだけの段は伺わずに入れる。決まった（時刻まで・「いつでも」・候補が無い）なら None（文は替えない）。
+        tell＝2択のお答えのあとの次の2択（_ladder_take・_ladder_neither・_ladder_kept）：伺わずに入れた所（日・午前と午後・平日と土日）と、片方だけ合わないのエで受け取った
+        避けなかった方（since＝受け取る前の分かっている所）を、次の2択の頭「それでは（入れた所）でしたら」（phrases.ladder_kept_head の1か所・言葉は ladder_value の1か所）で言う
+        （お客様がどの日・どちらの時間帯の2択かを知らないまま伺わない。仮の言い方＝お客様が選んだことにはしない。CL-1 が決まりに当てて決めた＝分身 V の2回目。
+        ⛔ e9ecb65d まで、伺わずに入れた所は言い直しまで言わなかった）"""
         it, ctx = self.items[qid], self._ladder_ctx(qid)
+        before = dict(it.ladder if since is None else since)
         # 依頼者のお客様に日時を選んでいただく質問（伺い62）の伺い始めの所（まだ何も伺えていない）：聞くことを頭に入れた形（ladder_opening＝分身 P の (5)）
         opening = self.questions[qid].ladder == "accept" and it.ladder == it.ladder_start
         while (step := ladder_step(it.ladder, ctx)) is not None and len(step[1]) == 1:
@@ -16702,6 +16713,9 @@ class Flow:
             self.questions[qid] = ladder_opening(q, step[0], step[1], it.ladder, ctx.today)
             return step
         text, rid, voiced = ladder_line(step[0], step[1], it.ladder, ctx.today)
+        told = {k: it.ladder[k] for k in ("kind", "day", "half", "band", "clock") if k in it.ladder and it.ladder[k] != before.get(k)}
+        if tell and told:
+            text, rid, voiced = ladder_kept_head(ladder_value(told), question_body(text)), "", True
         self.questions[qid] = dataclasses.replace(q, text=text, recording=rid, voiced=voiced)
         return step
 
@@ -16713,6 +16727,10 @@ class Flow:
         before, step = dict(it.ladder), ladder_step(it.ladder, ctx)
         # いま並べた日の2つ（段の候補の1か所 ladder_step＝並べた言い方を作った _ladder_set と同じ2つ）：お答えの日の言葉は、まずこの2つに当てる（ladder_read の pair）
         pair = step[1] if step is not None and step[0] == "day" else ()
+        if len(_ladder_pair_days(value, pair)) > 1:
+            # 並べた2つが同じ曜日（「今週の金曜日と来週の金曜日」）への曜日だけのお答え：並べた2つで1つに決まらない＝決めない（いちばん近い日にしない）。2択のどちらとも
+            # 決められないときの今の1か所（いま伺った2択の文で聞き直す＝本書 9-4 の【決まりで決めた】(a)）。CL-1 が決まりに当てて決めた＝分身 V の2回目
+            return self._undecided_answer(qid)
         if step is None:
             # もう決まった日時を言い直された（念のための確認・言い直しへの答え・訂正）：伺い始めの所から読み直す（前の答えに重ねない）
             before = dict(it.ladder_start)
@@ -16723,7 +16741,7 @@ class Flow:
         if s == before:
             return self._ask_again(qid, self._ask_kind(), f"日時の2択の答えとして読めない値（{value}）")
         start, it.ladder = it.ladder_start, s
-        if (now := self._ladder_set(qid)) is None:
+        if (now := self._ladder_set(qid, tell=True)) is None:
             # 1つの答えで決まった（伺い始めの所から、その答えだけで時刻まで・幅・「いつでも」）なら、お客様の言葉のまま（言い直しで言い方を崩さない＝今までの
             # 答えの受け方と同じ）。いくつかの2択で決まったなら、伺えた所から作る（お客様から折り返していただく日の2択＝伺い67 ア は、伺えた日で伺う前の値を言い直す＝_ladder_end）
             return value if before == start and not s.get("theirs") else self._ladder_end(qid, s)
@@ -16803,7 +16821,7 @@ class Flow:
         it.ladder = s
         it.ask_backs = 0   # 新しい2択（伺い64＝2択ごとに数え直す）
         what = "並べた2つのどちらも合わない" if side is None else f"並べた2つの片方だけ合わない（{ladder_label(name, side, s, cands, ctx.today)}）"
-        if self._ladder_set(qid) is None:
+        if self._ladder_set(qid, tell=True) is None:
             it.set(it.state, f"日時の2択：{what}（{name}）＝残りの1つで決まった")
             return self._ladder_end(qid, it.ladder)
         it.set(it.state, f"日時の2択：{what}（{name}）＝" + ("別の空いている予定から2つ" if side is None else "避けた方だけを外して2つ"))
@@ -16815,14 +16833,13 @@ class Flow:
         でしたら」（phrases.ladder_kept_head・値の入る文＝会話AIの声。聞き直し・話を戻す一言のあとも同じ文＝質問の文を置き換える）。最後の段（時刻まで決まった）は、その値
         （今の言い直しの確かめへ＝_ladder_end）。言い方は並べた2つ pair の言い方（ladder_label の1か所）。"""
         it, today = self.items[qid], self._ladder_ctx(qid).today
-        label = ladder_label(name, kept, it.ladder, pair, today)
+        label, before = ladder_label(name, kept, it.ladder, pair, today), dict(it.ladder)
         it.ladder = ladder_fill(it.ladder, name, kept, pair, today)
         it.ask_backs = 0
-        if self._ladder_set(qid) is None:
+        # 次の2択の頭「それでは（避けなかった方）でしたら」は、伺わずに入れた所と同じ1か所（_ladder_set の tell・since）
+        if self._ladder_set(qid, tell=True, since=before) is None:
             it.set(it.state, f"日時の2択：片方だけ合わない・もう一方（{label}）で大丈夫そう＝その答えで決まった")
             return self._ladder_end(qid, it.ladder)
-        q = self.questions[qid]
-        self.questions[qid] = dataclasses.replace(q, text=ladder_kept_head(label, question_body(q.text)), recording="", voiced=True)
         it.set(it.state, f"日時の2択：片方だけ合わない・もう一方（{label}）で大丈夫そう＝その答えで次の2択")
         return self._ladder_ask(qid) | {"neither": True, "kept": True}
 
