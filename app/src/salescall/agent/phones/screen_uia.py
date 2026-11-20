@@ -26,7 +26,6 @@ SCREEN: dict[str, dict[str, str]] = {
     "new_message": {"auto_id": "create_new_btn", "control_type": "Button"},         # 新しいメッセージ（＋）
     "new_message_item": {"auto_id": "new_message_btn", "control_type": "Button"},   # ＋のポップアップの「メッセージ」（「グループ」は new_group_message_btn）
     "to_box": {"auto_id_re": r"^mat-chip-list-input-\d+$", "control_type": "Edit"},  # 宛先の欄（Id の数は変わりうる）
-    "to_chips": {"title": "Contact selection", "control_type": "List"},            # 入った宛先の一覧
     "sms_note": {"auto_id": "message_sms_learn_more_btn", "control_type": "Hyperlink"},   # ショートメールで送られる知らせ
     "body": {"title": "メッセージを入力", "control_type": "Text"},                    # 本文の欄（入力欄の形では出ない。押して貼り付ける）
     "send": {"auto_id": "message_send_btn", "control_type": "Button"},             # 送信
@@ -261,11 +260,27 @@ class UiaScreen:
         if box is None:
             raise RuntimeError("宛先の欄が見つからない")
         self._paste(box, number)
-        box.type_keys("{ENTER}")
-        time.sleep(1.0)
-        chips = self._part(main, "to_chips")
-        if chips is None or not chips.children():
-            raise RuntimeError("宛先が入らなかった")
+        # 番号を入れると、その下に候補（この番号へ送る・連絡先）が出る。候補を押して宛先にする（Enter だけでは宛先にならなかった＝2026-11-20）。
+        # 候補は mat-option の部品の見込み。見つからなければ Enter
+        option = None
+        for _ in range(20):
+            option = self._first_with_id(main, r"^mat-option-\d+$")
+            if option is not None:
+                break
+            time.sleep(0.1)
+        if option is not None:
+            try:
+                option.click_input()
+            except Exception:
+                option.invoke()
+        else:
+            box.type_keys("{ENTER}")
+        for _ in range(30):
+            if self._has_recipient(main):
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("宛先が入らなかった" + ("（候補を押しても）" if option is not None else "（候補が出なかった）"))
         body = self._part(main, "body")
         if body is None:
             raise RuntimeError("本文の欄が見つからない")
@@ -275,6 +290,22 @@ class UiaScreen:
         if send is None:
             raise RuntimeError("送信のボタンが見つからない")
         self._press(send)
+
+    @staticmethod
+    def _first_with_id(win: Any, pattern: str) -> Any | None:
+        rx = re.compile(pattern)
+        for c in win.descendants():
+            if rx.match(c.element_info.automation_id or ""):
+                return c
+        return None
+
+    @staticmethod
+    def _has_recipient(main: Any) -> bool:
+        """宛先が入ったか：「Contact selection」（宛先が無いときは Group、入ると List）の中に、宛先の項目があるか。"""
+        for c in main.descendants(title="Contact selection"):
+            if any(k.element_info.control_type == "ListItem" for k in c.children()):
+                return True
+        return False
 
     @staticmethod
     def _paste_focused(text: str) -> None:
