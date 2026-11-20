@@ -337,9 +337,9 @@ class CallErrorsOnlyThroughTroubles(Planted):
         self.assertEqual([(v.path, v.rule) for v in rules.single_writers(root)], [("src/salescall/core/settle.py", "I-12")])
 
     def test_whether_the_target_was_reached_is_written_only_by_settle(self):
-        """目的のお客様と話せたか（attempts.record_reached_target）を書くのは締めの処理だけ（データベースの監査 K の (d)。データベースの守りも、締めの
+        """目的のお客様と話せたか（attempts.record_talk）を書くのは締めの処理だけ（データベースの監査 K の (d)。データベースの守りも、締めの
         記録を書く取引の中だけ＝0211 の attempt_reached_target_guard）。"""
-        call = "def go(tx, a):\n    attempts.record_reached_target(tx, a, True)\n"
+        call = "def go(tx, a):\n    attempts.record_talk(tx, a, reached_target=True, talked=True)\n"
         root = self._app({"src/salescall/core/settle.py": call, "src/salescall/core/next_action.py": call})
         self.assertEqual([(v.path, v.line) for v in rules.entries_called_from_their_places(root)],
                          [("src/salescall/core/next_action.py", 2)])

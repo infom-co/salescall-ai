@@ -412,19 +412,20 @@ def record_disconnect(tx: Tx, attempt_id: UUID, disconnect: Literal["normal", "r
         raise AttemptNotFound(str(attempt_id))
 
 
-def record_reached_target(tx: Tx, attempt_id: UUID, reached: bool) -> None:
-    """締めの処理（core/settle.py）だけが呼ぶ。その通話で目的のお客様と話せたか（判定の入力の1か所 judge.JudgeInput.reached_target）を、
-    終わった試行に記録する（判定し直しでは書き直す）。読むのは、その担当の期で目的のお客様と話せた電話の1か所（`last_talk`。受付の方とだけ話した
-    通話は入らない＝call_report.talked_in とは別。0203）。書き換えられるのは、
-    その通話の締めの記録（結果の版・お詫びの電話の結び）を書いた同じ取引の中だけ（データベースの守り attempt_reached_target_guard。0211）。"""
-    row = tx.one("UPDATE salescall.attempts SET reached_target = %s WHERE attempt_id = %s RETURNING attempt_id", (reached, attempt_id))
+def record_talk(tx: Tx, attempt_id: UUID, *, reached_target: bool, talked: bool) -> None:
+    """締めの処理（core/settle.py）だけが呼ぶ。その通話で目的のお客様と話せたか（判定の入力の1か所 judge.JudgeInput.reached_target）と、お客様（人）と
+    話したか（会話の報告の人の証の表＝call_report.CallReport.talked。0270）を、終わった試行に記録する（判定し直しでは書き直す）。目的のお客様と話せたかを読むのは、
+    その担当の期で目的のお客様と話せた電話の1か所（`last_talk`。受付の方とだけ話した通話は入らない。0203）。どちらも、ダッシュボードの数（core/metrics の1か所）が読む。
+    書き換えられるのは、その通話の締めの記録（結果の版・お詫びの電話の結び）を書いた同じ取引の中だけ（データベースの守り attempt_reached_target_guard。0211・0270）。"""
+    row = tx.one("UPDATE salescall.attempts SET reached_target = %s, talked = %s WHERE attempt_id = %s RETURNING attempt_id",
+                 (reached_target, talked, attempt_id))
     if row is None:
         raise AttemptNotFound(str(attempt_id))
 
 
 def last_talk(tx: Tx, task_id: UUID, period: Any, *, besides: UUID | None = None) -> UUID | None:
     """その行の、その担当の期（period＝試行の person_since。最初の期は None）で、目的のお客様と話せた、いちばん新しい電話（1か所。無ければ None）。
-    besides＝数えない電話（いまかける電話）。話せたかは締めの処理が試行に写した attempts.reached_target（`record_reached_target`＝
+    besides＝数えない電話（いまかける電話）。話せたかは締めの処理が試行に写した attempts.reached_target（`record_talk`＝
     judge.JudgeInput.reached_target）。担当の期の比べは試行の person_since（データベースの salescall.task_person_since で決まる期）。読むのは：
     - 引き継ぎを確かめる印（core/next_action の `_handover_due`：いまの期で、目的のお客様とまだ話していないか）。
     - 予約証の「前の電話が今日か」（core/apology.when：この電話の期の前の電話。✅ 2026-11-12 ユーザー：「案Bでお願いします」＝担当の方ごとに

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+import uuid
 from dataclasses import replace
 from uuid import UUID
 
@@ -291,6 +292,15 @@ class BusinessMetrics(Base):
         self.assertEqual((empty["dialed"], empty["completion"]["value"], empty["average_talk_seconds"]), (0, None, None))
         other = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=until, voice_type="架空の声の型"))
         self.assertEqual(other["dialed"], 0)
+        # ダッシュボードの「今日」の数（metrics.day。CL-3 の 41）：留守番電話の通話は、電話に出た数（トータル通話数）にだけ入る
+        from tests.support import make_report
+        w = self.second_row(s)
+        self.verified_call(w, VerificationSummary(0, 0, 0), report=make_report(("voicemail",), end="voicemail"))
+        today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
+        self.assertEqual(self.tx(s, lambda tx: metrics.day(tx, today)), {"dialed": 3, "answered": 3, "talked": 2, "reached": 2})
+        self.assertEqual(self.tx(s, lambda tx: metrics.day(tx, today, business_id=uuid.uuid4())),
+                         {"dialed": 0, "answered": 0, "talked": 0, "reached": 0})
+        self.assertEqual(self.tx(s, lambda tx: metrics.day(tx, today - timedelta(days=1)))["dialed"], 0)
         # 同じ行の2本目は再発信
         from tests import support
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
@@ -298,7 +308,7 @@ class BusinessMetrics(Base):
                                                        promised=True))   # 間隔の歯止めは門の試験で見る
         self.verified_call(s, VerificationSummary(1, 0, 0), items=[("Q1", "confirmed", None)])
         later = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=until + timedelta(minutes=5)))
-        self.assertEqual((later["dialed"], later["redial"]["hits"]), (3, 1))
+        self.assertEqual((later["dialed"], later["redial"]["hits"]), (4, 1))   # 留守番電話の行を足したので4本
 
 
 class Production(Base):

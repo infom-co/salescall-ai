@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -33,7 +33,9 @@ _JUDGED = " judged AS (SELECT r.* FROM salescall.task_results r JOIN a ON a.atte
 
 def counts(tx: Tx, window: str, params: tuple[Any, ...]) -> dict[str, Any]:
     """その通話の範囲（window＝通話の行を返す SQL・params＝その引数）の数（1か所）。
-    - dialed＝お客様のところまでかけた通話（attempts.DIALED・終わったもの）／talked＝お客様が出て判定のある通話（salescall.reached_answer）
+    - dialed＝お客様のところまでかけた通話（attempts.DIALED・終わったもの）／answered＝電話に出た通話（留守番電話・自動音声・FAX も入る＝salescall.reached_answer。判定のあるもの）
+    - talked＝お客様（人）と話した通話（受付の方も入る。締めが写した attempts.talked＝会話の報告の人の証の表。0270）／reached＝目的のお客様と話せた通話（attempts.reached_target）
+      （✅ 2026-11-20 管理者「「お客様と話した」と「目的のお客様と話せた」に加え、「留守番電話・自動音声」などを加えたトータル通話数もダッシュボードで出す」）
     - technical＝こちらの不具合で終えた通話（technical_error）／complaint＝話せた通話のうち、判定が苦情としたもの
     - ear_hits・ear_total＝通話後の検証で別の耳と食い違った項目・確かめた項目／forbidden＝言ってはいけないことを言った数
     - rows＝範囲に通話のある行／completed＝そのうち、行の範囲の中のいちばん新しい判定が「完了」の行
@@ -41,15 +43,18 @@ def counts(tx: Tx, window: str, params: tuple[Any, ...]) -> dict[str, Any]:
     - redials＝かけた通話のうち、その行の2本目からのもの／yen・unpriced＝範囲の通話の利用量の金額の合計・単価の無い記録の数"""
     row = tx.one(
         f"WITH a AS ({window}),{_JUDGED}"
-        " talked AS (SELECT a.attempt_id, a.ended_at, a.disconnect, (SELECT min(h.at) FROM salescall.attempt_state_history h"
+        " answered AS (SELECT a.attempt_id, a.ended_at, a.disconnect, a.talked, a.reached_target, (SELECT min(h.at) FROM salescall.attempt_state_history h"
         "                   WHERE h.attempt_id = a.attempt_id AND h.to_state = 'answered') AS answered_at FROM a WHERE salescall.reached_answer(a.attempt_id)"
         "            AND EXISTS (SELECT 1 FROM judged j WHERE j.attempt_id = a.attempt_id)),"
+        " talked AS (SELECT * FROM answered WHERE talked),"
         f"{_LATEST}"
         " SELECT (SELECT coalesce(sum(v.forbidden_speech), 0) FROM salescall.verification_summaries v JOIN a USING (attempt_id)) AS forbidden,"
         "        (SELECT coalesce(sum(v.items_disagreed), 0) FROM salescall.verification_summaries v JOIN a USING (attempt_id)) AS ear_hits,"
         "        (SELECT coalesce(sum(v.items_checked), 0) FROM salescall.verification_summaries v JOIN a USING (attempt_id)) AS ear_total,"
         "        (SELECT count(*) FROM judged j JOIN talked t ON t.attempt_id = j.attempt_id WHERE j.complaint) AS complaint,"
+        "        (SELECT count(*) FROM answered) AS answered,"
         "        (SELECT count(*) FROM talked) AS talked,"
+        "        (SELECT count(*) FROM answered WHERE reached_target) AS reached,"
         "        (SELECT count(*) FROM a WHERE state = 'technical_error') AS technical,"
         f"        (SELECT count(*) FROM a WHERE {attempts.DIALED} AND NOT salescall.is_active(state)) AS dialed,"
         "        (SELECT count(DISTINCT task_id) FROM a) AS rows,"
@@ -62,6 +67,21 @@ def counts(tx: Tx, window: str, params: tuple[Any, ...]) -> dict[str, Any]:
         "        (SELECT count(*) FROM salescall.usage_entries u JOIN a USING (attempt_id) WHERE u.amount_yen IS NULL) AS unpriced",
         params)
     return dict(row)
+
+
+# 日本時間のある日の通話（`day`）：取引の依頼者の通話のうち、予約した時刻がその日のもの（お詫びの電話も入れる＝その日にかけた電話すべて）。業務を渡せば、その業務だけ。
+# 引数は (日, 日, 業務, 業務)
+_DAY_WINDOW = (
+    "SELECT a.* FROM salescall.attempts a WHERE a.claimed_at >= salescall.jst_day_start(%s::date)"
+    " AND a.claimed_at < salescall.jst_day_start(%s::date + 1) AND (%s::uuid IS NULL OR salescall.attempt_business(a.attempt_id) = %s::uuid)")
+
+
+def day(tx: Tx, on: date, *, business_id: UUID | None = None) -> dict[str, int]:
+    """ダッシュボードの「今日」の数（日本時間のその日。取引の依頼者の電話。業務で絞れる。CL-3 の 41）：かけた dialed・電話に出た answered（留守番電話・自動音声・FAX も入る
+    ＝トータル通話数）・お客様と話した talked・目的のお客様と話せた reached。✅ 2026-11-20 管理者「「お客様と話した」と「目的のお客様と話せた」に加え、「留守番電話・
+    自動音声」などを加えたトータル通話数もダッシュボードで出す」。数え方は `counts` の1か所（品質の段・業務の指標と同じ）。"""
+    c = counts(tx, _DAY_WINDOW, (on, on, business_id, business_id))
+    return {k: c[k] for k in ("dialed", "answered", "talked", "reached")}
 
 
 def required_items(tx: Tx, business_id: UUID, *, since: datetime, until: datetime, voice_type: str | None = None) -> dict[str, dict[str, int]]:
@@ -97,7 +117,7 @@ def business(tx: Tx, business_id: UUID, *, since: datetime, until: datetime, voi
     items = required_items(tx, business_id, since=since, until=until, voice_type=voice_type)
     asked = sum(n for t in items.values() for m, n in t.items() if m != "not_asked")
     return {"required_taken": _rate(sum(t["taken"] for t in items.values()), asked),   # 必須の質問の取得率（伺っていない＝対象外は数えない）
-            "dialed": c["dialed"], "talked": c["talked"],
+            "dialed": c["dialed"], "answered": c["answered"], "talked": c["talked"], "reached": c["reached"],   # 出た・お客様と話した・目的のお客様と話せた
             "completion": _rate(c["completed"], c["rows"]),          # 業務完了率（範囲に通話のある行のうち）
             "cut": _rate(c["cut"], c["talked"]),                      # 途中で切られた率（話せた通話のうち）
             "average_talk_seconds": None if not c["talked"] else float(c["talk_seconds"]) / c["talked"],

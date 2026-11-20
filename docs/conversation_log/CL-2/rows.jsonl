@@ -4334,3 +4334,12 @@
 {"at": "2026-11-20T23:17:38+09:00", "who": "CL-2", "text": "次は 8（依頼者の範囲の停止を、契約者の取引で一度に読む見方）です。今の停止の読み方と範囲の守りを読みます。"}
 {"at": "2026-11-20T23:20:30+09:00", "who": "CL-2", "text": "I wrote a conditional branch that never runs; replacing it with a real human-call case (a rebuilt report on the same call, which the one reader prefers)."}
 {"at": "2026-11-20T23:20:44+09:00", "who": "CL-2", "text": "Now update the marks comment (item 7), add mutations, write the notebook entries (including the request to CL-1 about item 13), and commit."}
+{"at": "2026-11-20T23:22:11+09:00", "who": "CL-2（選んで答えていただく伺い）", "text": "伺い：ダッシュボードの「今日話せた」電話の数（計画書 5-2）は、どの数え方にしますか？選んだ数え方を core の1か所にし、品質の段と業務の指標の「話せた」もそれにそろえます（今は留守番電話が出た通話も「話せた」に入っています）。報酬の「話せた1本」は請求の数え方なので別のままです。\n- ア お客様と話した (Recommended)：受付の方も含め、人と話した電話（会話の報告に人の言葉・受け答えがあった＝判定の「話した」と同じ）。留守番電話・自動音声・FAX は入らない。\n- イ 目的のお客様と話せた：お呼びした方（目的のお客様）に繋がって話せた電話だけ。受付で断られた・不在だった電話は入らない。\n- ウ 両方を並べて出す：「お客様と話した」と「目的のお客様と話せた」を別の数として並べる（品質の段の割合は「お客様と話した」で数える）。"}
+{"at": "2026-11-20T23:43:50+09:00", "who": "管理者（選んだお返事）", "text": "伺い：ダッシュボードの「今日話せた」電話の数（計画書 5-2）は、どの数え方にしますか？選んだ数え方を core の1か所にし、品質の段と業務の指標の「話せた」もそれにそろえます（今は留守番電話が出た通話も「話せた」に入っています）。報酬の「話せた1本」は請求の数え方なので別のままです。\nお返事：「お客様と話した」と「目的のお客様と話せた」に加え、「留守番電話・自動音声」などを加えたトータル通話数もダッシュボードで出す"}
+{"at": "2026-11-20T23:44:10+09:00", "who": "CL-2", "text": "通話の記録に「人と話したか」（talked）の列を足し、目的のお客様と話せたかと同じ締めの1か所・同じ守りで書きます。守りの作りを見ます。"}
+{"at": "2026-11-20T23:44:46+09:00", "who": "CL-2", "text": "Renaming the writer everywhere (settle, the checks rule, tests, the mutation) and passing the person-talked value from the report."}
+{"at": "2026-11-20T23:45:43+09:00", "who": "CL-2", "text": "書く所を直しました。次に数え方の1か所（metrics.counts）に3つの数を持たせます。今のファイルを読みます。"}
+{"at": "2026-11-20T23:45:53+09:00", "who": "CL-2", "text": "The file shows an odd fragment above the query; reading that region before editing further."}
+{"at": "2026-11-20T23:45:56+09:00", "who": "CL-2", "text": "The earlier fragment was just the pre-edit output; the file is consistent. Adding the `talked` set (people) on top of `answered`, and the three counts."}
+{"at": "2026-11-20T23:48:51+09:00", "who": "CL-2", "text": "While those run: the design-book row and notebook entry for item 41."}
+{"at": "2026-11-20T23:59:06+09:00", "who": "CL-2", "text": "Committing the work now so it is safe on the branch; I'll report the test results when the run finishes."}

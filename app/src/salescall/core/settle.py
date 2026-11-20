@@ -157,7 +157,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
         _apology_outcome(tx, attempt_id, order["order_id"], delivered)
         # ふつうの通話と同じ1か所（引き継ぎを確かめる印が読む。0203）。書けるのは締めの記録（お詫びの電話の結び）を書いた同じ取引の中だけ（0211。
         # 締め直し＝again は、結びも話せたかも、最初の締めのまま）
-        attempts.record_reached_target(tx, attempt_id, inp.reached_target)
+        attempts.record_talk(tx, attempt_id, reached_target=inp.reached_target, talked=bool(inp.report and inp.report.talked))
     if j is not None and j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     refused = j is not None and j.state == "do_not_call"
@@ -508,7 +508,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
                                            if j.detail.get("not_reached") == "who_unclear" else {})},
                                 decided_by=origin["by"] if use_corr else "判定")
     # 目的のお客様と話せたか（引き継ぎを確かめる印が読む。0203）：書けるのは締めの記録（結果の版）を書いた同じ取引の中だけ（守り。0211）
-    attempts.record_reached_target(tx, attempt_id, inp.reached_target)
+    attempts.record_talk(tx, attempt_id, reached_target=inp.reached_target, talked=bool(inp.report and inp.report.talked))   # お客様と話したか＝0270
     # 次の動きの材料は、契約者の直しを重ねて読む（目的のお客様だと確かめられなかった通話か＝データベースの call_unconfirmed の1か所。いま書いた版も読む。0242。
     # ⛔ 2026-11-18 の8回目の見直しの途中まで：「繋がらなかった」に直した通話でも、その通話で言われた別の番号を行に足し、次にかける番号にしえた）
     seen = replace(inp, target_unconfirmed=target_recheck.unconfirmed(tx, attempt_id))

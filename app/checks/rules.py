@@ -621,7 +621,7 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("attempts", "end_for_trouble"): frozenset({_SUP + "line.py"}),          # 甚大な問題で終える：通話ごとの口だけ
     # 目的のお客様と話せたか（引き継ぎを確かめる印が読む）：締めの処理だけ（締めの記録を書いた同じ取引の中だけ＝データベースの守りも。0211。
     # ⛔ 見直し K の (d)：守りが無く、どこからでも書けた）
-    ("attempts", "record_reached_target"): frozenset({_CORE + "settle.py"}),
+    ("attempts", "record_talk"): frozenset({_CORE + "settle.py"}),
     ("ring_test", "run"): frozenset({_SUP + "line.py"}),                     # テスト番号を鳴らす：電話の部品を持つ回線ごとの処理だけ
     ("watch", "record_check"): frozenset({_SUP + "jobs.py"}),               # 止めた停止（会話AI）の確かめ：確かめの部品だけ
     ("troubles", "after_trouble"): frozenset({_SUP + "line.py"}),           # こちらの不具合を伝える：通話ごとの口だけ（0139）
