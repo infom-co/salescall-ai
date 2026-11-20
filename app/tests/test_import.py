@@ -617,7 +617,8 @@ class Targets(Base):
                                "company": {"text": "架空商事", "reading": "てすとがいしゃ", "reading_by": "ai",
                                            "candidates": [], "likely": None},     # 会社名の読みは AI が決めた読み
                                "target": {"kind": "法人", "name": "岡田", "reading": "おかだ", "role": "", "full_name": "",
-                                          "full_reading": "", "department": ""}})  # 会話の「目的の人」の形
+                                          "full_reading": "", "department": ""},  # 会話の「目的の人」の形
+                               "call_type": "confirm"})   # 電話の型（会話の側の Business.call_type＝CL-1 の連絡帳 4-208。書いていない業務は確認の電話）
 
     def test_a_business_that_calls_by_role_needs_the_role_unless_the_business_names_it(self):
         _, run = self.run_with({"kind": "role", "role": None})
