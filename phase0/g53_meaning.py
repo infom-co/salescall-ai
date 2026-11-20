@@ -119,6 +119,11 @@ def end_accept(it: dict) -> list[str]:
 # 念を押した・この電話を終えたい（END_PRESSED）は、本心を伺う一言 D2 のお返事のときだけ道が替わる（ご遠慮の一言＝flowctl.Flow._retreat_way）。表の場面（D2 の前）では断ったと同じ
 END_ACTS = {END_REFUSED: "締める（もうかけない）", END_PRESSED: "締める（もうかけない）", END_HURRY: "急いでいる方への伺い", END_ANGRY: "締める（人に引き継ぐ）"}
 END_TOPIC, END_ASK = "いまの話の向きを伺う", "ご遠慮を伺う"
+# 本題（Flow._main_talk）で電話を終える言葉か決まらないときの、ご遠慮の一言より先の本心を伺う一言（D2＝Flow._refusal_confirm → _concern_ask。✅ 2026-11-08 日本時間2時21分15秒・
+# 3時48分03秒「(ア)既定は「最初の質問を流したあと」」）。ご遠慮の一言と同じ「電話を終える読みによる伺い」の側（end_step・flow_miss）。取り消しへの D2（Flow._withdraw_ask）・顧客獲得型の
+# 本題の D2（Flow._main_again）は答えの読みによる伺いのまま（TROUBLE_ACT）。⛔ 分身 S2 の 223f5b58 まで、測りの場面に最初の質問を流した印が無く、この動きが出なかった（名前も無かった）
+END_CONCERN = "本心を伺う（本題で電話を終える言葉か決まらない）"
+END_ASKS = (END_TOPIC, END_ASK, END_CONCERN)   # 電話を終える読みによる伺い（締めない側）
 
 
 def end_act(q: Question, got, end) -> str | None:
@@ -136,7 +141,7 @@ def end_step(act: str) -> bool:
     """流れの制御がすること act が、電話を終える読みによる動き（締める・急いでいる方への伺い・いまの話の向きを伺う・ご遠慮を伺う）か（添えた質問に先に答えて
     からの動きも同じ）。"""
     act = act.removeprefix(QUESTION_FIRST)
-    return act in (END_TOPIC, END_ASK) or act in END_ACTS.values() or act.startswith("締める（")
+    return act in END_ASKS or act in END_ACTS.values() or act.startswith("締める（")
 
 
 def step_act(it: dict, q: Question, key: str) -> str | None:
@@ -739,6 +744,27 @@ CONNECTED_SCENES = {"繋いだあと・会社の電話": {"name": "岡田", "rea
                     "繋いだあと・ご本人の電話": {"kind": "個人", "name": "岡田", "reading": "おかだ"}}
 
 
+FIRST_WORDS = "はい、テスト商事でございます。"   # 場面の電話に出た方の第一声（判定には渡らない）
+
+
+def asked_flow(qs: list[Question]) -> Flow:
+    """業務の最初の質問（qs の先頭）を、本番と同じ始まり方で流した所までの流れの制御（唯一の場所＝答えの段の測りの場面 _flow_scene の既定の枝・電話を終える言葉の表の場面
+    end_words.answer_flow）：お呼びする方の無い業務（g22_opening.BUSINESS の名乗りで、質問を qs に替えたもの）で、電話が繋がる → 第一声 → 人の報告 → 名乗りの録音
+    （最初の質問まで＝Flow._opening_reply が流した印 Item.played を付ける）→ 流し終えた知らせ on_played。判定の待ち方（use_checks）は呼ぶ所が決める。
+    用件の一文は入れない：測りの行はいろいろな業務の質問で、どの業務の用件かが決まらない（入れると、本番が判定に見せる用件＝Flow._heard_purpose が、ほかの会社に頼んでいるかの
+    項目の説明に入り、行の質問と合わない用件で判定に送る文が変わる＝分身 S2 が確かめた 2,754行。今までの測りの文と同じ＝用件なし）。
+    ⛔ 分身 S2 の 223f5b58 まで、ここを質問を並べた流れの制御だけで組み、最初の質問を流した印が無かった＝本番と違って序盤の扱い（本題か Flow._main_talk が偽＝電話を終える
+    言葉か決まらないときにご遠慮の一言）を正解の動きにしていた（✅ 2026-11-08 日本時間3時48分03秒「(ア)既定は「最初の質問を流したあと」」＝本題は最初の質問を流したあと）"""
+    import dataclasses
+    from g22_opening import BUSINESS
+    f = dataclasses.replace(BUSINESS, target=None, questions=list(qs), purpose="", purpose_line="", purpose_noun="").flow(play_recordings=True)
+    f.on_connect(); f.on_callee(); f.on_heard(FIRST_WORDS)
+    r = f.apply("report_party", {"party": "person"})
+    r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+    f.on_played([p["text"] for p in (r or {}).get("play") or []])
+    return f
+
+
 def _connected_scene(q: Question, scene: str) -> Flow:
     """お呼びした方に繋ぎ、名乗り・用件のあと質問 q を伺った所までの本番の流れの制御（業務設定の入口 instruction.Business.flow と、繋ぐ1か所 Flow._connect）。"""
     import dataclasses
@@ -1142,7 +1168,7 @@ def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
     elif prompted_row(it):
         f = _played_flow(q)
     else:
-        f = _connected_scene(q, it["scene"]) if it.get("scene") else Flow([q, SCENE_NEXT], play_recordings=True)
+        f = _connected_scene(q, it["scene"]) if it.get("scene") else asked_flow([q, SCENE_NEXT])
         if it.get("scene") and (s == "D" or it.get("asked")):
             raise NoScene("繋いだあとの場面の言い直しは組まない")
         if s == "D" or it.get("asked"):   # 言い直しへの返事の行は、どの組でも同じ1か所で言い直しの場面に組む（見直し (13) の D9：組 E の言い直しのある行）
@@ -1360,6 +1386,8 @@ def _flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None)
         return LADDER_NEITHER_ACT if rep.get("neither") else LADDER_NEXT_ACT
     for head, act in (*PLAY_ACTS, ("wait_soon", WAIT_SOON_ACT), ("case_lead", CASE_ACT), ("pain", PAIN_NEXT_ACT)):
         if any(p.startswith(head) for p in plays):
+            if act == TROUBLE_ACT and f.withdraw is None and f.main is None:
+                return END_CONCERN   # 本題で電話を終える言葉か決まらないときの D2（取り消し・顧客獲得型の本題の D2 ではない＝END_CONCERN の注）
             return THANKED + act if act == WAIT_ACT[LATER] and any(p.startswith("offer_thanks") for p in plays) else act
     if res == "hesitate":
         return HESITATE_ACT[True]
@@ -1491,9 +1519,9 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     if APOLOGY + act in want:
         return "お詫びが落ちた（不快な様子の言葉に、受けの言葉で応えた・動きは正しい）"
     ends = {w for w in want if end_step(w)}
-    closes = {w for w in ends if w.removeprefix(QUESTION_FIRST) not in (END_TOPIC, END_ASK)}
+    closes = {w for w in ends if w.removeprefix(QUESTION_FIRST) not in END_ASKS}
     if end_step(act):
-        if act.removeprefix(QUESTION_FIRST) not in (END_TOPIC, END_ASK):
+        if act.removeprefix(QUESTION_FIRST) not in END_ASKS:
             return "⛔違う理由で締める・伺う" if closes else "⛔電話を終える言葉ではないのに締める・急ぎを伺う"
         # 正解が締める読みと伺う読みの境目（「そういうお電話はちょっと……。」＝決められない・通話・営業を断った＝rv176/S2 の3回目の読み直しで CL-1 が決めた）なら、伺ったのは
         # 正解の伺いの側の違い＝「違う伺い」（⛔ 分身 S2 の aa4e230d まで、正解に締める読みが1つでもあれば、伺いの読みを「締めない」と数えていた＝境目の行で外れの種類を取り違える）

@@ -13436,7 +13436,9 @@ class EndWordsTest(unittest.TestCase):
             (self.NEXT, "続ける"),
             ("はい、それではお支払いはカードとさせていただきますね？", "続ける"),
             ("はい、それではご予約はされているということで承っておいて大丈夫でしょうか？", "続ける"),
-            (self.R1, "続ける"), (self.R1, "続ける"),
+            # 「そういうお電話はちょっと……。」「結構です。」（ご予約）：最初の質問を流したあとは本題＝ご遠慮の一言より先に本心を伺う一言 D2（✅ 2026-11-08 日本時間3時48分03秒
+            # 「(ア)既定は「最初の質問を流したあと」」。⛔ 分身 S2 の 223f5b58 まで、表の場面に最初の質問を流した印が無く、序盤のご遠慮の一言 R1 を出していた＝S2AskedSceneTest）
+            (S2AskedSceneTest.D2, "続ける"), (S2AskedSceneTest.D2, "続ける"),
             # 答えを断る言葉が強い（不快な様子だが電話は続けてよい）：答えたくない（✕）で次へ・頭はお詫び（分身 AG＝HolesAGTest の (3)）
             ("失礼いたしました。" + self.NEXT.removeprefix("承知しました。"), "続ける"),
             # 「怒っている・苦情」と「通話・営業を断った」の境目の両側（伺い81・分身 K2＝AngryBoundaryTest）：断りの勢いの言葉は断られたときの締め・はっきり怒っている
@@ -16920,13 +16922,15 @@ class G53EndTest(unittest.TestCase):
     def test_end_act_is_what_the_flow_does(self):
         from end_words import ANSWER, HEDGED, answer_flow, question
         from flowctl import END_ANGRY, END_HURRY, END_REFUSED
-        from g53_meaning import END_ACTS, END_ASK, END_TOPIC, end_act, end_step
+        from g53_meaning import END_ACTS, END_ASK, END_CONCERN, END_TOPIC, end_act, end_step
         for row in ANSWER:
             qtext, words, ends, answers, _, _ = row
             _, heard, marks = answer_flow(row)
             act = end_act(question(qtext), answers[0].removesuffix(HEDGED), ends[0])
             if act == END_ASK:
                 self.assertEqual(heard, EndWordsTest.R1, words)
+            elif act == END_CONCERN:   # 本題（最初の質問を流したあと）の電話を終える言葉か決まらない言葉＝本心を伺う一言 D2（分身 S2 の S2AskedSceneTest）
+                self.assertEqual(heard, S2AskedSceneTest.D2, words)
             elif act == END_TOPIC:
                 self.assertTrue(heard.startswith("はい、") and heard.endswith("ということでしょうか？"), (words, heard))
             elif act == END_ACTS[END_HURRY]:
@@ -45014,6 +45018,64 @@ class S2ReReadBorderTest(unittest.TestCase):
             t = angry_not(calling)
             self.assertIn("うんざりした言い方でとがめたのも", t)
             self.assertIn("嫌がった不満と一緒に言っても", t)
+
+
+
+class S2AskedSceneTest(unittest.TestCase):
+    """分身 S2（CL-1 の頼み）：答えの段の測りと電話を終える言葉の表の場面は、本番と同じく、業務の最初の質問を名乗りの録音で流した所（流した印 Item.played＝Flow._opening_reply）
+    から組む。本題か（Flow._main_talk＝✅ 2026-11-08 日本時間3時48分03秒「(ア)既定は「最初の質問を流したあと」」）は流した印で決まる＝最初の質問へのお返事は本題（電話を終える言葉か
+    決まらないときは、ご遠慮の一言ではなく本心を伺う一言 D2「失礼いたしました。何か問題でもございましたでしょうか？」）。⛔ 分身 S2 の 223f5b58 まで、場面は質問を並べた流れの制御だけで
+    組み、最初の質問を流した印が無かった＝本番と違って序盤の一言（ご遠慮の一言）を正解の動きにしていた。場面を組むのは1か所（g53_meaning.asked_flow）"""
+
+    D2 = "失礼いたしました。何か問題でもございましたでしょうか？"
+
+    def test_1_measure_scene_has_the_first_question_played(self):
+        import g53_meaning as g
+        it = next(x for x in g.set_f() if x["text"] == "そういうお電話はちょっと……。")
+        q = g.question_map()[it["qid"]]
+        f, qid = g.flow_scene(it, q)
+        self.assertTrue(f.items[qid].played)
+        self.assertTrue(f._main_talk())
+
+    def test_2_table_scene_asks_the_concern_first(self):
+        from end_words import ANSWER, answer_flow
+        row = next(r for r in ANSWER if r[1] == "そういうお電話はちょっと……。")
+        f, said, marks = answer_flow(row)
+        self.assertTrue(f.items["Q1"].played)
+        self.assertEqual(said, self.D2)
+        self.assertEqual(marks, "続ける")
+
+    def test_3_one_place_builds_the_asked_scene(self):
+        # 表の場面（end_words.answer_flow）と測りの場面（g53_meaning._flow_scene の既定の枝）は同じ1か所（g53_meaning.asked_flow）で組む
+        import inspect
+        import end_words
+        import g53_meaning as g
+        self.assertIn("asked_flow(", inspect.getsource(end_words.answer_flow))
+        self.assertIn("asked_flow(", inspect.getsource(g._flow_scene))
+        from flowctl import Question
+        q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        f = g.asked_flow([q, g.SCENE_NEXT])
+        self.assertEqual((f.current, f.items["Q1"].played), ("Q1", True))
+        self.assertEqual(f._heard_purpose(), "")   # 用件の一文は入れない（測りの行はどの業務の用件かが決まらない＝判定に送る文は今のまま）
+
+    def test_4_concern_ask_is_an_end_step_in_the_count(self):
+        # 本題の電話を終える言葉か決まらないときの本心を伺う一言（D2＝Flow._refusal_confirm → _concern_ask）は、数えの1か所で電話を終える読みによる動き（ご遠慮の一言と同じ側）。
+        # ⛔ 場面に流した印が無かった間は、ご遠慮の一言（END_ASK）だけが出ていた＝D2 を電話を終える読みの動きと数える名前が無かった（読みが続ける・締めるに外れたときの種類を取り違える）
+        import g53_meaning as g
+        from flowctl import END_NONE, UNDECIDED
+        self.assertTrue(g.end_step(g.END_CONCERN))
+        F = {it["text"]: it for it in g.set_f()}
+        qm = g.question_map()
+
+        def miss(it, ans, end):
+            it = dict(it, j=ans, j終わり=end, j言い切り=True)
+            return g.flow_miss(it, qm[it["qid"]], "j")
+        it = F["そういうお電話はちょっと……。"]
+        self.assertIn(g.END_CONCERN, g.step_wants(it, qm[it["qid"]], True))
+        self.assertIsNone(miss(it, UNDECIDED, UNDECIDED))
+        self.assertEqual(miss(it, "はい", UNDECIDED), "違う伺い")
+        self.assertEqual(miss(F["結構です。"], "はい", UNDECIDED), "違う伺い")   # 正解の伺い（D2）と違う伺い（いまの話の向き）＝伺ったのは正しい側（要らない伺いではない）
+        self.assertEqual(miss(F["もういいです。"], "いいえ", END_NONE), "⛔伺わずに続ける")
 
 
 

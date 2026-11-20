@@ -88,7 +88,7 @@ ANSWER = [
     (RESERVED, "たぶん予約してると思います。", (END_NONE,), ("はい" + HEDGED,), False, "事実を伺う質問（6時05分・依頼者がすること＝初めの値の記録）"),
     # 2026-11-20 rv176/S2 の3回目の読み直し（束 r3 の #4＝答えを伏せた読み手2人がそろって、決められない・通話・営業を断ったの両方）：電話を終える言葉かは、書いてある決まりが2つとも
     # 当たる＝境目（CL-1 の決め。11-01 日本時間20時11分02秒「4.「こういう営業の電話、迷惑なんですけど。」：(ア) 断った」＝営業の電話そのものを嫌がる言葉は断った／表の正解 11-01 日本時間
-    # 23時59分「(a) OK」＝断りかけて言い切らずに濁しただけは決められない）。取り消せない発信禁止の印は、判定の組がそろって断ったと読んだときだけ（割れた＝ご遠慮の一言・印なし＝
+    # 23時59分「(a) OK」＝断りかけて言い切らずに濁しただけは決められない）。取り消せない発信禁止の印は、判定の組がそろって断ったと読んだときだけ（割れた＝本心を伺う一言 D2・印なし＝
     # rv176/S2/probe/split_r3.txt）。直す前の値＝決められない。先頭（表でお客様に聞こえる言葉を出す読み）は決められないのまま
     (RESERVED, "そういうお電話はちょっと……。", (UNDECIDED, END_REFUSED), (UNDECIDED,), False, "電話を断っていそうだが言い切っていない（決められない）・営業の電話そのものを嫌がる言葉（断った）の境目・答えでもない"),
     (RESERVED, "結構です。", (UNDECIDED, END_NONE), (UNDECIDED,), False, "10-17「その言葉だけで通話の断りとして締めない」"),
@@ -232,7 +232,7 @@ def _spoken(reply: dict | None) -> str:
 def answer_flow(row: tuple):
     """答えの段の行の言葉を、正解の読み（先頭）で流れの制御に当てる：(流れの制御, お客様に聞こえる言葉, 締めた理由・印の要約)。
     会話AIの報告は、正解の答えの報告（電話を終える読みがあれば、判定が先に当てる＝Flow._apply_one）。"""
-    from flowctl import Flow, Question
+    from flowctl import Question
     qtext, words, ends, answers, goal, _ = row
     q = question(qtext, goal)
     choices = q.conditions
@@ -240,7 +240,10 @@ def answer_flow(row: tuple):
     # それが分からないと警戒されるでしょ。」＝前は「ご連絡に都合のよい曜日はございますでしょうか？」。ご連絡の曜日や日時は、ご連絡してよいと言っていただいた
     # あとの業務の質問＝HedgedSalesTest.TALK の E1c）
     nxt = Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=YES_NO)
-    f = Flow([q, nxt], play_recordings=True)
+    # 業務の最初の質問を本番と同じ始まり方で流した所から（唯一の場所 g53_meaning.asked_flow＝測りの場面と同じ。⛔ 分身 S2 の 223f5b58 まで、ここで質問を並べた流れの制御だけを
+    # 組み、最初の質問を流した印が無かった＝序盤の一言を出していた）
+    from g53_meaning import asked_flow
+    f = asked_flow([q, nxt])
     f.use_checks("judge")
     f.on_callee(); f.on_heard(words); f.on_check("judge", _reading(answers[0], ends[0]))
     # 判定の読みだけで動く1か所（電話を終える言葉・待つ／かけ直す）が返さなければ、正解の答えの報告で当てる（⛔ 11-06 3時台に外した：言葉に「あとで」が
