@@ -7600,7 +7600,11 @@ class Flow:
                 q = self.questions.get(self.current) if self.current else None
                 if (q is not None and st["for"] in (None, q.id) and self.awaiting_confirm is None and self.items[q.id].state not in GOT
                         and any(st["check"].get(k) in q.all_conditions for k in JUDGMENTS)):
-                    self.answer_held = {"turn": st["turn"], "qid": q.id, "said": st["said"], "check": st["check"]}
+                    # head＝会話AIへの知らせの頭で、覚えておいた言葉がどの言葉かを名指す一文（応えたあとの戻りの1か所 _return_note。覚えておいた言葉は、会話AIがいま
+                    # 応える新しいお話ではなく、お待ちいただく前の言葉＝名指さないと、会話AIは応えたお話に答えが無いと読んで質問に戻り、もう答えていただいた質問を伺い直す。
+                    # 伺い76 ウ の読み「前のお話の答えは受け取ったまま＝もう答えていただいた質問を伺い直さない」。分身 B（rv179 の束1 の B3））
+                    head = f"相手は、こちらがお待ちいただくようお願いする前に、「{(st['said'] or '').strip()[:40]}」と言っていました。"
+                    self.answer_held = {"turn": st["turn"], "qid": q.id, "said": st["said"], "check": st["check"], "head": head}
             return False
         old, now = st["turn"], self.callee_turns
         self.story = None
@@ -11077,7 +11081,10 @@ class Flow:
                     f"何も言わずに record_answer で、聞いた答えのとおりに報告します（ほかにまだ言われたことがあれば、{ARG_LABEL['rest']}に書きます）。"
                     f"入っていなければ、{resume}（次の質問は、プログラムが流します。ほかに言われたことのうち、このあと伺うことの答えになりそうなことが"
                     f"残っていれば、{ARG_LABEL['rest']}に書きます）。" + choices_note(q))
-        return (f"相手のさきほどの言葉（こちらが応える前の言葉）に、いまの質問 {q.id}「{q.text}」への答えも入っていたなら、何も言わずに "
+        # 覚えておいた言葉がどの言葉か（head＝覚えた所が名指す一文。待っていただく一言のあとの別のお話＝_wait_answered）。無ければ、応える前の言葉（答えと世間話を
+        # 一緒に言われた＝_keep_answer_reading）
+        words = f"{h['head']}この言葉" if h.get("head") else "相手のさきほどの言葉（こちらが応える前の言葉）"
+        return (f"{words}に、いまの質問 {q.id}「{q.text}」への答えも入っていたなら、何も言わずに "
                 f"record_answer で、聞いた答えのとおりに報告します（「わからない」「答えたくない」も答えです）。入っていなければ、{resume}"
                 + ("（いまの質問は、プログラムが録音で流します）。" if self.play_recordings else "。") + choices_note(q))
 
@@ -13573,6 +13580,11 @@ class Flow:
                 # プログラムが…伺い直します」とだけ伝え、待つときと食い違った＝見直し (12) の D-5）
                 then = (f"ひとことが、業務の情報にあることでお話に応えた・{now}が尋ねていることに触れたときは、プログラムは伺い直さずに相手の返事を待ちます"
                         f"（相手の返事が答えなら、いつもどおり報告します）。そうでなければ、{then}")
+            if unlinked == "aside" and self._held_now() is not None:
+                # 応える前の言葉の答えを覚えている（待っていただく一言のあとの別のお話＝_wait_answered）：ひとことのあとは伺い直さず、答えの報告か質問に戻るかを会話AIが
+                # 選ぶ（_aside_again の1か所＝応えたあとの戻りの知らせ _return_note を、ひとことの返事で渡す）。⛔ 59b4aa37 まで「続けてプログラムが…伺い直します」と
+                # 伝え、プログラムのすることと食い違った（分身 B（rv179 の束1 の B3））
+                then = "ひとことのあと、プログラムは伺い直しません（そのあとのことは、ひとことの返事でお知らせします）。"
             return (f"いまは、相手のお話（「{asked[:40]}」）に、ひとこと応える番です。相手は、{now}に答えずに、{'また' if unlinked == 'again' and self.items[q.id].offer_again else ''}別のお話をしました"
                     f"（意味の判定）。報告はまだしません。replay_opening を「{PART_LABEL['talk']}」で呼び、相手のお話に応えるひとことを「{ARG_LABEL['answer']}」に書きます"
                     f"（短く1〜2文。{TALK_RECEIVE}質問や申し出の言い直し・お知らせの伝え直しは入れません。返す文が使えないときの一言も「{ARG_LABEL['fallback']}」から"

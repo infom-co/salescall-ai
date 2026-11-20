@@ -42241,6 +42241,30 @@ class WaitedStoryKeptTest(unittest.TestCase):
             self.assertEqual((f.items["Q1"].condition, f.taken["Q1"]["said"]), ("いいえ", w.STORY), play)
             self.assertNotIn("ご予約はされていますでしょうか", heard_words(r), play)
 
+    def test_the_notes_name_the_story_words_not_the_aside(self):
+        # 分身 B（rv179 の束1 の B3＝伺い76 ウ の読み「前のお話の答えは受け取ったまま＝もう答えていただいた質問を伺い直さない」）：別のお話にひとこと応えたあと、会話AIが
+        # 答えを報告するか質問に戻るかを選ぶ知らせ（応えたあとの戻りの1か所 Flow._return_note）は、覚えておいた前のお話の言葉（「いえ、まだです。」）を名指す。
+        # ⛔ 59b4aa37 まで「相手のさきほどの言葉（こちらが応える前の言葉）」とだけ伝え、その言葉は会話AIがいま応えた別のお話（「今日は暑いですねえ。」＝答えは無い）に
+        # 読めた＝会話AIが「質問に戻る」を選ぶと、もう答えていただいたご予約を「それではご予約は…」と伺い直した。別のお話への番の知らせ（_asked_note）も、覚えている答えが
+        # あるときはプログラムが伺い直さない（_aside_again）のに「続けてプログラムが、同じことを別の言い方で伺い直します」と伝えていた
+        from flowctl import AWAY, AWAY_YES, PROMPT_REPLY_NO, UNDECIDED
+        w = WaitLineReplyTest()
+        for play in (True, False):
+            f = w.waited(play)
+            f.on_callee(); f.on_heard("今日は暑いですねえ。")
+            r0 = w.rd(UNDECIDED, PROMPT_REPLY_NO)
+            setattr(r0, AWAY, AWAY_YES)
+            f.on_check("judge", r0)
+            r = f.on_silence(ours=True)
+            self.assertEqual(r["result"], "callee_asked", play)
+            self.assertNotIn("伺い直します", r["message"], play)
+            grounded(f, "本当に暑いですね。")
+            r = f.apply("replay_opening", {"part": "talk", "answer": "本当に暑いですね。"})
+            self.assertEqual(r["result"], "replayed", play)
+            self.assertIn(f"「{w.STORY}」", r["message"], play)
+            self.assertNotIn("さきほどの言葉（こちらが応える前の言葉）", r["message"], play)
+            self.assertIn("record_answer", r["message"], play)
+
     def test_thinking_after_the_wait_line_then_the_story_answer_has_one_hai(self):
         # 考えている途中（「えーと、そうですねえ……」）への「はい。」のあと、前のお話の答えの報告が届いた：答えは前のお話で受け、返事の頭に「はい、」を重ねない（本書 9-7＝
         # 1つの発話に相づちは1回。「はい。」を流した発話の印は、つなぎの「はい、」と同じ hai_turn）
