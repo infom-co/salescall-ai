@@ -63,6 +63,8 @@ def main() -> None:
     try:
         phone.start_call(number)
         result["placed"] = True
+        result["dial_timings"] = dict(getattr(phone.screen, "timings", {}))
+        print("  発信の手順ごとの秒数：", result["dial_timings"])
     except Exception as e:
         result["placed"] = False
         result["error"] = f"{type(e).__name__}: {e}"[:200]
