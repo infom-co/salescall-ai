@@ -1080,6 +1080,57 @@ class Check(unittest.TestCase):
         self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[1].unit, "名")
 
 
+def acquire_raw() -> dict:
+    """試験の顧客獲得型の業務設定（架空。CL-1 の連絡帳 4-208・4-211）：最初の質問はアポの日時（日時の型）・用件の名詞・Yes の質問の材料・特別感の条件・悩みと事例・お時間。"""
+    r = raw()
+    q1, q2 = r["questions"]
+    q1 = {**q1, "next": {"しない": "END", "*": "END"}}
+    r.update(questions=[q2, q1], call_type="acquire", purpose_noun="ご予約の確認", yes_asks=["御社は今、求人をご掲載されていて"],
+             special="ドライバーさんの採用に積極的", meeting_time="1時間",
+             pains=[["求人を出してもなかなか応募が集まらない", "導入した運送会社様の応募が3か月で2倍近くに増えた"]])
+    return r
+
+
+class CallTypes(unittest.TestCase):
+    """電話の型と顧客獲得型の材料（`business_settings._acquire` の1か所。会話の側の instruction.Business._check_call_type と同じ決まり＝CL-1 の連絡帳 4-208 の (1)・
+    4-211。✅ 2026-11-20 ユーザー「伺い78：…ア」）。"""
+
+    def test_an_acquiring_business_is_read_with_its_materials(self):
+        s = bs.check(acquire_raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((s.call_type, s.yes_asks, s.special, s.meeting_time, s.pains),
+                         ("acquire", ("御社は今、求人をご掲載されていて",), "ドライバーさんの採用に積極的", "1時間",
+                          (("求人を出してもなかなか応募が集まらない", "導入した運送会社様の応募が3か月で2倍近くに増えた"),)))
+        plain = bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((plain.call_type, plain.yes_asks, plain.pains), ("confirm", (), ()))   # 書かなければ確認の電話
+
+    def test_what_an_acquiring_business_needs_is_checked(self):
+        cases = {
+            "法人の業務だけ": {"target_class": "individual"},
+            "用件の名詞": {"purpose_noun": None},
+            "Yes の質問の材料": {"yes_asks": []},
+            "特別感の条件": {"special": None},
+            "悩みと事例の組": {"pains": []},
+            "最初の質問は": {"questions": list(reversed(acquire_raw()["questions"]))},
+            "の並び": {"pains": [["悩みだけ"]]},
+            "電話の型": {"call_type": "cold"},
+        }
+        for words, change in cases.items():
+            with self.subTest(words=words):
+                self.assertTrue(any(words in p for p in problems_of({**acquire_raw(), **change})), (words, problems_of({**acquire_raw(), **change})))
+        too_many = {**acquire_raw(), "pains": [["悩み", "事例"]] * (bs.PAINS_MAX + 1)}
+        self.assertTrue(any("悩みと事例の組" in p for p in problems_of(too_many)))
+        self.assertTrue(any("顧客獲得型の業務だけ" in p for p in problems_of({**raw(), "yes_asks": ["x"]})))   # 確認の電話には書かない
+
+    def test_the_import_reads_the_call_type_and_the_materials(self):
+        """取込のシート「基本」の欄（電話の型・Yes の質問の材料・特別感の条件・お時間・悩みN・悩みNの事例）を、業務設定の形にする（確かめは業務設定の1か所）。"""
+        from salescall.core import business_import
+        got = business_import._acquire({"call_type": "顧客獲得型", "yes_asks": "A／B", "special": "条件", "meeting_time": "1時間",
+                                        "pain1": "悩み1", "case1": "事例1", "pain3": "悩み3"}, problems := [])
+        self.assertEqual((got, problems), ({"call_type": "acquire", "yes_asks": ["A", "B"], "special": "条件", "meeting_time": "1時間",
+                                             "pains": [["悩み1", "事例1"], ["悩み3", ""]]}, []))
+        self.assertEqual(business_import._acquire({}, []), {})
+
+
 class MeansNames(unittest.TestCase):
     def test_means_words_are_the_report_means(self):
         """ご連絡の方法の言葉（業務設定の MEANS_WORDS。CL-1 の比べる試験が文字のまま読むので式にしない）の鍵は、会話の報告の方法の名前の1か所
