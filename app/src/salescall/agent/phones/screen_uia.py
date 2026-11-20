@@ -102,14 +102,14 @@ class UiaScreen:
         return not any(LINK_LOST.search(t or "") for t in texts)
 
     def state(self) -> str:
-        """通話の窓が無い＝idle。窓があって、通話の時間が 00:00 より進んでいる＝in_call。窓があってそれ以外＝calling。
-        ⏳ 呼び出し中に通話の時間が進むか（つながってから数えるか）は R-6 で確かめて、ここを直す。"""
+        """通話の窓が無い＝idle。窓があって、通話の時間が出ている＝in_call（つながった）。窓があって、時間が出ていない＝calling（呼び出し中）。
+        R-6（2026-11-20・管理者の PC）：呼び出し中は通話の時間が出ず、お客様が出た瞬間に「00:00」が出て数え始める。"""
         try:
             call = self._win("call")
             if call is None:
                 return "idle" if self._win("main") is not None else "unknown"
             timer = self.timer(call)
-            return "in_call" if timer and timer not in ("00:00", "0:00") else "calling"
+            return "in_call" if timer else "calling"
         except Exception:
             return "unknown"
 
