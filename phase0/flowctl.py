@@ -2527,16 +2527,19 @@ END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急い�
 GOAL_MODES = ("any", "all")
 # 締めた理由ごとの締めの種類（唯一の表。締めの言葉を選ぶ Flow._close・急いでいる方の締めか Flow.hurried・電話を終える言葉を聞いた所 Flow._end_heard は、ここから
 # 作った並びを読む）：
-#   thanks＝お礼の締め（phrases.CLOSING。お断り・目的から遠ざかる向きの答えのすぐあとは CLOSING_AFTER_DECLINE＝Flow._close）
-#   declined＝断られたときの締めの言葉（phrases.CLOSE_DECLINED）だけ同じ（番号違い＝本書 9-4「番号違いも同じ締めで終える」）。締めのあと7秒で切ってよい・念のための確認を
-#     しない、には入らない（DESIGN.md 6-14 の7秒は「お客様が急いでいる・通話を断られた」。CL-2 の call_report.HURRIED_ENDS も入れていない）
-#   hurried＝断られたときの締め（CLOSE_DECLINED）で、締めのあと7秒で切ってよい・念のための確認をしない（DESIGN.md 6-14・6-5＝Flow.hurried）
+#   thanks＝お礼の締め（phrases.CLOSING。お断り・目的から遠ざかる向きの答えのすぐあとは CLOSING_AFTER_DECLINE＝Flow._close）。締めのあと20秒で切ってよい（DESIGN.md 6-14 の
+#     「ふつうに終えたとき（質問が全部済んだ締めのあと）」）
+#   hurried＝断られたときの締め（CLOSE_DECLINED）で、締めのあと7秒で切ってよい・念のための確認をしない（DESIGN.md 6-14・6-5＝Flow.hurried）。番号違いも入る（本書 9-4 の
+#     「断られた・「もうかけないで」」の行「…断られたときのこの締めのあと7秒以上たったら切ってよい（DESIGN.md 6-14）。番号違いも同じ締めで終える。」＝7秒はこの締めに付いた
+#     決まり。番号違いは質問が全部済んだお礼の締めではない＝20秒は当たらない。締めたあとなので念のための確認はもう無い）。⛔ 59b4aa37 まで、番号違いは締めの言葉だけ同じ
+#     種類（declined）で7秒に入れていなかった（20秒たつまで切らない扱い。分身 B（rv179 の束1 の E1）＝CL-1 が書いてある決まりで決めた。CL-2 の call_report.HURRIED_ENDS
+#     は同じ写し＝足していただくよう知らせる）
 #   refused＝hurried のうち、通話を断られた・怒っている（取り消せない事実＝発信の拒否・苦情を残す＝Flow._end_heard。こちらがかけ直す申し出の言い切りを足さない＝Flow._close）
 # 表に無い理由（留守番電話・保留で待ちきった＝決まった文で締める／人ではない相手＝話さずに切る／取り次げない2つ＝締めない）は、締めの言葉を渡さずに締めることが無い
 # （渡さなければ断られたときの締めの言葉＝お礼の締めは thanks の理由だけ）。⛔ 2026-11-20 まで、断られたときの締めで終える理由を2つの表（DECLINED_ENDS と Flow._close の
 # 中の表）と Flow._close の中で直に書いた断り・苦情で持ち、番号違いで食い違った（読む担当 G が見つけ、CL-1 が作りで確かめた）
 CLOSE_KINDS = {"done": "thanks", "callback": "thanks", "not_transferred": "thanks", "departed": "thanks", "other_means": "thanks",
-               "goal_refused": "thanks", "not_agreed": "thanks", "wrong_party": "declined", "callee_hurry": "hurried",
+               "goal_refused": "thanks", "not_agreed": "thanks", "wrong_party": "hurried", "callee_hurry": "hurried",
                "callee_refused_call": "refused", "callee_complaint": "refused",
                # 顧客獲得型の Yes の質問の段で、用意した材料も会話AIの中身も尽きた・確かめを通らなかった＝丁寧に締めて日を改める（伺い82 ア＝Flow._yes_written）
                "yes_used_up": "thanks",
@@ -2544,7 +2547,8 @@ CLOSE_KINDS = {"done": "thanks", "callback": "thanks", "not_transferred": "thank
                # お礼の締めで日を改める（Flow._main_ask。分身 K2）
                "no_pain": "thanks"}
 THANKS_ENDS = tuple(k for k, v in CLOSE_KINDS.items() if v == "thanks")   # お礼の締めで終える理由
-# 急いでいる方の締め（hurried・refused）で終える理由＝念のための確認はしない（DESIGN.md 6-5）・締めのあと7秒で切ってよい（6-14）。CL-2 の call_report.HURRIED_ENDS と同じ（試験で比べる）
+# 断られたときの締め（hurried・refused。急いでいる・断られた・怒っている・番号違い）で終える理由＝念のための確認はしない（DESIGN.md 6-5）・締めのあと7秒で切ってよい（6-14）。
+# CL-2 の call_report.HURRIED_ENDS と同じ（試験で比べる）
 DECLINED_ENDS = tuple(k for k, v in CLOSE_KINDS.items() if v in ("hurried", "refused"))
 REFUSED_ENDS = tuple(k for k, v in CLOSE_KINDS.items() if v == "refused")   # 通話を断られた・怒っている
 # 電話の型（業務設定の欄＝instruction.Business.call_type。CL-2 へ頼んだ欄＝CL-1.md 4-207 の (a)。値の名前は仮＝CL-2 の答えで替えるのはここ1か所）：
@@ -19278,7 +19282,8 @@ class Flow:
 
     @property
     def hurried(self) -> bool:
-        """相手が急いでいる・通話を断られた・怒っている、で締めたか（締めは断られたときの言い方。念のための確認をしないかは、これも入れて _no_recheck の1か所）。"""
+        """相手が急いでいる・通話を断られた・怒っている・番号違い、で締めたか（締めは断られたときの言い方・締めのあと7秒で切ってよい＝CLOSE_KINDS の hurried・refused。
+        念のための確認をしないかは、これも入れて _no_recheck の1か所）。"""
         return self.end_reason in DECLINED_ENDS
 
     def _no_recheck(self) -> bool:

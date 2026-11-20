@@ -77,6 +77,10 @@ CL2_PENDING_VALUES: dict = {}
 # 入ったら落ちる＝ここから外す（比べる試験 TargetTest の test_names_match_cl2_business_settings）。顧客獲得型の1つ目（Yes の質問の中身＝分身 K1・4-208）・2つ目（「ただ」に
 # 続ける中身＝分身 K2・4-211）・3つ目（悩みがどれも無いときの E4 の句＝分身 U1・4-217）
 CL2_PENDING_ANSWER_RESERVED: frozenset[str] = frozenset({"yes", "Yesの質問の中身", "but", "ただに続ける中身", "ahead", "今後の心配の句"})
+# CL-2 の名前の組（比べる試験 Cl2Answers1119Test の test_6_names_match_cl2 の表の組の名前）に、まだ入っていない会話の側の値（名前の組ごと）。名前そのものは CL-2 の
+# ほかの組にもう在る（例：番号違い wrong_party は PARTY_KINDS に在る）ので CL2_PENDING には入れられない。CL-2 の組に入ったら落ちる＝外す。
+# HURRIED_ENDS の wrong_party＝番号違いの締めのあとも7秒で切ってよい（分身 B（rv179 の束1 の E1）。CL-2 へ知らせる＝rv179/B/notes.md）
+CL2_PENDING_IN: dict[str, frozenset[str]] = {"HURRIED_ENDS": frozenset({"wrong_party"})}
 # （2026-11-20 日本時間21時台に外した：CL-2 の第3便が main に入った＝15c02cea・CL-2 の連絡帳 4-445＝CL-1.md 4-219・4-220：CL2_PENDING の recall・顧客獲得型の1つ目と2つ目の
 # 名前（Y1・Y2・refusal_said・yes_used_up・no_pain・共通の一言の録音と名前の録音の台帳の続く言葉）・分身 M の共通の一言の録音3つ（wrong_number_ask・omatase・wait_soon）と
 # 役職の方の名乗りの部分4つと to_role・role_call・名前の前の言葉の録音5つ（name_head_*）・分身 N の available_until・clock24・mobile_owner・空いている予定と連絡先
@@ -9248,7 +9252,8 @@ class PartyTest(unittest.TestCase):
         from phrases import CLOSE_DECLINED
         f = self.flow()
         r = self.say(f, "え、うちは山田ですけど、番号をお間違えではないですか？", "report_party", party="wrong_party")
-        self.assertEqual((r["result"], r["say"], r["ack"], f.end_reason, f.hurried), ("end", CLOSE_DECLINED, None, "wrong_party", False))
+        # 番号違いの締めのあとも、断られたときと同じく7秒たったら切ってよい（hurried＝締めた理由の表 CLOSE_KINDS の1か所。分身 B（rv179 の束1 の E1））
+        self.assertEqual((r["result"], r["say"], r["ack"], f.end_reason, f.hurried), ("end", CLOSE_DECLINED, None, "wrong_party", True))
         self.assertEqual(f.irreversible_check, "none")   # 番号違いは会話AIの報告だけで決まる＝録音の確かめまで保留（10-30 (6)）
         self.assertIn("番号をお間違え", f.facts["party"][0]["said"])
 
@@ -38600,7 +38605,10 @@ class Cl2Answers1119Test(unittest.TestCase):
                 continue
             theirs = set().union(*parts)
             compared.append(var)
-            self.assertEqual((sorted(without_cl2_pending(self, mine, theirs) - theirs), sorted(theirs - mine)), ([], []), f"{path} の {var}（こちらだけ, CL-2 だけ）")
+            pending = CL2_PENDING_IN.get(var, frozenset())   # その組にまだ入っていない値（CL-2 の組に入ったら落ちる＝外す）
+            self.assertEqual(sorted(pending & theirs), [], f"CL-2 の {var} に入った値は、CL2_PENDING_IN から外す")
+            self.assertEqual((sorted(without_cl2_pending(self, mine, theirs) - theirs - pending), sorted(theirs - mine)), ([], []),
+                             f"{path} の {var}（こちらだけ, CL-2 だけ）")
         if not compared:
             self.skipTest("CL-2 の部品（app/）がまだ無い")
         self.assertEqual(len(compared), len(table))
@@ -41597,13 +41605,14 @@ class DeclinedCloseTableTest(unittest.TestCase):
     """締めた理由ごとの締め（お礼の締め・断られたときの締めの言葉・急いでいる方の締め＝締めのあと7秒で切ってよい・念のための確認をしない・もうかけない／怒っている）は、
     1つの表（flowctl.CLOSE_KINDS）から作る。⛔ それまでは、断られたときの締めで終える理由を2つの表（DECLINED_ENDS と Flow._close の中の表 polite）と、Flow._close の
     中で直に書いた断り・苦情で持ち、番号違い（wrong_party）で食い違った（締めの言葉は断られたときの締め・DECLINED_ENDS には無い＝読む担当 G が見つけ、CL-1 が作りで
-    確かめた）。番号違いは締めの言葉だけ同じ（本書 9-4「番号違いも同じ締めで終える」）・急いでいる方の締めではない（DESIGN.md 6-14 の7秒は「お客様が急いでいる・通話を
-    断られた」＝CL-2 の call_report.HURRIED_ENDS と同じ写しのまま）。"""
+    確かめた）。番号違いも同じ締め（本書 9-4「番号違いも同じ締めで終える」）＝締めのあと7秒で切ってよい側（本書 9-4 の「この締めのあと7秒以上たったら切ってよい」は
+    断られたときの締めの言葉に付いた決まり。20秒は「質問が全部済んだ」お礼の締めのあと）。⛔ 59b4aa37 まで、番号違いは締めの言葉だけ同じ種類（declined）で、7秒に入れて
+    いなかった（分身 B（rv179 の束1 の E1）＝CL-1 が書いてある決まりで決めた。CL-2 の call_report.HURRIED_ENDS に入るまでは CL2_PENDING_IN が待つ）。"""
 
     def test_one_table_makes_the_close_sets(self):
         from flowctl import CLOSE_KINDS, DECLINED_ENDS, END_REASONS, REFUSED_ENDS, THANKS_ENDS
         self.assertLessEqual(set(CLOSE_KINDS), set(END_REASONS))
-        self.assertEqual(set(CLOSE_KINDS.values()), {"thanks", "declined", "hurried", "refused"})
+        self.assertEqual(set(CLOSE_KINDS.values()), {"thanks", "hurried", "refused"})
         self.assertEqual(THANKS_ENDS, tuple(k for k, v in CLOSE_KINDS.items() if v == "thanks"))
         self.assertEqual(DECLINED_ENDS, tuple(k for k, v in CLOSE_KINDS.items() if v in ("hurried", "refused")))
         self.assertEqual(REFUSED_ENDS, tuple(k for k, v in CLOSE_KINDS.items() if v == "refused"))
@@ -41611,9 +41620,9 @@ class DeclinedCloseTableTest(unittest.TestCase):
         # （yes_used_up＝顧客獲得型の Yes の質問の段で材料も会話AIの中身も尽きて日を改めるお礼の締め＝分身 K1 で足した。確認の電話の型の理由は前と同じ）
         # （no_pain＝顧客獲得型の本題の段で悩みがどれも無く日を改めるお礼の締め＝分身 K2 で足した）
         self.assertEqual(set(THANKS_ENDS), {"done", "callback", "not_transferred", "departed", "other_means", "goal_refused", "not_agreed", "yes_used_up", "no_pain"})
-        self.assertEqual(set(DECLINED_ENDS), {"callee_hurry", "callee_refused_call", "callee_complaint"})
+        self.assertEqual(set(DECLINED_ENDS), {"callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party"})
         self.assertEqual(set(REFUSED_ENDS), {"callee_refused_call", "callee_complaint"})
-        self.assertEqual(CLOSE_KINDS["wrong_party"], "declined")
+        self.assertEqual(CLOSE_KINDS["wrong_party"], "hurried")
 
     def test_close_has_no_reason_list_of_its_own(self):
         # 締めの1か所 Flow._close と、電話を終える言葉を聞いた所は、理由の名前の並びを直に書かない（表から作った並びを読む）
@@ -41626,7 +41635,7 @@ class DeclinedCloseTableTest(unittest.TestCase):
         self.assertEqual(found, [])
 
     def test_each_reason_closes_with_its_words(self):
-        # 表の種類ごとの締めの言葉と hurried（直す前の作りと同じ）：番号違いは断られたときの締めの言葉・急いでいる方の締めではない。目的が果たせなくなった
+        # 表の種類ごとの締めの言葉と hurried：番号違いは断られたときの締めの言葉・締めのあと7秒で切ってよい（E1）。目的が果たせなくなった
         # お断り（goal_refused）は「承知いたしました。」で受けてからのお礼の締め（DESIGN.md 6-14 の 11-04 の行）
         from flowctl import CLOSE_KINDS
         from phrases import CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE
@@ -41638,7 +41647,7 @@ class DeclinedCloseTableTest(unittest.TestCase):
             self.assertEqual((r["say"], f.hurried), (words, kind in ("hurried", "refused")), reason)
         f = CallFactsTest().flow()
         r = CallFactsTest.say(f, "番号違いますよ。", "report_party", party="wrong_party")
-        self.assertEqual((r["say"], f.end_reason, f.hurried), (CLOSE_DECLINED, "wrong_party", False))
+        self.assertEqual((r["say"], f.end_reason, f.hurried), (CLOSE_DECLINED, "wrong_party", True))
 
 
 # ── こちらからおかけする営業の電話（顧客獲得型）の1つ目：電話の型・尺度の表・発信の拒否の印の時機・用件の一言と Yes の質問の段（分身 K1）
