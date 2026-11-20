@@ -53,7 +53,15 @@ from salescall.link.jst import JST
 
 FIELDS = ("phone", "client_ref", "name", "name_reading", "person_name", "person_name_reading", "person_role",
           "person_full_name", "person_full_name_reading", "person_department", "exclude",
-          "designated_phone", "mobile", "email", "fax", "address", "line_id", "meeting_id", "meeting_service")
+          "designated_phone", "mobile", "email", "fax", "address", "line_id", "meeting_id", "meeting_service",
+          "contact_source", "phone_source", "designated_phone_source", "mobile_source", "email_source", "fax_source", "address_source",
+          "line_id_source")
+# 連絡先の出どころの欄（0265。✅ 2026-11-20 ユーザー（計画書 9-4・伺い66）「ア(お客様から伺ったものや会社の方から伺ったもの)、こちらが無断で取ったメールならウ 伺い直す。」・
+# （出どころの欄の伺い）「基本アだが、行ごとに変更も可能」）：連絡先の欄 → その連絡先の出どころの欄。空なら行の欄 contact_source（その行の連絡先すべて）。
+# 言葉は customer_contacts.HEARD_WORDS（読むのは customer_contacts.heard_word の1か所）。オンライン面談用の ID は会話で伺う連絡先でないので持たない
+_SOURCE_FIELDS = {"phone": "phone_source", "designated_phone": "designated_phone_source", "mobile": "mobile_source", "email": "email_source",
+                  "fax": "fax_source", "address": "address_source", "line_id": "line_id_source"}
+ROW_SOURCE = "contact_source"
 # 番号の欄（会社の電話番号・お客様が指定した電話番号・携帯電話番号。どれも番号の正規化を通す）と、番号ではない連絡先の欄 → 連絡先の種類
 # （2026-11-05 ユーザー。かける番号は、お客様が指定した電話番号があればそれ、無ければ会社の番号＝customer_contacts.dial_label の1か所。
 # かけない番号は記録だけ＝発信禁止の範囲には入る。どれも無くてもよい欄。ファクス番号は番号ではない連絡先＝かけない・声で話さない）
@@ -148,6 +156,7 @@ class RowPlan:
     list_label: str = "company"   # かける番号の名札（customer_contacts.dial_label）
     record_numbers: tuple[tuple[PhoneNumber, str], ...] = ()      # 記録だけの番号（番号, 名札）
     contact_values: tuple[tuple[str, str, str | None], ...] = ()  # 番号ではない連絡先（種類, 値, サービス名）
+    heard: tuple[tuple[str, str, str], ...] = ()                 # 連絡先の出どころ（種類＝number か番号ではない連絡先の種類, 値, customer／company。分からないものは入れない）
     # 登録済みの行に足す番号・連絡先の持ち主の期（`_list_owner`。None＝いまの担当の方／FIRST_PERIOD＝一覧の方＝最初の担当の方）
     owner_period: str | None = None
 
@@ -158,7 +167,8 @@ class RowPlan:
                 self.client_ref, self.name, self.source_phone, str(self.task_id) if self.task_id else None,
                 self.name_reading.as_json(), self.person_name, self.person_reading.as_json(), self.person_role, self.exclusion,
                 self.person_full_name, self.person_full_reading.as_json(), self.person_department, self.list_label,
-                [[x.e164, label] for x, label in self.record_numbers], [list(c) for c in self.contact_values], self.owner_period]
+                [[x.e164, label] for x, label in self.record_numbers], [list(c) for c in self.contact_values], self.owner_period,
+                [list(h) for h in self.heard]]
 
 
 @dataclass(frozen=True)
@@ -253,6 +263,9 @@ def register(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, exp
                 customer_contacts.add(tx, task_id, kind, value, service=service, origin="list", import_id=import_id,
                                       source_row=r.row_no)
             next_action.schedule_now(tx, task_id, cause="取込")
+        if r.outcome in ("registered", "already"):   # 一覧の連絡先の出どころ（いまの出どころと同じなら書かない＝customer_contacts.note_heard）
+            for kind, value, heard in r.heard:
+                customer_contacts.note_heard(tx, task_id, kind, value, heard, import_id=import_id)
         if r.outcome == "already":   # もう登録した行：一覧で新しく増えた連絡先だけを足す（`_plan` が選んだもの。2026-11-15 ユーザー「足す」）
             for number, label in r.record_numbers:
                 customer_contacts.add_number(tx, task_id, number, label, origin="list", owner_period=r.owner_period)
@@ -286,6 +299,34 @@ def _columns(sheet: Sheet, mapping: dict[str, str]) -> dict[str, int]:
 
 
 _text = import_columns.text
+_FIELD_OF_KIND = {kind: field for field, kind in _CONTACT_FIELDS.items() if field in _SOURCE_FIELDS}   # 番号ではない連絡先の種類 → 欄（出どころのあるものだけ）
+
+
+class _HeardInvalid(ValueError):
+    def __init__(self, field: str, why: str):
+        super().__init__(why)
+        self.field = field
+
+
+def _heard_of(row: Any, cols: dict[str, int], contacts: list[tuple[str, str, str]]) -> tuple[tuple[str, str, str], ...]:
+    """その行の連絡先の出どころ（1か所）：contacts＝[(欄, 種類, 値)]。その連絡先の出どころの欄に言葉があればそれ（「そのほか」＝分からない）、空なら行の欄
+    contact_source。分からない連絡先は入れない（会話は今のまま伺い直す）。"""
+    def word(field: str) -> tuple[bool, str | None]:
+        t = _text(row, cols, field)
+        if t is None:
+            return False, None
+        try:
+            return True, customer_contacts.heard_word(t)
+        except ValueError as e:
+            raise _HeardInvalid(field, str(e)) from None
+    _, row_heard = word(ROW_SOURCE)
+    out = []
+    for field, kind, value in contacts:
+        given, own = word(_SOURCE_FIELDS[field])
+        heard = own if given else row_heard
+        if heard is not None:
+            out.append((kind, value, heard))
+    return tuple(out)
 _zero_lost = import_columns.zero_lost
 
 
@@ -406,6 +447,13 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
                 continue
             records.append((other, label))
             fields[other.e164] = field
+        # 連絡先の出どころ（`_heard_of` の1か所）：読めない言葉なら止める
+        try:
+            found["heard"] = _heard_of(row, cols, [(dial_field, "number", number.e164), *((fields[x.e164], "number", x.e164) for x, _ in records),
+                                                   *((_FIELD_OF_KIND[k], k, v) for k, v, _ in values if k in _FIELD_OF_KIND)])
+        except _HeardInvalid as e:
+            rows.append(stop("contact_invalid", f"「{title(e.field)}」の欄：{e}"))
+            continue
         # この実施回にもう登録した行（同じ番号・同じ管理番号）：行は変えず、一覧で新しく増えた連絡先（記録だけの番号・番号ではない連絡先）だけを足す
         # （✅ 2026-11-15 ユーザー「足す（お勧め）」＝連絡先は記録を足していく。足した番号でお客様が断っていれば、門が行へかけない理由の1か所で止める）。
         # ⛔ それまで：足さず、プレビューにも出なかった（かけない理由に当たると「止める」と出たが、登録済みの行はそのままかかり続けた）

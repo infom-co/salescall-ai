@@ -279,6 +279,16 @@ def known_contacts(tx: Tx, task_id: UUID) -> dict[str, str]:
     return customer_contacts.by_role(tx, task_id)
 
 
+def listed_contacts(tx: Tx, attempt_id: UUID) -> list[dict[str, Any]]:
+    """その通話の会話へ渡す、分かっている連絡先と出どころ（会話の側の Flow の listed_contacts にそのまま渡す形＝CL-1 の連絡帳 4-212。選び方と出どころは
+    customer_contacts.listed の1か所）：[{kind, value, source＝customer／company／None, dialed＝その通話でかけている番号か}]。✅ 2026-11-20 ユーザー（計画書 9-4・
+    伺い66）：お客様・お客様の会社の方から伺った連絡先は、会話の側がこちらから言って確かめ、分からない・無断で取った連絡先は今のまま伺い直す。"""
+    a = tx.one("SELECT task_id, phone_e164 FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
+    if a is None:
+        raise AttemptNotFound(attempt_id)
+    return customer_contacts.listed(tx, a["task_id"], a["phone_e164"])
+
+
 def save_rebuilt_report(tx: Tx, attempt_id: UUID, raw: Any, *, evidence: str) -> int:
     """通話の録音から作り直した報告を置く（通話後の検証が呼ぶ。「判定できない」の通話を判定し直すため）。作り直しの番号を返す。"""
     report = call_report.from_json(raw)

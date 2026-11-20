@@ -362,6 +362,29 @@ class CustomerContacts(Base):
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, b)), {"mobile": e(mobile2).e164})
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, c)), {"mobile": e("090-0000-0103").e164})
 
+    def test_where_each_contact_came_from_goes_to_the_conversation(self):
+        """連絡先の出どころ（0265。✅ 2026-11-20 ユーザー（計画書 9-4・伺い66）「ア(お客様から伺ったものや会社の方から伺ったもの)、こちらが無断で取ったメールならウ 伺い直す。」・
+        （出どころの欄の伺い）「基本アだが、行ごとに変更も可能」）：一覧の連絡先ごとの出どころの欄（言葉は customer_contacts.HEARD_WORDS）・空なら行の欄 contact_source・
+        「そのほか」と空は分からない（会話は今のまま伺い直す）。読めない言葉の行は止める。会話へは、分かっている連絡先と出どころと、
+        その通話でかけている番号か（conversation_io.listed_contacts＝customer_contacts.listed の1か所。会話の側の listed_contacts）。"""
+        header = self.HEADER + ("メールの出どころ", "携帯の出どころ", "連絡先の出どころ")
+        mapping = dict(self.MAP, email_source="メールの出どころ", mobile_source="携帯の出どころ", contact_source="連絡先の出どころ")
+        mobile = "090-0000-0141"
+        rows = [("A", "架空商事", fictional_jp_fixed(), None, mobile, "a@example.com", None, None, "abc_1", None, None, "そのほか", None, "会社の方から"),
+                ("B", "架空物産", fictional_jp_fixed(), mobile.replace("41", "42"), None, "b@example.com", None, None, None, None, None, None, "お客様から", None),
+                ("C", "架空工業", fictional_jp_fixed(), None, None, "c@example.com", None, None, None, None, None, "ネットで調べた", None, None)]
+        r = self.register(csv_file(rows, header=header), mapping=mapping)
+        self.assertEqual(self.outcomes(r), [(2, "registered", None), (3, "registered", None), (4, "stopped", "contact_invalid")])
+        self.assertIn("メールの出どころ", r["rows"][2]["reason"])
+        a, b = r["rows"][0]["task_id"], r["rows"][1]["task_id"]
+        e = normalize
+        got = lambda task: sorted((c["kind"], c["source"]) for c in self.tx(lambda tx: customer_contacts.listed(tx, task, None)))   # noqa: E731
+        self.assertEqual(got(a), [("email", None), ("line", "company"), ("mobile", "company")])   # メールは「そのほか」・ほかは行の欄
+        self.assertEqual(got(b), [("email", None), ("mobile", None)])                              # 携帯の欄の出どころは、指定の番号には当てない
+        # かけている番号か（いまお電話している番号）
+        self.assertEqual([c["dialed"] for c in self.tx(lambda tx: customer_contacts.listed(tx, b, e(mobile.replace("41", "42")).e164))
+                          if c["kind"] == "mobile"], [True])
+
     def test_known_contacts_are_the_current_persons_and_mobile_is_decided_by_the_number_kind(self):
         """会話の側へ渡す分かっている連絡先（conversation_io.known_contacts＝customer_contacts.by_role の1か所）は、いまお呼びする方のものだけ（連絡先の持ち主の期＝
         salescall.task_person_contacts・番号は tasks.former_numbers を除く。0226）。携帯電話かは番号の種類（phone.SMS_KINDS）で決める（一覧の「携帯」の列の
