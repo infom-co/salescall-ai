@@ -45784,3 +45784,113 @@ class S3RestPrepTest(unittest.TestCase):
         self.assertFalse(exp("受け答え")(call([back, card]))["2つ目のお返事に応じた"])
         self.assertTrue(all(exp("聞き返し")(call([unclear, card])).values()))
         self.assertFalse(exp("聞き返し")(call([ans]))["2つ目のお返事に応じた"])
+
+
+class S4ReadersTTest(unittest.TestCase):
+    """分身 S4（まとめ役 CL-1 の頼み rv178/S4）：答えを伏せた読み手2人（rv178/S3/readers の束 t＝分身 S3 の続き (2) で試しの言葉の表に足した10行）の読みを、書いてある決まりと
+    いただいたお答えに当てて付けた正解（形は分身 S3 の続き (3)＝2人がそろった読みはその読み・割れた所と「どちらとも取れる」は決まりとお答えで。説明の文は直さない＝CL-1 の決め）。
+    (1) そろった読み：聞き取れなかったお知らせの最終の確かめへの「はい、大丈夫ですよ。」の別のお話か＝答えの話（付けていなかった＝どちらの読みも正解だった）。理由（why）は、
+        読み手の読みが表の並び（流れの制御で同じ動きの理由）の中＝替えない（分身 S3 と同じ）
+    (2) 決まりで決めた境目：決め手を伺う一言（E5）への「料金が安いところですかね。」「対応が早いので。」「前の担当が決めたので分からないです。」のほかの会社の項目＝言っていない・
+        ご案内全体（説明の文「いまの言葉で…頼んでいる・使っている、と言った」と、質問「そちらの会社をお選びになった決め手は」への返事として読む決まりの2つが当たる＝読み手2人とも
+        両方を挙げた）。E5 ではほかの会社のことをもう伺った（E1＝1通話1回）＝どちらの読みでも、判定の組がそろっても割れても、流れの制御の返事と取り消せない印は同じ（印は付かない）。
+        「前の担当が決めたので…」の理由（読み手2人とも「担当ではない」「決められない」）は数えない（答えが「決め手は無い」＝流れの制御は理由の読みを使わない＝表の決まり）
+    (3) お答えで決めた：ほかのご希望 W1 の「それで結構です。」＝決められないだけ（読み手2人とも「無い」も挙げた＝会話まで読むと「無い」。✅ 2026-11-05 日本時間23時19分06秒の (2)
+        「日本語として会話が繋がっておらず…」＝「ほかの希望は無い」とは受け取らない・✅ 2026-11-08 日本時間16時34分23秒）＝「無い」と読むと受け取ってしまう（外れと数える）"""
+
+    @staticmethod
+    def rows():
+        from review_words import answer_words
+        return {(it["qid"], it.get("scene"), it["text"]): it for it in answer_words()}
+
+    def wanted(self):
+        """(質問の番号, 場面の印, 言葉) ⇒ (答えの正解, 別のお話かの正解（None＝付けない＝どちらも正解）, ほかの会社の項目の正解, 理由の正解（None＝数えない）)。"""
+        from flowctl import AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, ELSEWHERE_ALL, ELSEWHERE_NO, WHY_NOT_SAID
+        from meaning_judge import UNDECIDED, WITHDREW
+        from review_words import ELSEWHERE_POINT_SCENE as point, WITHDRAW_WAY_SCENE as way
+        both, other = (AWAY_YES, AWAY_NO), {WHY_NOT_SAID, DONT_KNOW_LABEL["unspecified"], UNDECIDED}
+        no, border = (ELSEWHERE_NO,), {ELSEWHERE_NO, ELSEWHERE_ALL}
+        return {
+            ("R7", None, "はい、大丈夫ですよ。"): (["はい"], (AWAY_NO,), no, None),   # (1) 別のお話かを読み手2人のそろった読みに
+            ("N5", way, "あ、やっぱり詳しい方からのお話はいいです。"): ([WITHDREW], both, no, None),
+            ("N5", way, "メールはちょっと…"): ([UNDECIDED], both, no, other),
+            ("E5", point, "料金が安いところですかね。"): (["決め手を言った"], both, border, None),   # (2)
+            ("E5", point, "対応が早いので。"): (["決め手を言った"], both, border, None),
+            ("E5", point, "特にないですね。"): (["決め手は無い"], both, no, None),   # 読み手2人とも言っていない（そろった）
+            ("E5", point, "前の担当が決めたので分からないです。"): (["決め手は無い"], both, border, None),
+            ("W1@G17", None, "それで結構です。"): ([UNDECIDED], both, no, other),   # (3)
+            ("N2", None, "はい、まだあります。"): (["点は言っていない"], both, no, None),
+            ("N2", None, "ええ、まだちょっとありますね。"): (["点は言っていない"], both, no, None),
+        }
+
+    def test_1_truths_are_the_readers_readings_put_to_the_rules(self):
+        import g53_meaning as g
+        rows = self.rows()
+        for key, (accept, away, elsewhere, why) in self.wanted().items():
+            with self.subTest(key=key):
+                it = rows[key]
+                self.assertEqual(it["label"]["accept"], accept)
+                self.assertEqual(set(g.away_truths(it)), set(away))
+                self.assertEqual(set(g.elsewhere_truths(it)), set(elsewhere))
+                self.assertEqual(None if g.why_accept(it) is None else set(g.why_accept(it)), why)
+
+    @staticmethod
+    def pair_turn(it, pair):
+        """判定の組（judge・judge2）が pair と読んだときの、行の場面（測りの数えの1か所 g53_meaning.flow_scene）の本番の流れの制御の返事と取り消せない印。報告は測りの中立の報告。"""
+        import g53_meaning as g
+        from end_words import _spoken
+        from flowctl import JUDGMENTS
+        from review_words import questions
+        q = questions()[it["qid"]]
+        f, qid = g.flow_scene(it, q)
+        f.use_checks(*JUDGMENTS)
+        f.on_callee(); f.on_heard(it["text"])
+        for k, r in zip(JUDGMENTS, pair):
+            f.on_check(k, r)
+        f.on_decided()
+        rep = f.judged_turn(voiced=False)
+        if rep is None:
+            op, args = g._neutral_report(f, qid, pair[0], it.get("value"))
+            rep = f.apply(op, args)
+        marks = frozenset(k for k in ("do_not_call", "complaint", "goal_refused") if f.facts.get(k))
+        return _spoken(rep), f.end_reason, marks, repr(f.whole)
+
+    def test_2_border_and_changed_items_move_the_same_and_leave_no_mark(self):
+        # 正解の値を替えた項目（R7 の別のお話か）・境目にした項目（E5 のほかの会社）は、判定の組がそろっても割れても、流れの制御の返事・締め・ご案内全体の印が同じで、
+        # 取り消せない印（もうかけない・苦情・この業務はかけない）は付かない
+        import g53_meaning as g
+        from flowctl import AWAY, AWAY_NO, AWAY_YES, ELSEWHERE, ELSEWHERE_ALL, ELSEWHERE_NO, END, END_NONE, HEAR, HEAR_OK, QUERY, QUERY_NO
+        from meaning_judge import Reading
+
+        def rd(answer, **items):
+            r = Reading(answer, True)
+            for k, v in ((QUERY, QUERY_NO), (END, END_NONE), (HEAR, HEAR_OK), *items.items()):
+                setattr(r, k, v)
+            return r
+        rows = self.rows()
+        cases = [(("R7", None, "はい、大丈夫ですよ。"), AWAY, (AWAY_NO, AWAY_YES))]
+        cases += [(k, ELSEWHERE, (ELSEWHERE_NO, ELSEWHERE_ALL)) for k, (_, _, e, _) in self.wanted().items() if ELSEWHERE_ALL in e]
+        self.assertEqual(len(cases), 4)
+        for key, item, (a, b) in cases:
+            with self.subTest(key=key):
+                it = rows[key]
+                ans = it["label"]["accept"][0]
+                got = {name: self.pair_turn(it, (rd(ans, **{item: x}), rd(ans, **{item: y})))
+                       for name, (x, y) in (("そろって一方", (a, a)), ("割れた", (a, b)), ("そろってもう一方", (b, b)))}
+                self.assertEqual(len(set(got.values())), 1, got)
+                self.assertEqual(next(iter(got.values()))[2], frozenset())
+                for x in (a, b):
+                    self.assertIsNone(g.flow_miss(RereadRowsTest.reading(None, it, **{item: x}), questions_of(it), "j"))
+
+    def test_3_the_answer_decides_against_none_wished(self):
+        # 「それで結構です。」を「無い」と読むと、意味合いを尋ねずに受け取ってしまう＝外れと数える（✅ 2026-11-05 日本時間23時19分06秒の (2)）
+        import g53_meaning as g
+        it = self.rows()[("W1@G17", None, "それで結構です。")]
+        self.assertIsNone(g.flow_miss(RereadRowsTest.reading(None, it), questions_of(it), "j"))
+        self.assertIsNotNone(g.flow_miss(RereadRowsTest.reading(None, it, answer="無い"), questions_of(it), "j"))
+
+
+def questions_of(it):
+    """試しの言葉の表の行の質問（review_words.questions の1か所）。"""
+    from review_words import questions
+    return questions()[it["qid"]]

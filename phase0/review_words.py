@@ -16,7 +16,7 @@ from __future__ import annotations
 import functools
 
 from flowctl import (ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_NONE, ABOUT_WRONG, ABSENT_WHY, ABSENT_WHY_NOT_SAID, AWAY, END, END_NONE, HEAR, HEAR_OK, OFFER,
-                     OFFER_NOT_SAID, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, HESITATING, KEEP_ON,
+                     OFFER_NOT_SAID, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, ELSEWHERE, ELSEWHERE_ALL, ELSEWHERE_NO, HESITATING, KEEP_ON,
                      END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PHONE, PHONE_NONE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
                      REFUSED_LABEL, REPEAT, HEAR_LOST, SPEAKER, SPEAKER_SAME, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHO, WHO_RECEPTION, WHY_NOT_SAID, WRONG,
                      WRONG_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question, ladder_side_name, pain_question, since_form)
@@ -117,17 +117,18 @@ WHY_HESITATING = (DONT_KNOW_LABEL["undecided"], *WHY_OTHER)
 
 
 def _row(qid: str, text: str, accept, away=None, query=QUERY_NO, prompt=None, hedged=False, asked: str | None = None, why: str = "",
-         reason=None, wrong=None, scene=None, value: str | None = None, end=None, other=None) -> dict:
+         reason=None, wrong=None, scene=None, value: str | None = None, end=None, other=None, elsewhere=None) -> dict:
     label = {"accept": list(accept), "why": why}
     if hedged:
         label["hedged"] = True
     if reason:
         label["reason"] = list(reason)
     # end＝電話を終える言葉かの正解（無ければ「言っていない」＝g53_meaning.end_accept）・other＝合わないと言わなかったほうで大丈夫そうかの正解（日時の2択の段の行だけ＝
-    # g53_meaning.ladder_other_truths。分身 S2）
+    # g53_meaning.ladder_other_truths。分身 S2）・elsewhere＝ほかの会社に頼んでいる・使っていると言ったかの正解（無ければ「言っていない」＝g53_meaning.elsewhere_truths。
+    # 正解の表 g53_labels.json の行と同じ欄。分身 S4）
     if end is not None:
         label["end"] = list(end) if isinstance(end, (list, tuple)) else [end]
-    for key, got in ((AWAY, away), (QUERY, query), (PROMPT_REPLY, prompt), (WRONG, wrong), (LADDER_OTHER, other)):
+    for key, got in ((AWAY, away), (QUERY, query), (PROMPT_REPLY, prompt), (WRONG, wrong), (LADDER_OTHER, other), (ELSEWHERE, elsewhere)):
         if got is not None:
             label[key] = list(got) if isinstance(got, (list, tuple)) else [got]   # 境目の行は並べた名前のどれも正解
     # scene＝場面の印（g53_meaning._connected_scene：お呼びした方に繋いだあとの答えの段・NEW_SCENES。無ければ目的のお客様のいない業務の最初の質問＝今までの行）。
@@ -186,7 +187,9 @@ def answer_words() -> list[dict]:
         # 書いていた＝判定が選べない名前＝正しい読みも外れと数えた）
         {**_row("R7", "はい、大丈夫です。", ["はい"], asked=accepted, why="最終の確かめへのご了承"), "set": "D"},
         {**_row("R7", "いや、それはちょっと困るんですけど。", ["いいえ"], asked=accepted, why="ご了承いただけない"), "set": "D"},
-        {**_row("R7", "はい、大丈夫ですよ。", ["はい"], asked=unheard, why="聞き取れなかったお知らせの最終の確かめへのご了承（分身 O2）"), "set": "D"},
+        {**_row("R7", "はい、大丈夫ですよ。", ["はい"], AWAY_NO, asked=unheard,
+                why="聞き取れなかったお知らせの最終の確かめへのご了承（分身 O2）。束 t の #1：読み手2人とも答えは「はい」・別のお話かは「答えの話」＝そろった読みにした"
+                    "（直す前の値＝別のお話か付けていない＝どちらの読みも正解。どちらの読みでも流れの制御はお礼の締め＝rv178/S4/probe/split_t.txt）"), "set": "D"},
         # 黙ったあとの一言のあと（分身 N・O2）
         _row("R7", "あ、それとですね、うちは月曜が定休日なんですよ。", [UNDECIDED], (AWAY_YES, AWAY_NO), prompt=PROMPT_REPLY_NO, reason=WHY_OTHER,
              why="声かけへのお返事だけではない別のお話。別のお話かは境目：声かけ（気になる点）へのお返事として話したご事情＝答えの話（CL-1 の 9-3 の案の (別のお話か)）とも、"
@@ -346,6 +349,8 @@ NEW_SCENE_ROWS = [
 # 読み手2人の束（rv178/S3/readers）で読み直してから数える（帳面 0-3「試しの正解は…別の目で読み直してから数える」）
 _WAIT_TRUTH = "（帳面 1 の (1) の 11-19 日本時間21時06分08秒の段の (c)＝分身 AF の注意書き WAIT_NOTE の試しの言葉の候補）"
 _MOSHI_TRUTH = "（本書 9-4 の ✅ 2026-11-19 日本時間15時10分27秒「伺い49：エ」の段の ⏳「「もしもし？」を流したあとの発話…試しの言葉（「はい」「もしもし」「聞こえてます」「あ、すみません、カードで」）を入れる候補」）"
+# 決め手を伺う一言 E5 へのお返事のほかの会社の項目の境目（言っていない・ご案内全体。分身 S4＝束 t の #4・#5・#7。わけは PREP3_ROWS の (8)）
+_E5_BORDER = (ELSEWHERE_NO, ELSEWHERE_ALL)
 PREP3_ROWS = [
     # (1) 待っていただく一言のあと（WAIT_SCENE＝支払いの質問に「振込でお願いします。」と答えたあと、こちらの声が出ていないので「少々お待ちいただいてもよろしいでしょうか？」を流した所）
     _row("R1", "はい、大丈夫ですよ。", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, scene=WAIT_SCENE, reason=WHY_OTHER,
@@ -419,15 +424,26 @@ PREP3_ROWS = [
     _row("N5", "メールはちょっと…", [UNDECIDED], scene=WITHDRAW_WAY_SCENE, reason=WHY_OTHER,
          why="取り消しではない（同じ段の試しの言葉と正解そのまま）。方法の答えは、並べた方法（訪問・お電話）のどれも選んでいない・メールを避けただけ＝決められない（説明の文と言葉から）"),
     # (8) 決め手を伺う一言 E5 のあと（ELSEWHERE_POINT_SCENE）：本書 9-4 の伺い48 の段の ⏳「E5 のお返事を読む問い合わせ＝…は決め手を言った・…は決め手は無い」の試しの言葉そのまま
-    _row("E5", "料金が安いところですかね。", ["決め手を言った"], scene=ELSEWHERE_POINT_SCENE, why="決め手（料金）を言った（本書 9-4 の伺い48 の段の ⏳ の試しの言葉そのまま）"),
-    _row("E5", "対応が早いので。", ["決め手を言った"], scene=ELSEWHERE_POINT_SCENE, why="決め手（対応）を言った（同じ）"),
-    _row("E5", "特にないですね。", ["決め手は無い"], scene=ELSEWHERE_POINT_SCENE, why="決め手は特に無い（同じ）"),
-    _row("E5", "前の担当が決めたので分からないです。", ["決め手は無い"], scene=ELSEWHERE_POINT_SCENE, why="決め手は分からない（同じ。説明の文の「決め手は特に無い・分からない…」）"),
+    #     ほかの会社の項目（分身 S4＝束 t の #4・#5・#7）：決め手・決めた経緯を言った3行は、説明の文「いまの言葉で、…ほかの会社に頼んでいる・…使っている、と言った」（言葉は会社に
+    #     触れていない＝言っていない）と、いまの言葉を質問「そちらの会社をお選びになった決め手は」への返事として読む決まり（その会社を選んだ＝頼むと決めた、を認めた＝ご案内全体）の
+    #     2つが当たる＝読み手2人とも両方を挙げた＝境目（どちらの読みも正解）。E5 では、ほかの会社のことはもう伺った（E1＝1通話1回）＝どちらの読みでも、判定の組がそろっても割れても、
+    #     流れの制御の返事・中の状態は同じで、取り消せない印は付かない（rv178/S4/probe/split_t.txt）
+    _row("E5", "料金が安いところですかね。", ["決め手を言った"], scene=ELSEWHERE_POINT_SCENE, elsewhere=_E5_BORDER,
+         why="決め手（料金）を言った（本書 9-4 の伺い48 の段の ⏳ の試しの言葉そのまま）。束 t の #4：答えは読み手2人がそろった・ほかの会社の項目は境目（直す前の値＝言っていない）"),
+    _row("E5", "対応が早いので。", ["決め手を言った"], scene=ELSEWHERE_POINT_SCENE, elsewhere=_E5_BORDER,
+         why="決め手（対応）を言った（同じ）。束 t の #5：#4 と同じ"),
+    _row("E5", "特にないですね。", ["決め手は無い"], scene=ELSEWHERE_POINT_SCENE,
+         why="決め手は特に無い（同じ）。束 t の #6：ほかの会社の項目は読み手2人とも「言っていない」＝そろった読みのまま（言葉は決め手も会社も挙げていない）"),
+    _row("E5", "前の担当が決めたので分からないです。", ["決め手は無い"], scene=ELSEWHERE_POINT_SCENE, elsewhere=_E5_BORDER,
+         why="決め手は分からない（同じ。説明の文の「決め手は特に無い・分からない…」）。束 t の #7：答えは読み手2人がそろった（「わからない」の説明「言ったことそのものが選べるものに"
+             "あれば、そちら」）・ほかの会社の項目は #4 と同じ境目（「前の担当が決めた」＝その会社に頼むと決めた経緯）。理由は読み手2人とも「担当ではない」「決められない」だが数えない"
+             "（答えが「決め手は無い」＝流れの制御は理由の読みを使わない＝この表の理由の決まり。どの理由の読みでも動きは同じ＝rv178/S4/probe/flow_t.txt）"),
     # (9) ほかのご希望 W1（G17 で「どちらも要らない」と言い切ったあと＝測りの W1 の場面 g73_system_words.wish_scenes）：会話の繋がらない「それで結構です。」＝決められない
     {**_row("W1@G17", "それで結構です。", [UNDECIDED], reason=WHY_OTHER,
             why="「それで」が何を指すか言葉から決まらない＝会話が繋がらない＝決められない（✅ 2026-11-05 日本時間23時19分06秒「「それで結構です。」は会話がつながっていない＝「無い」と"
                 "受け取らず意味合いを尋ねる」・✅ 2026-11-08 日本時間16時34分23秒「判定が「電話」と読んだという判定もおかしい」＝本書 9-5 の会話1 の段の ⏳「W1 の試しの言葉に、この言葉と"
-                "同じ形の言葉を「決められない」で入れて測る」）"), "set": "W1"},
+                "同じ形の言葉を「決められない」で入れて測る」）。束 t の #8：読み手2人とも「ほかに希望は無い」と「決められない」の両方を挙げた（会話まで読むと「無い」）＝お答え"
+                "（11-05 の (2)「「ほかの希望は無い」とは受け取らず」・11-08＝この言葉の正解は会話が繋がらない＝決められない）で決めた＝決められないだけのまま（境目にしない）"), "set": "W1"},
     # (10) ほかにご納得いただけない点 N2（ご承認いただけなかったときの手順＝g53_meaning._approval_scene の other_point）：本書 9-5 の (5) の ⏳「点を言っていない言葉の試しの言葉を作って」
     #      ＝選べるもの「分からない点・確かめたい点があると言ったが、どの点かは言っていない」の言葉（言葉は説明の文から作った。点を言った側の言葉は正解の表の N2 の9行）
     {**_row("N2", "はい、まだあります。", ["点は言っていない"], why="ほかにもあると言ったが、どの点かは言っていない（選べるものの説明のとおり）"), "set": "N2"},
