@@ -13,6 +13,8 @@
 """
 from __future__ import annotations
 
+import functools
+
 from flowctl import (ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_NONE, ABOUT_WRONG, ABSENT_WHY, ABSENT_WHY_NOT_SAID, AWAY, END, END_NONE, HEAR, HEAR_OK, OFFER,
                      OFFER_NOT_SAID, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, HESITATING, KEEP_ON,
                      END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PHONE, PHONE_NONE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
@@ -44,8 +46,14 @@ OFFER_FINAL_SCENE = "申し出の最終の確かめ（迷っている方に尋�
 # かけ直しの申し出 H1 に「はい」をいただいたあとの時刻の伺い・パンフレットの申し出に「はい」をいただいたあとの送付先（ask_if）
 WITHDRAW_TIME_SCENE = "受けていただいたかけ直しの申し出のあとの時刻の伺い（急いでいる方の H1 に「はい」）"
 WITHDRAW_SEND_SCENE = "受けていただいた申し出のあとの業務の質問（パンフレットの送付先）"
+# 受けていただいた申し出（ご承認いただけなかったあとの詳しい方からのお話の申し出 N4）のあとの方法の伺い N5（伺い40 の方法の質問。分身 S3 の続き）
+WITHDRAW_WAY_SCENE = "受けていただいた申し出のあとの方法の伺い（ご承認いただけなかったあとの N4 に「はい」）"
+# ほかの会社に頼んでいると言われ（ご案内全体）、困りごとは無いと言われたあとの決め手の伺い E5（伺い47 のイ・本書 9-4 の伺い48 の段の ⏳。分身 S3 の続き）
+ELSEWHERE_POINT_SCENE = "決め手を伺う一言のあと（ほかの会社に頼んでいて困りごとは無いと言われた）"
 NEW_SCENES = (LADDER_SCENE, WRONG_ASK_SCENE, WAIT_SCENE, PAIN_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, ANSWERED_SCENE, OFFER_FINAL_SCENE,
-              WITHDRAW_TIME_SCENE, WITHDRAW_SEND_SCENE)
+              WITHDRAW_TIME_SCENE, WITHDRAW_SEND_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE)
+# 申し出の手順で選んでいただく方法（業務設定 handoff_ways。試験 EndJudgedTest.test_an_unlinked_reply_to_an_offer_is_answered_then_the_offer_is_put_again の to_offer と同じ）
+HANDOFF_WAYS = ("訪問", "お電話")
 
 PAY = "お支払いはカードと振込のどちらがよろしいでしょうか？"
 PAY_REWORDED = "お支払いの方はカードと振込のどちらにされますか？"
@@ -83,7 +91,22 @@ def questions() -> dict[str, Question]:
             "Y2": pain_question("ドライバーさんの人手不足", PAIN_ASK.format(who="御社"), "pain_ask_company"),
             "D2": callback_question("concern"), "R9": offer_question(PAMPHLET, qid="R9"),
             # R10＝パンフレットの申し出（R9）を受ける答えで伺う業務の質問（ask_if＝試験 RecallProposalWithdrawTest の送付先と同じ形。WITHDRAW_SEND_SCENE）
-            "R10": Question("R10", "送付先のメールアドレスをお伺いしてもよろしいでしょうか？", "email", conditions=("答えた",), ask_if=("R9", ("はい",)))}
+            "R10": Question("R10", "送付先のメールアドレスをお伺いしてもよろしいでしょうか？", "email", conditions=("答えた",), ask_if=("R9", ("はい",))),
+            # R12・R13＝ご承認いただけなかったときの手順（N1 → 申し出 N4 → 方法 N5）へ進む業務（同じ試験の to_offer と同じ質問。WITHDRAW_WAY_SCENE と G-57 の方法の提案）
+            "R12": Question("R12", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+            "R13": Question("R13", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                            intro="こちらのプランは月額3,000円で初月は無料となっております。", final_goal=True, declines=("いいえ",)),
+            # システムの質問（本番の1か所 callback_question＝測りの質問の表 g53_meaning.question_map と同じもの）：N5＝申し出の方法・E5＝決め手・N2＝ほかにご納得いただけない点
+            "N5": callback_question("handoff_way"), "E5": callback_question("elsewhere_point"), "N2": callback_question("other_point"),
+            # ほかのご希望 W1（「どちらも要らない」の G17 のあと＝測りの質問の表の W1@G17 の1か所）
+            "W1@G17": _wish_question("W1@G17")}
+
+
+@functools.cache
+def _wish_question(key: str) -> Question:
+    """ほかのご希望 W1 の質問（測りの質問の表 g53_meaning.question_map の1か所＝g73_system_words.wish_scenes が元の質問から作る。ここに書き写さない）。"""
+    from g53_meaning import question_map
+    return question_map()[key]
 
 
 # わからない・答えたくない理由の正解（label の reason＝g53_labels.json の行と同じ欄・同じ決め方＝F5 の 11-15）：答えが「決められない」を含む行は、流れの制御が
@@ -378,6 +401,26 @@ PREP3_ROWS = [
          why="時刻が分からないとだけ言った＝わからない（取り消しではない＝同じ段の試しの言葉と正解そのまま）"),
     _row("R10", "あ、やっぱりパンフレットはいいです。", [WITHDREW], AWAY_NO, scene=WITHDRAW_SEND_SCENE,
          why="受けていただいたパンフレットの申し出を取り消した（伺い40 の段の送付先の質問への試しの言葉そのまま）"),
+    # ── 分身 S3 の続き（CL-1 の頼み rv178/S3 の続き (2)＝棚卸しで「まだ0円」と残した行）
+    # (7) 受けていただいた申し出のあとの方法の伺い N5（WITHDRAW_WAY_SCENE）：伺い40 の段の方法の質問への試しの言葉そのまま
+    _row("N5", "あ、やっぱり詳しい方からのお話はいいです。", [WITHDREW], scene=WITHDRAW_WAY_SCENE,
+         why="受けていただいた詳しい方からのお話の申し出（N4）を取り消した（伺い40 の段の方法の質問への試しの言葉そのまま）"),
+    _row("N5", "メールはちょっと…", [UNDECIDED], scene=WITHDRAW_WAY_SCENE, reason=WHY_OTHER,
+         why="取り消しではない（同じ段の試しの言葉と正解そのまま）。方法の答えは、並べた方法（訪問・お電話）のどれも選んでいない・メールを避けただけ＝決められない（説明の文と言葉から）"),
+    # (8) 決め手を伺う一言 E5 のあと（ELSEWHERE_POINT_SCENE）：本書 9-4 の伺い48 の段の ⏳「E5 のお返事を読む問い合わせ＝…は決め手を言った・…は決め手は無い」の試しの言葉そのまま
+    _row("E5", "料金が安いところですかね。", ["決め手を言った"], scene=ELSEWHERE_POINT_SCENE, why="決め手（料金）を言った（本書 9-4 の伺い48 の段の ⏳ の試しの言葉そのまま）"),
+    _row("E5", "対応が早いので。", ["決め手を言った"], scene=ELSEWHERE_POINT_SCENE, why="決め手（対応）を言った（同じ）"),
+    _row("E5", "特にないですね。", ["決め手は無い"], scene=ELSEWHERE_POINT_SCENE, why="決め手は特に無い（同じ）"),
+    _row("E5", "前の担当が決めたので分からないです。", ["決め手は無い"], scene=ELSEWHERE_POINT_SCENE, why="決め手は分からない（同じ。説明の文の「決め手は特に無い・分からない…」）"),
+    # (9) ほかのご希望 W1（G17 で「どちらも要らない」と言い切ったあと＝測りの W1 の場面 g73_system_words.wish_scenes）：会話の繋がらない「それで結構です。」＝決められない
+    {**_row("W1@G17", "それで結構です。", [UNDECIDED], reason=WHY_OTHER,
+            why="「それで」が何を指すか言葉から決まらない＝会話が繋がらない＝決められない（✅ 2026-11-05 日本時間23時19分06秒「「それで結構です。」は会話がつながっていない＝「無い」と"
+                "受け取らず意味合いを尋ねる」・✅ 2026-11-08 日本時間16時34分23秒「判定が「電話」と読んだという判定もおかしい」＝本書 9-5 の会話1 の段の ⏳「W1 の試しの言葉に、この言葉と"
+                "同じ形の言葉を「決められない」で入れて測る」）"), "set": "W1"},
+    # (10) ほかにご納得いただけない点 N2（ご承認いただけなかったときの手順＝g53_meaning._approval_scene の other_point）：本書 9-5 の (5) の ⏳「点を言っていない言葉の試しの言葉を作って」
+    #      ＝選べるもの「分からない点・確かめたい点があると言ったが、どの点かは言っていない」の言葉（言葉は説明の文から作った。点を言った側の言葉は正解の表の N2 の9行）
+    {**_row("N2", "はい、まだあります。", ["点は言っていない"], why="ほかにもあると言ったが、どの点かは言っていない（選べるものの説明のとおり）"), "set": "N2"},
+    {**_row("N2", "ええ、まだちょっとありますね。", ["点は言っていない"], why="同じ（どの点かは言っていない）"), "set": "N2"},
 ]
 
 
@@ -453,8 +496,42 @@ TALK_WORDS = [
 ]
 
 
+# 会話AIの通話の試験（G-57）の別のお話の続き（分身 S3 の続き＝帳面 1 の (1) の分身 J・分身 G の段）。言葉は ⏳ に書いてあるとおり（書いていない「また別のお話」は表の R1 の世間話の言葉、
+# 「聞き取れない」は相手役の台詞の表の聞き取れない台詞 unclear）。相手役の声はまだ作っていない（流すときに作る＝料金がかかる）
+TALK_UNHEARD = "（聞き取れない台詞）"   # 相手役の台詞の表の unclear（make_callee_samples.UTTERANCES の1か所＝ここに言葉を書き写さない）
+# お話に沿ったひとことのあとの2つ目のお返事：(業務の知っていること, 別のお話, 2つ目のお返事, 会話AIがすること)。会話AIがすること＝「質問に戻る」（replay_opening の resume）・
+# 答えの報告（record_answer）・受け答え（もう1回のひとこと）・聞き返し（report_unclear）を選び分けるか（Flow._wait_after_word の知らせ＝分身 J の段）
+TALK_FOLLOW_WORDS = [
+    (KNOW, "うちは水曜がお休みなんですよ。", "そうなんですね。", "質問に戻る"),
+    (KNOW, "うちは水曜がお休みなんですよ。", "じゃあ振込で", "答えの報告"),
+    (KNOW, "うちは水曜がお休みなんですよ。", "いやあ最近は暑くてねえ。", "受け答え"),
+    (KNOW, "うちは水曜がお休みなんですよ。", TALK_UNHEARD, "聞き返し"),
+]
+# 質問の種類ごとの別のお話（分身 G の段＝いまの質問に関わるお話「うちは月曜が定休日なんですよ。」・関わらないお話「いやあ最近は暑くてねえ。」を、申し出・方法の提案・ご承認のお知らせ
+# それぞれ）：(種類, 業務の知っていること, 別のお話, 正解)。決まりの例の言葉は、支払日の事実の無い業務でだけ使う（D-13）
+TALK_KIND_WORDS = [(kind, KNOW_NO_DAY, words, truth) for kind in ("申し出", "方法の提案", "ご承認のお知らせ")
+                   for words, truth in (("うちは月曜が定休日なんですよ。", "中身を受けたひとこと・支払日の事実を作らない（いまの質問に関わるお話）"),
+                                        ("いやあ最近は暑くてねえ。", "中身を受けたひとこと・事実を言わない（いまの質問に関わらないお話）"))]
+# 種類ごとの場面の作り：(業務の質問の番号, その前のお客様の言葉, 別のお話のあとの答えの言葉, 答えを取る質問と答え, 業務設定のほかの欄)。方法の提案＝ご承認いただけなかったときの手順の
+# 申し出 N4（試験 EndJudgedTest の to_offer と同じ言葉で N4 まで進む）
+TALK_KIND_SETUP = {
+    "申し出": (("R9",), (), "はい、お願いします。", ("R9", "はい"), {}),
+    "方法の提案": (("R12", "R13"), ("はい、届いています。", "いいえ、承認はできないですね。", "うーん、なんとなくですかね。", "うーん、特にこれというのは…。"),
+               "はい、お願いします。", ("N4", "はい"), {"handoff_ways": HANDOFF_WAYS}),
+    "ご承認のお知らせ": (("R7",), (), "はい、分かりました。", ("R7", "はい"), {}),
+}
+
+
+def talk_lines() -> list[str]:
+    """G-57 の相手役の台詞にする言葉の全部（試しの言葉の表の1か所＝make_callee_samples が名前を付けて台詞の表に入れる）。"""
+    out = [w for _, w, _ in TALK_WORDS] + [w for _, w, r, _ in TALK_FOLLOW_WORDS for w in (w, r) if w != TALK_UNHEARD]
+    out += [w for _, _, w, _ in TALK_KIND_WORDS] + [w for _, pre, ans, _, _ in TALK_KIND_SETUP.values() for w in (*pre, ans)]
+    return list(dict.fromkeys(out))
+
+
 def counts() -> dict[str, int]:
     """足した試しの言葉の数（表ごと）。G-63 は添える形ごと（選択肢つき・質問だけ・添えない）に流すので、その数も。"""
     return {"G-53": len(answer_words()), "G-53（読み手へ）": len(TO_READERS), "G-63": len(GROUND_WORDS), "G-63（3つの形で流す行）": len(GROUND_WORDS) * 3,
-            "取込の中身の判定": len(IMPORT_WORDS), "G-57": len(TALK_WORDS), "G-59（正解の表へ足す案）": len(CALLING_WORDS),
+            "取込の中身の判定": len(IMPORT_WORDS), "G-57": len(TALK_WORDS), "G-57（2つ目のお返事）": len(TALK_FOLLOW_WORDS),
+            "G-57（質問の種類ごと）": len(TALK_KIND_WORDS), "G-59（正解の表へ足す案）": len(CALLING_WORDS),
             "G-53（判定に送る文が変わった場面の行）": sum(1 for it in answer_words() if it.get("scene") in NEW_SCENES)}

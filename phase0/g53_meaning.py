@@ -1211,13 +1211,66 @@ def _withdraw_send_scene(q: Question) -> Flow:
     return f
 
 
+SCENE_HANDOFF_SAID = (("はい、届いています。", "はい"), ("いいえ、承認はできないですね。", "いいえ"), ("うーん、なんとなくですかね。", "unknown"), ("うーん、特にこれというのは…。", "unknown"))
+
+
+def _withdraw_way_scene(q: Question) -> Flow:
+    """受けていただいた申し出のあとの方法の伺い（review_words.WITHDRAW_WAY_SCENE）：資料の質問に「はい」・ご承認の質問（最終目的）に「いいえ」・ご納得いただけなかった点の伺い（N1）に
+    2回とも点を言わず、詳しい方からのお話の申し出（N4）に「はい、お願いします。」をいただき、方法（N5「それでは訪問とお電話のどちらがよろしいでしょうか？」）を伺った所まで（試験
+    EndJudgedTest の to_offer と同じ言葉・業務設定の方法 review_words.HANDOFF_WAYS）。判定の選べるものに「申し出を取り消した」（Flow._taken_offer＝伺い40。分身 S3 の続き）"""
+    from flowctl import CALLBACK_IDS
+    from review_words import HANDOFF_WAYS, questions as review_questions
+    rq = review_questions()
+    q1, q2 = rq["R12"], rq["R13"]
+    f = asked_flow([q1, q2, SCENE_NEXT], handoff_ways=HANDOFF_WAYS)
+    f.use_checks("judge")
+    for (words, cond), qid in zip(SCENE_HANDOFF_SAID, (q1.id, q2.id, CALLBACK_IDS["not_agreed"], CALLBACK_IDS["not_agreed"])):
+        _scene_say(f, words, _scene_read(cond), "record_answer", question_id=qid, condition_id=cond)
+    offer = CALLBACK_IDS["handoff"]
+    if f.current != offer:
+        raise NoScene("詳しい方からのお話を申し出ない")
+    _scene_say(f, SCENE_YES_PLEASE, _scene_read("はい"), "record_answer", question_id=offer, condition_id="はい")
+    if f.current != q.id or f._taken_offer() != offer:
+        raise NoScene("受けていただいた申し出のあとの方法を伺わない")
+    return f
+
+
+SCENE_ELSEWHERE = "どちらも要らないです。うちは別のところに頼んでますので。"
+SCENE_NO_TROUBLE = "いえ、特にないです。"
+SCENE_INFO = ("弊社のサービスの特長とお客様の声を資料にまとめております。",)
+
+
+def _elsewhere_point_scene(q: Question) -> Flow:
+    """決め手を伺う一言のあと（review_words.ELSEWHERE_POINT_SCENE）：ご連絡の方法の質問（測りの質問の表の G17）に「どちらも要らないです。うちは別のところに頼んでますので。」（判定の組が
+    そろって「どれも要らない」・ほかの会社はご案内全体）と言われ、ほかの会社のことを伺った一言（E1）に「いえ、特にないです。」（困りごとは無い）をいただき、手短でない電話で決め手を伺う
+    一言（E5「それは何よりです。ちなみにそちらの会社をお選びになった決め手はどのような点でしたでしょうか？」）を流した所まで（伺い47 のイ。業務の情報は試験 OtherCompanyClueSendWayTest と
+    同じ。分身 S3 の続き）"""
+    import flowctl
+    from flowctl import CALLBACK_IDS, ELSEWHERE_ALL, JUDGMENTS, NONE
+    contact = question_map()["G17"]
+    f = asked_flow([contact, SCENE_NEXT], info=list(SCENE_INFO))
+    f.use_checks(*JUDGMENTS)
+    f.on_callee(); f.on_heard(SCENE_ELSEWHERE)
+    for k in JUDGMENTS:
+        f.on_check(k, _scene_read(NONE, **{flowctl.ELSEWHERE: ELSEWHERE_ALL}))
+    f.on_decided()
+    f.apply("record_answer", {"question_id": contact.id, "condition_id": NONE})
+    e1 = CALLBACK_IDS["elsewhere"]
+    if f.current != e1:
+        raise NoScene("ほかの会社のことを伺わない")
+    f.use_checks("judge")
+    _scene_say(f, SCENE_NO_TROUBLE, _scene_read("問題は無い"), "record_answer", question_id=e1, condition_id="問題は無い")
+    return f
+
+
 def _new_scene(it: dict, q: Question) -> Flow:
     """試しの言葉の表の場面の印（review_words.NEW_SCENES）の場面を組む唯一の入口（_flow_scene）。"""
     from review_words import (ANSWERED_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, LADDER_SCENE, OFFER_FINAL_SCENE, PAIN_SCENE, WAIT_SCENE,
-                              WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WRONG_ASK_SCENE)
+                              WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, WRONG_ASK_SCENE)
     build = {LADDER_SCENE: _ladder_scene, LADDER_CLOCK_SCENE: _ladder_clock_scene, WRONG_ASK_SCENE: _wrong_ask_scene, WAIT_SCENE: _wait_scene,
              PAIN_SCENE: _pain_scene, CONCERN_SCENE: _concern_scene, CONFIRM_CONCERN_SCENE: _confirm_concern_scene, ANSWERED_SCENE: _answered_scene,
-             OFFER_FINAL_SCENE: _offer_final_scene, WITHDRAW_TIME_SCENE: _withdraw_time_scene, WITHDRAW_SEND_SCENE: _withdraw_send_scene}.get(it["scene"])
+             OFFER_FINAL_SCENE: _offer_final_scene, WITHDRAW_TIME_SCENE: _withdraw_time_scene, WITHDRAW_SEND_SCENE: _withdraw_send_scene,
+             WITHDRAW_WAY_SCENE: _withdraw_way_scene, ELSEWHERE_POINT_SCENE: _elsewhere_point_scene}.get(it["scene"])
     if build is None:
         raise NoScene(f"場面の印の場面を組む作りが無い（{it['scene']}）")
     return build(q)
@@ -1260,15 +1313,39 @@ def prompted_row(it: dict) -> bool:
 
 def _final_scene(q: Question, asked: str | None) -> Flow:
     """ご承認のお知らせの最終の確かめ（accepted_line）への返事の場面：お知らせへのお返事が答えの話の相づちだけ（判定がそろって決められない・別のお話でない）
-    ＝流れの制御が最終の確かめを流す所まで。聞き取れなかったお知らせの確かめ（heard=False の形）は締めの前の念のための確認の場面＝まだ組めない。"""
+    ＝流れの制御が最終の確かめを流す所まで。聞き取れなかったお知らせの確かめ（heard=False の形）は、締めの前の念のための確認の場面（_unheard_final_scene）。"""
     from flowctl import accepted_line
     if asked is not None and asked == accepted_line(q, heard=False)[1] and asked != accepted_line(q)[1]:
-        raise NoScene("聞き取れなかったお知らせの締めの前の確かめ（R7）")
+        return _unheard_final_scene(q)
     f = asked_flow([q, SCENE_NEXT])
     f.use_checks("judge")
     _scene_turn(f, "なるほど。", UNDECIDED, "record_answer", question_id=q.id, condition_id="unknown", **{AWAY: AWAY_NO})
     if f.awaiting_confirm != q.id:
         raise NoScene("お知らせのあとの最終の確かめを流さない")
+    return f
+
+
+SCENE_UNHEARD = "……"
+SCENE_NEXT_SAID = "カードでお願いします。"
+
+
+def _unheard_final_scene(q: Question) -> Flow:
+    """聞き取れないまま「-」にしたご承認のお知らせ q の、締めの前の念のための確認（「申し訳ございません、」＋「（句）件のお返事のお声が聞き取れなかったのですがご了承ということで
+    よろしかったでしょうか？」＝accepted_line の heard=False）を流した所まで：お知らせのあとのお返事が3回とも聞き取れず（会話AIの報告 report_unclear）、次の質問（SCENE_NEXT）に
+    答えていただいた所で、流れの制御が締めの前の確認に入る（試験 RecheckAckTest.announce_flow・test_an_unheard_announcement_is_rechecked_in_the_accepted_form と同じ手順。
+    ⛔ 分身 S3 の 74bbe4c8 まで「場面を組めない」と出していた＝帳面 1 の (1) の組 O2 の行を数えなかった）"""
+    from flowctl import accepted_line
+    f = asked_flow([q, SCENE_NEXT])
+    f.use_checks("judge")
+    for _ in range(3):
+        f.on_callee(); f.on_heard(SCENE_UNHEARD)
+        f.apply("report_unclear", {"question_id": q.id})
+    if f.current != SCENE_NEXT.id:
+        raise NoScene("聞き取れないお知らせを「-」にしない")
+    cond = SCENE_NEXT.conditions[0]
+    _scene_say(f, SCENE_NEXT_SAID, _scene_read(cond), "record_answer", question_id=SCENE_NEXT.id, condition_id=cond)
+    if f.awaiting_confirm != q.id or f.awaiting_say != accepted_line(q, heard=False)[1]:
+        raise NoScene("聞き取れなかったお知らせの締めの前の確認を流さない")
     return f
 
 

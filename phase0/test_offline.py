@@ -38333,8 +38333,8 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
             self.assertEqual(shown.text, want, it)
             if it.get("asked"):
                 self.assertEqual(asked, it["asked"], it)   # 最終の確かめは、正解の表の行と同じ本番の1か所（accepted_line）の文
-        self.assertEqual([m[0] for m in missing], ["R7"], missing)
-        self.assertIn("聞き取れなかった", missing[0][1])
+        # 聞き取れなかったお知らせの締めの前の確かめ（R7 の1行）も、分身 S3 の続きで本番の流れの制御で組めるようになった（g53_meaning._unheard_final_scene＝S3RestPrepTest）
+        self.assertEqual(missing, [])
 
 
 class Cl2Answers1119Test(unittest.TestCase):
@@ -40479,7 +40479,11 @@ class RereadRowsTest(unittest.TestCase):
              "申し出の最終の確かめ（迷っている方に尋ねられて答えたあと）": ("R9", "パンフレットをお送りしてもよろしいでしょうか？", ""),
              # 分身 S3：受けていただいた申し出から始まった質問（判定の選べるものに「申し出を取り消した」が出る＝伺い40）
              "受けていただいたかけ直しの申し出のあとの時刻の伺い（急いでいる方の H1 に「はい」）": ("C1", "それでは平日と土日のどちらがよろしいでしょうか？", ""),
-             "受けていただいた申し出のあとの業務の質問（パンフレットの送付先）": ("R10", "送付先のメールアドレスをお伺いしてもよろしいでしょうか？", "")}
+             "受けていただいた申し出のあとの業務の質問（パンフレットの送付先）": ("R10", "送付先のメールアドレスをお伺いしてもよろしいでしょうか？", ""),
+             # 分身 S3 の続き：申し出 N4 のあとの方法 N5（伺い40）・決め手を伺う一言 E5（伺い47 のイ）
+             "受けていただいた申し出のあとの方法の伺い（ご承認いただけなかったあとの N4 に「はい」）": ("N5", "それでは訪問とお電話のどちらがよろしいでしょうか？", ""),
+             "決め手を伺う一言のあと（ほかの会社に頼んでいて困りごとは無いと言われた）": (
+                 "E5", "それは何よりです。ちなみにそちらの会社をお選びになった決め手はどのような点でしたでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -45654,3 +45658,119 @@ class S3MeasurePrepTest(unittest.TestCase):
         from review_words import TO_READERS, answer_words
         counted = {(it["qid"], it["text"]) for it in answer_words()}
         self.assertEqual([it for it in TO_READERS if (it["qid"], it["text"]) in counted], [])
+
+
+class S3RestPrepTest(unittest.TestCase):
+    """分身 S3 の続き（まとめ役 CL-1 の頼み rv178/S3 の続き (2)＝帳面 0-1「測りを伺う前に、測る前に0円で済ませるものを先に済ませる」）：棚卸しで「まだ0円」と残した7つ。
+    (1) 聞き取れないまま「-」にしたご承認のお知らせの締めの前の確かめ（R7 の行）を本番の流れの制御で組む（帳面 1 の (1) の組 O2）
+    (2) 受けていただいた申し出のあとの方法の伺い（N5）の取り消し（伺い40）(3) 決め手を伺う一言（E5）へのお返事（伺い47・本書 9-4 の伺い48 の段）
+    (4) ほかのご希望（W1）の「それで結構です。」＝決められない（✅ 11-05 日本時間23時19分06秒・11-08 16時34分23秒）(5) N2 の「点は言っていない」（本書 9-5 の (5)）
+    (6)(7) 会話AIの通話の試験（G-57）の別のお話：お話に沿ったひとことのあとの2つ目のお返事（分身 J）・質問の種類ごと（分身 G＝申し出・方法の提案・ご承認のお知らせ）"""
+
+    SAME = "動きは同じ"
+
+    @staticmethod
+    def rows():
+        from review_words import answer_words
+        return {(it["qid"], it.get("scene"), it["text"]): it for it in answer_words()}
+
+    def wanted(self):
+        """(質問の番号, 場面の印, 言葉) ⇒ (答えの正解, 判定に見せる質問の番号, 言い直し・最終の確かめの文, 外れた読み)。外れた読みの頭に SAME が付く行は、その読みでも
+        流れの制御の動きが同じ（E5 の決め手を言ったか＝会話AIがどちらでもひとこと応えて提案を書く番＝決め手は会話AIの報告の値で依頼者へ。数えは答えの読みだけ）"""
+        from flowctl import UNDECIDED, accepted_line
+        from meaning_judge import WITHDREW
+        from review_words import ELSEWHERE_POINT_SCENE as point, WITHDRAW_WAY_SCENE as way, questions
+        unheard = accepted_line(questions()["R7"], heard=False)[1]
+        return {
+            ("R7", None, "はい、大丈夫ですよ。"): (["はい"], "R7", unheard, {"answer": "いいえ"}),
+            ("N5", way, "あ、やっぱり詳しい方からのお話はいいです。"): ([WITHDREW], "N5", None, {"answer": UNDECIDED}),
+            ("N5", way, "メールはちょっと…"): ([UNDECIDED], "N5", None, {"answer": WITHDREW}),
+            ("E5", point, "料金が安いところですかね。"): (["決め手を言った"], "E5", None, {self.SAME: True, "answer": "決め手は無い"}),
+            ("E5", point, "対応が早いので。"): (["決め手を言った"], "E5", None, {self.SAME: True, "answer": "決め手は無い"}),
+            ("E5", point, "特にないですね。"): (["決め手は無い"], "E5", None, {self.SAME: True, "answer": "決め手を言った"}),
+            ("E5", point, "前の担当が決めたので分からないです。"): (["決め手は無い"], "E5", None, {self.SAME: True, "answer": "決め手を言った"}),
+            # 11-08 日本時間16時34分23秒「判定が「電話」と読んだという判定もおかしい」＝電話と読めば受け取ってしまう
+            ("W1@G17", None, "それで結構です。"): ([UNDECIDED], "W1", None, {"answer": "電話"}),
+            ("N2", None, "はい、まだあります。"): (["点は言っていない"], "N2", None, {"answer": "分かった"}),
+            ("N2", None, "ええ、まだちょっとありますね。"): (["点は言っていない"], "N2", None, {"answer": "分かった"}),
+        }
+
+    def test_1_rows_are_in_the_table_and_built_in_the_production_scene(self):
+        import g53_meaning as g
+        from review_words import questions
+        rows, qs = self.rows(), questions()
+        for key, (accept, qid, asked, _) in self.wanted().items():
+            with self.subTest(key=key):
+                self.assertIn(key, rows)
+                it = rows[key]
+                self.assertEqual(it["label"]["accept"], accept)
+                shown, got_asked, _ = g.judge_inputs(it, qs[it["qid"]])
+                self.assertEqual((shown.id, got_asked), (qid, asked))
+
+    def test_2_right_and_wrong_readings_move_differently(self):
+        import g53_meaning as g
+        from review_words import questions
+        rows, qs = self.rows(), questions()
+        for key, (_, _, _, wrong) in self.wanted().items():
+            with self.subTest(key=key):
+                it = rows[key]
+                q = qs[it["qid"]]
+                wants = g.step_wants(it, q, False)
+                self.assertFalse(any(w.startswith((g.SCENE_MISSING, g.OTHER_ACT)) for w in wants), wants)
+                self.assertIsNone(g.flow_miss(RereadRowsTest.reading(None, it), q, "j"))
+                change = {k: v for k, v in wrong.items() if k != self.SAME}
+                got = g.flow_miss(RereadRowsTest.reading(None, it, **change), q, "j")
+                if wrong.get(self.SAME):
+                    self.assertIsNone(got, change)
+                else:
+                    self.assertIsNotNone(got, change)
+
+    def test_3_g57_follow_and_kind_rows_are_scenes(self):
+        import make_callee_samples as m
+        import review_words as rw
+        import scenes
+        follow = [(n, sc) for n, sc in scenes.SCENES.items() if n.startswith(scenes.FOLLOW_SCENE)]
+        kind = [(n, sc) for n, sc in scenes.SCENES.items() if n.startswith(scenes.KIND_SCENE)]
+        self.assertEqual({e for *_, e in rw.TALK_FOLLOW_WORDS}, {"質問に戻る", "答えの報告", "受け答え", "聞き返し"})
+        self.assertEqual({k for k, *_ in rw.TALK_KIND_WORDS}, {"申し出", "方法の提案", "ご承認のお知らせ"})
+        self.assertEqual((len(follow), len(kind)), (len(rw.TALK_FOLLOW_WORDS), len(rw.TALK_KIND_WORDS)))
+        for name, sc in follow + kind:
+            lines, _ = sc.call()
+            for x in lines:
+                self.assertIn(x["wav"][len("Puck_"):-len(".wav")], m.UTTERANCES, name)   # 相手役の台詞は表から（声はまだ作らない）
+        for (know, words, reply, _), (name, sc) in zip(rw.TALK_FOLLOW_WORDS, follow):
+            said = [m.text_and_how(m.UTTERANCES[x["wav"][len("Puck_"):-len(".wav")]])[0] for x in sc.call()[0]]
+            self.assertEqual(said[1], words, name)
+            self.assertEqual(said[2], m.UTTERANCES["unclear"] if reply == rw.TALK_UNHEARD else reply, name)
+        for (k, know, words, _), (name, sc) in zip(rw.TALK_KIND_WORDS, kind):
+            said = [m.text_and_how(m.UTTERANCES[x["wav"][len("Puck_"):-len(".wav")]])[0] for x in sc.call()[0]]
+            qids, pre, answer, _, kw = rw.TALK_KIND_SETUP[k]
+            self.assertEqual(said[1:], [*pre, words, answer], name)   # 第一声のあと、その種類の質問まで進む言葉 → 別のお話 → 答え
+            self.assertEqual(sc.business.knowledge(), scenes.talk_business(know, qids, **kw).knowledge(), name)
+
+    def test_4_g57_follow_checks_read_the_call_record(self):
+        import scenes
+        good = "さようでございますか。お振込でしたら月曜日以外でもご対応いただけますよ。"
+
+        def call(events_after):
+            log = [{"op": "replay_opening", "args": {"part": "talk", "answer": good, "fallback": "talk_heard_nod"}, "reply": {"result": "replayed"}}]
+            log += events_after
+            items = {}
+            for e in events_after:
+                if e["op"] == "record_answer":
+                    items[e["args"]["question_id"]] = {"state": "accepted", "condition": e["args"]["condition_id"]}
+            return {"flow_log": log, "facts": {}, "turns": [], "items": items}
+        ans = {"op": "record_answer", "args": {"question_id": scenes.TALK_QUESTION, "condition_id": "振込"}, "reply": {"result": "next"}}
+        card = {"op": "record_answer", "args": {"question_id": scenes.TALK_QUESTION, "condition_id": "カード"}, "reply": {"result": "next"}}
+        back = {"op": "replay_opening", "args": {"part": "resume"}, "reply": {"result": "replayed"}}
+        talk2 = {"op": "replay_opening", "args": {"part": "talk", "answer": "本当に暑い日が続いておりますね。"}, "reply": {"result": "replayed"}}
+        unclear = {"op": "report_unclear", "args": {"question_id": scenes.TALK_QUESTION}, "reply": {"result": "asked_again"}}
+        exp = scenes.follow_checks
+        self.assertTrue(all(exp("質問に戻る")(call([back, card])).values()))
+        self.assertFalse(exp("質問に戻る")(call([card]))["2つ目のお返事に応じた"])
+        self.assertTrue(all(exp("答えの報告")(call([ans])).values()))
+        self.assertFalse(exp("答えの報告")(call([back, card]))["2つ目のお返事に応じた"])
+        self.assertTrue(all(exp("受け答え")(call([talk2, card])).values()))
+        self.assertFalse(exp("受け答え")(call([back, card]))["2つ目のお返事に応じた"])
+        self.assertTrue(all(exp("聞き返し")(call([unclear, card])).values()))
+        self.assertFalse(exp("聞き返し")(call([ans]))["2つ目のお返事に応じた"])

@@ -190,9 +190,9 @@ def talk_name(words: str) -> str:
 
 
 def _talk_lines() -> dict[str, str]:
-    """会話AIの通話の試験（G-57）の別のお話の台詞（試しの言葉の表 review_words.TALK_WORDS の言葉）。"""
-    from review_words import TALK_WORDS
-    return {talk_name(words): words for _, words, _ in TALK_WORDS}
+    """会話AIの通話の試験（G-57）の別のお話の台詞（試しの言葉の表 review_words の1か所 talk_lines＝別のお話・2つ目のお返事・質問の種類ごとの場面の言葉）。"""
+    from review_words import talk_lines
+    return {talk_name(words): words for words in talk_lines()}
 
 
 UTTERANCES |= _talk_lines()
