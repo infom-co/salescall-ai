@@ -56,6 +56,33 @@ class UiaScreen:
             return (field.window_text() or "").strip()
 
     @staticmethod
+    def _paste(field: Any, text: str) -> None:
+        """クリップボードを使って貼り付ける。もとのクリップボードの文字は、貼り付けたあとに戻す。"""
+        import win32clipboard as cb
+        cb.OpenClipboard()
+        try:
+            try:
+                old = cb.GetClipboardData(cb.CF_UNICODETEXT)
+            except Exception:
+                old = None
+            cb.EmptyClipboard()
+            cb.SetClipboardText(text, cb.CF_UNICODETEXT)
+        finally:
+            cb.CloseClipboard()
+        try:
+            field.set_focus()
+            field.type_keys("^a^v", with_spaces=False)
+            time.sleep(0.2)
+        finally:
+            cb.OpenClipboard()
+            try:
+                cb.EmptyClipboard()
+                if old is not None:
+                    cb.SetClipboardText(old, cb.CF_UNICODETEXT)
+            finally:
+                cb.CloseClipboard()
+
+    @staticmethod
     def _press(part: Any) -> None:
         """押す。マウスを動かさない押し方（Invoke）を先に試し、だめならクリック。"""
         try:
@@ -124,16 +151,27 @@ class UiaScreen:
                 time.sleep(0.1)
         if field is None:
             raise RuntimeError("番号を入れる欄が見つからない")
-        # 番号は、キーボードで打つ形で入れる（欄へ値を直に書き込むと、画面には出ても Rakuten Link の中では打たれていない扱いになり、
-        # 発信のボタンが働かなかった＝2026-11-20 の確かめ）
-        field.set_focus()
-        field.type_keys("^a{BACKSPACE}", with_spaces=False)
-        field.type_keys(number, with_spaces=False, pause=0.03)
+        # 番号は貼り付けで入れる（管理者が確かめた：貼り付けると発信のボタンがピンク＝使える状態になる。欄へ値を直に書き込むと、
+        # 画面には出ても Rakuten Link の中では入っていない扱いで、ボタンが使えなかった＝2026-11-20）。入らなければキーボードで打つ
+        self._paste(field, number)
+        if self._value(field) != number:
+            field.set_focus()
+            field.type_keys("^a{BACKSPACE}", with_spaces=False)
+            field.type_keys(number, with_spaces=False, pause=0.03)
         if self._value(field) != number:
             raise RuntimeError("番号を入れられなかった")
         button = self._part(main, "dial")
         if button is None:
             raise RuntimeError("発信のボタンが見つからない")
+        for _ in range(20):   # 使える状態（ピンク）になるのを待つ
+            try:
+                if button.is_enabled():
+                    break
+            except Exception:
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("番号を入れても、発信のボタンが使える状態にならなかった")
         # 押す：マウスを動かさない押し方 → マウスで押す → 番号の欄で Enter の順に試し、通話の窓が出たら終わり（どれで出たかを残す）
         tries = (("invoke", lambda: button.invoke()), ("click", lambda: button.click_input()),
                  ("enter", lambda: (field.set_focus(), field.type_keys("{ENTER}"))))
