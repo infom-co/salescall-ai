@@ -172,11 +172,11 @@ def _hand_body(questions: list[tuple[str, tuple]]) -> str:
     return "\n".join(f"{n}：{text}／選択肢：{'・'.join(conds)}" for n, (text, conds) in enumerate(questions, 1))
 
 
-def hand_by_model(client, model: str, questions: list[tuple[str, tuple]]) -> list[dict | None]:
-    """資料が届いているかを伺う質問か（unclear.by_model と同じ形）。questions と同じ並びの {"asks", "yes"}（無い・形の違うものは None）。"""
+def hand_by_model(client, model: str, questions: list[tuple[str, tuple]], think: bool = False) -> list[dict | None]:
+    """資料が届いているかを伺う質問か（unclear.by_model と同じ形）。questions と同じ並びの {"asks", "yes"}（無い・形の違うものは None）。think＝考える形で聞く。"""
     from askitems import ask
 
-    items = ask(client, model, HAND_PROMPT + _hand_body(questions), HAND_FIELDS, tool=HAND_TOOL)
+    items = ask(client, model, HAND_PROMPT + _hand_body(questions), HAND_FIELDS, tool=HAND_TOOL, think=think)
     got = {x.get("no"): x for x in items or [] if isinstance(x, dict)}
     out = []
     for i in range(1, len(questions) + 1):

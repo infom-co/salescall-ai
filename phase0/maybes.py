@@ -10,7 +10,7 @@
 「はい、（言葉）可能性もあるということでよろしいでしょうか？」で確かめる＝flowctl.Flow._ask_confirm の maybe・言い方は phrases.MAYBE_ASK）。
 
 決め方（unclear.decide と同じ形）：文字のモデル2つに、1回の問い合わせでまとめて答えさせる（by_model）。2つの答えがそろい、選択肢がその質問の選択肢にあり、
-言葉が決まりの形（check）のときだけ決まる。そろわない・答えが無いときは空（今の扱い＝「どちらでも」を出さない質問は判定が「決められない」と読み、質問から
+言葉が決まりの形（check）のときだけ決まる。そろわない質問は、取込で考える Sonnet が決める（扱いの1か所＝import_ai.SPLIT。帳面 0-2）。それでも決まらない・答えが無いときは空（今の扱い＝「どちらでも」を出さない質問は判定が「決められない」と読み、質問から
 聞き直す）。⚠️ どちらに倒しても誤りは残りうる：こちらに選ぶのを任せただけの質問（お支払いの方法など）に可能性の確かめを付けると、お客様に要らない確かめを
 1回する（答えは正しい）。可能性のある質問で空になると、今までどおり聞き直す ⇒ 依頼者へ誤った答えは渡らない（どちらの側も、確かめへのお客様ご本人の答えで決まる）。
 """
@@ -52,12 +52,12 @@ FIELDS = {"no": ("integer", "質問の番号"), "choice": ("string", "依頼者�
 TOOL = ("maybes", "質問ごとの、どの答えにもなりうると言われたときに可能性を確かめる答えと言葉")
 
 
-def by_model(client, model: str, questions: list[tuple[str, tuple]]) -> list[dict | None]:
+def by_model(client, model: str, questions: list[tuple[str, tuple]], think: bool = False) -> list[dict | None]:
     """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions（(質問の文, 選択肢の並び)）と同じ並びの答え（無ければ None）を返す。
-    送り先は部品の作りで決まる（Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask）。"""
+    送り先は部品の作りで決まる（Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask。think＝考える形で聞く＝そろわなかった質問だけを聞く考える Sonnet）。"""
     from askitems import ask
 
-    return _read_items(ask(client, model, PROMPT + _body(questions), FIELDS, tool=TOOL), len(questions))
+    return _read_items(ask(client, model, PROMPT + _body(questions), FIELDS, tool=TOOL, think=think), len(questions))
 
 
 def _read_items(items: list, n: int) -> list[dict | None]:
