@@ -1495,7 +1495,9 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     if end_step(act):
         if act.removeprefix(QUESTION_FIRST) not in (END_TOPIC, END_ASK):
             return "⛔違う理由で締める・伺う" if closes else "⛔電話を終える言葉ではないのに締める・急ぎを伺う"
-        if closes:
+        # 正解が締める読みと伺う読みの境目（「そういうお電話はちょっと……。」＝決められない・通話・営業を断った＝rv176/S2 の3回目の読み直しで CL-1 が決めた）なら、伺ったのは
+        # 正解の伺いの側の違い＝「違う伺い」（⛔ 分身 S2 の aa4e230d まで、正解に締める読みが1つでもあれば、伺いの読みを「締めない」と数えていた＝境目の行で外れの種類を取り違える）
+        if closes and not ends - closes:
             return "⛔電話を終える言葉なのに締めない"
         return "違う伺い" if ends else "要らない伺い"
     want -= ends

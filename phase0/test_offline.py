@@ -16956,7 +16956,9 @@ class G53EndTest(unittest.TestCase):
         self.assertEqual(miss(it, "いいえ", END_REFUSED), "⛔違う理由で締める・伺う")
         self.assertEqual(miss(F["もういいです。"], "いいえ", END_NONE), "⛔伺わずに続ける")
         self.assertIsNone(miss(F["もういいです。"], "いいえ", UNDECIDED))
+        # 正解が締める読み・伺う読みの境目（決められない・通話・営業を断った＝rv176/S2 の3回目の読み直し）でも、伺いの読みの外れは「違う伺い」（締めないと数えない）
         self.assertEqual(miss(F["そういうお電話はちょっと……。"], "はい", UNDECIDED), "違う伺い")
+        self.assertIsNone(miss(F["そういうお電話はちょっと……。"], UNDECIDED, END_REFUSED))
         plain = {"set": "B", "maker": "3.8 Flash", "qid": "G8", "text": "（付け直していない答え）", "truth": "はい"}
         self.assertIsNone(miss(plain, "はい", END_NONE))
         self.assertEqual(miss(plain, "はい", END_HURRY), "⛔電話を終える言葉ではないのに締める・急ぎを伺う")
