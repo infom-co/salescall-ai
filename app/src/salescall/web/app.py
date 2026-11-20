@@ -33,7 +33,7 @@ from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
 from salescall.core import (agents, calling_hours, conversation_io, customer_contacts, customer_rows, destinations, dnc, dnc_import, exclusions,
-                            gate, health, health_rules, import_files, importer, phone, quality_stage, recordings, registry, results,
+                            gate, health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
 from salescall.core import once, people
@@ -464,6 +464,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             def run(tx: Any) -> list[dict[str, Any]]:
                 rows = tx.all(
                     "SELECT e.event_id, e.client_id, e.kind, e.summary, e.occurred_at, e.urgent, e.refs ->> 'task_id' AS task_id,"
+                    "       e.refs ->> 'business_id' AS business_id,"
                     "       ARRAY(SELECT d.status FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id) AS statuses"
                     " FROM salescall.notification_events e WHERE e.for_admin = %s"
                     " ORDER BY e.urgent DESC, e.occurred_at DESC, e.event_id DESC LIMIT 200", (only_admin,))
@@ -495,7 +496,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 c = names.get(r["client_id"])
                 r["where"] = c["name"] if c else ""
                 row = found.get(str(r["task_id"])) if r["task_id"] else None
-                r["link"] = row["url"] if row else (f"/c/{c['client_id']}" if c else "")
+                biz = links.business_notice(c["client_id"], r["business_id"], r["kind"]) if c and _is_uuid(r["business_id"] or "") else ""
+                r["link"] = row["url"] if row else (biz or (f"/c/{c['client_id']}" if c else ""))
                 r["who"] = row["who"] if row else ""
             return page(request, "notices.html", person, ctx, rows=rows, admin_rows=admin_rows, state_words=notices.STATE_WORDS)
         return handle(request, render)
@@ -1204,6 +1206,33 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), reason_field="reason",
                               done="報酬の決まりを足しました（前の決まりは残ります）。")
             return _back(back, out)
+        return handle(request, render)
+
+    # ── 誤判定率と抜き取り（計画書 16-3。docs/DASHBOARD.md 5-8b。割合は core の measure.rates、抜き取りは measure.draw の記録を読むだけ）
+    @app.get("/c/{client_id}/b/{business_id}/samples")
+    def samples_page(request: Request, client_id: UUID, business_id: UUID) -> HTMLResponse:
+        """その業務の誤判定率（出どころごと＝検証モード・抜き取り。本番で気づいて直したものは数だけ）と、抜き取った電話の一覧。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                b = context.business(tx, business_id)
+                rates = {s: measure.rates(tx, business_id, source=s) for s in measure.SOURCES}
+                draws = tx.all("SELECT draw_id, week_start, pool_size, wanted, drawn, method, drawn_at FROM salescall.sample_draws"
+                               " WHERE business_id = %s ORDER BY week_start DESC LIMIT 12", (business_id,))
+                calls = tx.all(
+                    "SELECT c.draw_id, a.attempt_id, a.task_id, a.claimed_at,"
+                    "       EXISTS (SELECT 1 FROM salescall.judgement_checks k WHERE k.attempt_id = a.attempt_id AND k.source = 'sample') AS checked"
+                    " FROM salescall.sample_draw_calls c JOIN salescall.attempts a ON a.attempt_id = c.attempt_id"
+                    " WHERE c.draw_id = ANY(%s::uuid[]) ORDER BY a.claimed_at", ([str(d["draw_id"]) for d in draws],))
+                rows = links.rows(tx, list({c["task_id"] for c in calls}))
+                for c in calls:
+                    r = rows.get(c["task_id"])
+                    c["who"] = r["who"] if r else ""
+                    c["url"] = f"{r['url']}/calls/{c['attempt_id']}" if r else ""
+                for d in draws:
+                    d["calls"] = [c for c in calls if c["draw_id"] == d["draw_id"]]
+                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "business": b, "businesses": context.businesses(tx), "rates": rates, "draws": draws}
+            return page(request, "samples.html", person, ctx, **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 
     # ── 結果の送り先（依頼者ごと。docs/DESIGN.md 4-5・docs/DASHBOARD.md 5-10。送り先を作る・直すのは output/destinations の1か所。

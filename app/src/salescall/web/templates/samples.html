@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty %}
+{% set active = "client" %}
+{% block title %}誤判定率と抜き取り{% endblock %}
+{% block crumb %}誤判定率と抜き取り{% endblock %}
+{% block main %}
+<h1>誤判定率と抜き取り：{{ business.name }}</h1>
+<p class="lead">電話の結果が正しかったかを、録音を聞いて付けた正解と比べた割合です。検証モードで確かめた結果と、本番の電話から毎週無作為に抜き取った結果を、別々に数えます（性質の違う材料なので1つにまとめません）。</p>
+{# 割合と上の限度は core の measure.rates の答えをそのまま出す（画面で計算し直さない）。抜き取りは measure.draw の記録を読むだけ #}
+<div class="grid cols-2">
+{% for src, title, note in (("sample", "本番の抜き取り", "本番の電話から無作為に選んだ材料です。本番の正しさの目安にします。"),
+                            ("verification", "検証モードの確かめ", "検証モードで契約者が承認・直した結果です。本番とは別の時期の材料です。")) %}
+{% set r = rates[src] %}
+<section class="card">
+  <h2>{{ title }}</h2>
+  {% if r.checked %}
+  <p class="big-number"><b class="num">{{ "{:.1f}".format(r.rate * 100) }}%</b> <span class="muted">（{{ r.checked }}本のうち誤り {{ r.wrong }}本）</span></p>
+  <dl class="facts">
+    <dt>業務の結果が違った</dt><dd>{{ r.state_wrong }}本</dd>
+    <dt>答えの項目が違った</dt><dd>{{ r.items_wrong }}本</dd>
+    <dt>95%の確かさで言える上の限度</dt><dd>{{ "{:.1f}".format(r.upper * 100) }}%</dd>
+  </dl>
+  <p class="muted">本数が少ないうちは、誤りが0本でも上の限度は大きく出ます（少ない本数で「誤りなし」とは言えないため）。</p>
+  {% else %}{{ empty("まだ正解が付いていません", note) }}{% endif %}
+</section>
+{% endfor %}
+</div>
+<p class="muted" style="margin-top:8px">本番で気づいて直した結果：{{ rates.correction.checked }}本（気づいたものだけなので、誤判定率には入れません）。</p>
+
+<h2 style="margin-top:24px">抜き取った電話</h2>
+<p class="muted">毎週、前の週（月曜〜日曜）のお客様と話せた本番の電話から、設定の本数を無作為に選びます。<b>録音を聞いて正解を付ける欄は、録音を聞く仕組みができてから出します</b>（録音を聞かずに正解を付けられる形は作りません）。それまでは、電話のやり取りの文字を見られます。</p>
+{% for d in draws %}
+<section class="card" style="margin-top:12px">
+  <div class="title-row"><h3 style="margin:0">{{ d.week_start.strftime("%-m月%-d日") }}からの1週間</h3>
+    <span class="muted">話せた電話 {{ d.pool_size }}本から {{ d.drawn }}本（設定 {{ d.wanted }}本）</span></div>
+  {% if d.calls %}
+  <ul class="plain-list">{% for c in d.calls %}
+    <li>{% if c.url %}<a href="{{ c.url }}">{{ c.who or "（会社名なし）" }}</a>{% else %}{{ c.who or "（見つかりません）" }}{% endif %}
+      <span class="muted">{{ time(c.claimed_at) }}</span> {{ tag("正解を付けた", "ok") if c.checked else tag("正解はまだ", "wait") }}</li>
+  {% endfor %}</ul>
+  {% else %}<p class="muted">その週は、お客様と話せた本番の電話がありませんでした。</p>{% endif %}
+</section>
+{% else %}
+<div class="card" style="margin-top:12px">{{ empty("まだ抜き取っていません", "本番の電話がある週の翌週に、自動で選びます（検証モードの電話は選びません）。") }}</div>
+{% endfor %}
+{% endblock %}

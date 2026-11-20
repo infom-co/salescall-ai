@@ -32,3 +32,13 @@ def rows(tx: Tx, task_ids: list[Any]) -> dict[Any, dict[str, str]]:
 def call(tx: Tx, task_id: Any, attempt_id: Any) -> str:
     base = row(tx, task_id)
     return f"{base}/calls/{attempt_id}" if base and attempt_id else base
+
+
+# 知らせの種類ごとに、業務の中の飛び先（知らせの refs に業務があるとき）。種類を足したら、ここに足す（1か所）
+BUSINESS_PAGES = {"sample_ready": "samples"}
+
+
+def business_notice(client_id: Any, business_id: Any, kind: str) -> str:
+    """業務の知らせの飛び先：種類ごとの画面があればそこ、無ければ業務のタブ。"""
+    page = BUSINESS_PAGES.get(kind)
+    return f"/c/{client_id}/b/{business_id}" + (f"/{page}" if page else "")

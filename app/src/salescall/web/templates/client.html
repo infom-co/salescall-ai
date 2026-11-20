@@ -100,6 +100,7 @@
   <div class="title-row"><h2 style="margin:0">{{ "検証モード" if verification else "フルオート" }}</h2>
     <span class="btn-row">{% if versions %}<a class="btn small" href="/c/{{ client.client_id }}/b/{{ business.business_id }}/versions/{{ versions[0].version_id }}">業務設定の中身（版 {{ versions[0].version_no }}）</a>{% endif %}
     <a class="btn small" href="/c/{{ client.client_id }}/b/{{ business.business_id }}/reward">報酬の決まり</a>
+    <a class="btn small" href="/c/{{ client.client_id }}/b/{{ business.business_id }}/samples">誤判定率と抜き取り</a>
     <a class="btn small" href="/c/{{ client.client_id }}/b/{{ business.business_id }}/settings">切り替える（業務の設定）</a></span></div>
   <p class="muted">{% if verification %}発信の前に行を承認し、結果を確かめてから確定します。少ない件数の段から始め、指標が基準の内なら次の段へ進みます。{% else %}承認なしでかけ、判定した結果をそのまま確定します。{% endif %}</p>
   {% for st in stages %}
