@@ -52,6 +52,13 @@ class FakeScreen:
         self.hung += 1
         self.now = "idle"
 
+    sms_error = None
+
+    def send_sms(self, number, text):
+        if self.sms_error:
+            raise self.sms_error
+        self.sent = (number, text)
+
 
 class FakeSound:
     rate = RATE
@@ -179,6 +186,37 @@ class TestRing(unittest.TestCase):
         p, clock = phone()
         clock.on_sleep.append(lambda t: p.sound.feed(silence(0.1)))
         self.assertIsNone(p.test_ring("+81300000009"))                      # 見分けられなければ決めつけない
+
+
+class ShortMessage(unittest.TestCase):
+    def test_a_message_is_sent_only_when_linked_and_not_in_a_call(self):
+        """ショートメール（CL-2 へのお願い 62）：通話の途中は送らない（withheld）・連携していない／連絡先に無い＝送っていない（not_placed）。"""
+        from salescall.agent.phones.screen_uia import NotRegistered
+        from salescall.link.phone import CallWithheld
+        p, _ = phone()
+        p.send_sms("0300000001", "架空の知らせ")
+        self.assertEqual(p.screen.sent, ("0300000001", "架空の知らせ"))
+        self.assertTrue(p.usable())
+        busy = FakeScreen()
+        busy.now = "in_call"
+        p, _ = phone(busy)
+        with self.assertRaises(CallWithheld):
+            p.send_sms("0300000001", "架空の知らせ")
+        for screen in (FakeScreen(linked=False), FakeScreen(linked=None)):
+            p, _ = phone(screen)
+            self.assertFalse(p.usable())
+            with self.assertRaises(CallNotPlaced):
+                p.send_sms("0300000001", "架空の知らせ")
+        unknown = FakeScreen()
+        unknown.sms_error = NotRegistered("宛先がスマホの連絡先にありません")
+        p, _ = phone(unknown)
+        with self.assertRaises(CallNotPlaced):
+            p.send_sms("0300000001", "架空の知らせ")
+        broken = FakeScreen()
+        broken.sms_error = RuntimeError("押したあとの確かめが合わない")
+        p, _ = phone(broken)
+        with self.assertRaises(RuntimeError):                                  # 送れたか分からない（サーバーは次の送り方へ）
+            p.send_sms("0300000001", "架空の知らせ")
 
 
 class Numbers(unittest.TestCase):

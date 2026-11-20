@@ -40,7 +40,7 @@ LINK_LOST = re.compile(r"接続されていません|接続が切れ|オフラ�
 DOMESTIC = re.compile(r"0\d{9,10}")   # 入れてよい番号の形（国内の数字だけ）。形を変えるのはサーバーの番号の正規化の1か所（core/phone.py の national）
 
 
-class NotRegistered(Exception):
+class NotRegistered(LookupError):
     """ショートメールの宛先が、Rakuten Link の連絡先に登録されていない（送っていない。知らせはチャットワークへ回し、登録を頼む）。"""
 
 

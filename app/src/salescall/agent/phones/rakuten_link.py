@@ -37,6 +37,7 @@ class Screen(Protocol):
     def state(self) -> str: ...                   # "idle"・"calling"・"in_call"・"unknown"
     def dial(self, phone_e164: str) -> None: ...   # 番号を入れて発信を押す（押せなければ例外）
     def hang_up(self) -> None: ...
+    def send_sms(self, number: str, text: str) -> None: ...   # 国内の形の番号へ1通（宛先が連絡先に無ければ LookupError）
 
 
 class Sound(Protocol):
@@ -133,6 +134,34 @@ class RakutenLink:
                     self.sound.play_wait(bye)
         finally:
             self.hang_up()
+
+    def usable(self) -> bool:
+        """この回線が、いま発信を受けられるか（スマホと連携している。分からなければ False＝かけない側）。PC の部品の土台が、合図の
+        回線の一覧に入れるかをこれで決める（CL-2 へのお願い 62 の (2)。形ができるまで、土台はまだ呼ばない）。"""
+        try:
+            return self.screen.linked() is True
+        except Exception:
+            return False
+
+    def send_sms(self, phone_national: str, text: str) -> None:
+        """ショートメールを1通送る（CL-2 へのお願い 62 の (1)）。送れたと確かに言えるときだけ返る：
+        - 通話の途中（または分からない）＝CallWithheld（送ろうとしない。画面の操作で通話を乱さない）
+        - スマホと連携していない・宛先がスマホの連絡先に無い・番号の形が違う＝CallNotPlaced（送っていない）
+        - それ以外の失敗（画面の部品が見つからない・押したあとの確かめが合わない など）＝そのまま例外（送れたか分からない＝サーバーは
+          送れなかったとして次の送り方へ。同じ文が2通届くことはありうるが、知らせが届かないよりよい）
+        連絡先には登録しない（スマホの連絡先を書き換えない）。"""
+        from salescall.link.phone import CallWithheld
+        with self._lock:
+            if self.in_call():
+                raise CallWithheld("通話の途中なので、ショートメールは送りません")
+            if not self.usable():
+                raise CallNotPlaced("Rakuten Link がスマホと連携していない（または分からない）")
+            try:
+                self.screen.send_sms(phone_national, text)
+            except LookupError as e:   # 宛先が連絡先に無い（screen_uia.NotRegistered）・部品が見つからない
+                raise CallNotPlaced(str(e) or "宛先がスマホの連絡先にありません") from None
+            except ValueError as e:    # 番号の形が違う（国内の形でない＝送っていない）
+                raise CallNotPlaced(str(e)) from None
 
     def on_audio(self, send: Callable[[bytes], None]) -> None:
         self._send_audio = send
