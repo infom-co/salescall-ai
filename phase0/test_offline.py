@@ -45077,6 +45077,23 @@ class S2AskedSceneTest(unittest.TestCase):
         self.assertEqual(miss(F["結構です。"], "はい", UNDECIDED), "違う伺い")   # 正解の伺い（D2）と違う伺い（いまの話の向き）＝伺ったのは正しい側（要らない伺いではない）
         self.assertEqual(miss(F["もういいです。"], "いいえ", END_NONE), "⛔伺わずに続ける")
 
+    def test_5_every_built_scene_has_a_played_business_question(self):
+        # 場面の印の場面（日時の2択の段・番号違いを伺う一言のあと・待っていただく一言のあと）とご承認のお知らせの最終の確かめの場面も、同じ1か所（asked_flow）から組む＝お客様の
+        # 言葉を聞く前に、業務の質問を流した印がある（本題）。⛔ 分身 S2 の 5fde3454 まで、この4つの場面は質問を並べた流れの制御だけで組んでいた（正解の動き・判定に送る文は
+        # 変わらない＝確かめた。電話を終える言葉か決まらない読みの動きだけが本番と違った）
+        import g53_meaning as g
+        from review_words import LADDER_CLOCK_SCENE, LADDER_SCENE, WAIT_SCENE, WRONG_ASK_SCENE, answer_words, questions
+        qm = g.question_map() | questions()
+        seen = set()
+        for it in answer_words():
+            if it.get("scene") in (LADDER_SCENE, LADDER_CLOCK_SCENE, WAIT_SCENE, WRONG_ASK_SCENE) and it["scene"] not in seen:
+                seen.add(it["scene"])
+                f, qid = g.flow_scene(it, qm[it["qid"]])
+                self.assertTrue(f._main_talk(), it["scene"])
+        self.assertEqual(len(seen), 4)
+        it = next(x for x in g.set_r() if x.get("set") == "D" and not x.get("scene") and (q := qm.get(x["qid"])) is not None and q.approval and q.announce)   # ご承認のお知らせ R7 の最終の確かめ
+        f, qid = g.flow_scene(it, qm[it["qid"]])
+        self.assertTrue(f._main_talk())
 
 
 class VLadderFarDaysTest(unittest.TestCase):

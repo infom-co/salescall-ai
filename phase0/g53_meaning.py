@@ -748,8 +748,9 @@ FIRST_WORDS = "はい、テスト商事でございます。"   # 場面の電�
 
 
 def asked_flow(qs: list[Question]) -> Flow:
-    """業務の最初の質問（qs の先頭）を、本番と同じ始まり方で流した所までの流れの制御（唯一の場所＝答えの段の測りの場面 _flow_scene の既定の枝・電話を終える言葉の表の場面
-    end_words.answer_flow）：お呼びする方の無い業務（g22_opening.BUSINESS の名乗りで、質問を qs に替えたもの）で、電話が繋がる → 第一声 → 人の報告 → 名乗りの録音
+    """業務の最初の質問（qs の先頭）を、本番と同じ始まり方で流した所までの流れの制御（唯一の場所＝答えの段の測りの場面 _flow_scene の既定の枝・場面の印の場面
+    （日時の2択の段 _ladder_scene・番号違いを伺う一言のあと _wrong_ask_scene・待っていただく一言のあと _wait_scene）・ご承認のお知らせの最終の確かめ _final_scene・
+    電話を終える言葉の表の場面 end_words.answer_flow）：お呼びする方の無い業務（g22_opening.BUSINESS の名乗りで、質問を qs に替えたもの）で、電話が繋がる → 第一声 → 人の報告 → 名乗りの録音
     （最初の質問まで＝Flow._opening_reply が流した印 Item.played を付ける）→ 流し終えた知らせ on_played。判定の待ち方（use_checks）は呼ぶ所が決める。
     用件の一文は入れない：測りの行はいろいろな業務の質問で、どの業務の用件かが決まらない（入れると、本番が判定に見せる用件＝Flow._heard_purpose が、ほかの会社に頼んでいるかの
     項目の説明に入り、行の質問と合わない用件で判定に送る文が変わる＝分身 S2 が確かめた 2,754行。今までの測りの文と同じ＝用件なし）。
@@ -897,7 +898,7 @@ def _ladder_scene(q: Question) -> Flow:
     平日と土日の2択で伺い、「平日」と答えていただいて、曜日の2択を伺った所まで（伺うのは Flow._ladder_set・_ladder_take の1か所）。"""
     import datetime as dt
     from flowctl import AHEAD_CHECKS, LATER, VALUE_CHOICE
-    f = Flow([SCENE_PRE, SCENE_NEXT], play_recordings=True)
+    f = asked_flow([SCENE_PRE, SCENE_NEXT])
     f.use_checks("judge")
     y, m, d, h = LADDER_TODAY
     f.today, f.now = dt.date(y, m, d), dt.datetime(y, m, d, h, 0)
@@ -936,7 +937,7 @@ def _wrong_ask_scene(q: Question) -> Flow:
     番号違いと読み（割れた）、こちらが「大変失礼いたしました。番号を間違えてお掛けしてしまいましたでしょうか？」（Flow._ask_again の wrong）を流し終えた所まで。"""
     from flowctl import ABOUT_WRONG, JUDGMENTS, WRONG, WRONG_NOT_SAID
     from phrases import WRONG_NUMBER_ASK
-    f = Flow([q, SCENE_NEXT], play_recordings=True)
+    f = asked_flow([q, SCENE_NEXT])
     f.use_checks(*JUDGMENTS)
     f.on_callee(); f.on_heard(SCENE_WRONG)
     for k, wrong in zip(JUDGMENTS, (ABOUT_WRONG, WRONG_NOT_SAID)):
@@ -954,7 +955,7 @@ def _wait_scene(q: Question) -> Flow:
     """待っていただく一言のあと（review_words.WAIT_SCENE）：質問 q に答えていただき（「振込でお願いします。」＝判定の読み「振込」）、会話AIが声も報告も出さないので、
     こちらの声が出ていない場面の一言（「はい、」のあと「少々お待ちいただいてもよろしいでしょうか？」＝flowctl.QUIET_STEPS の ours・Flow.on_silence(ours=True)）を流し終えた所まで。"""
     from flowctl import waiting_line
-    f = Flow([q, SCENE_NEXT], play_recordings=True)
+    f = asked_flow([q, SCENE_NEXT])
     f.use_checks("judge")
     f.on_callee(); f.on_heard(SCENE_PAID)   # 会話AIは声も報告も出さない（判定の読みだけ）
     f.on_check("judge", _scene_read("振込" if "振込" in q.conditions else q.conditions[0]))
@@ -1114,7 +1115,7 @@ def _final_scene(q: Question, asked: str | None) -> Flow:
     from flowctl import accepted_line
     if asked is not None and asked == accepted_line(q, heard=False)[1] and asked != accepted_line(q)[1]:
         raise NoScene("聞き取れなかったお知らせの締めの前の確かめ（R7）")
-    f = Flow([q, SCENE_NEXT], play_recordings=True)
+    f = asked_flow([q, SCENE_NEXT])
     f.use_checks("judge")
     _scene_turn(f, "なるほど。", UNDECIDED, "record_answer", question_id=q.id, condition_id="unknown", **{AWAY: AWAY_NO})
     if f.awaiting_confirm != q.id:
