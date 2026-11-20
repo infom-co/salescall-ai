@@ -15,6 +15,13 @@
 ## 1. いまの状態（2026-11-19）
 - **第2便は main に入った**（546303a6。2026-11-20 ユーザー「第2便を main に上げてよい」）。CL-1・CL-3 に知らせた。
 - **main へ入れるときの確かめ**：設計書 15-3（CL-3 の章）は CL-3 の枝だけにある。合わせたあと、15-2 の行き先の行のあとに 15-3 が残ることを見る（2026-11-19 CL-3 の知らせ）。
+- **第3便（作っている。2026-11-20〜）**：CL-1 の連絡帳 4-207〜4-215 と、CL-3 のお願い 54〜57 を受ける。作る順（済んだら ✓）：
+  - (1) 写しの作り直し（共通の一言＝name_head_*・acquire_*・wrong_number_ask・omatase・wait_soon など／続く言葉＝target_reconfirm を外す・acquire_glad・pain_ask・listen_*・reception_purpose）と、要る名前の録音（name_needs：target_reconfirm を外す・役職の呼び方の名前の部分＝target_role 系・reception_purpose_role・mobile_owner→target_individual・顧客獲得型の行の続く言葉）・使えない番号（Y1・Y2・yes・but ほか）。
+  - (2) 業務設定の欄：電話の型 call_type（confirm／acquire）・yes_asks・special・pains・meeting_time・アポのお断りのあと次の実施回まであける日数（初め30日）・accept_free。確かめは CL-1 の Business._check_call_type と同じ決まり（顧客獲得型は法人だけ・3つの欄が要る・最初の質問は日時・確認の電話には書かない）。
+  - (3) 会話の報告：事実 refusal_said（turn・said・what・at）・締めた理由 yes_used_up・no_pain・事実 clock24・until_why の available_until・departed の to_role。判定：departed_end は to_role を数えない・役職の方の口 role_call（予約証）・依頼者へ refusal_said。
+  - (4) 顧客獲得型の発信禁止と切れ方（4-207 の (2)(3)。✅ 11-20 ユーザー伺い80「電話の終わりに切られたり、怒っていたらつける」）：切れ方の決め方と、アポのお断りのあと次の実施回まであける日数を、電話の型ごとの表の1か所で。
+  - (5) お客様リストの連絡先の出どころ（listed_contacts の source）・この電話のかけ直しに使える空き call_free を会話へ渡す（call_dates と同じ所）。
+  - (6) CL-3 のお願い 54〜57。
 - **受けた所**：CL-1 の連絡帳 4-206 まで（答えは 4-443）・CL-3 の連絡帳 4-1c の 53 まで（答えは 4-428〜4-442）。
 - **壊し試し（2026-11-19 に全部流した＝約2130件）**：見逃し14件のうち12件は直した（古い形を写していた・試験が守りの名前まで見ていなかった・二重に書いていた）。2件は新しい1か所がもっと強く守るので外した（0019・0215）。**残り1件は外した**：約束の回の本数の「期の比べ」（attempts.in_promise_count）は、行の回数の範囲（in_row_count）の同じ比べが先に外す・前の担当の方との「守る」約束の回にはほかの期の電話が入らない、ので外しても結果が変わらない（不具合ではない）。戻した約束が戻す前の電話も数えることを試す試験を足した（test_settle の test_a_dropped_promise_brought_back_still_counts_…）。
 - **CL-3 のお願いで残っているもの**：42（必須項目の「取れた・-・✕」の数え方の1か所＝CL-3 の Q20 の印と一緒に）・43・38・8・27/45（設定の説明の文）・ログインの2段目（2段階の確かめ・パスキー・Google）。ユーザーに伺うもの：7・12・13・20・41。
