@@ -144,6 +144,16 @@ def tenant_name(access: Access, actor: Actor, tenant_id: UUID) -> str:
     return row["name"] if row else ""
 
 
+def security(access: Access, person_id: UUID) -> dict[str, Any]:
+    """ログインと安全の画面の読み物（取引を開くのは、この場所の1か所）：その方のパスキー（名前・登録した時刻）と、結び付いた Google の
+    アカウント（メール）。読むのは core の passkeys.active・google_login.linked（ログインの確かめの役で読む部品＝CL-2 4-456・4-457）。"""
+    from salescall.core import google_login, passkeys, people
+    def read(tx: Tx) -> dict[str, Any]:
+        return {"passkeys": [{"passkey_id": k["passkey_id"], "label": k["label"], "added_at": k["added_at"]} for k in passkeys.active(tx, person_id)],
+                "google": [g["email"] for g in google_login.linked(tx, person_id)]}
+    return access.in_system(people.LOGIN_CHECKER, read)
+
+
 NO_GROUP = "none"   # グループの選び：どのグループにも入っていない依頼者
 
 

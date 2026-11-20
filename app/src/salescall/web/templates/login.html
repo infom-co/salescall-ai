@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ログイン — SalesCall</title><link rel="stylesheet" href="/static/app.css"></head>
+<title>ログイン — SalesCall</title><link rel="stylesheet" href="/static/app.css">
+{% if google_client_id %}<script src="/static/passkey.js" defer></script><script src="https://accounts.google.com/gsi/client" async></script>{% endif %}</head>
 <body><main class="content login-page">
 <div class="card">
   <h1 class="login-brand">Sales<b>Call</b></h1>
@@ -13,6 +14,14 @@
     <input id="login-password" type="password" name="password" autocomplete="current-password" required>
     <button class="btn main" type="submit">ログイン</button>
   </form>
+  {#- Google でのログイン（サーバーにクライアント ID があるときだけ。確かめるのは core の google_login の1か所） -#}
+  {% if google_client_id %}
+  <div class="login-or"><span>または</span></div>
+  <div data-google-post="/login/google"></div>
+  <div id="g_id_onload" data-client_id="{{ google_client_id }}" data-callback="salescallGoogle" data-auto_prompt="false"></div>
+  <div class="g_id_signin" data-type="standard" data-text="signin_with" data-locale="ja" data-width="300"></div>
+  <p class="flash ng" data-google-msg role="alert" hidden></p>
+  {% endif %}
   <p class="hint">{{ note }}</p>
 </div>
 </main></body></html>

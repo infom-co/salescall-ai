@@ -36,7 +36,7 @@ from salescall.core import (agents, ai_plans, calling_hours, conversation_io, cu
                             gate, health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
-from salescall.core import once, people
+from salescall.core import google_login, once, passkeys, people
 from salescall.core.access import Access
 from salescall.output import destinations as result_destinations
 from salescall.output import files as result_files
@@ -164,7 +164,10 @@ class Limiter:
 
 
 def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_header: str | None = None,
-               secure_cookies: bool = True) -> FastAPI:
+               secure_cookies: bool = True, site: Any = None, google_client_id: str | None = None,
+               google_keys: Callable[[], dict[str, Any]] | None = None) -> FastAPI:
+    """site＝パスキーを結び付けるサイト（core の passkeys.Site。無ければパスキーの画面を出さない）・google_client_id＝Google のログインの
+    クライアント ID（無ければ Google のボタンを出さない）・google_keys＝Google の署名の鍵を返す関数（無ければ core が取りに行く＝試験は渡す）。"""
     if not secret:
         raise ValueError("画面の秘密（secret）が空です")
     app = FastAPI(title="SalesCall ダッシュボード", docs_url=None, redoc_url=None, openapi_url=None)
@@ -259,12 +262,28 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     login_limit = Limiter(10, 60.0)   # 同じ住所からのログインの試し（続けて誤ったときの止め方は、ログインごとに core が持つ）
 
     def _login_page(request: Request, error: str = "", status: int = 200) -> HTMLResponse:
-        return templates.TemplateResponse(request, "login.html", {"error": error, "note": web_login.NOTE_2FA}, status_code=status)
+        return templates.TemplateResponse(request, "login.html", {"error": error, "note": web_login.NOTE_2FA, "google_client_id": google_client_id},
+                                          status_code=status)
+
+    def _signed_in(session: Any) -> Response:
+        """ログインが通った（1段目）。パスキーで確かめる方は、2段目の画面へ（印は、2段目が通るまで使えない＝core の people.by_session）。"""
+        resp = RedirectResponse("/login/second" if session.needs_passkey else "/t", status_code=303)
+        resp.set_cookie(web_login.COOKIE, session.token, httponly=True, samesite="strict", secure=secure_cookies)
+        return resp
+
+    def _pending(request: Request) -> str | None:
+        """2段目を待つ印（ブラウザにある印が、もう使えるなら None）。"""
+        token = request.cookies.get(web_login.COOKIE)
+        if not token or people.by_session(access, token) is not None:
+            return None
+        return token
 
     @app.get("/login")
     def login(request: Request) -> Response:
         if identify(request) is not None:
             return RedirectResponse("/t", status_code=303)
+        if _pending(request) is not None:   # パスワードは通って、2段目を待っている
+            return RedirectResponse("/login/second", status_code=303)
         return _login_page(request)
 
     @app.post("/login")
@@ -275,9 +294,154 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         session = people.login(access, str(form.get("login_id") or "").strip(), str(form.get("password") or ""))
         if session is None:
             return _login_page(request, web_login.WRONG, 401)
-        resp = RedirectResponse("/t", status_code=303)
+        return _signed_in(session)
+
+    # ── ログインの2段目（パスキー・予備の合言葉。core の passkeys の1か所＝CL-2 4-456）と Google でのログイン（google_login＝4-457）──
+    second_limit = Limiter(10, 60.0)
+
+    def _second_page(request: Request, error: str = "", status: int = 200) -> HTMLResponse:
+        return templates.TemplateResponse(request, "login_second.html", {"error": error, "passkey": site is not None}, status_code=status)
+
+    @app.get("/login/second")
+    def login_second(request: Request) -> Response:
+        if _pending(request) is None:
+            return RedirectResponse("/t" if identify(request) is not None else "/login", status_code=303)
+        return _second_page(request)
+
+    @app.post("/login/second/options")
+    def login_second_options(request: Request) -> Response:
+        token = _pending(request)
+        if token is None or site is None:
+            return JSONResponse({"error": "ログインし直してください。"}, status_code=400)
+        try:
+            return Response(passkeys.login_options(access, token, site), media_type="application/json")
+        except passkeys.PasskeyRefused as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    @app.post("/login/second/verify")
+    async def login_second_verify(request: Request) -> Response:
+        token = _pending(request)
+        if token is None or site is None or second_limit.hit(_address(request)):
+            return JSONResponse({"error": "確かめられませんでした。ログインし直してください。"}, status_code=400)
+        ok = passkeys.verify_login(access, token, site, (await request.body()).decode("utf-8", "replace"))
+        return JSONResponse({"next": "/t"} if ok else {"error": "パスキーで確かめられませんでした。もう一度お試しください。"}, status_code=200 if ok else 400)
+
+    @app.post("/login/second/code")
+    async def login_second_code(request: Request) -> Response:
+        token = _pending(request)
+        if token is None:
+            return RedirectResponse("/login", status_code=303)
+        if second_limit.hit(_address(request)):
+            return _second_page(request, "試す回数が多すぎます。1分ほど待ってから、もう一度入れてください。", 429)
+        form = dict(await request.form())
+        if passkeys.use_recovery_code(access, token, str(form.get("code") or "")):
+            return RedirectResponse("/t", status_code=303)
+        return _second_page(request, "予備の合言葉が違うか、もう使ったものです。", 401)
+
+    def _google_keys() -> dict[str, Any] | None:
+        return google_keys() if google_keys is not None else None   # None＝core が取りに行く
+
+    @app.post("/login/google")
+    async def login_google(request: Request) -> Response:
+        if not google_client_id or login_limit.hit(_address(request)):
+            return JSONResponse({"error": "いまは Google でログインできません。ログインIDとパスワードでログインしてください。"}, status_code=400)
+        form = dict(await request.form())
+        try:
+            session = google_login.login(access, str(form.get("credential") or ""), client_id=google_client_id, keys=_google_keys())
+        except google_login.GoogleRefused as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        if session is None:   # 結び付いていない（理由は記録に残す。ここでは、だれのアカウントかを教えない）
+            return JSONResponse({"error": "この Google のアカウントは、まだ結び付いていません。ログインIDとパスワードでログインし、"
+                                          "「ログインと安全」で結び付けてください。"}, status_code=400)
+        resp = JSONResponse({"next": "/login/second" if session.needs_passkey else "/t"})
         resp.set_cookie(web_login.COOKIE, session.token, httponly=True, samesite="strict", secure=secure_cookies)
         return resp
+
+    # ── ログインと安全（その方のパスキー・予備の合言葉・Google のアカウント。持ち主は、ログインした方ご本人）──────────
+    def _me(request: Request) -> Any:
+        """ログインした方と、画面の札（ヘッダー X-Form-Token か、フォームの欄）が合うか。合わなければ None。"""
+        person = identify(request)
+        if person is None or not actions.token_ok(secret, person.login_id, request.headers.get("x-form-token")):
+            return None
+        return person
+
+    def _account(request: Request, done: str | None = None, ok: int = 1, codes: list[str] | None = None) -> HTMLResponse:
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            return page(request, "account.html", person, ctx, active="account", done=done, ok=bool(ok), codes=codes,
+                        sec=context.security(access, person.person_id), passkey=site is not None, google_client_id=google_client_id)
+        return handle(request, render)
+
+    @app.get("/t/account")
+    def account(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        return _account(request, done, ok)
+
+    @app.post("/t/account/passkey/options")
+    def account_passkey_options(request: Request) -> Response:
+        person = _me(request)
+        if person is None or site is None:
+            return JSONResponse({"error": "画面を開き直してから、もう一度押してください。"}, status_code=400)
+        return Response(passkeys.register_options(access, person, site), media_type="application/json")
+
+    @app.post("/t/account/passkey")
+    async def account_passkey(request: Request) -> Response:
+        person = _me(request)
+        if person is None or site is None:
+            return JSONResponse({"error": "画面を開き直してから、もう一度押してください。"}, status_code=400)
+        body = await request.json()
+        try:
+            _, codes = passkeys.register(access, person, site, body.get("credential") or {}, str(body.get("label") or ""))
+        except passkeys.PasskeyRefused as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"codes": codes or []})
+
+    async def _account_form(request: Request) -> tuple[Any, dict[str, Any]]:
+        form = dict(await request.form())
+        person = identify(request)
+        if person is None or not actions.token_ok(secret, person.login_id, form.get(actions.TOKEN_FIELD)):
+            return None, form
+        return person, form
+
+    @app.post("/t/account/passkey/remove")
+    async def account_passkey_remove(request: Request) -> Response:
+        person, form = await _account_form(request)
+        if person is None:
+            return RedirectResponse("/t/account?ok=0&done=" + quote("画面を開き直してから、もう一度押してください。"), status_code=303)
+        try:
+            passkeys.remove(access, person, UUID(str(form.get("passkey_id") or "")))
+        except (ValueError, passkeys.PasskeyRefused) as e:
+            return RedirectResponse("/t/account?ok=0&done=" + quote(str(e) if isinstance(e, passkeys.PasskeyRefused) else "そのパスキーはありません"), status_code=303)
+        return RedirectResponse("/t/account?done=" + quote("パスキーを外しました。"), status_code=303)
+
+    @app.post("/t/account/codes")
+    async def account_codes(request: Request) -> Response:
+        person, _ = await _account_form(request)
+        if person is None:
+            return RedirectResponse("/t/account?ok=0&done=" + quote("画面を開き直してから、もう一度押してください。"), status_code=303)
+        try:
+            codes = passkeys.new_recovery_codes(access, person)
+        except passkeys.PasskeyRefused as e:
+            return RedirectResponse("/t/account?ok=0&done=" + quote(str(e)), status_code=303)
+        return _account(request, "予備の合言葉を作り直しました。前の合言葉は、もう使えません。", 1, codes)   # 合言葉は、このときだけ見せる（残さない）
+
+    @app.post("/t/account/google")
+    async def account_google(request: Request) -> Response:
+        person = _me(request)
+        if person is None or not google_client_id:
+            return JSONResponse({"error": "画面を開き直してから、もう一度押してください。"}, status_code=400)
+        form = dict(await request.form())
+        try:
+            email = google_login.link(access, person, str(form.get("credential") or ""), client_id=google_client_id, keys=_google_keys())
+        except google_login.GoogleRefused as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        return JSONResponse({"next": "/t/account?done=" + quote(f"Google のアカウント（{email}）を結び付けました。")})
+
+    @app.post("/t/account/google/unlink")
+    async def account_google_unlink(request: Request) -> Response:
+        person, _ = await _account_form(request)
+        if person is None:
+            return RedirectResponse("/t/account?ok=0&done=" + quote("画面を開き直してから、もう一度押してください。"), status_code=303)
+        google_login.unlink(access, person)
+        return RedirectResponse("/t/account?done=" + quote("Google のアカウントを外しました。"), status_code=303)
 
     @app.post("/logout")
     async def logout(request: Request) -> Response:

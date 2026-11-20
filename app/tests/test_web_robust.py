@@ -47,7 +47,13 @@ class NothingBreaks(_World):
                         continue
                     r = self.http.post(path, data={"form_token": token, **{n: bad for n in names}},
                                        headers={"x-test-person": "ADMIN"}, follow_redirects=False)
-                    allowed = (200, 303, 401, 429) if route.path == "/login" else (200, 303, 403, 404)   # ログイン：通らない＝401・試しすぎ＝429
+                    if r.headers.get("content-type", "").startswith("application/json"):   # 画面のスクリプトへ JSON で答える送り口（パスキー・Google）
+                        self.assertIn(r.status_code, (200, 400, 429), r.text[:300])          # 断るときも、日本語の理由（error）を返す
+                        self.assertTrue(r.json().get("error") or r.json().get("next") or r.status_code == 200, r.text[:300])
+                        if r.status_code == 400:
+                            self.assertRegex(r.json()["error"], r"[ぁ-んァ-ン一-龥]")
+                        continue
+                    allowed = (200, 303, 401, 429) if route.path in ("/login", "/login/second/code") else (200, 303, 403, 404)   # ログイン：通らない＝401・試しすぎ＝429
                     self.assertIn(r.status_code, allowed, r.text[:300])   # 200＝次の段の画面・確かめのファイル
 
     def test_every_get_answers_in_words_for_a_wrong_id_in_the_address(self):

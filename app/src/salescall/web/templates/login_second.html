@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本人の確かめ — SalesCall</title><link rel="stylesheet" href="/static/app.css"><script src="/static/passkey.js" defer></script></head>
+<body><main class="content login-page">
+<div class="card">
+  <h1 class="login-brand">Sales<b>Call</b></h1>
+  {# ログインの2段目。確かめるのは core の passkeys の1か所（パスキー・予備の合言葉）。通らなかった理由は詳しく出さない #}
+  <h2>本人の確かめ</h2>
+  {% if error %}<div class="flash ng" role="alert">{{ error }}</div>{% endif %}
+  {% if passkey %}
+  <p class="muted">登録したパスキー（この端末・スマホなど）で確かめてください。</p>
+  <button class="btn main" type="button" data-passkey="login">パスキーで確かめる</button>
+  <p class="flash ng" data-passkey-msg role="alert" hidden></p>
+  {% endif %}
+  <details class="more"{% if not passkey %} open{% endif %}><summary>端末が手元に無いとき（予備の合言葉）</summary>
+    <form method="post" action="/login/second/code" class="stack">
+      <label class="field" for="code">予備の合言葉（パスキーを登録したときに書き留めたもの。1つにつき1回だけ使えます）</label>
+      <input id="code" type="text" name="code" autocomplete="one-time-code" required>
+      <button class="btn" type="submit">予備の合言葉で確かめる</button>
+    </form>
+  </details>
+  <p class="hint"><a href="/login">ログインの画面へ戻る</a></p>
+</div>
+</main></body></html>

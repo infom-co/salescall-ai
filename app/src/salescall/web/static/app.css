@@ -525,3 +525,10 @@ a.go:hover { text-decoration: underline; text-underline-offset: 3px; }
 .mode-card .title-row > .go-links { flex-basis: auto; }
 /* とても狭い幅では、上の帯の「SalesCall」の文字を隠して、緊急停止が画面の端で切れないようにする（緊急停止はいつも全部見える） */
 @media (max-width: 420px) { .top > .brand { display: none; } }
+/* ログインと安全・ログインの2段目 */
+ol.codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: 6px 16px; margin: 10px 0 14px; padding-left: 1.6em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 15px; font-weight: 700; }
+.login-or { display: flex; align-items: center; gap: 10px; margin: 18px 0 12px; color: var(--muted); font-size: 13px; }
+.login-or::before, .login-or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.login-page h2 { font-size: 18px; margin: 0 0 8px; }
+.login-page [data-passkey] { width: 100%; margin-top: 8px; }
