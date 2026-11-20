@@ -234,14 +234,22 @@ class UiaScreen:
             time.sleep(0.5)
         # 「＋」（新しいメッセージ）を押すと「メッセージ」「グループ」のメニューが出るので、メニューの中の「メッセージ」を選ぶ
         # （左の「メッセージ」のタブと同じ名前なので、＋を押したあとに新しく出た部品だけから選ぶ。2026-11-20 管理者が教えてくれた）
-        self._press(self._menu_choice(main, "メッセージ"))
-        time.sleep(0.5)
+        # ポップアップの項目は、そのまま押す形（Invoke）では反応しなかった（2026-11-20）。マウスで押す → そのまま押す → Enter の順に試し、
+        # 宛先の欄が出たかで確かめる
+        choice = self._menu_choice(main, "メッセージ")
         box = None
-        for _ in range(20):
-            box = self._part(main, "to_box")
+        for press in (lambda: choice.click_input(), lambda: choice.invoke(), lambda: (choice.set_focus(), choice.type_keys("{ENTER}"))):
+            try:
+                press()
+            except Exception:
+                continue
+            for _ in range(20):
+                box = self._part(main, "to_box")
+                if box is not None:
+                    break
+                time.sleep(0.1)
             if box is not None:
                 break
-            time.sleep(0.1)
         if box is None:
             raise RuntimeError("宛先の欄が見つからない")
         self._paste(box, number)

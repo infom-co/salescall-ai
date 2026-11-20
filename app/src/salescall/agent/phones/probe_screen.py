@@ -7,6 +7,7 @@
     py probe_screen.py dialpad    ← 通話の画面で「ダイヤルパッド」（テンキーの絵のボタン）を押して、番号を入れる画面を出したときに（番号は入れない）
     py probe_screen.py message    ← 「メッセージ」の画面で、新しいメッセージを書く画面を出したときに（宛先も文も入れない・やり取りは開かない）
     py probe_screen.py message_to ← 新しいメッセージの宛先にご家族の番号を入れたときに（本文は入れない・送らない）
+    py probe_screen.py plus_menu 8 ← 8秒待ってから読む（そのあいだに「＋」を押して、「メッセージ」「グループ」のポップアップを出しておく）
 
 結果は同じフォルダの rakuten_link_screen_<名前>.txt。画面に出ている番号・名前（通話の履歴など）が写らないよう、
 **決まった画面の言葉と部品の名前（Id）だけを写し、それ以外の文字（お名前・番号・文面）はどこにあっても写さない。**ブラウザの窓は読まない。それでも、送る前に中を見て、個人の情報が無いかを確かめる。
@@ -72,6 +73,14 @@ def main() -> None:
     except ImportError:
         sys.exit("pywinauto が入っていません。次を打ってから、もう一度動かしてください：\n  py -m pip install pywinauto==0.6.9")
     label = (sys.argv[1] if len(sys.argv) > 1 else "idle").strip() or "idle"
+    if len(sys.argv) > 2 and sys.argv[2].isdigit():   # 待ってから読む（ポップアップは、ターミナルを押すと閉じるので、そのあいだに出してもらう）
+        wait = int(sys.argv[2])
+        print(f"{wait}秒後に読みます。そのあいだに Rakuten Link で、読みたい画面（ポップアップなど）を出してください。")
+        import time
+        for left in range(wait, 0, -1):
+            print(f"  あと {left} 秒", end="\r", flush=True)
+            time.sleep(1)
+        print()
     # Rakuten Link の窓だけ（ブラウザの「Rakuten Link」のページの窓は読まない＝ほかのタブの名前を写さない）
     wins = [w for w in Desktop(backend="uia").windows()
             if TITLE.match(w.window_text() or "") and w.element_info.class_name == "Chrome_WidgetWin_1" and "|" not in (w.window_text() or "")
