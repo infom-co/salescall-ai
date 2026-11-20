@@ -204,6 +204,14 @@ HOW["acquire_glad"] = "電話で、お客様のお返事を受けて、ちょう
 MAX_S["acquire_glad"] = 2.0
 HOW_OF.update({"acquire_glad_lead": "acquire_glad", "but_lead": "yes_received", "pain_ask_company": "question",
                **{k: "acquire_talk" for k in ("case_lead", "listen_sure", "but_safe", "listen_why_company", "listen_reason_company", "listen_ask_company")}})
+# 訪問しない業務の「その時はすぐにお時間をお返ししますので」の形（phrases.visit_id の _remote。伺い91＝分身 U1）も同じ読み方
+from phrases import visit_id  # noqa: E402
+HOW_OF.update({visit_id(k, False): HOW_OF[k] for k in ("listen_sure", "but_safe")})
+# 顧客獲得型の悩みのお答えへの受けの相づち（phrases.ACK の soudattan「そうだったんですね。」・naniyori「それは何よりです。」＝伺い90＝分身 U1）：悩みを打ち明けてくださった方には
+# 共感して・無いと言われたら相手の様子を肯定して受ける読み方（11-14 日本時間14時31分38秒「軽くあしらったように思われ感じが悪い」にならない）
+HOW["soudattan"] = "電話で、お客様が打ち明けてくださったお悩みを、心から共感して受け止めるように、温かく、ゆっくりめに"
+HOW["naniyori"] = "電話で、お客様のご様子が良いことを、心から良かったと肯定して受け止めるように、温かく、自然に"
+MAX_S["soudattan"] = MAX_S["naniyori"] = 2.0
 
 
 def question_how(text: str) -> str:
