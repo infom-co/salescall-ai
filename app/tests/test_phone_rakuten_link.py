@@ -80,7 +80,7 @@ class FakeSound:
 
 def phone(screen=None, recordings=lambda v: (b"\x01\x00" * 160, b"\x02\x00" * 160)):
     clock = Clock()
-    p = rakuten_link.RakutenLink(screen or FakeScreen(), FakeSound(), recordings, clock=clock.now, sleep=clock.sleep)
+    p = rakuten_link.RakutenLink(screen or FakeScreen(), FakeSound(), recordings, clock=clock.now, sleep=clock.sleep, watch_every=None)
     return p, clock
 
 
@@ -127,10 +127,11 @@ class Listening(unittest.TestCase):
         p.sound.feed(b"".join(tone(400, 1.0) + silence(2.0) for _ in range(3)))
         self.assertIn({"kind": "ringback"}, events)
         self.assertTrue(sent and all(len(f) == audio.TO_SERVER_RATE * 20 // 1000 * 2 for f in sent))
+        p.poll_state()                                                        # 画面の状態は、声とは別の流れで読む
         p.screen.now = "in_call"
-        p.sound.feed(silence(0.04))
+        p.poll_state()
         p.screen.now = "idle"
-        p.sound.feed(silence(0.04))
+        p.poll_state()
         self.assertEqual([e["kind"] for e in events][-2:], ["answered", "ended"])
 
     def test_server_voice_is_converted_once_to_the_device_rate(self):

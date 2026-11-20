@@ -53,7 +53,7 @@ Recordings = Callable[[str | None], tuple[bytes, bytes] | None]   # 声の型 �
 
 class RakutenLink:
     def __init__(self, screen: Screen, sound: Sound, recordings: Recordings, *, clock: Callable[[], float] = time.monotonic,
-                 sleep: Callable[[float], None] = time.sleep) -> None:
+                 sleep: Callable[[float], None] = time.sleep, watch_every: float | None = 0.2) -> None:
         self.screen, self.sound, self.recordings = screen, sound, recordings
         self.clock, self.sleep = clock, sleep
         self._send_audio: Callable[[bytes], None] = lambda b: None
@@ -65,6 +65,10 @@ class RakutenLink:
         self._heard: list[float] = []           # 声のあった切れ目の時刻（おわびの返事を待つため）
         self._last_state = "idle"
         sound.listen(self._on_frame)
+        # 画面の状態（呼び出し中・つながった・切れた）は、声の流れとは別の流れで watch_every 秒ごとに読む（画面を読むのは遅いので、
+        # 20ms ごとの声の流れの中で読むと声が詰まる）。試験は None にして、poll_state を自分で呼ぶ
+        if watch_every is not None:
+            threading.Thread(target=self._watch, args=(watch_every,), daemon=True, name="rakuten-link-state").start()
 
     # ── Phone の形 ──────────────────────────────────────────
     def in_call(self) -> bool:
@@ -160,6 +164,11 @@ class RakutenLink:
         if tone and tone != self._tone:
             self._tone = tone
             self._send_event({"kind": tone})          # ⏳ 名前は CL-1 と決める（ringback・busy）
+        for frame in self._framer.push(audio.resample(pcm, self.sound.rate, audio.TO_SERVER_RATE)):
+            self._send_audio(frame)
+
+    def poll_state(self) -> None:
+        """画面の状態を1回読み、移ったら出来事を知らせる（つながった answered・切れた ended）。"""
         try:
             state = self.screen.state()
         except Exception:
@@ -170,8 +179,11 @@ class RakutenLink:
             elif state == "idle" and self._last_state in ("calling", "in_call"):
                 self._send_event({"kind": "ended"})
             self._last_state = state
-        for frame in self._framer.push(audio.resample(pcm, self.sound.rate, audio.TO_SERVER_RATE)):
-            self._send_audio(frame)
+
+    def _watch(self, every: float) -> None:
+        while True:
+            self.poll_state()
+            time.sleep(every)
 
     def _wait_reply(self, until: float) -> None:
         """お客様が話し始めて、話し終える（QUIET_END 途切れる）まで待つ。話さなければ until まで。"""
@@ -181,3 +193,19 @@ class RakutenLink:
             if recent and self.clock() - recent[-1] >= QUIET_END:
                 return
             self.sleep(0.05)
+
+
+_MADE: dict[str, Any] = {}
+
+
+def make(line_id: Any) -> RakutenLink:
+    """PC の部品が回線ごとに呼ぶ入口（設定 SALESCALL_PHONE＝"salescall.agent.phones.rakuten_link:make"）。本物の画面の口と音の装置で作る。
+    ⏳ PC 1台で Rakuten Link を2つ動かせるかは R-8 で確かめる。それまでは1台の PC に回線は1本だけ（2本目は断る＝かけない側）。
+    ⏳ おわびの録音は、サーバーから配ってもらう形ができるまで無い（録音が無ければ、黙って待たせずにすぐ切る＝play_apology_and_hang_up）。"""
+    if _MADE and str(line_id) not in _MADE:
+        raise RuntimeError("この PC の Rakuten Link は1つだけ（回線は1本まで。2本目は R-8 で確かめてから）")
+    if str(line_id) not in _MADE:
+        from salescall.agent.phones.screen_uia import UiaScreen
+        from salescall.agent.phones.sound_vac import VacSound
+        _MADE[str(line_id)] = RakutenLink(UiaScreen(), VacSound(), lambda voice: None)
+    return _MADE[str(line_id)]
