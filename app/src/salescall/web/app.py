@@ -1320,19 +1320,20 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                            " AND business_id = %s", (version_id, business_id))
                 if v is None:
                     raise NotFound()
+                missing = False
                 try:
                     s, problem = business_settings.load(tx, version_id), None
                 except business_settings.SettingsInvalid as e:
                     s, problem = None, f"この版は、いまの確かめに通りません：{e}"
-                except LookupError:   # 中身をまだ置いていない版（業務の取り込みで置く）
-                    s, problem = None, "この版には、まだ業務設定の中身がありません。業務の資料を取り込む画面は準備中です（入ると、業務のタブの「はじめかた」から取り込めます）。"
+                except LookupError:   # 中身をまだ置いていない版（業務の取り込みで置く）。誤りではないので、赤い帯ではなく案内で出す
+                    s, problem, missing = None, None, True
                 try:   # 結果ごとのかけ直し（再発信の方針。読むのは core の business_rules.load の1か所＝通話のあとの次の動きと同じ）
                     rules = business_rules.load(tx, version_id)
                 except (business_rules.RulesMissing, business_rules.RulesInvalid):
                     rules = None
                 latest = business_settings.successor_tip(tx, version_id) == version_id   # 変える欄は、つながりのいちばん後の版にだけ出す
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
-                        "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem, "latest": latest,
+                        "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem, "missing": missing, "latest": latest,
                         "policies": [(k, rules.retry[k]) for k in business_rules.POLICY_KEYS] if rules else [],
                         "system_policies": [(k, rules.retry[k]) for k in business_rules.SYSTEM_POLICIES] if rules else []}
             return page(request, "version.html", person, ctx, done=request.query_params.get("done"), ok=request.query_params.get("ok", "1") == "1",

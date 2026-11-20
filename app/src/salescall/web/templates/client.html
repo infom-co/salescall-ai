@@ -148,7 +148,7 @@
       <select id="run-version" name="version_id">{% for v in versions %}<option value="{{ v.version_id }}">版 {{ v.version_no }}（{{ time(v.created_at) }}）{% if loop.first %}・いちばん新しい版{% endif %}</option>{% endfor %}</select>
       <button class="btn main small" type="submit">作って、お客様リストを取り込む</button>
       {% else %}
-      <p class="muted">この業務には、まだ電話の台本がありません。業務の資料を取り込んで版を作ってから、実施回を作れます。</p>
+      <p class="muted">この業務には、まだ電話の台本がありません。実施回は、台本ができてから作れます。{{ words.SCRIPT_NOT_READY }}</p>
       {% endif %}
     </form>
   </details>

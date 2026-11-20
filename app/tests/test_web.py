@@ -630,7 +630,9 @@ class Web(_World):
         self.assertIn("<h2>はじめかた</h2>", page)
         card = page[page.index("<h2>はじめかた</h2>"):page.index("</section>", page.index("<h2>はじめかた</h2>"))]
         self.assertNotIn("結果別の行の数", page)                                 # 行の無い業務では、0 ばかりの数の枠を出さない
-        self.assertIn("業務設定（トークスクリプト・質問）を入れる", card)
+        self.assertIn("電話の台本を入れる", card)
+        from salescall.output import words as w
+        self.assertIn(w.SCRIPT_NOT_READY, card)                                  # 台本を作る画面がまだ無いことを、どこでも同じ1つの文で
         self.assertIn('class="next"', card)                                     # 次にすることを強める
         self.assertEqual(card.count("済み"), 1)                                  # 回線（共有）だけが済み（試験の契約者には回線がある）
         running = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}").text
