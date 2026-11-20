@@ -72,6 +72,7 @@ class Destinations(unittest.TestCase):
             page = self.http.get(self.path).text
             self.assertIn("架空の台帳（新）", page)
             self.assertIn(f'id="b-{self.a["business"]}"', page)
+            self.assertIn("の仕組みへ自動で書き戻す", page)                       # どの依頼者の仕組みへ送るかを名前で見せる（計画書 5-1）
 
     def test_another_contractor_cannot_open_or_change(self):
         other = World().setup()

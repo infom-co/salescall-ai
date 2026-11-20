@@ -22,7 +22,7 @@
           <input type="hidden" name="op" value="update"><input type="hidden" name="id" value="{{ d.destination_id }}">
           <label class="field" for="dn-{{ loop.index }}">名前</label>
           <input id="dn-{{ loop.index }}" type="text" name="name" value="{{ d.name }}" required maxlength="60">
-          {% if d.upsert_capable %}<label class="choice"><input type="checkbox" name="auto_writeback" value="1" {% if d.auto_writeback %}checked{% endif %}> 結果が確定するたびに、自動で書き戻す</label>{% endif %}
+          {% if d.upsert_capable %}<label class="choice"><input type="checkbox" name="auto_writeback" value="1" {% if d.auto_writeback %}checked{% endif %}> 結果が確定するたびに、依頼者「{{ client.name }}」の仕組みへ自動で書き戻す</label>{% endif %}
           <button class="btn main small" type="submit">直す</button>
         </form></details>
     </li>{% endfor %}</ul>
@@ -37,7 +37,7 @@
     <input id="nd-name" type="text" name="name" required maxlength="60">
     <label class="field" for="nd-method">送り方</label>
     <select id="nd-method" name="method">{% for k, m in methods.items() %}<option value="{{ k }}">{{ m.label }}</option>{% endfor %}</select>
-    <label class="choice"><input type="checkbox" name="auto_writeback" value="1"> 結果が確定するたびに、自動で書き戻す（同じお客様の結果は上書きで1件のまま）</label>
+    <label class="choice"><input type="checkbox" name="auto_writeback" value="1"> 結果が確定するたびに、依頼者「{{ client.name }}」の仕組みへ自動で書き戻す（同じお客様の結果は上書きで1件のまま）</label>
     <p class="muted">送り方は、あとから変えられません（変えるときは新しい送り先を足します）。</p>
     <button class="btn main small" type="submit">足す</button>
   </form>
