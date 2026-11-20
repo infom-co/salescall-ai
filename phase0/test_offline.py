@@ -45159,6 +45159,31 @@ class S2ScenePurposeTest(unittest.TestCase):
         self.assertTrue(all(want[k] for k in ("F", "N1", "HEAR", "W1")), want)
 
 
+class S2ElsewhereLabelsTest(unittest.TestCase):
+    """分身 S2（束 p2 の読み直し）：正解の表の項目「ほかの会社に頼んでいる・使っていると言ったか」の正解は、今の選べるものの名前だけ（✅ 2026-11-19 日本時間15時10分27秒
+    「伺い48：ア-2」で「ご案内全体」と「いまの質問のことだけ」に分けた）。⛔ 分身 S2 の 1e0c79b5 まで、20行が分ける前の名前「ほかの会社に頼んでいる・使っている」を正解に持っていた
+    ＝判定がどちらを選んでも正解の名前と合わなかった（書き置き 18-3）。"""
+
+    def test_labels_use_the_current_names(self):
+        import g53_meaning as g
+        from flowctl import elsewhere_choices
+        names = set(elsewhere_choices(False))
+        rows = [g.g73_scene(it) for it in json.load(open("results/G-53d1base_20261107_020602.json", encoding="utf-8"))["items"]]
+        rows += g.set_f() + g.set_n() + g.set_h() + g.set_r()
+        bad = sorted({(it["set"], it["qid"], it["text"]) for it in rows if not set(g.elsewhere_truths(it)) <= names})
+        self.assertEqual(bad, [])
+
+    def test_decided_rows(self):
+        # 束 p2 の読み手2人がそろって「ご案内全体」と読んだ・今の説明の文の決まりが当たる行（回線のご案内の業務の用件。書き置き 20）
+        import g53_meaning as g
+        from flowctl import ELSEWHERE_ALL, ELSEWHERE_NO, UNDECIDED
+        labels = json.load(open("g53_labels.json", encoding="utf-8"))["labels"]
+        self.assertEqual(labels["B|G3|他社さんと契約しています|"]["elsewhere"], [ELSEWHERE_ALL])
+        self.assertEqual(labels["N2|N2|ほかの会社さんの方が安いので、そちらにします|"]["elsewhere"], [ELSEWHERE_ALL])
+        self.assertEqual(sorted(labels["C|G3|お付き合いはいろいろありますけど|"]["elsewhere"]), sorted([ELSEWHERE_ALL, ELSEWHERE_NO, UNDECIDED]))
+        self.assertEqual(sorted(labels["B|G23|光回線を契約しています|"]["elsewhere"]), sorted([ELSEWHERE_NO, UNDECIDED]))   # 今のまま（言っていない＝測りで数える行）
+
+
 class VLadderFarDaysTest(unittest.TestCase):
     """日時の2択で、電話の日から7日より先の日を並べるとき（分身 V。CL-1 が書いてあることに当てて決めた＝11-19 日本時間14時18分13秒「○曜日と○曜日ではどちらが
     よろしいでしょうか？」・11-03 のご承認の日の言い方の1か所 flowctl.day_words（同じ週＝今週の〇曜日・次の週＝来週の〇曜日・それより先は同じ月なら〇日・違う月なら
