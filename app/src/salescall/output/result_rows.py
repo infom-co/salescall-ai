@@ -175,6 +175,39 @@ def call_end(last: dict[str, Any] | None, next_kind: str | None) -> str:
     return w.client if w is not None and w.client else words.CALL_END_CLIENT["unknown"]
 
 
+def _answers(tx: Tx, task_id: Any, attempt_id: Any, detail: dict[str, Any] | None, questions: Any, mode: str) -> tuple[list[str], list[str]]:
+    """結果を決めた通話の担当の方の答え（core の conversation_io.answers の1か所）を、質問ごとの2列（答え・お客様の言葉）にする1か所。
+    依頼者へのファイル（rows）と、契約者の確かめの画面（answers_for_check）が同じものを使う。"""
+    items = conversation_io.answers(tx, task_id, attempt_id)
+    not_asked = set((detail or {}).get("not_asked") or ())
+    cells: list[str] = []
+    ours: list[str] = []
+    for q in questions:
+        answer, said, our = answer_cells(q, items.get(q.id), not_asked, mode)
+        cells += [answer, said]
+        ours += [our] if our else []
+    return cells, ours
+
+
+def answers_for_check(tx: Tx, task_id: UUID) -> list[tuple[str, str, str]]:
+    """依頼者の取引で、その行のいまの結果の版の答えを、依頼者へ渡す書き方のまま（質問・答え・お客様の言葉）返す。確定の前の版も返す
+    （契約者が「この結果でよい」を押す前に、何が依頼者へ渡るかを見るため。2026-11-20 の計画書の読み直し：前は業務の結果だけを見せていた）。
+    結果の版が無い・答えを取った通話が無い・業務の中身をまだ置いていない版なら空。"""
+    v = tx.one("SELECT l.attempt_id, l.detail, k.run_id, r.business_id FROM salescall.latest_task_results l"
+               " JOIN salescall.tasks k ON k.task_id = l.task_id JOIN salescall.runs r ON r.run_id = k.run_id"
+               " WHERE l.task_id = %s", (task_id,))
+    if v is None or v["attempt_id"] is None:
+        return []
+    version = tx.one("SELECT salescall.run_current_version(%s) AS v", (v["run_id"],))["v"]
+    try:
+        questions = business_settings.load(tx, version).questions if version is not None else ()
+    except LookupError:
+        return []
+    cells, _ = _answers(tx, task_id, v["attempt_id"], v["detail"], questions, words_mode(tx, v["business_id"]))
+    heads = question_headers(questions)[0::2]   # 2列のうち答えの欄の見出し
+    return [(heads[i], cells[2 * i], cells[2 * i + 1]) for i in range(len(heads))]
+
+
 def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
     """その実施回の、依頼者へ渡す結果の行（一覧の行番号の順。判定待ちの行は出さない）。"""
     # 行ごとの最新の版が、渡せる段で確定しているか。最新の版がまだ確定していない行（確かめ待ち・判定できない・直した版の確かめ待ち）は、
@@ -209,17 +242,10 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
         result = (words.BUSINESS_STATES[state].client or "") if state in words.BUSINESS_STATES else ""
         last = calls.get(r["task_id"])
         person = (r["target_name"] or "") + (f"（{r['target_role']}）" if r["target_role"] else "")
-        cells: list[str] = []
-        ours: list[str] = []
-        if v is not None and v["attempt_id"] is not None:   # 結果を決めた通話の担当の方の答え（core の1か所）
-            items = conversation_io.answers(tx, r["task_id"], v["attempt_id"])
-            not_asked = set((v["detail"] or {}).get("not_asked") or ())
-            for q in questions:
-                answer, said, our = answer_cells(q, items.get(q.id), not_asked, mode)
-                cells += [answer, said]
-                ours += [our] if our else []
+        if v is not None and v["attempt_id"] is not None:
+            cells, ours = _answers(tx, r["task_id"], v["attempt_id"], v["detail"], questions, mode)
         else:
-            cells = [""] * len(headers)
+            cells, ours = [""] * len(headers), []
         out.append(ResultRow(
             client_ref=r["client_ref"] or "", company=r["source_name"] or "", person=person,
             full_name=full_names.get(r["task_id"]) or "", department=r["target_department"] or "",

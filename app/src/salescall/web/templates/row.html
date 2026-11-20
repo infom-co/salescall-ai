@@ -38,6 +38,14 @@
       <dt>かけた回数</dt><dd class="num">{{ row.attempts }}</dd>
       <dt>かけるか</dt><dd>{{ tag(words.exclusion_level(level), "stop" if level == "force" else ("" if level != "call" else "ok")) }}</dd>
     </dl>
+    {% if answers %}
+    <h3 style="margin-top:16px">答え（依頼者へ渡す書き方のまま）</h3>
+    <div class="table-scroll"><table class="list">
+      <thead><tr><th>伺ったこと</th><th>答え</th><th class="wide">お客様の言葉</th></tr></thead>
+      <tbody>{% for q, a, said in answers %}<tr><td>{{ q }}</td><td>{{ a }}</td><td class="wide">{{ said }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <p class="muted">答えの根拠は、下の「電話の記録」から、その電話のやり取りの全文で確かめられます。</p>
+    {% endif %}
     <form class="inline-mark" method="post" action="{{ base }}/exclude" data-needs-reason>
       {{ csrf(token) }}
       <input type="hidden" name="task_id" value="{{ row.task_id }}"><input type="hidden" name="back" value="row">

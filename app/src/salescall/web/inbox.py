@@ -19,7 +19,7 @@ from uuid import UUID
 from salescall.core import (approval, apology, calling_hours, client_solutions, conversation_io, fix_requests, next_action, row_fixes,
                             tasks, usage)
 from salescall.core.access import Tx
-from salescall.output import words
+from salescall.output import result_rows, words
 from salescall.web import counts, links
 
 
@@ -244,7 +244,9 @@ def _result_checks(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
         items.append(Item(
             kind="result_check", link=links.row(tx, r["task_id"]), key={"task_id": str(r["task_id"]), "seq": str(r["version_no"])}, title="結果の確かめ（検証モード）",
             decide="この結果でよいか（違えば、お客様の行の画面で直す）",
-            evidence=_row(tx, r["task_id"]) + [("システムの読み", words.word(words.BUSINESS_STATES, r["business_state"]).screen)],
+            # 何が依頼者へ渡るかを、渡す書き方のまま見せる（答えを見ずに「よい」を押させない。押した結果は誤判定率の正解にもなる＝計画書 16-3）
+            evidence=_row(tx, r["task_id"]) + [("システムの読み", words.word(words.BUSINESS_STATES, r["business_state"]).screen)]
+            + [(f"答え：{q}", a + (f"（お客様の言葉：{said}）" if said else "")) for q, a, said in result_rows.answers_for_check(tx, r["task_id"])],
             if_not="確かめるまで、この結果は依頼者へ渡しません。", at=r["decided_at"],
             buttons=(Button("approve", "この結果でよい", main=True),), **biz))
     return items

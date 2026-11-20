@@ -255,6 +255,16 @@ class VerificationMode(ApprovalHelpers):
         biz = http.get(f'/c/{s["client"]}/b/{s["business"]}').text                 # 業務のタブの数（counts.business_figures の1か所）
         self.assertRegex(biz, r"<b class=\"num\">1</b><span>確かめ待ち</span>")   # 確かめ待ち＝受け箱の「結果の確かめ」と同じ式
         self.assertEqual(kept(), 0)
+        # 「この結果でよい」を押す前に、何が依頼者へ渡るか（答えの欄）を、渡す書き方のまま見られる（2026-11-20 の計画書の読み直し）
+        from salescall.output import result_rows as _rr
+        check = self.tx(s, lambda tx: _rr.answers_for_check(tx, s["task"]))
+        self.assertTrue(check)
+        inbox_page = http.get("/t/inbox").text
+        row_page = http.get(f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}/rows/{s["task"]}').text
+        self.assertIn("答え（依頼者へ渡す書き方のまま）", row_page)
+        for q, _a, _said in check:
+            self.assertIn(f"答え：{q}", inbox_page)
+            self.assertIn(q, row_page)
         self.assertIn("ok=1", self._post(http, f'/c/{s["client"]}/inbox/result_check/approve',
                                          {"task_id": str(s["task"]), "seq": "1"}).headers["location"])
         r = self._post(http, csv_url, {})
@@ -266,6 +276,7 @@ class VerificationMode(ApprovalHelpers):
         head, row = list(_csv.reader(_io.StringIO(r.content.decode("utf-8-sig"))))
         asked = [i for i, h in enumerate(head) if h.endswith(result_rows.WORDS_SUFFIX)]
         self.assertTrue(asked)                                                    # 質問ごとの2列（答え／お客様の言葉）が出る
+        self.assertEqual([(head[i - 1], row[i - 1], row[i]) for i in asked], check)   # 確かめた答えと、渡したファイルの答えは同じ1か所
         for i in asked:
             self.assertNotIn(row[i - 1], ("-", "✕"))                              # 答えの欄は値か、お客様の言葉か、状態の短い言葉（「-」「✕」ではない。
             #                                                                          この試験の土台は「取れた」の印だけで値を入れないので、値の欄は空）
