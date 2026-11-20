@@ -27,8 +27,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ABSENT_WHY, OFFER, ANY, END_DOUBT_WHY, before_words, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, AWAY, ELSEWHERE, ELSEWHERE_YES, ELSEWHERE_NO, QUERY_YES, QUERY_NO, END_ANGRY, END_HURRY, END_NONE,
-                     END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS,
-                     WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading, WRONG, WRONG_NOT_SAID)
+                     END_PRESSED, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS,
+                     WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading, WRONG, WRONG_NOT_SAID, LADDER_OTHER)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, Reading, judge, judge_other
 
@@ -116,7 +116,8 @@ def end_accept(it: dict) -> list[str]:
 
 
 # 電話を終える言葉かの読みから、流れの制御がすること（Flow._end_due_now・_end_unsure の向き）。急いでいる＝急いでいる方への伺い（_hurry_ask）
-END_ACTS = {END_REFUSED: "締める（もうかけない）", END_HURRY: "急いでいる方への伺い", END_ANGRY: "締める（人に引き継ぐ）"}
+# 念を押した・この電話を終えたい（END_PRESSED）は、本心を伺う一言 D2 のお返事のときだけ道が替わる（ご遠慮の一言＝flowctl.Flow._retreat_way）。表の場面（D2 の前）では断ったと同じ
+END_ACTS = {END_REFUSED: "締める（もうかけない）", END_PRESSED: "締める（もうかけない）", END_HURRY: "急いでいる方への伺い", END_ANGRY: "締める（人に引き継ぐ）"}
 END_TOPIC, END_ASK = "いまの話の向きを伺う", "ご遠慮を伺う"
 
 
@@ -226,7 +227,8 @@ def either(it: dict) -> bool:
 # 答えとは別に読む項目（flowctl.SIDE_ITEMS）の読みを記録する見出し（{項目の名前: 判定の名前のあとに付ける語}。唯一の表＝記録 side_record・使い回すときに
 # 外す語）。⛔ 2026-11-06 日本時間15時台まで、記録する3か所と外す語の並びが2つの項目を名前で手書きしていた（項目を足すと、記録の漏れで数えなくなる）
 SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由", QUERY: "問い", PROMPT_REPLY: "声かけ", AWAY: "別の話", ELSEWHERE: "他社",
-               OFFER: "申し出", ABSENT_WHY: "出られない理由", WRONG: "番号違い"}   # 申し出・出られない理由はお呼びする段だけ（G-53 の答えの段の行では None）
+               OFFER: "申し出", ABSENT_WHY: "出られない理由", WRONG: "番号違い",
+               LADDER_OTHER: "もう一方"}   # 申し出・出られない理由はお呼びする段だけ（G-53 の答えの段の行では None）・もう一方は日時の2択の質問だけ（伺い94）
 assert set(SIDE_SUFFIX) == set(SIDE_ITEMS), "記録の見出しは、答えとは別に読む項目の表と同じ項目"
 # 判定の確からしさの広がりを記録する見出し（{判定の名前のあとに付ける語: 読みの属性}。唯一の表＝記録と、使い回すときに外す語）。
 # ✅ 2026-11-07 日本時間10時29分25秒 ユーザー「d1-ultraの確からしさが低いのは、こちらの設問か選択肢、説明の問題ということでしょ！」＝
@@ -1234,6 +1236,8 @@ PENDING_ACT = "保留でよいかを伺う"
 # （Flow._ladder_neither＝伺い60）・待つことに迷われた方への一言（Flow._wait_again の wait_soon＝伺い76 ウ）・顧客獲得型の次の悩み（Flow._main_ask）・事例（悩みがあると言われた）
 LADDER_NEXT_ACT = "日時の2択の次の2択を伺う"
 LADDER_NEITHER_ACT = "並べた2つを外して別の2つを伺う"
+# 片方だけ合わないお返事（伺い94＝flowctl.Flow._ladder_neither）：ウ＝避けた方だけを外した2つ・エ＝避けなかった方で次の2択（_ladder_kept）
+LADDER_ONE_ACT, LADDER_KEPT_ACT = "避けた方だけを外して2つを伺う", "避けなかった方で次の2択を伺う"
 WAIT_SOON_ACT = "「申し訳ございません。すぐにご案内いたしますね。」と添えて待つ"
 PAIN_NEXT_ACT = "次の悩みの文と伺いを流す"
 CASE_ACT = "事例を伝える"
@@ -1303,7 +1307,8 @@ def _flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None)
             return QUESTION_FIRST + flow_name(f, qid, f.after_answer[1], it)
         return ASKED_ACTS.get(kind or "", OTHER_ACT + f"callee_asked|{kind}")
     if res == "ask_back" and rep.get("ask_reason") == "ladder":
-        return LADDER_NEITHER_ACT if rep.get("neither") else LADDER_NEXT_ACT
+        return (LADDER_KEPT_ACT if rep.get("kept") else LADDER_ONE_ACT if rep.get("one_side") else LADDER_NEITHER_ACT if rep.get("neither")
+                else LADDER_NEXT_ACT)
     for head, act in (*PLAY_ACTS, ("wait_soon", WAIT_SOON_ACT), ("case_lead", CASE_ACT), ("pain", PAIN_NEXT_ACT)):
         if any(p.startswith(head) for p in plays):
             return THANKED + act if act == WAIT_ACT[LATER] and any(p.startswith("offer_thanks") for p in plays) else act
