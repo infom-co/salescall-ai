@@ -57,9 +57,9 @@
           <button class="btn {{ 'main' if b.main }}" type="submit">{{ b.label }}</button>
         </form>{% endif %}
         {% endfor %}
-      {% else %}
-        <span class="muted">{{ i.waiting_why }}（決まるまでボタンは出ません）</span>
       {% endif %}
+      {#- ボタンを出していない理由（全部出していない・一部だけ出していない＝結果の確かめの「よい」） -#}
+      {% if i.waiting_why %}<span class="muted waiting-why">{{ i.waiting_why }}{% if not i.buttons %}（決まるまでボタンは出ません）{% endif %}</span>{% endif %}
     </div>
   </article>
 {%- endmacro %}

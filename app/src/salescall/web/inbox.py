@@ -75,13 +75,15 @@ def _decisions(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
         ev = [("待っている中身", parts), ("種類", words.DECISION_KINDS.get(d["kind"], words.NO_WORD))]
         if said:
             ev.append(("お客様の言葉（最後の3つ）", " ／ ".join(said)))
+        seen = viewable_evidence(tx, d["attempt_id"])
         items.append(Item(
             kind="decision", key={"task_id": str(d["task_id"]), "attempt_id": str(d["attempt_id"]), "seq": str(d["seq"])},
             title="取り消せない決定の確かめ", decide=f"「{parts}」として確定してよいか",
             evidence=ev, if_not="決まるまで、このお客様にはかけません。",
             at=d["waited_at"], **_business_of(tx, d["task_id"]), link=links.call(tx, d["task_id"], d["attempt_id"]),
-            buttons=(Button("send_back", "差し戻す"), Button("approve", "承認する", main=True)) if d["ask"] else (),
-            waiting_why="" if d["ask"] else (approval.ASK_WHY.get(d["ask_why"] or "", "") or "AI が確かめています")))
+            # 確定（承認する）は、録音かその場のやり取りを画面で確かめられるときだけ（計画書 18-3 の 2026-10-30 (6)・結果の確かめと同じ1か所）
+            buttons=((Button("send_back", "差し戻す"),) + ((Button("approve", "承認する", main=True),) if seen else ())) if d["ask"] else (),
+            waiting_why=("" if seen else NO_EVIDENCE_DECISION) if d["ask"] else (approval.ASK_WHY.get(d["ask_why"] or "", "") or "AI が確かめています")))
     return items
 
 
@@ -236,12 +238,28 @@ def _approve_waiting_rows(tx: Tx, run_id: UUID) -> int:
     return len(waiting)
 
 
+def viewable_evidence(tx: Tx, attempt_id: Any) -> bool:
+    """契約者が、その電話の根拠を画面で確かめられるか（1か所。結果の確かめの「この結果でよい」を出すか、が読む）。
+    いまは、その場のやり取りの文字（core の `conversation_io.utterances`）があるとき。✅ 2026-11-20 管理者「ア」：根拠を見ずに
+    確定させない（検証モードの承認は誤判定率の正解にもなる＝計画書 16-3。録音の無い通話は別の耳の文字で確かめる＝18-3 の 11-01）。
+    ⏳ 録音を画面で聞く仕組みができたら、聞ける録音があるときも真にする（CL-2 へのお願い 13）。"""
+    return attempt_id is not None and bool(conversation_io.utterances(tx, attempt_id))
+
+
+NO_EVIDENCE_DECISION = "「承認する」は、その場のやり取りの文字が届いてから押せます（録音かやり取りを確かめてから確定する決まり）。"
+NO_EVIDENCE = ("「この結果でよい」は、その場のやり取りの文字が届いてから押せます（根拠を見ずに確定させないため。押した結果は"
+               "誤判定率の正解にもなります）。違うときは「違う（直す）」で直せます。")
+
+
 def _result_checks(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     """検証モードでかけた通話の結果で、契約者の確かめを待っているもの（システムが判定した最新の版・確定の印が無い・判定できないでない・
     確定できる版。確定できるかは core の approval._blocked と同じデータベースの1か所 salescall.release_blocked）。"""
     items = []
     for r in approval.results_to_check(tx, task_id=task, run_id=run):   # 確かめ待ちは core の1か所（CL-2 4-439 の 29）
         biz = _business_of(tx, r["task_id"])
+        seen = viewable_evidence(tx, tx.one("SELECT attempt_id FROM salescall.latest_task_results WHERE task_id = %s",
+                                            (r["task_id"],))["attempt_id"])
+        fix = Button("fix", "違う（直す）", go=links.row(tx, r["task_id"]) + "#result-fix")
         items.append(Item(
             kind="result_check", link=links.row(tx, r["task_id"]), key={"task_id": str(r["task_id"]), "seq": str(r["version_no"])}, title="結果の確かめ（検証モード）",
             decide="この結果でよいか（違えば、お客様の行の画面で直す）",
@@ -250,7 +268,8 @@ def _result_checks(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
             + [(f"答え：{q}", a + (f"（お客様の言葉：{said}）" if said else "")) for q, a, said in result_rows.answers_for_check(tx, r["task_id"])],
             if_not="確かめるまで、この結果は依頼者へ渡しません。", at=r["decided_at"],
             # 「よい」と「違う」は同じ重さで並べる（よいの方だけを目立たせて、見ずに押させない）。違えば、行の画面の「結果を直す」を開く
-            buttons=(Button("approve", "この結果でよい"), Button("fix", "違う（直す）", go=links.row(tx, r["task_id"]) + "#result-fix")), **biz))
+            # 根拠が画面に無いあいだは「よい」を出さない（受け口も、出ていないボタンは断る＝perform）。「違う（直す）」はいつでも
+            buttons=(Button("approve", "この結果でよい"), fix) if seen else (fix,), waiting_why="" if seen else NO_EVIDENCE, **biz))
     return items
 
 

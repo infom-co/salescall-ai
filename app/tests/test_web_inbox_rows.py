@@ -193,6 +193,14 @@ class VerificationMode(ApprovalHelpers):
         token = re.search(r'<meta name="form-token" content="([^"]+)"', http.get("/t").text).group(1)
         return http.post(path, data={"form_token": token, **data}, follow_redirects=False)
 
+    def said_call(self, s, summary):
+        """本物と同じ順でかける：通話の途中にやり取りの文字が届き、そのあと通話後の検証（文字は検証の前にしか書けない＝データベース）。"""
+        from salescall.core import attempts, conversation_io
+        aid = self.call(s, verify=None, items=TAKEN)
+        self.tx(s, lambda tx: conversation_io.write_utterance(tx, aid, conversation_io.Utterance("callee", 0, "架空のお返事です", 1.0)))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=summary))
+        return self.settle(s, aid)
+
     def test_rows_wait_for_approval_in_one_item_per_run_and_are_approved_together(self):
         from salescall.core import approval
         s = self.fresh(stage_cap=100)
@@ -217,15 +225,32 @@ class VerificationMode(ApprovalHelpers):
     def test_a_result_waits_for_the_check_and_can_be_approved_or_corrected(self):
         from salescall.core import approval, quality_stage
         from salescall.core.attempts import VerificationSummary
-        for how in ("approve", "correct"):
+        from salescall.web import inbox as _inbox
+        for how in ("approve", "correct", "no_words"):
             with self.subTest(how=how):
                 s = self.fresh(stage_cap=100)
                 self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 2, None, evidence="試験"), OPERATOR)
                 self.put_client(s, "approval.human", True)
                 self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
-                self.verified_call(s, VerificationSummary(2, 0, 0), items=TAKEN)
+                if how == "no_words":
+                    self.verified_call(s, VerificationSummary(2, 0, 0), items=TAKEN)        # やり取りの文字が届いていない
+                else:
+                    self.said_call(s, VerificationSummary(2, 0, 0))
                 http = _http(s["tenant"])
-                self.assertIn("結果の確かめ（検証モード）", http.get("/t/inbox").text)
+                page = http.get("/t/inbox").text
+                self.assertIn("結果の確かめ（検証モード）", page)
+                self.assertIn("違う（直す）</a>", page)                                    # 違うは、いつでも
+                if how == "no_words":
+                    # ✅ 2026-11-20 管理者「ア」：根拠が画面に無いあいだは「この結果でよい」を出さず、受け口も断る（誤判定率の正解を、
+                    # 根拠を見ずに作らない＝計画書 16-3）。直すことはできる
+                    self.assertNotIn(">この結果でよい<", page)
+                    self.assertIn(_inbox.NO_EVIDENCE, page)
+                    self.assertIn("ok=0", self._post(http, f'/c/{s["client"]}/inbox/result_check/approve',
+                                                     {"task_id": str(s["task"]), "seq": "1"}).headers["location"])
+                    self.assertEqual(self.releases(s), [])
+                    continue
+                self.assertIn(">この結果でよい<", page)
+                self.assertNotIn(_inbox.NO_EVIDENCE, page)
                 if how == "approve":
                     r = self._post(http, f'/c/{s["client"]}/inbox/result_check/approve', {"task_id": str(s["task"]), "seq": "1"})
                 else:
@@ -245,7 +270,7 @@ class VerificationMode(ApprovalHelpers):
         self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 2, None, evidence="試験"), OPERATOR)
         self.put_client(s, "approval.human", True)
         self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
-        self.verified_call(s, VerificationSummary(2, 0, 0), items=TAKEN)
+        self.said_call(s, VerificationSummary(2, 0, 0))
         http = _http(s["tenant"])
         csv_url = f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}/results.csv'
         kept = lambda: self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.submission_files")["n"])
@@ -293,10 +318,41 @@ class VerificationMode(ApprovalHelpers):
         self.assertEqual(kept(), 1)                                               # 控えは重ねない
 
 
+from tests import test_irreversible as _irr   # noqa: E402  （CL-2 の取り消せない決定の試験の土台を、画面の試験に使う）
+
+
+class DecisionNeedsEvidence(_irr.Helpers):
+    """取り消せない決定の確かめ（検証モード）：契約者が録音かその場のやり取りを確かめられるときだけ「承認する」を出す（計画書 18-3 の
+    2026-10-30 (6)「人が録音やその場のやり取りを確認できる状態にする必要があります」。結果の確かめと同じ1か所 `inbox.viewable_evidence`）。"""
+
+    def test_approve_appears_only_with_the_call_text(self):
+        from salescall.core import approval, attempts, conversation_io
+        from salescall.web import inbox as _inbox
+        for words in (False, True):
+            with self.subTest(words=words):
+                s = self.ready()
+                self.put_client(s, "approval.human", True)
+                self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
+                aid = self.call(s, report=_irr.rep(dnc=True, check="agreed"), items=[("Q1", "confirmed", None)], verify=None)
+                if words:   # 本物と同じ順：通話の途中にやり取りの文字が届き、そのあと通話後の検証
+                    self.tx(s, lambda tx: conversation_io.write_utterance(tx, aid, conversation_io.Utterance("callee", 0, "架空のお返事です", 1.0)))
+                self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+                self.assertEqual(self.settle(s, aid)["decision"].kind, "hold")
+                page = _http(s["tenant"]).get("/t/inbox").text
+                self.assertIn("取り消せない決定の確かめ", page)
+                self.assertIn(">差し戻す<", page)
+                if words:
+                    self.assertIn(">承認する<", page)
+                    self.assertNotIn(_inbox.NO_EVIDENCE_DECISION, page)
+                else:
+                    self.assertNotIn(">承認する<", page)
+                    self.assertIn(_inbox.NO_EVIDENCE_DECISION, page)
+
+
 def load_tests(loader, tests, pattern):
     """この試験だけを読む（受け継いだ CL-2 の組の試験を、ここで流し直さない）。"""
     return unittest.TestSuite(loader.loadTestsFromNames(
-        [f"{__name__}.{c.__name__}.{n}" for c in (OldPromise, MonthAheadAnswer, CorrectionCall, MoreCallsButton, VerificationMode) for n in c.__dict__ if n.startswith("test_")]))
+        [f"{__name__}.{c.__name__}.{n}" for c in (OldPromise, MonthAheadAnswer, CorrectionCall, MoreCallsButton, VerificationMode, DecisionNeedsEvidence) for n in c.__dict__ if n.startswith("test_")]))
 
 
 if __name__ == "__main__":
