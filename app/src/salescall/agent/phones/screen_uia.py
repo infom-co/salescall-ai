@@ -51,6 +51,7 @@ class UiaScreen:
         from pywinauto import Desktop
         self._desktop = Desktop(backend="uia")
         self.last_press: str | None = None   # 最後の発信で、どの押し方で通話の窓が出たか（確かめの記録）
+        self.timings: dict[str, float] = {}  # 最後の発信の手順ごとの秒数（発信を押すまで約10秒かかった件を、測って直すため）
 
     # ── 窓 ──
     def _win(self, key: str) -> Any | None:
@@ -166,11 +167,20 @@ class UiaScreen:
         number = (phone or "").strip()
         if not DOMESTIC.fullmatch(number):
             raise ValueError("番号は、国内の形の数字だけで渡してください（形を変えるのはサーバーの1か所）")
+        self.timings = {}
+        mark = [time.monotonic()]
+
+        def lap(name: str) -> None:
+            now = time.monotonic()
+            self.timings[name] = round(now - mark[0], 2)
+            mark[0] = now
+
         main = self._win("main")
         if main is None:
             raise RuntimeError("Rakuten Link の窓が無い")
         if self._win("call") is not None:
             raise RuntimeError("もう通話の窓が出ている")
+        lap("窓を探す")
         field = self._part(main, "number")
         if field is None:
             tab = self._part(main, "calls_tab")
@@ -187,6 +197,7 @@ class UiaScreen:
                 time.sleep(0.1)
         if field is None:
             raise RuntimeError("番号を入れる欄が見つからない")
+        lap("番号の欄を探す")
         # 番号は貼り付けで入れる（管理者が確かめた：貼り付けると発信のボタンがピンク＝使える状態になる。欄へ値を直に書き込むと、
         # 画面には出ても Rakuten Link の中では入っていない扱いで、ボタンが使えなかった＝2026-11-20）。入らなければキーボードで打つ
         self._paste(field, number)
@@ -196,9 +207,11 @@ class UiaScreen:
             field.type_keys(number, with_spaces=False, pause=0.03)
         if self._value(field) != number:
             raise RuntimeError("番号を入れられなかった")
+        lap("番号を入れる")
         button = self._part(main, "dial")
         if button is None:
             raise RuntimeError("発信のボタンが見つからない")
+        lap("発信のボタンを探す")
         for _ in range(20):   # 使える状態（ピンク）になるのを待つ
             try:
                 if button.is_enabled():
@@ -209,6 +222,7 @@ class UiaScreen:
         else:
             raise RuntimeError("番号を入れても、発信のボタンが使える状態にならなかった")
         # 押す：マウスを動かさない押し方 → マウスで押す → 番号の欄で Enter の順に試し、通話の窓が出たら終わり（どれで出たかを残す）
+        lap("ボタンが使えるのを待つ")
         tries = (("invoke", lambda: button.invoke()), ("click", lambda: button.click_input()),
                  ("enter", lambda: (field.set_focus(), field.type_keys("{ENTER}"))))
         self.last_press = None
@@ -220,6 +234,7 @@ class UiaScreen:
             for _ in range(30):
                 if self._win("call") is not None:
                     self.last_press = name
+                    lap("押して通話の窓が出るまで")
                     return
                 time.sleep(0.1)
         raise RuntimeError("発信を押しても、通話の窓が出なかった")

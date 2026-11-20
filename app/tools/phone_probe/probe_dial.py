@@ -53,6 +53,8 @@ def main() -> None:
             screen.dial(number)
             r["dialed"] = True
             r["pressed_by"] = screen.last_press
+            r["timings"] = dict(screen.timings)
+            print("  手順ごとの秒数：", screen.timings)
             print("  発信できました（押し方：", {"invoke": "そのまま押す", "click": "マウスで押す", "enter": "Enter キー"}.get(screen.last_press, "?"), "）")
         except Exception as e:
             r["dialed"] = False
