@@ -36,6 +36,7 @@ class UiaScreen:
     def __init__(self) -> None:
         from pywinauto import Desktop
         self._desktop = Desktop(backend="uia")
+        self.last_press: str | None = None   # 最後の発信で、どの押し方で通話の窓が出たか（確かめの記録）
 
     # ── 窓 ──
     def _win(self, key: str) -> Any | None:
@@ -123,19 +124,31 @@ class UiaScreen:
                 time.sleep(0.1)
         if field is None:
             raise RuntimeError("番号を入れる欄が見つからない")
-        field.set_edit_text("")
-        field.set_edit_text(number)
-        got = self._value(field)
-        if got != number:   # 入れた値が画面に届いていなければ、キーを打つ形で入れ直す
-            field.set_focus()
-            field.type_keys("^a{BACKSPACE}" + number, with_spaces=False)
-            got = self._value(field)
-        if got != number:
+        # 番号は、キーボードで打つ形で入れる（欄へ値を直に書き込むと、画面には出ても Rakuten Link の中では打たれていない扱いになり、
+        # 発信のボタンが働かなかった＝2026-11-20 の確かめ）
+        field.set_focus()
+        field.type_keys("^a{BACKSPACE}", with_spaces=False)
+        field.type_keys(number, with_spaces=False, pause=0.03)
+        if self._value(field) != number:
             raise RuntimeError("番号を入れられなかった")
         button = self._part(main, "dial")
         if button is None:
             raise RuntimeError("発信のボタンが見つからない")
-        self._press(button)
+        # 押す：マウスを動かさない押し方 → マウスで押す → 番号の欄で Enter の順に試し、通話の窓が出たら終わり（どれで出たかを残す）
+        tries = (("invoke", lambda: button.invoke()), ("click", lambda: button.click_input()),
+                 ("enter", lambda: (field.set_focus(), field.type_keys("{ENTER}"))))
+        self.last_press = None
+        for name, press in tries:
+            try:
+                press()
+            except Exception:
+                continue
+            for _ in range(30):
+                if self._win("call") is not None:
+                    self.last_press = name
+                    return
+                time.sleep(0.1)
+        raise RuntimeError("発信を押しても、通話の窓が出なかった")
 
     def hang_up(self) -> None:
         call = self._win("call")

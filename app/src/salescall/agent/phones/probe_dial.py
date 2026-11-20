@@ -49,6 +49,8 @@ def main() -> None:
         try:
             screen.dial(number)
             r["dialed"] = True
+            r["pressed_by"] = screen.last_press
+            print("  発信できました（押し方：", {"invoke": "そのまま押す", "click": "マウスで押す", "enter": "Enter キー"}.get(screen.last_press, "?"), "）")
         except Exception as e:
             r["dialed"] = False
             r["error"] = f"{type(e).__name__}: {e}"[:200]
