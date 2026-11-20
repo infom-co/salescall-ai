@@ -148,3 +148,27 @@
     });
   });
 })();
+
+// 表の各升に、その列の見出しの名前を付ける（表の部品の1か所。2026-11-20 の見直し：狭い画面で表を「見出し：値」の札に並べ替えるとき、
+// 見出しの名前が無くて数字だけが並び、何の数か分からなかった）。どの表にも自動で付くので、画面ごとに書かない。
+(function () {
+  function label(root) {
+    (root || document).querySelectorAll("table.list").forEach(function (table) {
+      var heads = [];
+      table.querySelectorAll("thead th").forEach(function (th) {
+        var span = parseInt(th.getAttribute("colspan") || "1", 10);
+        for (var i = 0; i < span; i++) heads.push(th.textContent.trim());
+      });
+      if (!heads.length) return;
+      table.querySelectorAll("tbody tr").forEach(function (tr) {
+        var col = 0;
+        Array.prototype.forEach.call(tr.children, function (td) {
+          if (td.tagName === "TD" && !td.hasAttribute("data-label") && heads[col]) td.setAttribute("data-label", heads[col]);
+          col += parseInt(td.getAttribute("colspan") || "1", 10);
+        });
+      });
+    });
+  }
+  document.addEventListener("DOMContentLoaded", function () { label(document); });
+  document.addEventListener("htmx:afterSwap", function (e) { label(e.target); });
+})();

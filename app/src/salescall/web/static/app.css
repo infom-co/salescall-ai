@@ -164,7 +164,7 @@ table.list td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertic
 table.list td.nowrap { white-space: nowrap; }
 table.list tr:last-child td { border-bottom: 0; }
 table.list tbody tr:hover td { background: color-mix(in srgb, var(--primary) 4%, transparent); }
-table.list td.num, table.list th.num { text-align: right; }
+table.list td.num, table.list th.num { text-align: right; white-space: nowrap; }   /* 数と時刻は途中で折らない（「23時5／0分」と折れていた） */
 
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 6px 16px; border-radius: 8px;
        text-align: center; line-height: 1.4;   /* 長い文（名前つきの確かめ）は折り返し、ボタンの高さが伸びる */
@@ -244,10 +244,9 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
   .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   dl.facts { grid-template-columns: 1fr; }
-  table.list .wide { display: none; }
-  .grid.cols-3.stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .grid.cols-3.stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }   /* 3つ並びは狭すぎて名前が切れた（2026-11-20 の見直し） */
   .stats .card { padding: 12px; }
-  .stats .hint { display: none; }
+  .stats .hint { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }   /* 説明は消さずに1行だけ（数字の意味が分かるように） */
   .stats .stat .label { font-size: 12px; line-height: 1.4; }
   .filters .pick { margin-left: 0; width: 100%; }
   .filters select { flex: 1; max-width: none; }
@@ -276,8 +275,13 @@ tr.excluded td { color: var(--muted); }
 .inline-mark input[type=text] { flex: 1; min-width: 140px; }
 .bulk select { width: auto; flex: 0 0 auto; }
 .table-scroll { overflow-x: auto; border-radius: var(--radius); }
-.table-scroll > table.list { width: max-content; min-width: 100%; }   /* 欄は中身の幅を保ち（押しつぶして1字ずつ折らない）、表ごと横に送る */
-.table-scroll > table.list td { max-width: 28em; }                     /* 長い文の欄だけ、この幅で折り返す */
+/* 表の幅（表の部品の1か所。2026-11-20 の見直し：PC でも中身の幅のまま横に伸ばしていて、右の列＝「見る」などの操作が画面の外に出ていた）：
+   PC は枠の幅に収め、長い文の欄だけ折り返す。中くらいの幅（601〜900px）は、欄を押しつぶさず表ごと横に送る。600px 以下は札の形（下） */
+.table-scroll > table.list { width: 100%; }
+.table-scroll > table.list td { max-width: 28em; overflow-wrap: anywhere; }
+@media (min-width: 601px) and (max-width: 900px) {
+  .table-scroll > table.list { width: max-content; min-width: 100%; }
+}
 table.list td.co, table.list th.co { min-width: 10em; }
 table.list td.person, table.list th.person { min-width: 8em; }
 /* 取込 */
