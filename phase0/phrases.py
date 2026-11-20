@@ -1107,7 +1107,10 @@ CLOSING = "お忙しいところお時間をいただきましてありがとう
 # ✅ 2026-11-02 日本時間6時33分 ユーザー：「お客様「でもやっぱり、今の業者で十分なので。」こちら「はい、お忙しいところお時間をいただきましてありがとう
 # ございました。それでは失礼いたします。」だと唐突なので、こちら「はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。
 # それでは失礼いたします。」の方がいいんじゃないでしょうか？」（ご承認いただけなかったときの手順の外の、最終目的の申し出を断られたときにも当てた）
-CLOSING_AFTER_DECLINE = "承知いたしました。" + CLOSING
+# お断りを受ける一言 DECLINE_RECEIPT は、お断りのすぐあと（返事のいちばん先）。締めの前にほかの決まった言葉（業務の「答えのあとに伝える一言」など）を流す返事では、
+# この一言を共通の一言の録音 decline_receipt として先に流し、締めはお礼の締め CLOSING（flowctl.Flow._receipt_first の1か所。分身 N の束 n4＝OPEN-A12）
+DECLINE_RECEIPT = "承知いたしました。"
+CLOSING_AFTER_DECLINE = DECLINE_RECEIPT + CLOSING
 # 次の質問の前のつなぎの言葉の録音の名前（ファイル名に使う）。✅ 2026-10-15 ユーザー：「両方録音の場合は、良いものを録音として残すので
 # 問題ない。AIが喋る時だけ、相槌を入れないと問題が起こる」⇒ つなぎの言葉は共通の一言で録音し、質問の文（依頼主の単位）の前に流す
 # 録音の読み上げには、続きの言葉があることを示す読点を付けて渡す（つなぎの言葉だけの録音が、言い切りの調子にならないように。録音の
@@ -1642,7 +1645,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK, "announce_recheck_unheard": unheard_form(""),
+            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, "decline_receipt": DECLINE_RECEIPT, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK, "announce_recheck_unheard": unheard_form(""),
             LISTED_DIALED_ID: LISTED_ASK["mobile_dialed"],
             "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{rid: SUCCESSOR[k] for k, rid in SUCCESSOR_IDS.items()},
             **{rid: w for w, rid in NAME_HEAD_IDS.items()},   # お名前の前の言葉（「恐れ入りますが」）＝名前の録音の前に流す（flowctl.name_plays）
