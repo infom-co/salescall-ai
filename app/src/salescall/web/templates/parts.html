@@ -9,6 +9,18 @@
     移るだけのものは、この文字の形にそろえる（ボタンの形だと、押すと何かが起きるように読める＝2026-11-20 の見直し） -#}
 {% macro go(href, label) -%}<a class="go" href="{{ href }}">{{ label }}</a>{%- endmacro %}
 
+{#- ファイルを選ぶ部品（取り込みの画面で同じもの）。ブラウザの部品（「Choose File」など、ブラウザの言語で変わる）は見えなくし、
+    日本語の「ファイルを選ぶ」と、選んだファイルの名前を出す。枠の上に置いても選べる（app.js の1か所） -#}
+{% macro file_pick(title, note, accept=".xlsx,.csv") -%}
+<label class="drop">
+  <input type="file" name="file" accept="{{ accept }}" required>
+  <span class="drop-title">{{ title }}</span>
+  <span class="btn small drop-btn" aria-hidden="true">ファイルを選ぶ</span>
+  <span class="drop-name" data-file-name aria-live="polite">まだ選んでいません（ここに置いても選べます）</span>
+  <span class="muted">{{ note }}</span>
+</label>
+{%- endmacro %}
+
 {% macro stat(label, value, tone="") -%}
 {%- set tone = "" if value == 0 or value == "0" else tone -%}   {#- 0件は色を付けない（色の役割の「何もない」） -#}
 <div class="stat {{ tone }}"><span class="label">{{ label }}</span><span class="value">{{ value }}</span></div>

@@ -48,6 +48,30 @@
   }
   document.addEventListener("DOMContentLoaded", openTarget);
   window.addEventListener("hashchange", openTarget);
+  // ファイルを選ぶ部品（parts.file_pick）：選んだファイルの名前を出す。枠の上にファイルを置いても選べる
+  function showFile(input) {
+    var label = input.closest(".drop"), out = label && label.querySelector("[data-file-name]");
+    if (!out) return;
+    var f = input.files && input.files[0];
+    out.textContent = f ? "選んだファイル：" + f.name + "（" + Math.max(1, Math.round(f.size / 1024)) + " KB）" : "まだ選んでいません（ここに置いても選べます）";
+    out.classList.toggle("chosen", !!f);
+  }
+  document.addEventListener("change", function (e) { if (e.target.matches(".drop input[type=file]")) showFile(e.target); });
+  ["dragenter", "dragover"].forEach(function (t) {
+    document.addEventListener(t, function (e) {
+      var d = e.target.closest && e.target.closest(".drop"); if (!d) return;
+      e.preventDefault(); d.classList.add("dragging");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (t) {
+    document.addEventListener(t, function (e) {
+      var d = e.target.closest && e.target.closest(".drop"); if (!d) return;
+      e.preventDefault(); d.classList.remove("dragging");
+      if (t === "drop" && e.dataTransfer && e.dataTransfer.files.length) {
+        var input = d.querySelector("input[type=file]"); input.files = e.dataTransfer.files; showFile(input);
+      }
+    });
+  });
   // 探す欄を開いたら、すぐ打てるようにする
   document.addEventListener("toggle", function (e) {
     if (e.target.matches && e.target.matches(".finder") && e.target.open) {

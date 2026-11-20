@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import flash, csrf %}
+{% from "parts.html" import flash, csrf, file_pick %}
 {% set active = "client" %}
 {% block title %}お客様リストの取り込み{% endblock %}
 {% block crumb %}取り込み{% endblock %}
@@ -10,11 +10,7 @@
 {{ flash(done, ok) }}
 <form class="card import-card" method="post" action="{{ base }}/import" enctype="multipart/form-data">
   {{ csrf(token) }}
-  <label class="drop">
-    <input type="file" name="file" accept=".xlsx,.csv" required>
-    <span class="drop-title">Excel（.xlsx）か CSV のファイルを選ぶ</span>
-    <span class="muted">ここに置くか、押して選んでください。10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。</span>
-  </label>
+  {{ file_pick("お客様リスト（Excel か CSV）", "10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。") }}
   <details class="more">
     <summary>シートや文字の決まりを指定する（ふつうは要りません）</summary>
     <label class="field" for="sheet-name">シートの名前（Excel で最初のシート以外を使うとき）</label>

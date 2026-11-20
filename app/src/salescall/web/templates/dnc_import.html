@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import flash, csrf, stat %}
+{% from "parts.html" import flash, csrf, stat, file_pick %}
 {% block title %}発信禁止の一覧の取り込み{% endblock %}
 {% block main %}
 {# 依頼者の台帳（client あり）と、契約者の共通の台帳（client なし）を、同じこの画面で取り込む（Intent.md 7-2）。行の結果は core の dnc_import の1か所 #}
@@ -19,11 +19,7 @@
 {% if stage == "upload" %}
 <form class="card import-card" method="post" action="{{ base }}" enctype="multipart/form-data">
   {{ csrf(token) }}
-  <label class="drop">
-    <input type="file" name="file" accept=".xlsx,.csv" required>
-    <span class="drop-title">依頼者から受け取った一覧（Excel か CSV）を選ぶ</span>
-    <span class="muted">10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。</span>
-  </label>
+  {{ file_pick("依頼者から受け取った一覧（Excel か CSV）", "10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。") }}
   <details class="more">
     <summary>シートや文字の決まりを指定する（ふつうは要りません）</summary>
     <label class="field" for="sheet-name">シートの名前（Excel で最初のシート以外を使うとき）</label>
