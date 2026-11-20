@@ -206,7 +206,7 @@ def _task_approvals(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
         if waiting:
             items.append(Item(
                 kind="task_approval", key={"run_id": str(r["run_id"]), "digest": _digest(waiting)}, title="発信前の行の承認（検証モード）",
-                decide=f"実施回「{r['name']}」の {len(waiting)} 行に、お電話してよいか",
+                decide=f"お客様リスト「{r['name']}」の {len(waiting)} 行に、お電話してよいか",
                 evidence=[("待っている行", f"{len(waiting)} 行"), ("行を見る", "お客様リストで、会社名・お呼びする方・番号を確かめてください")],
                 if_not="承認するまで、この行にはおかけしません（検証モードの業務）。", business_id=r["business_id"],
                 link=f"/c/{_client(tx)}/b/{r['business_id']}/runs/{r['run_id']}",
@@ -231,7 +231,7 @@ def _approve_waiting_rows(tx: Tx, run_id: UUID) -> int:
     見せた行と同じ顔ぶれかは、呼ぶ前に `perform` が印（digest）で確かめている（同じ取引の中なので、ここで読む行は、その顔ぶれのまま）。"""
     run = tx.one("SELECT business_id FROM salescall.runs WHERE run_id = %s", (run_id,))
     if run is None:
-        raise LookupError("その実施回は無い")
+        raise LookupError("そのお客様リストは無い")
     waiting = _awaiting_rows(tx, run_id, run["business_id"])
     for task_id in waiting:
         approval.approve_task(tx, task_id)
@@ -349,11 +349,11 @@ def _solutions(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
             blocking = bool(s["unconfirmed"])
             items.append(Item(
                 kind="solution", key={"run_id": str(run_row["run_id"]), "solution_id": str(s["solution_id"])},
-                title="依頼者の解決策の確かめ", decide=f"実施回「{run_row['name']}」の台本に、この解決策を入れるか",
+                title="依頼者の解決策の確かめ", decide=f"お客様リスト「{run_row['name']}」の台本に、この解決策を入れるか",
                 evidence=[("ご納得いただけなかった点", s["point_text"] or ""), ("問い", s["answer_name"] or ""),
                           ("解決策の文", s["solution_text"] or "")],
-                if_not=("確かめるまで、この実施回では新しい電話をかけません（お約束の電話・お詫びの電話は除く）。" if blocking else
-                        "入れなくても、この実施回の電話は止まりません（入れるまで、この解決策は台本に入りません）。"),
+                if_not=("確かめるまで、このお客様リストでは新しい電話をかけません（お約束の電話・お詫びの電話は除く）。" if blocking else
+                        "入れなくても、このお客様リストの電話は止まりません（入れるまで、この解決策は台本に入りません）。"),
                 at=s["recorded_at"], urgent=False, business_id=run_row["business_id"], business_name=run_row["business"],
                 buttons=((Button("leave_out", "入れない"), Button("add", "入れる", main=True)) if blocking
                          else (Button("add", "入れる", main=True),))))
@@ -396,7 +396,7 @@ KINDS: dict[str, Kind] = {
         "new_person": (lambda tx, k: row_fixes.choose_old_promise(tx, UUID(k["task_id"]), keep_old_promise=False), "新しい担当の方へおかけします。"),
     }),
     "task_approval": Kind("発信前の行の承認（検証モード）", _task_approvals, {
-        "approve_all": (lambda tx, k: _approve_waiting_rows(tx, UUID(k["run_id"])), "承認しました。この実施回の行におかけします。"),
+        "approve_all": (lambda tx, k: _approve_waiting_rows(tx, UUID(k["run_id"])), "承認しました。このお客様リストのお客様におかけします。"),
     }),
     "result_check": Kind("結果の確かめ（検証モード）", _result_checks, {
         "approve": (_refused(lambda tx, k: approval.approve_result(tx, UUID(k["task_id"]), int(k["seq"]))), "この結果で確定しました。"),
@@ -411,9 +411,9 @@ KINDS: dict[str, Kind] = {
     }),
     "solution": Kind("依頼者の解決策の確かめ", _solutions, {
         "add": (lambda tx, k: client_solutions.add_earlier(tx, UUID(k["run_id"]), [UUID(k["solution_id"])]),
-                "入れました。この実施回の台本に、この解決策が入ります。"),
+                "入れました。このお客様リストの台本に、この解決策が入ります。"),
         "leave_out": (lambda tx, k: client_solutions.leave_out(tx, UUID(k["run_id"]), [UUID(k["solution_id"])]),
-                      "入れないと確かめました。この実施回の電話を続けます。"),
+                      "入れないと確かめました。このお客様リストの電話を続けます。"),
     }),
     "deficit": Kind("赤字の確認", _deficit, {
         "confirm": (lambda tx, k: usage.confirm_deficit(tx, int(k["warning_id"])), "確かめたことを記録しました。"),

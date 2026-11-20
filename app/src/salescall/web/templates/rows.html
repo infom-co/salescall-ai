@@ -7,7 +7,7 @@
 <div class="title-row"><div class="titles"><h1>お客様リスト：{{ run.name }}</h1>
   <p class="lead">お客様ごとの、いまの状態と結果です。会社名を押すと、そのお客様の画面を開きます。</p></div>
   <span class="btn-row">
-    <a class="btn main" href="{{ rbase }}/import">お客様リストを取り込む</a>
+    <a class="btn main" href="{{ rbase }}/import">お客様を取り込む</a>
     {#- 書き出しの入口は「依頼者へ渡す内容」の画面の1か所（ここからは移るだけ） -#}
     {{ go(rbase ~ "/results", "結果を見て、依頼者へ渡す") }}
   </span></div>
@@ -68,6 +68,6 @@
 </form>
 {% endfor %}
 {% else %}
-<div class="card">{{ empty("この実施回には、まだ行がありません", "右上の「お客様リストを取り込む」から取り込みます。") }}</div>
+<div class="card">{{ empty("このお客様リストには、まだお客様がいません", "右上の「お客様を取り込む」から取り込みます。") }}</div>
 {% endif %}
 {% endblock %}

@@ -1039,8 +1039,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 if tx.one("SELECT 1 FROM salescall.business_versions WHERE version_id = %s AND business_id = %s",
                           (version, business_id)) is None:
                     raise NotFound()
-                return registry.create_run(tx, business_id, actions.name_of(form), version, reason="ダッシュボードで実施回を作った")
-            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), done="実施回を作りました。")
+                return registry.create_run(tx, business_id, actions.name_of(form), version, reason="ダッシュボードでお客様リストを作った")
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), done="お客様リストを作りました。")
             base = f"/c/{client_id}/b/{business_id}"
             return _back(f"{base}/runs/{out.value}/import" if out.ok else base, out)
         return handle(request, render)
@@ -1370,7 +1370,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 except business_settings.SettingsInvalid as e:
                     raise actions.Refused(str(e)) from None
             out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), reason_field="reason",
-                              done="結果ごとのかけ直しを変えた、新しい版を作りました（前の版は残ります）。録音などがそろえば、実施回は自動でこの版に替わります。")
+                              done="結果ごとのかけ直しを変えた、新しい版を作りました（前の版は残ります）。録音などがそろえば、お客様リストは自動でこの版に替わります。")
             return _back(f"{base}/{out.value}" if out.ok else f"{base}/{version_id}", out)
         return handle(request, render)
 

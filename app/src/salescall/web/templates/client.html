@@ -5,7 +5,7 @@
 {% block main %}
 {# 依頼者のタブ（概要＝全業務）と業務のタブは、この1つのひな形（絞り方が違うだけ）。 #}
 <div class="title-row"><div class="titles"><h1>{{ business.name if business else client.name }}</h1>
-  <p class="lead">{% if business %}依頼者「{{ client.name }}」の業務です。今日の動きと、実施回ごとのお客様リストです。{% else %}すべての業務を合わせた、今日の動きと実施回です。業務ごとに見るときは、上の業務のタブを選んでください。{% endif %}</p></div>
+  <p class="lead">{% if business %}依頼者「{{ client.name }}」の業務です。今日の動きと、お客様リストです。{% else %}すべての業務を合わせた、今日の動きとお客様リストです。業務ごとに見るときは、上の業務のタブを選んでください。{% endif %}</p></div>
   <span class="btn-row">
   <form class="search-inline" method="get" action="/c/{{ client.client_id }}/search"><input type="search" name="q" placeholder="お客様を探す（会社名・管理番号・電話番号）" aria-label="お客様を探す"></form>
   </span>
@@ -25,7 +25,7 @@
 {% endfor %}
 {% for n in needs %}
 <details class="card attention-wait need">
-  <summary><b>録音がそろうまで、実施回「{{ n.run }}」ではおかけしません</b>
+  <summary><b>録音がそろうまで、お客様リスト「{{ n.run }}」ではおかけしません</b>
     <span class="muted">{% if not n.listed %}録音の部分の一覧がまだ作られていません{% else %}{% for voice, parts in n.parts.items() %}声「{{ voice }}」で {{ parts|length }} か所{% if not loop.last %}・{% endif %}{% endfor %}{% endif %}</span></summary>
   {% if n.listed %}{% for voice, parts in n.parts.items() %}
   <h3 style="margin-top:12px">声「{{ voice }}」で録音が要る文</h3>
@@ -83,7 +83,7 @@
       {% endfor %}
     </ul>
     <p class="muted">合わせて {{ total }} 件。お客様ごとの最新の結果です（確定していないものも入ります）。</p>
-    {% else %}{{ empty("まだ行がありません", "お客様リストを取り込むと、ここに結果ごとの数が出ます。") }}{% endif %}
+    {% else %}{{ empty("まだ行がありません", "お客様を取り込むと、ここに結果ごとの数が出ます。") }}{% endif %}
   </div>
   <div class="card {{ 'attention-wait' if unconfirmed }}">
     <h2>確定していない結果</h2>
@@ -122,7 +122,7 @@
     {{ go(bb ~ "/settings#g-approval", "検証モードかフルオートかを変える（設定）") }}</nav></div>
   <p class="muted">{% if verification %}発信の前に行を承認し、結果を確かめてから確定します。少ない件数の段から始め、指標が基準の内なら次の段へ進みます。{% else %}承認なしでかけ、判定した結果をそのまま確定します。{% endif %}</p>
   {% for st in stages %}
-  <h3 style="margin-top:14px">実施回「{{ st.run }}」：{% if st.stage %}段 {{ st.stage.stage_no }}（{% if st.stage.cap %}{{ st.used }} / {{ st.stage.cap }} 件{% else %}件数の上限なし{% endif %}）{% else %}まだ段が開いていません（模擬通話のあとに開きます）{% endif %}</h3>
+  <h3 style="margin-top:14px">お客様リスト「{{ st.run }}」：{% if st.stage %}段 {{ st.stage.stage_no }}（{% if st.stage.cap %}{{ st.used }} / {{ st.stage.cap }} 件{% else %}件数の上限なし{% endif %}）{% else %}まだ段が開いていません（模擬通話のあとに開きます）{% endif %}</h3>
   <div class="table-scroll"><table class="list">
     <thead><tr><th>指標</th><th class="num">いま</th><th class="num">基準</th><th></th></tr></thead>
     <tbody>{% for name, m in st.metrics.items() %}
@@ -134,21 +134,21 @@
   {% endfor %}
 </section>
 {% endif %}
-<div class="title-row" style="margin-top:28px"><h2 style="margin:0">実施回</h2>
+<div class="title-row" style="margin-top:28px"><h2 style="margin:0">お客様リスト</h2>
 {% if business %}
   <details class="adder inline">
-    <summary class="btn main">＋ 実施回を作る</summary>
+    <summary class="btn main">＋ お客様リストを作る</summary>
     <form class="panel" method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs">
       {{ csrf(token) }}
       {% if versions %}
       <p class="muted">版の中身：{% for v in versions[:3] %}<a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/versions/{{ v.version_id }}">版 {{ v.version_no }}</a>{% if not loop.last %}・{% endif %}{% endfor %}</p>
-      <label class="field" for="new-run">実施回の名前</label>
+      <label class="field" for="new-run">お客様リストの名前</label>
       <input id="new-run" type="text" name="name" required placeholder="例：12月分のお客様">
       <label class="field" for="run-version">使う電話の台本の版</label>
       <select id="run-version" name="version_id">{% for v in versions %}<option value="{{ v.version_id }}">版 {{ v.version_no }}（{{ time(v.created_at) }}）{% if loop.first %}・いちばん新しい版{% endif %}</option>{% endfor %}</select>
-      <button class="btn main small" type="submit">作って、お客様リストを取り込む</button>
+      <button class="btn main small" type="submit">作って、お客様を取り込む</button>
       {% else %}
-      <p class="muted">この業務には、まだ電話の台本がありません。実施回は、台本ができてから作れます。{{ words.SCRIPT_NOT_READY }}</p>
+      <p class="muted">この業務には、まだ電話の台本がありません。お客様リストは、台本ができてから作れます。{{ words.SCRIPT_NOT_READY }}</p>
       {% endif %}
     </form>
   </details>
@@ -156,7 +156,7 @@
 </div>
 {% if runs %}
 <div class="table-scroll"><table class="list">
-  <thead><tr><th>実施回</th>{% if not business %}<th>業務</th>{% endif %}<th></th></tr></thead>
+  <thead><tr><th>お客様リスト</th>{% if not business %}<th>業務</th>{% endif %}<th></th></tr></thead>
   <tbody>
   {% for r in runs %}
     <tr>
@@ -168,6 +168,6 @@
   </tbody>
 </table></div>
 {% else %}
-<div class="card">{{ empty("実施回はまだありません", "右上の「＋ 実施回を作る」から作ります。" if business else "業務のタブを選んで、実施回を作ります（業務がまだ無ければ、上の「＋ 業務」から）。") }}</div>
+<div class="card">{{ empty("お客様リストはまだありません", "右上の「＋ お客様リストを作る」から作ります。" if business else "業務のタブを選んで、お客様リストを作ります（業務がまだ無ければ、上の「＋ 業務」から）。") }}</div>
 {% endif %}
 {% endblock %}

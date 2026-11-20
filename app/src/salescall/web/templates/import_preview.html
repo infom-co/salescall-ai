@@ -8,7 +8,7 @@
 <p><a href="{{ base }}/import/{{ key }}">← 列を確かめ直す</a></p>
 <h1>行ごとの結果を確かめて登録</h1>
 <ol class="steps"><li>ファイルを選ぶ</li><li>列を確かめる</li><li aria-current="step">行ごとの結果を確かめて登録</li></ol>
-<p class="lead">「{{ file_name }}」を実施回「{{ run.name }}」に取り込みます。まだ何も登録していません。</p>
+<p class="lead">「{{ file_name }}」をお客様リスト「{{ run.name }}」に取り込みます。まだ何も登録していません。</p>
 <div class="grid cols-4 stats">
   <div class="card">{{ stat("登録する行", counts.registered) }}</div>
   <div class="card {{ 'attention-stop' if counts.stopped }}">{{ stat("登録できない行", counts.stopped, "stop" if counts.stopped else "") }}</div>
@@ -42,7 +42,7 @@
   {{ csrf(token) }}
   <div class="actions">
     <a class="btn" href="{{ base }}">やめる（何も登録しない）</a>
-    <button class="btn main" type="submit" {% if not counts.registered and not counts.already %}disabled{% endif %}>依頼者「{{ client.name }}」・業務「{{ business.name }}」の実施回「{{ run.name }}」に {{ counts.registered }}行を登録する</button>
+    <button class="btn main" type="submit" {% if not counts.registered and not counts.already %}disabled{% endif %}>依頼者「{{ client.name }}」・業務「{{ business.name }}」のお客様リスト「{{ run.name }}」に {{ counts.registered }}行を登録する</button>
   </div>
 </form>
 {% endblock %}

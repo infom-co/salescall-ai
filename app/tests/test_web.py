@@ -716,6 +716,7 @@ class Web(_World):
                 r = self.get("A", path)
                 self.assertEqual(r.status_code, 200, r.text[:300])
                 self.assertNotIn(words_missing(), r.text)
+                self.assertNotIn("実施回", re.sub(r"架空の[^<」]*?実施回", "", r.text))   # ✅ 2026-11-20 管理者「イ」：画面の呼び方は「お客様リスト」にそろえる（見本のデータの名前は除く）
 
 
 class EmergencyStop(_World):

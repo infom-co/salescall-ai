@@ -15,7 +15,7 @@
  "budget.deficit_grace": "赤字をもう一度知らせるまでの時間",
  "budget.max_cost_ratio": "報酬に対する費用の割合の上限",
  "budget.tenant_daily_yen": "契約者の1日の費用の上限",
- "business.call_declined_again": "断られたお客様に次の実施回でかけるか",
+ "business.call_declined_again": "断られたお客様に次のお客様リストでかけるか",
  "call.filler_after": "沈黙のあと「はい」を入れるまで",
  "call.frozen_after": "会話が固まったとみなすまで",
  "call.hangup_after_close_wait": "締めのあと、こちらから切るまで",

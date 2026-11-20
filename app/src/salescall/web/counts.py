@@ -133,8 +133,8 @@ def setup_steps(tx: Tx, client_id: UUID, business_id: UUID, recording_needs: lis
     script = _script_ready(tx, business_id)
     return [
         {"name": "電話の台本を入れる", "done": script, "how": words.SCRIPT_NOT_READY, "link": ""},
-        {"name": "実施回を作る", "done": f["runs"] > 0, "how": "下の「＋ 実施回を作る」から（電話の台本の版を選びます）", "link": ""},
-        {"name": "お客様リストを取り込む", "done": f["rows"] > 0, "how": "実施回のお客様リストの画面から",
+        {"name": "お客様リストを作る", "done": f["runs"] > 0, "how": "下の「＋ お客様リストを作る」から（電話の台本の版を選びます）", "link": ""},
+        {"name": "お客様を取り込む", "done": f["rows"] > 0, "how": "お客様リストの画面の「お客様を取り込む」から",
          "link": f"{base}/runs/{f['last_run']}/import" if f["last_run"] else ""},
         {"name": "回線を用意する（この依頼者で使える回線）", "done": f["lines"] > 0, "how": "「回線と PC」で足すか、使い先を決めます",
          "link": "/t/lines"},

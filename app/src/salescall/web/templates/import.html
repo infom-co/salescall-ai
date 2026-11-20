@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 {% from "parts.html" import flash, csrf, file_pick %}
 {% set active = "client" %}
-{% block title %}お客様リストの取り込み{% endblock %}
+{% block title %}お客様の取り込み{% endblock %}
 {% block crumb %}取り込み{% endblock %}
 {% block main %}
 {% set base = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
-<h1>お客様リストを取り込む</h1>
+<h1>お客様を取り込む</h1>
 <ol class="steps"><li aria-current="step">ファイルを選ぶ</li><li>列を確かめる</li><li>行ごとの結果を確かめて登録</li></ol>
 {{ flash(done, ok) }}
 <form class="card import-card" method="post" action="{{ base }}/import" enctype="multipart/form-data">
   {{ csrf(token) }}
-  {{ file_pick("お客様リスト（Excel か CSV）", "10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。") }}
+  {{ file_pick("取り込むファイル（Excel か CSV）", "10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。") }}
   <details class="more">
     <summary>シートや文字の決まりを指定する（ふつうは要りません）</summary>
     <label class="field" for="sheet-name">シートの名前（Excel で最初のシート以外を使うとき）</label>
@@ -20,5 +20,5 @@
   </details>
   <div class="actions"><button class="btn main" type="submit">次へ（列を確かめる）</button></div>
 </form>
-<p class="muted" style="margin-top:12px">同じ実施回に何度取り込んでも、同じお客様が2行になることはありません（管理番号・番号で見分けます）。止めた行は、理由を見せてから登録します。</p>
+<p class="muted" style="margin-top:12px">同じお客様リストに何度取り込んでも、同じお客様が2行になることはありません（管理番号・番号で見分けます）。止めた行は、理由を見せてから登録します。</p>
 {% endblock %}
