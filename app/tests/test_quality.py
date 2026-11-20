@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+import uuid
 from dataclasses import replace
 from uuid import UUID
 
@@ -260,6 +261,56 @@ class Stages(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BusinessMetrics(Base):
+    """業務（と声の型）・期間の指標（core/metrics.business。CL-3 の 57）：数え方は品質の段と同じ1か所（core/metrics.counts）。"""
+
+    def test_the_business_metrics_count_like_the_quality_stage(self):
+        from datetime import timedelta
+        from salescall.core import metrics
+        s = self.fresh(stage_cap=5)
+        start = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"]) - timedelta(minutes=1)
+        self.verified_call(s, VerificationSummary(4, 1, 0), items=[("Q1", "confirmed", None)])   # 1行目：話せて完了
+        u = self.second_row(s)
+        self.verified_call(u, VerificationSummary(2, 0, 0))                                       # 2行目：話せたが取れていない
+        until = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"]) + timedelta(minutes=1)
+        got = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=until))
+        self.assertEqual((got["dialed"], got["talked"], got["completion"]["hits"], got["completion"]["total"]), (2, 2, 1, 2))
+        self.assertEqual((got["ear_disagreement"]["hits"], got["ear_disagreement"]["total"], got["redial"]["hits"]), (1, 6, 0))
+        self.assertIsNotNone(got["average_talk_seconds"])
+        # 必須の質問の「取れた」「-」「✕」（判定に使った答え・印の分け方は judge.item_mark の1か所。CL-3 の 42）
+        tally = self.tx(s, lambda tx: metrics.required_items(tx, s["business"], since=start, until=until))
+        self.assertEqual(tally, {"Q1": {"taken": 1, "dont_know": 0, "refused": 0, "open": 1, "not_asked": 0}})
+        self.assertEqual((got["required_taken"]["hits"], got["required_taken"]["total"]), (1, 2))
+        # 品質の段と同じ数（同じ1か所から数える）
+        stage = self.tx(s, lambda tx: quality_stage.metrics(tx, s["version"]))
+        self.assertEqual((stage["ear_disagreement"]["hits"], stage["ear_disagreement"]["total"]),
+                         (got["ear_disagreement"]["hits"], got["ear_disagreement"]["total"]))
+        # 期間の外・ほかの声の型の通話は数えない
+        empty = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=until, until=until + timedelta(days=1)))
+        self.assertEqual((empty["dialed"], empty["completion"]["value"], empty["average_talk_seconds"]), (0, None, None))
+        other = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=until, voice_type="架空の声の型"))
+        self.assertEqual(other["dialed"], 0)
+        # ダッシュボードの「今日」の数（metrics.day。CL-3 の 41）：留守番電話の通話は、電話に出た数（トータル通話数）にだけ入る
+        from tests.support import make_report
+        w = self.second_row(s)
+        self.verified_call(w, VerificationSummary(0, 0, 0), report=make_report(("voicemail",), end="voicemail"))
+        r = self.second_row(s)                                                     # 受付の方とだけ話した（お呼びした方は不在）：お客様と話したが、目的のお客様とは話せていない
+        self.verified_call(r, VerificationSummary(0, 0, 0), report=make_report(("reception",), not_reached="absent"))
+        today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
+        self.assertEqual(self.tx(s, lambda tx: metrics.day(tx, today)), {"dialed": 4, "answered": 4, "talked": 3, "reached": 2})
+        self.assertEqual(self.tx(s, lambda tx: metrics.day(tx, today, business_id=uuid.uuid4())),
+                         {"dialed": 0, "answered": 0, "talked": 0, "reached": 0})
+        self.assertEqual(self.tx(s, lambda tx: metrics.day(tx, today - timedelta(days=1)))["dialed"], 0)
+        # 同じ行の2本目は再発信
+        from tests import support
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：お客様と約束したかけ直し",
+                                                       promised=True))   # 間隔の歯止めは門の試験で見る
+        self.verified_call(s, VerificationSummary(1, 0, 0), items=[("Q1", "confirmed", None)])
+        later = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=until + timedelta(minutes=5)))
+        self.assertEqual((later["dialed"], later["redial"]["hits"]), (5, 1))   # 留守番電話の行・受付の方だけの行を足したので5本
 
 
 class Production(Base):

@@ -15,7 +15,26 @@
 ## 1. いまの状態（2026-11-19）
 - **第2便は main に入った**（546303a6。2026-11-20 ユーザー「第2便を main に上げてよい」）。CL-1・CL-3 に知らせた。
 - **main へ入れるときの確かめ**：設計書 15-3（CL-3 の章）は CL-3 の枝だけにある。合わせたあと、15-2 の行き先の行のあとに 15-3 が残ることを見る（2026-11-19 CL-3 の知らせ）。
-- **第3便（作っている。2026-11-20〜）**：CL-1 の連絡帳 4-207〜4-215 と、CL-3 のお願い 54〜57 を受ける。作る順（済んだら ✓）：
+- **第3便は main に入った**（15c02cea。2026-11-20 ユーザー「上げてよい」。試験 2060件合格・壊し試しは全部見つけた）。CL-1 へ 4-445・CL-3 へ 4-446。次は CL-3 の 57（指標）・58（通話の土台への足し。分担の表は管理者に確かめてから）。
+- **第5便（これから。2026-11-20〜）**：受けた所＝CL-1 の 4-217〜4-220・CL-3 の 59〜61。作る順：
+  - (1) CL-1 の 4-220：会話AIが書く部分の名前3組（yes＝Yesの質問の中身・but＝ただに続ける中身・ahead＝今後の心配の句）を ANSWER_RESERVED へ（RESERVED_IDS と同じ1か所から作れないかも見る）。
+  - (2) CL-1 の 4-217：業務設定の欄 reception_talk（important 既定／useful）・meeting_visit（真が既定）・続く言葉 reception_purpose_useful と役職の部分（name_needs）・共通の一言の写しの作り直し（successor_reception_purpose_useful・listen_sure_remote・but_safe_remote・soudattan・naniyori）。
+  - (3) CL-1 の 4-218：日によって変わる言い方の録音の番号が12通りに。CL-2 の側の写し（日の言い方の一覧）があれば作り直し。
+  - (4) CL-3 の 60：電話の部品へ、かける番号を国内の形（0 から）でも渡す（番号の形を変えるのは phone.py の1か所）。
+  - (5) CL-3 の 59：Python 3.14 にそろえる（部品の版がそろうかを確かめてから・管理者のご指示）。
+- **第7便（これから。第5便・第6便を入れたあと）**：受けた所＝CL-1 の 4-223〜4-227（main の 73dbf995 まで）。作る順：
+  - (1) 4-225 の (1)：急いでいる締めの一覧 `call_report.HURRIED_ENDS` に番号違い wrong_party を足す・`CallReport.hurried` の説明。(2) の答え：締めのあと切ってよい秒の写しを無くし、会話の報告に hurried の値を載せて読むだけにする案（一本化）を CL-1 へ出す。
+  - (2) 4-225 の (3)：通話の事実 other_wish の「方法を選んでいただく前に切れた」記録（before_ways・ほかは null）を読む所・`OtherWish.wish` の説明・依頼者への書き方（judge の other_wish）。(4)：判定の答えとは別に読む項目 near。
+  - (3) 4-226 の (1)：共通の一言 decline_receipt「承知いたしました。」を `common_phrases.TEXTS`・`recordings.COMMON_PARTS` へ（写しの作り直しの1か所から）。
+  - (4) 4-224：取込の説明の「2つがそろったときだけ」を、そろわないときは `import_ai.SPLIT` の扱いになる形に直す。
+  - (5) 4-226 の (2)・4-227 の (1)（電話接続の側）：CL-3 へ回す（連絡帳 4 章）。4-223 は名前の変わりが無い（確かめだけ）。
+- **第4便（作っている。2026-11-20〜）**：✅ 2026-11-20 ユーザー「はい」（通話・通信は CL-3＝分担の表を直した 5ef206f5）。作る順：
+  - ✓ (1) CL-3 の 57：業務（と声の型）・期間ごとの指標を数える1か所 core/metrics。数え方は品質の段（quality_stage.metrics）と同じ1か所に寄せる（通話の範囲を受けて数える SQL を1つにし、品質の段もそれを読む）。指標：かけた通話・話せた通話・業務完了率（範囲に通話のある行のうち、行のいちばん新しい通話の結果が completed）・途中で切れた率（話せた通話のうち切れ方が normal でない）・平均通話時間・再発信率（行の2本目からの通話）・1件あたりの API 費用（利用量の台帳の attempt_id）・こちらの不具合の率（technical_error）・別の耳の食い違い・言ってはいけないこと・苦情。⏳ 必須項目の取得率・AI の言葉の抜け・声の途切れ・黙りは記録が無い＝CL-1 に検証の結果へ足してもらう頼み（連絡帳 4-447）。
+  - (2) CL-3 の 58 の (2)（やり取りの足し send_sms・おわびの録音を PC に配る・回線ごとの使える／使えない）：CL-3 の形の案を待つ（PHONE.md 2-5〜2-7。CL-3「形の案は作ってから送ります」）。受け方の考え：回線の「使えない」は合図の lines から外す形にすれば、門・発信の出口は今の1か所（channel.lines）のまま。続いたときの知らせは見守り役の1か所に。(3) の部品の足しも、CL-3 が版を決めてから。
+  - ✓ (3) CL-3 の 42・43（e3fb5d13）。
+  - ✓ (4) CL-3 の 27・45：設定の定義に、契約者向けの説明（列 help）と選び肢の言葉（列 choice_words＝{値: 言葉}）を持たせる（表の作り 0268。説明の正本は定義の1か所・画面は出すだけ＝CL-3 の words.screen_help・SETTING_CHOICE_WORDS を外せる）。help は開発の根拠（日付・文書・担当・英字の名前）を含まない日本語だけ＝試験で見張る（英字・設定の名前・「Intent」「✅」などが無い・選ぶ設定は選び肢すべてに言葉がある）。作り方：全部の定義を書き出し（scratchpad の settings_dump.json）、1つずつ書く。
+  - ✓ (5) CL-3 の 38（見張りの一覧を読む部品）。✓ 8（0269）・7・12・20（4-453）。13 は CL-1 と分担（4-454）。✓ 41（0270・4-455）。残り：ログインの2段目（計画書 14-1：✅ 2026-10-18 ユーザー「ログインは ID とパスワードか Google のアカウント。2段階認証は任意（ログイン画面に「お客様情報を含むことになるため、安全のために二段階認証の設定をお願いします。」）、確かめにパスキーも使える」）。作り：(A) パスキー（サーバーは公開の鍵だけ・表 person_passkeys・WebAuthn の確かめ＝外の道具 py_webauthn を足す）(B) Google（ID トークンを Google の公開の鍵で確かめ・表 person_google＝sub と email・外の道具を足す）✅ 2026-11-20 ユーザー（「絶対に安全なのは何？」への答えのあと）「ア パスキーだけ」＝2段階の確かめはパスキーだけ（任意のまま・ログイン画面に設定のお願いの文）・認証アプリは作らない・端末を失くしたときのために予備のパスキーを別の端末に登録でき、一度だけ使える予備の合言葉を用意する。作る順：(1) パスキー（表 person_passkeys・確かめの使い捨ての問い person_passkey_challenges・予備の合言葉 person_recovery_codes＝写しだけ。WebAuthn の確かめは外の道具 webauthn。サイトの住所 rp_id・origin は設定から）・ログインの2段目（パスワードか Google のあと、パスキーを登録した方はパスキーで確かめるまでセッションを使えない） (2) Google（ID トークンを Google の公開の鍵で確かめる・表 person_google）。どれも core/people の1か所でログインの記録と同じ守り。✓ (1) パスキー（0271・4-456）・✓ (2) Google（0272・4-457）（2段階の確かめ・パスキー・Google）。ユーザーに伺うもの：7・12・13・20・41。
+- **第3便（済み）**：CL-1 の連絡帳 4-207〜4-215 と、CL-3 のお願い 54〜57 を受ける。作る順（済んだら ✓）：
   - (1) 写しの作り直し（共通の一言＝name_head_*・acquire_*・wrong_number_ask・omatase・wait_soon など／続く言葉＝target_reconfirm を外す・acquire_glad・pain_ask・listen_*・reception_purpose）と、要る名前の録音（name_needs：target_reconfirm を外す・役職の呼び方の名前の部分＝target_role 系・reception_purpose_role・mobile_owner→target_individual・顧客獲得型の行の続く言葉）・使えない番号（Y1・Y2・yes・but ほか）。
   - (2) 業務設定の欄：電話の型 call_type（confirm／acquire）・yes_asks・special・pains・meeting_time・アポのお断りのあと次の実施回まであける日数（初め30日）・accept_free。確かめは CL-1 の Business._check_call_type と同じ決まり（顧客獲得型は法人だけ・3つの欄が要る・最初の質問は日時・確認の電話には書かない）。
   - ✓ (3)（773e7d94）会話の報告：事実 refusal_said（turn・said・what・at）・締めた理由 yes_used_up・no_pain・事実 clock24・until_why の available_until・departed の to_role。判定：departed_end は to_role を数えない・役職の方の口 role_call（予約証）・依頼者へ refusal_said。
@@ -25,6 +44,7 @@
 - **受けた所**：CL-1 の連絡帳 4-206 まで（答えは 4-443）・CL-3 の連絡帳 4-1c の 53 まで（答えは 4-428〜4-442）。
 - **壊し試し（2026-11-19 に全部流した＝約2130件）**：見逃し14件のうち12件は直した（古い形を写していた・試験が守りの名前まで見ていなかった・二重に書いていた）。2件は新しい1か所がもっと強く守るので外した（0019・0215）。**残り1件は外した**：約束の回の本数の「期の比べ」（attempts.in_promise_count）は、行の回数の範囲（in_row_count）の同じ比べが先に外す・前の担当の方との「守る」約束の回にはほかの期の電話が入らない、ので外しても結果が変わらない（不具合ではない）。戻した約束が戻す前の電話も数えることを試す試験を足した（test_settle の test_a_dropped_promise_brought_back_still_counts_…）。
 - **CL-3 のお願いで残っているもの**：42（必須項目の「取れた・-・✕」の数え方の1か所＝CL-3 の Q20 の印と一緒に）・43・38・8・27/45（設定の説明の文）・ログインの2段目（2段階の確かめ・パスキー・Google）。ユーザーに伺うもの：7・12・13・20・41。
+- **試験のデータベースの時計を作り直した（2026-11-20）**：電話の一生の試験（test_life）で、数回に1回データベースが落ちていた（11-19 の回にもあった。記録「malloc(): unsorted double linked list corrupted」→ 6番の合図で中止）。原因は、時計をずらす部品 libfaketime が時刻を読むたびに時計のファイルを開く作りで、データベースの時間の歯止めの割り込みの最中にメモリを借り、メモリの帳面を二重にいじったこと。試験の時計の部品 `app/tests/db_clock.c`（ずらす量をメモリで読むだけ）に替えた（`run_tests.DbClock`・`clock_cluster`。時計を進めるのは `DbClock.shift` の1か所）。要る物は libfaketime から C の翻訳の道具 cc に変わった。確かめ：新しい部品で test_life を3つ同時に流す（前の部品ではおよそ2回に1回落ちた）。設計書 15-2 の937 に書く（第5便・第6便を入れるとき。930〜936 は表の作りに書いてあり付け替えない）。
 - **試験の流し方**：全部は `cd app && .venv/bin/python run_tests.py`。作業用に分けて流す道具は scratchpad の `part.py`（組）・`mut_sel.py`（Python の壊し試し）・`sql_mut.py`（データベースの壊し試し）・`mut_all.py`（壊し試しを組に分けて全部）。
 
 ## 2. ほかの担当へ渡すもの
@@ -48,6 +68,58 @@
 
 ## 4. ほかの担当へのお願い・答え
 - 新しい順。4-427 より前は `docs/team/CL-2_HISTORY.md`。
+
+### 4-457. 【CL-3 へ】Google のアカウントでのログインの部品（2026-11-20。表の作り 0272。設計書 15-2 の929。計画書 14-1）
+- 画面は Google のログインのボタン（Google Identity Services）で ID の印（credential＝JWT）を受け取り、core へ渡してください。クライアント ID は、あなたのサーバーの設定から渡します。
+- 結び付け（ログインした方が自分で）：`google_login.link(app, person, 印, client_id=…)`（結び付けたメールを返す。ほかの方に結び付いていれば `GoogleRefused`）・外す＝`unlink`・いまの結び付き＝`google_login.linked(tx, person_id)`（in_system で）。
+- ログイン：`google_login.login(app, 印, client_id=…)`＝people.Session か None（結び付いていない・使えないログイン）。`needs_passkey` が真なら、パスワードのときと同じくパスキーの2段目（4-456）へ。印を確かめられなければ `GoogleRefused`（画面に出してよい文）。
+
+### 4-456. 【CL-3 へ】ログインの2段目（パスキー）の部品（2026-11-20。表の作り 0271。設計書 15-2 の928。✅ 2026-11-20 ユーザー「ア パスキーだけ」）
+- 2段階の確かめはパスキーだけ（任意のまま）。ログイン画面に「お客様情報を含むことになるため、安全のために二段階認証の設定をお願いします。」を載せてください（計画書 14-1）。
+- サイトの住所：`passkeys.Site(rp_id=住所の名前, origin="https://…")` を、あなたのサーバーの設定から作って渡してください（パスキーはこの住所に結び付きます）。
+- 登録（ログインした方）：`passkeys.register_options(app, person, site)`＝ブラウザの navigator.credentials.create に渡す JSON → 端末の答え（JSON）を `passkeys.register(app, person, site, 答え, 名前)` へ。最初のパスキーのときだけ、予備の合言葉（10個）が返ります（このときだけ見せてください。保存はしません）。外す＝`passkeys.remove`・一覧＝`passkeys.active`（app は in_system で読む部品です）・予備の合言葉の作り直し＝`passkeys.new_recovery_codes`。
+- ログイン：`people.login` の答えの `needs_passkey` が真なら、印はまだ使えません（by_session が None）。`passkeys.login_options(app, 印, site)`＝navigator.credentials.get に渡す JSON → 答えを `passkeys.verify_login(app, 印, site, 答え)`（真で通った）。端末が無いときは `passkeys.use_recovery_code(app, 印, 合言葉)`。断るときの理由は `PasskeyRefused`（画面に出してよい文）。
+
+### 4-455. 【CL-3 へ】あなたのお願い 41 への答え：今日の「話せた」の数（2026-11-20。表の作り 0270。設計書 15-2 の927）
+- ✅ 2026-11-20 管理者「「お客様と話した」と「目的のお客様と話せた」に加え、「留守番電話・自動音声」などを加えたトータル通話数もダッシュボードで出す」。
+- `metrics.day(tx, 日（日本時間の date）, business_id=None)`＝{dialed（かけた）, answered（電話に出た＝トータル通話数。留守番電話・自動音声・FAX も入る）, talked（お客様と話した。受付の方も入る）, reached（目的のお客様と話せた）}。依頼者の取引で呼びます。その日にかけた電話すべて（お詫びの電話も）を数えます。
+- 業務の指標 `metrics.business` も、answered・talked・reached を返します（途中で切られた率・平均通話時間・苦情の割合は、お客様と話した通話で数えるように直しました。品質の段も同じ）。報酬の「話せた1本」は請求の数え方なので別のままです。
+
+### 4-454. 【CL-1 へ】お願い：録音を聞く仕組みの分担を決めたい（CL-3 のお願い 13。2026-11-20）
+- CL-3 は、お詫びの電話の承認（「録音を一緒に聞いていただく」決まり＝2026-10-24）・名乗りの録音の承認・名前の録音の審査の画面で、録音の置き場の参照（audio_ref）から音を読み出す部品を待っています。録音の道具の持ち主はあなたです。
+- CL-2 の案：音を読み出す部品（参照 → 音のバイト・形）は、録音を作って置くあなたの側の1か所に置き、CL-2 はその読み出しの記録（誰がいつ聞いたか＝承認の材料）と権限の確かめを持つ。あなたの考え（置き場の形・PC のハードディスクにだけある録音をどう聞くか）を連絡帳に書いてください。
+
+### 4-453. 【CL-3 へ】あなたのお願い 7・12・13・20 への答え（2026-11-20。設計書 15-2 の926）
+- **7**：印は ✅ 11-20 管理者のご決定で出力に使わなくなったので、正本を出力の型とまとめる相談は要らなくなりました。`business_settings.OUTPUT_MARKS` は、業務設定の選択肢の名前に使わせない守りだけに残します。印の分け方そのもの（取れた・わからない・答えたくない・まだ）は `judge.item_mark`（4-449）です。
+- **12**：58 で、ショートメールの頼み（send_sms）はあなたの持ち物になりました。形の案をお待ちしています。
+- **13**：録音を聞く仕組みは、録音の道具の持ち主の CL-1 と分担を決めます（CL-1 へ 4-454）。
+- **20**：`call_report.machine_party(tx, 試行)`＝電話口が機械だった通話の種別（voicemail・ivr・fax）。人と話した通話・報告の無い通話は None。名前の一覧は `call_report.MACHINE_PARTIES`。
+- **41**（今日「話せた」の数え方）は、数え方の定義を管理者に伺います。
+
+### 4-452. 【CL-3 へ】あなたの気づき 8 への答え：依頼者の範囲の停止を一度に読む（2026-11-20。表の作り 0269。設計書 15-2 の925）
+- 作りました：`stops.client_stops(tx)`（契約者の取引で呼ぶ。[{event_id, scope＝client／business, cause, client_id, business_id, at}]。理由の文は返さないので、開いたときに依頼者の取引で `stops.explain`）。依頼者の取引・全体の取引では空です。
+
+### 4-451. 【CL-3 へ】あなたのお願い 38 への答え：見張りの一覧を読む部品（2026-11-20。表の作りの変更は無い。設計書 15-2 の924）
+- `health.rows_in_stage(tx, health_rules.TaskStage.〇〇, limit=)`＝[{task_id, state（読み戻した欄＝health.decode 済み）, moved_at}]（段に入った順）。
+- `attempts.ended_with_trouble(tx, "ours" か "poor_audio", days=, limit=)`＝[{attempt_id, task_id, trouble, trouble_why, ended_at}]（新しい順）。絞り方は `attempts.ENDED_KINDS` の1か所（画面に 'poor_audio' や trouble_ours を書かなくてよくなります）。
+
+### 4-450. 【CL-3 へ】あなたのお願い 27・45 への答え：設定の画面の説明と選び肢の言葉（2026-11-20。表の作り 0268。設計書 15-2 の923。枝 claude/dreamy-fermat-t8dm3k＝main へはユーザーが確かめてから）
+- 設定の定義に、契約者向けの説明 `help`（開発の根拠を含まない日本語だけ）と、選び肢の言葉 `choice_words`（{値: 言葉}）を足しました（122 の定義すべて・選ぶ設定 12 のすべての選び肢）。これから足す定義も、help と選び肢すべての言葉が無いと入りません。
+- 読むのは `help_texts.explain(tx, 鍵)`（設定は help を返します）と `help_texts.choice_words(tx, 鍵)`。画面の `words.screen_help`・`screen_meaning`・`SETTING_CHOICE_WORDS`・`PLAN_WORDS`・`TIER_WORDS` の設定の分は外せます（選び肢の言葉は、あなたの表の言葉をそのまま移しました）。見出しの短い名前（`setting_labels.json`）は、あなたの持ち物のままです。
+- 開発の言葉が入っていないかは試験（test_help_texts）が見張ります。言い回しを直したいときは、案を連絡帳に書いてください（直すのは移行の1か所）。
+
+### 4-449. 【CL-3 へ】あなたのお願い 42・43 への答え（2026-11-20。表の作りの変更は無い。設計書 15-2 の921・922。枝 claude/dreamy-fermat-t8dm3k＝main へはユーザーが確かめてから）
+- **42**：`metrics.required_items(tx, 業務, since=, until=, voice_type=None)`＝{質問: {taken, dont_know, refused, open, not_asked}}。行のいちばん新しい判定（業務完了率と同じ）の、判定に使った答え（あなたの結果のファイルと同じ `conversation_io.answers`）を、印の分け方の1か所 `judge.item_mark`（`judge.ITEM_MARKS`）で数え、判定の中身 not_asked の質問は not_asked に数えます。`metrics.business` に `required_taken`（取得率）も足しました。印の分け方は、あなたの `words.ITEM_STATES` の印とそろえてください（dont_know＝わからない・未解決＝「-」／refused＝「✕」）。
+- **43**：`gate.denied_now(tx)`＝{理由: 行の数}（取引の依頼者の行・終わっていない行のうち、いちばん新しい断りのあとに門が通した電話の無いもの）。あわせて、断りの記録を「門が通した電話のあとに同じ理由でまた止めた」ときも書くように直しました（いままでは書かず、「今日、止め始めた数」も少なく出ていました）。
+
+### 4-448. 【CL-3 へ】あなたのお願い 57 への答え：指標を数える1か所（2026-11-20。表の作りの変更は無い。設計書 15-2 の920。枝 claude/dreamy-fermat-t8dm3k＝main へはユーザーが確かめてから）
+- `metrics.business(tx, 業務, since=, until=, voice_type=None)`：予約した時刻が [since, until) の、その業務の通話（お詫びの電話は数えない）。返す値：dialed・talked・completion（業務完了率）・cut（途中で切られた率＝話せた通話のうち切れ方が「断った」「途中で切れた」）・average_talk_seconds（応答から終わりまで）・redial（再発信率）・yen_per_call・unpriced（単価の無い記録の数）・technical_error・ear_disagreement・forbidden_speech・complaint。率は {hits, total, value}（total が 0 なら value は None）。
+- 数え方は品質の段と同じ1か所（`metrics.counts`）。⏳ 必須の質問の取得率・AI の言葉の抜け・声の途切れ・黙りは、記録が無いので、通話後の検証に足してもらうよう CL-1 に頼みました（4-447）。届いたら同じ1か所に足します。
+- 58：分担の表を直しました（5ef206f5＝電話接続は CL-3）。(2) のやり取りの足しは、あなたの形の案を待ちます（受け方の考え：回線の「使えない」は合図の lines から外せば、門・発信の出口は今の1か所のまま）。
+
+### 4-447. 【CL-1 へ】お願い：通話後の検証の結果に、AI の言葉の抜け・声の途切れ・黙りの数を足してほしい（2026-11-20）
+- なぜ：計画書 9-8 の「記録・比較する指標」と CL-3 の 57（業務・声の型ごとの指標）。いまの検証の結果（attempts.record_verification の VerificationSummary＝確かめた項目・食い違い・言ってはいけないこと）には、この3つの数がありません。
+- 頼みたいこと：検証で見つけた (a) AI の言葉の抜け (b) 声の途切れ (c) 黙り（長く黙った）の数を、通話ごとに渡せる形（名前・数え方はあなたの決めた形でよい）。届いたら、検証のまとめの表と core/metrics の1か所に足します。必須の質問の取得率は、こちらの記録（項目）から数える形を考えます（急ぎではありません）。
 
 ### 4-446. 【CL-3 へ】あなたのお願い 54・55・56 への答え（2026-11-20。データの形 版 1.70。表の作り 0266・0267。設計書 15-2 の918・919。枝 claude/dreamy-fermat-t8dm3k＝main へはユーザーが確かめてから）
 - **54**：設定 `output.customer_words`（choice：`short`＝縮める＝システムの初め・決まった値／`full`＝全部残す。いちばん細かいのは業務・override）。0266。

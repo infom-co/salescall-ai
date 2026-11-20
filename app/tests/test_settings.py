@@ -359,7 +359,8 @@ class Choice(unittest.TestCase):
             with self.subTest(choices=choices, value_type=value_type), self.assertRaises(Rejected):
                 owner_access().in_system(SYSTEM, lambda tx: tx.execute(
                     "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope,"
-                    " choices) VALUES ('test.choice', 'override', %s, '試験', '試験', 'system', %s)", (value_type, choices)))
+                    " choices, help, choice_words) VALUES ('test.choice', 'override', %s, '試験', '試験', 'system', %s, '試験', %s)",
+                    (value_type, choices, None if choices is None else json.dumps({c: "試験" for c in choices}))))   # 説明と言葉はそろえる（狙いの守りだけで断る）
 
 
     def test_meanings_of_the_review21_settings_follow_the_decisions(self):
@@ -493,8 +494,8 @@ class FramesCannotBeFinerThanWhatTheyFrame(unittest.TestCase):
         with self.assertRaises(Rejected):
             owner_access().in_system(SYSTEM, lambda tx: tx.execute(
                 "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key,"
-                " bound_side, finest_scope) VALUES ('test.bad_frame', 'override', 'integer', '試験', '試験',"
-                " 'retry.max_attempts_per_task', 'upper', 'tenant')"))
+                " bound_side, finest_scope, help) VALUES ('test.bad_frame', 'override', 'integer', '試験', '試験',"
+                " 'retry.max_attempts_per_task', 'upper', 'tenant', '試験')"))
 
     def test_a_migration_that_rewrites_definitions_cannot_break_the_frames(self):
         """定義の変更止めを外して書き換える移行（0045 のような）でも、枠が収める設定より細かくなれば断る。"""
@@ -513,8 +514,8 @@ class FramesCannotBeFinerThanWhatTheyFrame(unittest.TestCase):
         """「システムだけ」は、いちばん細かく決められる範囲で表す（合成の種類の system_only は使わない）。"""
         with self.assertRaises(Rejected):
             owner_access().in_system(SYSTEM, lambda tx: tx.execute(
-                "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope)"
-                " VALUES ('test.old_way', 'system_only', 'integer', '試験', '試験', 'system')"))
+                "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope, help)"
+                " VALUES ('test.old_way', 'system_only', 'integer', '試験', '試験', 'system', '試験')"))
 
 
 class Review23Marks(unittest.TestCase):

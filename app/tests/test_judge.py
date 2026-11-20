@@ -646,6 +646,17 @@ class AfterDenial(unittest.TestCase):
                 self.assertTrue(d is None or d.kind == "end" or d.at in (known, opening), (d,))
 
 
+class ItemMarks(unittest.TestCase):
+    def test_every_item_state_has_one_mark(self):
+        """項目の状態 → 依頼者へ渡す印の分け方（judge.item_mark の1か所。計画書 5-2・11-3・10-1）：取れた＝TAKEN／「-」＝わからない・未解決／「✕」＝拒まれた／
+        ほか（聞いていない・聞き取っている途中・項目が無い）＝まだ取れていない。"""
+        from salescall.core.judge import ITEM_MARKS, item_mark
+        got = {s: item_mark(s) for s in ("empty", "heard", "unclear", "checking", "confirmed", "accepted", "dont_know", "unresolved", "refused", None)}
+        self.assertEqual(got, {"empty": "open", "heard": "open", "unclear": "open", "checking": "open", "confirmed": "taken", "accepted": "taken",
+                               "dont_know": "dont_know", "unresolved": "dont_know", "refused": "refused", None: "open"})
+        self.assertEqual(set(got.values()), set(ITEM_MARKS))
+
+
 class Shapes(unittest.TestCase):
     """業務の決まり・会話の報告は、1か所の確かめで、抜けと誤りを受け取らない。"""
 
