@@ -12,7 +12,7 @@ from dataclasses import replace
 from salescall.core import business_rules
 from salescall.core import business_settings as bs
 from salescall.core.access import Rejected
-from tests.support import ADMIN, OPERATOR, World, owner_access, rules_raw
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, owner_access, rules_raw
 
 FIELD_TYPES = frozenset({"date", "time", "datetime", "number", "amount", "name", "phone", "email", "address", "yes_no",
                          "choice", "free_text"})
@@ -1547,6 +1547,52 @@ class Versions(unittest.TestCase):
         self.assertEqual(days(at), tuple(date(2098, 11, d) for d in (5, 6, 7, 10, 11, 12, 13, 14, 17)))   # 4日は祝日・土日はかけない
         self.assertEqual(days(datetime(2099, 12, 24, 3, 0, tzinfo=timezone.utc)),                      # 2100年の暦が無い：その手前まで
                          tuple(date(2099, 12, d) for d in (25, 28, 29, 30, 31)))
+
+    def test_call_free_is_the_calling_hours_of_the_days_from_the_call(self):
+        """かけ直しの日時の2択の材料＝電話をかけられる日時の空き（`gate.call_free` の1か所。✅ 2026-11-20 ユーザー（計画書 9-4・伺い60）「空スケジュールの中から2つ」
+        ＝CL-1 の連絡帳 4-212 の call_free）：電話の日（かけた時刻より後の分だけ）から14日後までの、かけてよい時間帯（初めの値は平日の9時〜18時から NG時間の12時〜13時を引いた残り・土日祝はかけない）。
+        かけられる日（`gate.call_days`）は、その次の日からの、空きのある日（同じ1か所から読む）。"""
+        from datetime import date, datetime, timezone
+        from salescall.core import calendar, gate
+        from tests.test_gate import calendar_csv
+        owner_access().in_system(ADMIN, lambda tx: calendar.load_official_csv(
+            tx, calendar_csv([2098, 2099], holidays=[date(2098, 11, 4)])))
+        free = lambda at: self.tx(lambda tx: gate.call_free(tx, at, tenant_id=self.s["tenant"], client_id=self.s["client"],   # noqa: E731
+                                                            business_id=self.s["business"]))
+        early = free(datetime(2098, 11, 2, 15, 30, tzinfo=timezone.utc))   # 日本時間 11月3日（月曜日）の0時30分
+        self.assertEqual(early[:3], [["2098-11-03", "09:00", "12:00"], ["2098-11-03", "13:00", "18:00"], ["2098-11-05", "09:00", "12:00"]])
+        self.assertEqual(free(datetime(2098, 11, 3, 1, 15, 20, tzinfo=timezone.utc))[0], ["2098-11-03", "10:16", "12:00"])   # 10時15分20秒＝次の分から
+        self.assertEqual(free(datetime(2098, 11, 3, 9, 0, tzinfo=timezone.utc))[0], ["2098-11-05", "09:00", "12:00"])        # 18時を過ぎた日は入れない
+        days = self.tx(lambda tx: gate.call_days(tx, datetime(2098, 11, 2, 15, 30, tzinfo=timezone.utc), tenant_id=self.s["tenant"],
+                                                 client_id=self.s["client"], business_id=self.s["business"]))
+        self.assertEqual(days, tuple(sorted({date.fromisoformat(x[0]) for x in early} - {date(2098, 11, 3)})))
+
+    def test_the_free_slots_the_client_can_take(self):
+        """依頼者が受けられる日時の空き（accept_free。✅ 2026-11-20 ユーザー（計画書 9-4・伺い60）＝CL-1 の連絡帳 4-212。表の作り 0264）：業務ごと・版を持たない
+        （空きを直しても版は増えない）。形の確かめは core/free_slots.check の1か所（日・時刻の形・始まりが終わりより前・同じ日の空きが重ならない・日と時刻の順に
+        そろえる）。いまの空きは、いちばん新しい記録。会話へは、その電話をかけた時刻より後に始まる空きだけ。書けるのは管理者か契約者だけ。"""
+        from datetime import datetime
+        from salescall.core import free_slots
+        from salescall.core.access import Rejected
+        got = free_slots.check([["2098-11-06", "13:00", "15:00"], ["2098-11-05", "10:00", "11:30"], ["2098-11-05", "11:30", "12:00"]])
+        self.assertEqual(got, (("2098-11-05", "10:00", "11:30"), ("2098-11-05", "11:30", "12:00"), ("2098-11-06", "13:00", "15:00")))
+        self.assertEqual(free_slots.check([["2098-11-05", "18:00", "24:00"]]), (("2098-11-05", "18:00", "24:00"),))
+        for bad in ({"day": "2098-11-05"}, [["2098-11-05", "10:00"]], [["2098/11/05", "10:00", "11:00"]], [["2098-02-30", "10:00", "11:00"]],
+                    [["2098-11-05", "9:00", "11:00"]], [["2098-11-05", "11:00", "10:00"]], [["2098-11-05", "24:00", "24:00"]],
+                    [["2098-11-05", "10:00", "11:00"], ["2098-11-05", "10:30", "12:00"]], [["2098-11-05", 10, 11]]):
+            with self.subTest(bad=bad), self.assertRaises(free_slots.FreeSlotsInvalid):
+                free_slots.check(bad)
+        b = self.s["business"]
+        self.assertEqual(self.tx(lambda tx: free_slots.current(tx, b)), [])
+        self.tx(lambda tx: free_slots.put(tx, b, [["2098-11-05", "10:00", "11:00"]]))
+        self.tx(lambda tx: free_slots.put(tx, b, [["2098-11-06", "15:00", "16:00"], ["2098-11-05", "10:00", "11:00"]]))   # まるごと置き換え
+        self.assertEqual(self.tx(lambda tx: free_slots.current(tx, b)), [["2098-11-05", "10:00", "11:00"], ["2098-11-06", "15:00", "16:00"]])
+        self.assertEqual(self.tx(lambda tx: free_slots.current(tx, b, after=datetime(2098, 11, 5, 10, 0))), [["2098-11-06", "15:00", "16:00"]])
+        self.assertEqual(self.tx(lambda tx: free_slots.current(tx, b, after=datetime(2098, 11, 5, 9, 59))),
+                         [["2098-11-05", "10:00", "11:00"], ["2098-11-06", "15:00", "16:00"]])
+        with self.assertRaises(Rejected) as e:
+            self.tx(lambda tx: free_slots.put(tx, b, []), SYSTEM)
+        self.assertEqual(e.exception.constraint, "business_free_slots_by_person")
 
     def test_a_version_saved_with_decline_rules_reads_them_as_final_goals(self):
         """業務の決まりに「断りの答え」（decline）を持っていた前の版（2026-11-02 に業務設定の質問の final_goal・declines と業務の goal_mode

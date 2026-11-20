@@ -484,15 +484,20 @@ def handlings(tx: Tx, version_id: UUID, question_id: str) -> dict[tuple[str, str
 def call_dates(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     """その通話の会話へ渡す日と時刻（1か所。会話の側の Flow(earliest_day=…, today=…, now=…, call_days=…) にそのまま渡す形＝CL-1 の連絡帳 4-71 の (c)・4-192 の
     (d) の (2)）：最短の日と電話の日（業務設定の `business_settings.day_of_call`）・その電話をかけた時刻（予約した時刻の日本時間＝`calling_hours.local`）・その業務が
-    電話をかけられる日（`gate.call_days`＝かけてよい時間帯と祝日の暦の1か所）。暦の範囲の外は `calendar.CalendarOutOfRange`（その電話は始めない）。"""
-    from salescall.core import calling_hours, gate   # 門が会話の入口より上の部品を読むので、ここで読む（読み合いにしない）
+    電話をかけられる日（`gate.call_days`＝かけてよい時間帯と祝日の暦の1か所）。暦の範囲の外は `calendar.CalendarOutOfRange`（その電話は始めない）。
+    空いている予定（✅ 2026-11-20 ユーザー（計画書 9-4・伺い60）「空スケジュールの中から2つ」＝CL-1 の連絡帳 4-212）：call_free＝この電話のかけ直しに使える、
+    電話をかけられる日時の空き（`gate.call_free`）・accept_free＝アポ・依頼者の日時の質問に使う、依頼者が受けられる日時の空き（`free_slots.current`＝その電話を
+    かけた時刻より後に始まる空き）。形はどちらも [["YYYY-MM-DD","HH:MM","HH:MM"], …]。"""
+    from salescall.core import calling_hours, free_slots, gate   # 門が会話の入口より上の部品を読むので、ここで読む（読み合いにしない）
     a = tx.one("SELECT a.version_id, a.claimed_at, t.tenant_id, t.client_id, r.business_id FROM salescall.attempts a"
                " JOIN salescall.tasks t ON t.task_id = a.task_id JOIN salescall.runs r ON r.run_id = t.run_id WHERE a.attempt_id = %s",
                (attempt_id,))
     if a is None:
         raise AttemptNotFound(attempt_id)
+    scope = dict(tenant_id=a["tenant_id"], client_id=a["client_id"], business_id=a["business_id"])
     return {**business_settings.day_of_call(tx, a["version_id"], a["claimed_at"]), "now": calling_hours.local(a["claimed_at"]),
-            "call_days": gate.call_days(tx, a["claimed_at"], tenant_id=a["tenant_id"], client_id=a["client_id"], business_id=a["business_id"])}
+            "call_days": gate.call_days(tx, a["claimed_at"], **scope), "call_free": gate.call_free(tx, a["claimed_at"], **scope),
+            "accept_free": free_slots.current(tx, a["business_id"], after=calling_hours.local(a["claimed_at"]))}
 
 
 CALL_SETTING_PREFIXES = ("call.", "conversation.", "callee.")   # callee.＝お客様の営業時間・歯止め時間（会話の側の instruction.CALL_SETTINGS。CL-1 の連絡帳 4-199）

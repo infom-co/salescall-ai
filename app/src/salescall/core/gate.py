@@ -343,23 +343,35 @@ def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: 
     return _usable_hours(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))[1]
 
 
-def call_days(tx: Tx, at: datetime, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None, days: int = 14) -> tuple[date, ...]:
-    """その業務が電話をかけられる日（at の日本時間の次の日から days 日の間で、かけてよい時間帯＝`calling_hours_for` が空でない日。祝日は暦の1か所＝
-    `holiday_checker`）。会話の側の日時の2択の段が、お客様に伺う曜日・日の候補を作る材料（CL-1 の連絡帳 4-192 の (d) の (2)。会話の側の Flow の call_days）。
-    暦の無い日に当たったら、その前の日までで止める（決めつけない。暦の無い日は門がかけない）。"""
+def call_free(tx: Tx, at: datetime, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None, days: int = 14) -> list[list[str]]:
+    """その業務が電話をかけられる日時の空き（1か所。[["YYYY-MM-DD","HH:MM","HH:MM"], …]＝日・時刻の順）：at の日本時間のその日（at より後の分だけ）から days 日後
+    までの、かけてよい時間帯（`calling_hours_for`＝依頼者の時間帯から NG時間を引いた残り。祝日は暦の1か所＝`holiday_checker`）。会話の側が、かけ直しの日時の2択を
+    この中から作る（✅ 2026-11-20 ユーザー（計画書 9-4・伺い60）「空スケジュールの中から2つ」＝CL-1 の連絡帳 4-212 の call_free）。暦の無い日に当たったら、その前の
+    日までで止める（決めつけない。暦の無い日は門がかけない）。"""
     hours = calling_hours_for(tx, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
     check = holiday_checker(tx)
-    start = calling_hours.local(at).date()
-    out: list[date] = []
-    for n in range(1, days + 1):
-        d = start + timedelta(days=n)
+    now = calling_hours.local(at)
+    after = f"{now + timedelta(seconds=59):%H:%M}"   # その分の途中なら次の分から（過ぎた時刻を並べない）
+    out: list[list[str]] = []
+    for n in range(days + 1):
+        d = now.date() + timedelta(days=n)
         try:
             key = calling_hours.day_key(d, check)
         except CalendarOutOfRange:
             break
-        if hours.get(key):
-            out.append(d)
-    return tuple(out)
+        for a, b in hours.get(key) or ():
+            if n == 0 and (b <= after or now.date() != (now + timedelta(seconds=59)).date()):
+                continue
+            out.append([d.isoformat(), max(a, after) if n == 0 else a, b])
+    return out
+
+
+def call_days(tx: Tx, at: datetime, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None, days: int = 14) -> tuple[date, ...]:
+    """その業務が電話をかけられる日（at の日本時間の次の日から days 日の間で、かけてよい時間帯のある日＝`call_free` の1か所）。会話の側の日時の2択の段が、
+    お客様に伺う曜日・日の候補を作る材料（CL-1 の連絡帳 4-192 の (d) の (2)。会話の側の Flow の call_days）。"""
+    today = calling_hours.local(at).date().isoformat()
+    return tuple(sorted({date.fromisoformat(s[0]) for s in call_free(tx, at, tenant_id=tenant_id, client_id=client_id, business_id=business_id,
+                                                                     days=days) if s[0] != today}))
 
 
 def _usable_hours(tx: Tx, scope: dict[str, Any]) -> tuple[dict, dict]:
