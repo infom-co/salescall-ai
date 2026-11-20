@@ -572,23 +572,34 @@ TALK_SCENE = "別のお話"
 TALK_QUESTION = "R1"
 
 
-def talk_business(know: list[str]):
-    """別のお話の場面の業務：質問はお支払いの質問だけ（review_words.questions の R1）・業務の情報は表の知っていること。"""
-    return dataclasses.replace(BUSINESS, questions=[review_questions()[TALK_QUESTION]], info=list(know))
+def talk_business(know: list[str], qids: tuple = (TALK_QUESTION,), **kw):
+    """別のお話の場面の業務：質問は試しの言葉の表の質問（review_words.questions。既定はお支払いの質問 R1 だけ）・業務の情報は表の知っていること・kw＝業務設定のほかの欄
+    （質問の種類ごとの場面の方法 handoff_ways など＝review_words.TALK_KIND_SETUP）。"""
+    qs = review_questions()
+    return dataclasses.replace(BUSINESS, questions=[qs[q] for q in qids], info=list(know), **kw)
 
 
-def talk_checks(call: dict) -> dict:
-    """別のお話の場面の決まり：会話AIがひとこと応えて流れの制御が受け付けた（受け答え＝replay_opening の talk・差し戻されていない）・相づちだけで終えない
-    （ひとことが「使えないときの一言」の相づちの文だけでない・相づちのあとに中身がある）・問いかけ・約束を入れない（約束の言葉は flowctl.PROMISE の1か所）・
-    そのあと答えが取れた。知らない事実を言わないかは、ひとことが受け付けられたこと（中身の判定 grounding が止めた文は受け付けない）で見る。"""
+def _talks_said(call: dict) -> list[str]:
+    """流れの制御が受け付けた会話AIのひとこと（受け答え＝replay_opening の talk・差し戻されていない）の文の並び。"""
+    return [x["args"].get("answer") or "" for x in ops(call)
+            if x["op"] == "replay_opening" and x["args"].get("part") == "talk" and x["reply"].get("result") != "rejected"]
+
+
+def _talk_rules(call: dict) -> dict:
+    """別のお話のひとことの決まり（唯一の場所）：会話AIがひとこと応えて流れの制御が受け付けた・相づちだけで終えない（ひとことが「使えないときの一言」の相づちの文だけでない・
+    相づちのあとに中身がある）・問いかけ・約束を入れない（約束の言葉は flowctl.PROMISE の1か所）。知らない事実を言わないかは、ひとことが受け付けられたこと（中身の判定 grounding が
+    止めた文は受け付けない）で見る。"""
     from phrases import TALK_FALLBACK
-    talks = [x for x in ops(call) if x["op"] == "replay_opening" and x["args"].get("part") == "talk"]
-    said_ok = [x["args"].get("answer") or "" for x in talks if x["reply"].get("result") != "rejected"]
+    said_ok = _talks_said(call)
     nods = {plain(t) for t, *_ in TALK_FALLBACK.values()} | {plain(x) for x in ("さようでございますか。", "そうでしたか。", "そうなんですね。")}
     return {"ひとこと応えた": bool(said_ok),
             "相づちだけで終えない": bool(said_ok) and all(plain(a) not in nods for a in said_ok),
-            "問いかけ・約束を入れない": all("？" not in a and "?" not in a and not PROMISE.search(a) for a in said_ok),
-            "答えが取れた": got(call, TALK_QUESTION, "カード")}
+            "問いかけ・約束を入れない": all("？" not in a and "?" not in a and not PROMISE.search(a) for a in said_ok)}
+
+
+def talk_checks(call: dict) -> dict:
+    """別のお話の場面の決まり：ひとことの決まり（_talk_rules）と、そのあと答えが取れた。"""
+    return {**_talk_rules(call), "答えが取れた": got(call, TALK_QUESTION, "カード")}
 
 
 def talk_scenes() -> dict[str, "Scene"]:
@@ -597,6 +608,58 @@ def talk_scenes() -> dict[str, "Scene"]:
 
 
 SCENES |= talk_scenes()
+
+
+# ── 別のお話の続き（分身 S3 の続き＝帳面 1 の (1) の分身 J・分身 G の段。言葉・正解・場面の作りは試しの言葉の表 review_words の TALK_FOLLOW_WORDS・TALK_KIND_WORDS・
+#    TALK_KIND_SETUP の1か所＝ここに書き写さない）。相手役の声はまだ作っていない（流すまでは run の「相手役の声が確かめに通っていない」で動かさない）
+FOLLOW_SCENE = "お話に沿ったひとことのあとのお返事"
+KIND_SCENE = "質問の種類ごとの別のお話"
+
+
+def follow_checks(expect: str):
+    """お話に沿ったひとことのあとの2つ目のお返事の場面の決まり：ひとことの決まり（_talk_rules）・2つ目のお返事に応じた（会話AIがすること expect＝「質問に戻る」は replay_opening の
+    resume が受け付けられた・答えの報告は「振込」の答えが取れて質問に戻っていない・受け答えはひとことが2つ受け付けられた・聞き返しは聞き取れない報告 report_unclear）・答えが取れた。"""
+    def check(call: dict) -> dict:
+        acted = [x for x in ops(call) if x["reply"].get("result") != "rejected"]
+        back = any(x["op"] == "replay_opening" and x["args"].get("part") == "resume" for x in acted)
+        did = {"質問に戻る": back,
+               "答えの報告": got(call, TALK_QUESTION, "振込") and not back,
+               "受け答え": len(_talks_said(call)) >= 2,
+               "聞き返し": any(x["op"] == "report_unclear" for x in acted)}[expect]
+        return {**_talk_rules(call), "2つ目のお返事に応じた": did,
+                "答えが取れた": got(call, TALK_QUESTION, "振込" if expect == "答えの報告" else "カード")}
+    return check
+
+
+def _line_name(words: str) -> str:
+    """表の言葉の相手役の台詞の名前（聞き取れない台詞は台詞の表の unclear・ほかは言葉から決める talk_name の1か所）。"""
+    from review_words import TALK_UNHEARD
+    return "unclear" if words == TALK_UNHEARD else talk_name(words)
+
+
+def follow_scenes() -> dict[str, "Scene"]:
+    from review_words import TALK_FOLLOW_WORDS
+    return {f"{FOLLOW_SCENE}_{i}": Scene(talk_business(know), [W(talk_name(words)), W(_line_name(reply))] + ([] if expect == "答えの報告" else [W("pay_card")]),
+                                         follow_checks(expect), f"{words}→{reply}｜{expect}")
+            for i, (know, words, reply, expect) in enumerate(TALK_FOLLOW_WORDS, 1)}
+
+
+def kind_checks(qid: str, want: str):
+    """質問の種類ごとの別のお話の場面の決まり：ひとことの決まり（_talk_rules）と、そのあとその質問の答えが取れた。"""
+    return lambda call: {**_talk_rules(call), "答えが取れた": got(call, qid, want)}
+
+
+def kind_scenes() -> dict[str, "Scene"]:
+    from review_words import TALK_KIND_SETUP, TALK_KIND_WORDS
+    out = {}
+    for i, (kind, know, words, truth) in enumerate(TALK_KIND_WORDS, 1):
+        qids, pre, answer, (qid, want), kw = TALK_KIND_SETUP[kind]
+        lines = [W(talk_name(w)) for w in pre] + [W(talk_name(words)), W(talk_name(answer))]
+        out[f"{KIND_SCENE}_{i}"] = Scene(talk_business(know, qids, **kw), lines, kind_checks(qid, want), f"{kind}：{words}｜{truth}")
+    return out
+
+
+SCENES |= follow_scenes() | kind_scenes()
 
 
 def talk_notes() -> list[dict]:
@@ -630,6 +693,8 @@ def show_talk_dry_run() -> None:
     """--dry-run：流さずに、試しの言葉の表（G-57）の行の数・場面・声の型と、組み立てた知らせの文を出す（鍵を読まない・外へつながない）。"""
     notes = talk_notes()
     say(f"試しの言葉の表（G-57）の行：{len(TALK_WORDS)} 行（場面 {len(notes)}・声の型 {len(VOICE_TYPES)}＝流すときの通話 {len(notes) * len(VOICE_TYPES)} 本）")
+    more = len(follow_scenes()) + len(kind_scenes())
+    say(f"別のお話の続き：2つ目のお返事 {len(follow_scenes())} 場面・質問の種類ごと {len(kind_scenes())} 場面（流すときの通話 {more * len(VOICE_TYPES)} 本）")
     for n in notes:
         say(f"■ {n['scene']}：お客様「{n['words']}」｜返事 {n['result']}")
         say("  業務の情報：" + "／".join(n["knowledge"]))
