@@ -87,3 +87,10 @@
 2. 画面の操作の表（`SCREEN`）と確かめの道具（R-1〜R-9）。表の中身は、管理者の PC で Rakuten Link の画面を読んで決める。
 3. 管理者の PC で R-2〜R-9 を流し、合格したものから本物の部品にする。
 4. ショートメールの送り方の部品を `output/notices` につなぐ（いまは `_sms_transport` が無い＝チャットワークだけ）。
+
+## 6. 管理者の PC の上で動く Claude への引き継ぎ（確かめを PC の上で進めるとき）
+このクラウドのセッションは、管理者の PC に直に届かない（2026-11-20：Remote Control の一覧に `C:\Users\User\SalesCall` は入ったが、クラウドのセッションには出されていない）。PC の上で Claude を動かして確かめを進めるときは、次の決まりで：
+- 置き場：`C:\Users\User\SalesCall\salescall-ai`（このリポジトリ。ブランチ `claude/jolly-curie-ifpp0i`）。キー・`.env`・録った声（wav）は git に入れない。
+- 電話をかける相手は、管理者ご自身の携帯だけ（お客様の番号・実在の顧客の情報を使わない。記録には番号の下4桁だけ）。
+- 順：(1) `py app/src/salescall/agent/phones/probe_audio.py`（R-2〜R-4。結果 `phone_probe_result.json`）(2) Rakuten Link の画面の部品の名前を読む（pywinauto の UIA で、発信の欄・発信のボタン・切るボタン・通話の時間・連携の表示・メッセージの画面を一覧にする＝2-1 の `SCREEN` の材料）(3) R-5〜R-9。
+- 結果は `docs/PHONE.md` の3章の表の下に「結果」として書き、`docs/team/CL-3.md` に一言残す（CL-3 が読んで、本物の部品を作る）。
