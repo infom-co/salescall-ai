@@ -44823,3 +44823,64 @@ class S2MeasurePrepTest(unittest.TestCase):
         self.assertIsNotNone(g.flow_miss(rec(pressed, END_REFUSED), q, "j"))
         self.assertIsNotNone(g.flow_miss(rec(firm, END_PRESSED), q, "j"))
         self.assertIsNone(g.flow_miss(rec(firm, END_REFUSED), q, "j"))
+
+
+class S2ReaderBorderTest(unittest.TestCase):
+    """分身 S2 の続き（CL-1 の頼み (2)）：答えを伏せた読み手2人（rv176/S2/readers）が2人とも2つ以上に読み、2人とも説明の境目が分かりにくいと書いたのに、ご判断・お答えで正解が
+    決まっている言葉は、判定の説明の文の境目の1か所を直す（お客様に聞こえる言葉・流れの制御の動きは変えない）。お呼びする段の文は、怒っているの境目（どちらの段も同じ1か所）のほかは変えない。"""
+
+    def test_1_one_side_with_a_tentative_other_is_one_side(self):
+        # ✅ 2026-11-20 日本時間16時25分52秒「伺い94：はもう一方で大丈夫そうなら、エでいいし、もう一方では不安そうならウでしょ」：片方だけを避け、もう一方なら空いている・大丈夫と
+        # 言っただけ（「火曜日は空いてますけど」「火曜日なら」「4時なら空いてるかな」）・もう一方も不安そう（「火曜日もどうかなあ」）は、どれも片方だけ合わない（エ・ウは項目が決める）。
+        # ⛔ 直す前は、読み手2人とも「答えた」「どちらも合わない」とも読んだ（束 n の #8〜#10・#12）
+        from flowctl import LADDER_NEITHER, LADDER_SIDE_TAIL, VALUE_CHOICE, Question, ladder_choice_desc
+        q = Question("C1", "金曜日と火曜日ではどちらがよろしいでしょうか？", "datetime", conditions=(VALUE_CHOICE, LADDER_NEITHER, "金曜日" + LADDER_SIDE_TAIL, "火曜日" + LADDER_SIDE_TAIL))
+        d = ladder_choice_desc(q, "金曜日" + LADDER_SIDE_TAIL)
+        for words in ("空いている・大丈夫と言っただけ", "不安そう", "何も言っていない", f"「{LADDER_NEITHER}」", "はっきり選"):
+            self.assertIn(words, d)
+        for c in (VALUE_CHOICE, LADDER_NEITHER):
+            self.assertNotIn("不安そう", ladder_choice_desc(q, c))
+
+    def test_2_answer_stage_refusals_of_the_offer(self):
+        # ✅ 2026-11-01 日本時間20時11分「1.「いま時間がないので結構です」（折り返しの申し出への返事）：言っていないし、急いでいる」（表の正解＝急いでいる・11-01 日本時間23時59分
+        # 「(a) OK」）・「2.「かけてこないでください」（折り返しの申し出への返事）：…担当者からの折り返しを拒否しただけ」・「3.「そういった案内はお断りします」（説明会の質問への返事）：
+        # 2.と同じ」。⛔ 直す前は、読み手2人とも、申し出たお電話の断りを「通話・営業を断った」（このあとの電話）とも、同じ種類のご案内の断りを営業の電話の断りとも読んだ（束 e の #2・#3・
+        # #30・#32）。境目は答えの段の「言っていない」の説明の1か所（お呼びする段の文は変えない）
+        from flowctl import END_HURRY, END_NONE, end_choices
+        ans, call = end_choices(False)[END_NONE], end_choices(True)[END_NONE]
+        for words in ("このあとの電話を断る言い方でも", "同じ種類のご案内", f"「{END_HURRY}」"):
+            self.assertIn(words, ans)
+            self.assertNotIn(words, call)
+
+    def test_3_hurry_reason_to_hang_up(self):
+        # 表の正解（✅ 2026-11-01 日本時間23時59分「(a) OK」）「ごめんなさい、今から出かけるので切りますね。」＝急いでいる：急ぎ・用事を理由に、この電話を切る・終えると言ったのは急いでいる
+        # （理由を言わずに終えたいとだけ言ったのは「この電話を終えたい・念を押して断った」のまま）。⛔ 直す前は、読み手2人とも「この電話を終えたい・念を押して断った」とも読んだ（束 e の #7）
+        from flowctl import END_HURRY, end_choices
+        ans, call = end_choices(False)[END_HURRY], end_choices(True)[END_HURRY]
+        for words in ("用事", "切る・終える"):
+            self.assertIn(words, ans)
+            self.assertNotIn(words, call)
+
+    def test_4_pressed_refusal_of_the_offer(self):
+        # ✅ 2026-11-20 日本時間16時13分06秒のお答え（伺い93＝ア）：申し出への断りを念を押して・強い勢いで言ったのは「断った」（答えの段では「この電話を終えたい・念を押して断った」）。
+        # ⛔ 直す前は、読み手2人とも「言っていない」（申し出を要らないと言っただけ）とも読んだ（束 e の #12）。境目は「この電話を終えたい・念を押して断った」の説明の1か所
+        from flowctl import END_NONE, END_PRESSED, end_choices
+        c = end_choices(False)
+        self.assertIn("申し出を断る言葉でも", c[END_PRESSED])
+        self.assertNotIn("念押し", c[END_NONE])
+
+    def test_5_angry_command_or_forceful_refusal(self):
+        # ✅ 2026-11-20 日本時間2時18分01秒「伺い81：…OK」（伺いの文の、はっきり怒っている例「いい加減にしてください！」）：断りの中身を言わずに強い言葉でやめるように言いつけたのは
+        # 怒っている・断りの中身を強い勢いで言ったのは断った側。⛔ 直す前は、読み手2人とも「この電話を終えたい・念を押して断った」とも読んだ（束 e の #15）。境目は angry_not の1か所
+        from flowctl import angry_not
+        for calling in (False, True):
+            self.assertIn("断りの中身", angry_not(calling))
+            self.assertIn("命じた", angry_not(calling))
+
+    def test_6_short_ambiguous_word_is_not_refusing_a_fact(self):
+        # 10-17 ユーザー「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」：事実を伺う質問への、受け入れとも断りとも取れる短い言葉だけ（「結構です。」
+        # 「いいです。」「大丈夫です。」）は、答えたくないにしない（表の正解＝決められない）。⛔ 直す前は、読み手2人とも「答えたくない」とも読んだ（束 e の #11・#18・#19・#21・#22）。
+        # 控える・差し控える（11-01 日本時間3時45分）は今のまま
+        from meaning_judge import REFUSED_FACT
+        self.assertIn("受け入れとも断りとも取れる短い言葉", REFUSED_FACT)
+        self.assertIn("控える", REFUSED_FACT)
