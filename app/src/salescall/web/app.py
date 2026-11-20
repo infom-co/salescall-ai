@@ -519,7 +519,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         """その段で決められる設定（いちばん細かく決められる段＝finest_scope がその段より細かいか同じ）と、その段で結局いくつか
         （合成は core の settings.resolve_detail の1か所）。"""
         rows = []
-        for d in tx.all("SELECT key, meaning, value_type::text AS value_type, merge_kind::text AS merge_kind,"
+        for d in tx.all("SELECT key, meaning, help, choice_words, value_type::text AS value_type, merge_kind::text AS merge_kind,"
                         "       finest_scope::text AS finest_scope, choices, bound_key FROM salescall.setting_definitions ORDER BY key"):
             if SCOPES.index(d["finest_scope"]) < SCOPES.index(level):
                 continue
@@ -536,10 +536,11 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 got = settings.resolve_detail(tx, d["key"], tenant_id=tenant_id, client_id=client_id, business_id=business_id)
             except settings.SettingMissing:
                 got = None
-            shown = (None if got is None else words.setting_choice(d["key"], got["value"], d.get("choices")) if d["value_type"] == "choice"
+            # 選び肢の言葉・契約者向けの説明は、設定の定義の1か所（choice_words・help＝CL-2 4-450。開発の根拠を含まない日本語だけ）
+            shown = (None if got is None else words.choice_word(d["choice_words"], got["value"]) if d["value_type"] == "choice"
                      else words.yes_no(d["key"], got["value"]) if d["value_type"] == "boolean"
                      else setting_forms.show(d["value_type"], got["value"], words.SETTING_UNITS.get(d["key"], "")))
-            rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": words.screen_help(d["key"], d["meaning"]),
+            rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": d["help"],
                          "got": got, "shown": shown,
                          "own": got is not None and got["from"] == level, "group": d["key"].split(".")[0],
                          "merge": MERGE_WORDS.get(d["merge_kind"], ""), "unit": words.SETTING_UNITS.get(d["key"], "")})

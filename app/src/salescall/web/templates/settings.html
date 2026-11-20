@@ -35,7 +35,7 @@
   <input type="text" inputmode="numeric" name="f_v" value="" placeholder="部屋の番号（数字だけ）" aria-label="チャットワークの部屋の番号">
   <label class="choice"><input type="checkbox" name="f_clear" value="1"> 部屋を消す（欄は空のまま）</label>
 {% elif w == "choice" %}
-  <select name="f_v">{% for c in r.choices or [] %}<option value="{{ c }}" {% if c == v %}selected{% endif %}>{{ words.setting_choice(r.key, c, r.choices) }}</option>{% endfor %}</select>
+  <select name="f_v">{% for c in r.choices or [] %}<option value="{{ c }}" {% if c == v %}selected{% endif %}>{{ words.choice_word(r.choice_words, c) }}</option>{% endfor %}</select>
 {% else %}
   <p class="muted">この設定は、まだ画面から変えられません。</p>
 {% endif %}

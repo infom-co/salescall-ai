@@ -121,19 +121,21 @@ class Forms(unittest.TestCase):
 
 class ScreenWords(unittest.TestCase):
     def test_every_choice_has_a_word(self):
+        """選び肢の言葉は設定の定義の1か所（choice_words＝CL-2 4-450）。画面はそれを出すだけ（どの選び肢にも言葉がある）。"""
         rows = app_access().in_system(SYSTEM, lambda tx: tx.all(
-            "SELECT key, choices FROM salescall.setting_definitions WHERE choices IS NOT NULL"))
+            "SELECT key, choices, choice_words FROM salescall.setting_definitions WHERE choices IS NOT NULL"))
         for r in rows:
             for c in r["choices"]:
                 with self.subTest(key=r["key"], choice=c):
-                    self.assertNotEqual(words.setting_choice(r["key"], c, r["choices"]), words.NO_WORD)
+                    self.assertNotEqual(words.choice_word(r["choice_words"], c), words.NO_WORD)
 
-    def test_no_meaning_shows_an_internal_name_on_the_screen(self):
-        rows = app_access().in_system(SYSTEM, lambda tx: tx.all("SELECT key, meaning FROM salescall.setting_definitions"))
-        for r in rows:
+    def test_the_settings_page_shows_the_contractor_help_without_internal_names(self):
+        """設定の画面の説明は、契約者向けの説明（help）だけ。開発の根拠や中の英字の名前を出さない。"""
+        helps = app_access().in_system(SYSTEM, lambda tx: tx.all("SELECT key, help FROM salescall.setting_definitions"))
+        for r in helps:
             with self.subTest(key=r["key"]):
-                shown = words.screen_meaning(r["key"], r["meaning"])
-                self.assertEqual(re.findall(r"\b[a-z]+(?:_[a-z0-9]+)+\b|\b[a-z]+\.[a-z0-9_]+\b", shown), [], shown)
+                self.assertTrue(r["help"])
+                self.assertEqual(re.findall(r"\b[a-z]+(?:_[a-z0-9]+)+\b|\b[a-z]+\.[a-z0-9_]+\b", r["help"]), [], r["help"])
 
 
 class Screens(unittest.TestCase):
