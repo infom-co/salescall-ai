@@ -3838,6 +3838,27 @@ def reading_party(value) -> str | None:
     return "handover" if says_new(value) else "not_target"
 
 
+def combined_party(values, handover: bool = False) -> str | None:
+    """1つの言葉に届いた判定の読みの組 ⇒ 電話口の方（読みの組み合わせの唯一の決まり＝いまの言葉の Flow._calling_party・同じ方の前の言葉の Flow._reception_kept）：
+    届いた読みがどれも同じ方を指せばその方（reading_party）・食い違えば、ご本人・代理の方を指す読みか決まらない読みがあれば None（取り消せない側へは1つの読みで止める）、
+    ほかは別の方（handover＝組み合わせた読みが電話を代わった方なら handover）。"""
+    got = {reading_party(v) for v in values}
+    if len(got) == 1:
+        return got.pop()
+    if got & {"target", None, *STANDIN_PARTIES}:
+        return None
+    return "handover" if handover else "not_target"
+
+
+def kept_reception(value) -> bool:
+    """判定の読み1つが、前と同じ方の、受付・取次ぎの方か「決められない」だけの読みか（唯一の決まり＝同じ方の前の読みを引き継ぐ Flow._reception_kept）：話している方は
+    受付・取次ぎの方か決められないで、ほかの事実（不在・在籍していない・取り次ぎを待つ・電話を代わった）を言っていない（読みが「別の方」「決められない」のまま）。
+    ご本人・代理の方・別の方（どなたかは分からない）・前と違う方の読みは引き継がない側（今の道のまま）。項目ごとに答えない読みは、前と同じ方とは読んでいない。"""
+    facts = getattr(value, "facts", None) or {}
+    return (facts.get(SPEAKER) == SPEAKER_SAME and facts.get(WHO) in (WHO_RECEPTION, UNDECIDED)
+            and value in (TARGET_IS_NOT, UNDECIDED))
+
+
 def stops_connect(value) -> bool:
     """判定の読み1つが、確かめた方へ繋ぐのを止める読みか（唯一の決まり＝Flow._confirm_stops）：別の方（目的のお客様ご本人でも決められないでもない方＝受付の方・
     電話を代わった方・代理の方）・不在・取り次ぎを待つ・前と違う方（電話を代わった方）と読んでご本人とは読んでいない（確かめた方ではない＝確かめも伺い直しも
@@ -6593,7 +6614,7 @@ class Flow:
         # 呼んでいる段の、こちらに尋ねているかの読み（発話の番号ごと＝on_check の asks）と、取り次ぎの判定が区切りを動かす前の区切り（尋ねて
         # いた発話なら戻す＝尋ねた方は、こちらの答えを待っている）
         self.calling_asks: dict[int, str] = {}
-        self.other_rejected: int | None = None  # 名乗り・用件で答えようとしたのを差し戻した発話（_asked_other。1発話に1回）
+        self.other_rejected: int | None = None  # 答え方を選び直していただいた発話（_answer_again＝_asked_other・_asked_target。1発話に1回）
         self.returned_same_at: int | None = None  # 待たせた方が戻ったと、2つの判定がそろって読んだ区切り（speaker_from。_new_ears）
         self.asks_read: dict[int, set[str]] = {}  # 呼んでいる段の発話ごとの、尋ねているかの読み（何を聞かれたか＝_asked_other）
         self.hold_moved: dict[int, tuple[int, bool]] = {}
@@ -10736,17 +10757,23 @@ class Flow:
         """受付の方に、どなたをお呼びしているかを聞かれた（「どちらの岡田でしょうか？」）：まだお伝えしていない部署・フルネームがあれば、それの入った
         呼ぶ一言（target_full＝お名前だけでは分からないと言われたときと同じ1つ・1通話1回）で、無ければいつもの呼ぶ一言で答える（お呼びし直すのは
         _call_target の1か所。頭は「はい、」）。✅ 2026-11-02 日本時間1時22分 ユーザー：(b)「OK」（伺い：「受付の方に「どちらの岡田でしょうか？」と
-        聞かれたときも、(2) と同じ「営業部部長の「おかだたろう」様は…」で答えてよいでしょうか。」）"""
+        聞かれたときも、(2) と同じ「営業部部長の「おかだたろう」様は…」で答えてよいでしょうか。」）。呼ぶ一言をこの方に2回使い切ったあとは、呼ぶ一言は流さず
+        （回数の決まりはそのまま）、聞かれたことには答える＝答え方を選び直していただく（_answer_again）。"""
         if self.phase != "calling" or not self.target:
             return self._reject("いまはお呼びする段ではありません（お呼びした方には、もう繋がっています）。聞かれたことに合う答え方を選んでください。")
         if self.target.get("target_full") and not self.full_called:
             self.full_called = True
             return self._call_target(sorry=False, part="target_full") | {"answering": True}
         if self._calls_to_speaker() >= 2:
-            # 呼ぶ一言をこの方に2回使い切った：お呼びし直す1か所（_call_target）の使い切ったときの形（何も流さずにお言葉を待つ。待つ上限は _silence_watch の1か所。
-            # 何と言うかは決まっていない＝本書 9-4 の (5)「呼ぶ一言は1人に2回まで」のあと＝CL-1 の頼み rv97/K の伺い）。頭の「はい、」も流さない（今のまま）。
-            # ⛔ a13eb002 まで、会話AIの報告を差し戻して「何も言わずに待つ」と知らせ、待つ上限が付かず無言が続いた
-            return self._call_target(sorry=False)
+            # 呼ぶ一言をこの方に2回使い切った（同じお願いを繰り返さない＝本書 9-4 の (5)「呼ぶ一言は1人に2回まで」はそのまま）：尋ねられたことには、使い切ったあとでも
+            # 答える＝答え方を選び直していただき、同じ発話でまた選べない答え方なら受け皿（本書 9-4 の「目的のお客様」の (8) の1か所＝_answer_again。選び直した名乗り・
+            # 用件の録音のあとにも呼ぶ一言は足さない＝_continue）。まとめ役 CL-1 の頼み rv178/X の (B)（(8)「質問かは…尋ねているかで読み、取り次ぎ・不在より先に答える」・
+            # (2)「用件を聞かれたら用件を流してもう一度だけ呼ぶ」・2026-10-22 の3回目「相手の申し出と想定外の質問を、決まった答え1つに押し込めない」・2026-10-14
+            # 「止まらない」）。⛔ 77fdeb7d まで、ここで何も流さずに待った（_call_target の使い切ったときの形）＝名乗りと呼ぶ一言のあとの「はい、それで？」に会話AIが
+            # 「お呼びした方」を選ぶと黙った（G-59 の表の S5-10＝分身 S3 の書き置き rv178/S3/notes.md の 14 の (B)）。⛔ a13eb002 まで、会話AIの報告を差し戻して
+            # 「何も言わずに待つ」と知らせ、待つ上限が付かず無言が続いた（いまの差し戻しは、待たせずに答え方を選び直していただく）
+            return self._answer_again("お呼びする一言は、この方にもう2回お伝えしました（同じお願いを繰り返しません）。聞かれたことには、ほかの答え方の "
+                                      f"replay_opening で答えます（{self._answer_choices()}）。")
         return self._call_target(sorry=False) | {"answering": True}
 
     def _who_took_over(self) -> bool:
@@ -12123,13 +12150,21 @@ class Flow:
         got = self.asks_read.get(self.callee_turns, set())
         if ASKS_OTHER not in got or ASKS_YES in got:
             return None
+        said = f"（「{self.callee_said[:40]}」）" if self.callee_said else ""
+        return self._answer_again(f"このご質問{said}は、名乗りや用件のことではありません（名乗り・用件の録音では答えません）。replay_opening を"
+                                  f"「{PART_LABEL['own']}」（業務の情報で答えられる問い）か「{PART_LABEL['no_answer']}」（答えを持っていない問い）で"
+                                  f"呼びます（想定問答にある問いなら、その問いの名前）。{self._answer_choices()}")
+
+    def _answer_again(self, why: str) -> dict:
+        """会話AIが選んだ答え方では、尋ねられたことに答えられない（ほかのことを聞かれたのに名乗り・用件の録音＝_asked_other・呼ぶ一言を使い切った方にどなたをお呼びかを
+        答える一言＝_asked_target）：受けずに答え方を選び直していただき（why＝差し戻しの知らせ）、同じ発話でまた選べない答え方を選んだら、AIに選ばせず、答えを持って
+        いない質問の受け皿（断らない一言の録音＝_own_fallback）で応える（唯一の場所。1発話に選び直しは1回＝other_rejected）。本書 9-4 の「目的のお客様」の (8)
+        「ほかのことを聞かれたのに名乗り・用件の録音で答えようとしたら答え方を選び直させ、選び直させたあとも同じ答え方を選んだら、AIに選ばせず、答えを持っていない
+        質問の受け皿（断らない一言の録音）で応える」。"""
         if self.other_rejected == self.callee_turns:
             return self._own_fallback("no_answer", None, None, {}, {})
         self.other_rejected = self.callee_turns
-        said = f"（「{self.callee_said[:40]}」）" if self.callee_said else ""
-        return self._reject(f"このご質問{said}は、名乗りや用件のことではありません（名乗り・用件の録音では答えません）。replay_opening を"
-                            f"「{PART_LABEL['own']}」（業務の情報で答えられる問い）か「{PART_LABEL['no_answer']}」（答えを持っていない問い）で"
-                            f"呼びます（想定問答にある問いなら、その問いの名前）。{self._answer_choices()}")
+        return self._reject(why)
 
     def _known_line_of(self, part: str | None) -> str | None:
         """判定が「答えられるのに預かっている」の答えのもとに挙げた文（部分）が、知っていることの文のどれか（known_lines）なら、その文。
@@ -13088,6 +13123,8 @@ class Flow:
         その方・食い違えば、ご本人・代理の方を指す読みか決まらない読みがあれば None（取り消せない側へは1つの読みで止める）、ほかは別の方（電話を代わった読み
         なら handover）。読みが1つも届いていなければ None（会話AIの報告で補わない＝目的のお客様かを確かめる。ご決定の例外＝判定が止まったときの確かめへの
         「はい」は _calling_reply の alone）。判定を使わない通話（会話AIの通話の試験）だけ、会話AIの報告 ai がそのまま電話口の方（away＝かけ直しの申し出も）。
+        同じ方の前の読みを引き継ぐ（_reception_kept）：いまの言葉の読みが決まらなくても、どれも前と同じ方の、受付・取次ぎの方か「決められない」だけで、その方が前の言葉までに
+        受付・取次ぎの方と決まっていれば、受付・取次ぎの方（確かめる一言を流さず、待つ言葉の無い受付の方の言葉と同じく「はい、」のあと待つ＝_calling_reply）。
         ✅ 2026-11-08 日本時間12時11分40秒 ユーザー（_calling_reported のお言葉）。⛔ 9e707d0a まで、代わりの方・後任の方の報告は、判定の「誰か」が代理の方と
         そろったときだけ受け取った（Flow._proxy_read）＝外れた読みでも、会話AIの報告しだいで用件を流した（(b2)〜(b4)）"""
         if not self.judging:
@@ -13095,12 +13132,35 @@ class Flow:
         now = self._judged_now() if self.words_complete else {}
         if not now:
             return None, set()
-        got = {reading_party(v) for v in now.values()}
-        if len(got) == 1:
-            return got.pop(), set(now)
-        if got & {"target", None, *STANDIN_PARTIES}:
-            return None, set(now)
-        return ("handover" if self.meaning_said == HANDOVER else "not_target"), set(now)
+        party = combined_party(now.values(), self.meaning_said == HANDOVER)
+        if party is None and self._reception_kept(now):
+            party = "reception"
+        return party, set(now)
+
+    def _reception_kept(self, now: dict) -> bool:
+        """いまの言葉の判定の組の読み now が「決められない」だけでも、同じ方の前の読みを引き継いで受付・取次ぎの方とするか（唯一の決まり＝電話口の方を決める1か所
+        _calling_party）：now がどれも前と同じ方の、受付・取次ぎの方か決められないだけ（kept_reception）で、その方が前の言葉までに受付・取次ぎの方と決まっている
+        （すぐ前の言葉に届いた読みの組が受付・取次ぎの方＝combined_party。すぐ前の言葉も同じ方の「決められない」だけなら、さらに前へたどる）。確かめる一言へのお返事
+        （confirm_open）は引き継がない（その方が目的のお客様かを答えた言葉＝今の道：決められなければ聞き取れなかったときと同じ伺い直し＝本書 9-4 の (5) の伺い50）。
+        取り次ぎを待つ言葉・電話を代わった方・ご本人・代理の方・不在などの読みがあれば、たどるのをやめる（取り次がれて代わった方は、もう一度確かめてよい）。
+        たどるのは、こちらがはじめにお呼びしたあとの言葉だけ（called_at より後＝判定に見せる前の言葉 _called_words と同じ区切り。電話に出た方の第一声は呼ぶ一言への
+        お返事ではない＝その読みでは決めない）で、いまお呼びしている方をお呼びしてからの言葉だけ（target_from から＝後任の方・役職の方へ切り替える前の読みは前に
+        お呼びした方への言葉の読み＝_target_readings と同じ区切り。退職を伝えた方が後任の方ご本人のこともある＝G-59 の表の後任の方の確かめへの返事「はい、そうです。」）。
+        まとめ役 CL-1 の頼み rv178/X の (C)（本書 9-4 の「目的のお客様」の (5)「確かめは電話口の方ごとに1回（取り次がれて代わった方は、もう一度確かめてよい）」・
+        (4)「電話を代わった方で「決められない」は確かめる側」・「受付が出て担当者へ取り次がれる」の行「待つ言葉の無い受付の方の言葉…にも「はい、」のあと黙って待つ」・
+        2026-10-29「「確かめが1回増える」のは安全でなく、相手からの不信ですよ！」）。繋ぐのは今までどおり判定の組がそろって「ご本人」と読んだときだけ。
+        ⛔ 77fdeb7d まで、いまの言葉の読みだけで決め、受付の方の「どちらの岡田でしょうか？」に詳しい呼ぶ一言で答えたあとの同じ方の「はい。」を判定がそろって
+        「決められない」と読むと、確かめる一言を流した（G-59 の表の S3-9＝分身 S3 の書き置き rv178/S3/notes.md の 14 の (C)）"""
+        if self.confirm_open or not all(kept_reception(v) for v in now.values()):
+            return False
+        turn = self.callee_turns - 1
+        while self.called_at is not None and turn > self.called_at and turn >= self.target_from and (past := self.calling_judged.get(turn)):
+            if combined_party(past.values()) == "reception":
+                return True
+            if not all(kept_reception(v) for v in past.values()):
+                return False
+            turn -= 1
+        return False
 
     def _judged_parties(self) -> set:
         """いまの言葉（出揃ったもの）に届いた判定の読みが、それぞれ指す電話口の方の集まり（reading_party。届いていなければ空）。"""
