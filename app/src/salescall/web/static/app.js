@@ -137,7 +137,12 @@
     document.querySelectorAll("table.list").forEach(function (table) {
       var heads = Array.prototype.map.call(table.querySelectorAll("thead th"), function (th) { return th.textContent.trim(); });
       table.querySelectorAll("tbody tr").forEach(function (tr) {
-        Array.prototype.forEach.call(tr.children, function (td, i) { if (heads[i]) td.setAttribute("data-label", heads[i]); });
+        Array.prototype.forEach.call(tr.children, function (td, i) {
+          if (heads[i]) td.setAttribute("data-label", heads[i]);
+          var t = td.textContent.trim();
+          if (t.length <= 8) td.classList.add("short");   // 短い値は途中で折らない（「対応 / 中」と折れていた）
+          if (td.classList.contains("num") && t === "0") td.classList.add("zero");   // スマホの札の形では「0」の数の段を出さない（CSS）
+        });
       });
     });
   });

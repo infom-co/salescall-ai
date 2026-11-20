@@ -261,7 +261,7 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   dl.facts { grid-template-columns: 1fr; }
   .grid.cols-3.stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }   /* 3つ並びは狭すぎて名前が切れた（2026-11-20 の見直し） */
   .stats .card { padding: 12px; }
-  .stats .hint { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }   /* 説明は消さずに1行だけ（数字の意味が分かるように） */
+  .stats .hint { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }   /* 説明は消さずに1行だけ（数字の意味が分かるように） */
   .stats .stat .label { font-size: 12px; line-height: 1.4; }
   .filters .pick { margin-left: 0; width: 100%; }
   .filters select { flex: 1; max-width: none; }
@@ -297,7 +297,10 @@ tr.excluded td { color: var(--muted); }
 /* 表の幅（表の部品の1か所。2026-11-20 の見直し：PC でも中身の幅のまま横に伸ばしていて、右の列＝「見る」などの操作が画面の外に出ていた）：
    PC は枠の幅に収め、長い文の欄だけ折り返す。中くらいの幅（601〜900px）は、欄を押しつぶさず表ごと横に送る。600px 以下は札の形（下） */
 .table-scroll > table.list { width: 100%; }
-.table-scroll > table.list td { max-width: 28em; overflow-wrap: anywhere; }
+/* 升の折り返し（表の部品の1か所）：長い文は、はみ出すときだけ折る（break-word。数字の続き＝電話番号は区切れないまま欄が広がる。
+   前の anywhere は、表を枠に収めるときに番号まで「+44770 / 090018 / 9」と折っていた）。短い値（8文字まで＝app.js が td.short を付ける）は折らない */
+.table-scroll > table.list td { max-width: 28em; overflow-wrap: break-word; }
+table.list td.short { white-space: nowrap; }
 @media (min-width: 601px) and (max-width: 900px) {
   .table-scroll > table.list { width: max-content; min-width: 100%; }
 }
@@ -469,6 +472,7 @@ table.list .tag { white-space: normal; text-align: left; }
                                       color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1.5; }
   table.list td.num, table.list th.num { text-align: left; }
   table.list td:empty { display: none; }
+  table.list td.zero { display: none; }   /* 札の形では「0」の数の段を出さない（11の依頼者がほぼ「0」の7段ずつになり、ホームがとても長かった）。PC の表は出す */
 }
 /* 4つの数の枠：狭い画面では2列（.grid.cols-4 の4列の決まりより後ろに置く＝上書きされない） */
 @media (max-width: 900px) { .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -519,3 +523,5 @@ a.go:hover { text-decoration: underline; text-underline-offset: 3px; }
 .go-links { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 18px; }
 .title-row > .go-links { flex-basis: 100%; }
 .mode-card .title-row > .go-links { flex-basis: auto; }
+/* とても狭い幅では、上の帯の「SalesCall」の文字を隠して、緊急停止が画面の端で切れないようにする（緊急停止はいつも全部見える） */
+@media (max-width: 420px) { .top > .brand { display: none; } }

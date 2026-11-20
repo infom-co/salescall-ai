@@ -19,7 +19,7 @@
   <p class="muted">中身を手元で確かめるためのものです。控えは残らず、依頼者へ渡したことにもなりません。</p>
   <span class="btn-row"><a class="btn small" href="{{ rbase }}/results.xlsx">{{ words.EXPORT_WORDS.check_xlsx }}</a><a class="btn small" href="{{ rbase }}/results.csv">{{ words.EXPORT_WORDS.check_csv }}</a></span>
 </details>
-{% if not leak and rows and not deliverable(rows) %}<p class="muted">確定した結果がまだ無いので、依頼者へは渡せません（確かめるための書き出しは使えます）。</p>{% endif %}
+{% if not leak and rows and not deliverable(rows) %}<p class="muted">確定した結果がまだ無いので、依頼者へは渡せません（確かめ用の書き出しは使えます）。</p>{% endif %}
 {% if rows|selectattr("to_fill")|list %}<p class="muted"><span class="to-fill-key">赤い欄</span>は、お名前だけではどの方か分からなかった行で、依頼者にご記入いただく欄です（書き出す CSV には「{{ please_fill }}」と書きます）。</p>{% endif %}
 {% if leak %}<div class="flash ng" role="alert">{{ leak }}</div>{% endif %}
 {% if rows %}
