@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import mmap
 import os
 import re
 import shutil
@@ -52,9 +54,9 @@ def _pg_bindir() -> Path:
 
 
 @contextmanager
-def _throwaway_cluster(port: str = "54329", clock: Path | None = None) -> Iterator[str]:
-    """使い捨てのデータベースを立て、管理者の接続文字列を返す。終わったら止めて消す。clock＝データベースの時計をずらすファイル
-    （中身は「いまから何秒ずらすか」＝例 +3600。libfaketime をデータベースの処理にだけ差し込む＝`clock_cluster`）。"""
+def _throwaway_cluster(port: str = "54329", clock: "DbClock | None" = None) -> Iterator[str]:
+    """使い捨てのデータベースを立て、管理者の接続文字列を返す。終わったら止めて消す。clock＝データベースの時計（`DbClock`。試験の時計の
+    部品＝tests/db_clock.c をデータベースの処理にだけ差し込む＝`clock_cluster`）。"""
     bindir = _pg_bindir()
     tmp = Path(tempfile.mkdtemp(prefix="salescall-pg-"))
     as_root = hasattr(os, "geteuid") and os.geteuid() == 0
@@ -64,9 +66,7 @@ def _throwaway_cluster(port: str = "54329", clock: Path | None = None) -> Iterat
     data, sock = tmp / "data", tmp
     env = []
     if clock is not None:
-        lib = faketime_library()
-        env = ["env", f"LD_PRELOAD={lib}", f"FAKETIME_TIMESTAMP_FILE={clock}", "FAKETIME_NO_CACHE=1",
-               "FAKETIME_DONT_FAKE_MONOTONIC=1", "DONT_FAKE_MONOTONIC=1", "FAKETIME_DONT_RESET=1"]
+        env = ["env", f"LD_PRELOAD={clock.library}", f"SALESCALL_DB_CLOCK={clock.file}"]
     subprocess.run(prefix + [str(bindir / "initdb"), "-D", str(data), "-U", "postgres", "--auth=trust",
                              "--encoding=UTF8", "--locale=C", "-N"], check=True, capture_output=True)
     subprocess.run(prefix + env + [str(bindir / "pg_ctl"), "-D", str(data), "-w", "-l", str(tmp / "log"), "-o",
@@ -79,31 +79,59 @@ def _throwaway_cluster(port: str = "54329", clock: Path | None = None) -> Iterat
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-FAKETIME_PLACES = ("/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1", "/usr/lib/aarch64-linux-gnu/faketime/libfaketime.so.1",
-                   "/usr/lib/faketime/libfaketime.so.1", "/usr/local/lib/faketime/libfaketime.so.1")
+CLOCK_SOURCE = APP / "tests" / "db_clock.c"
 
 
-def faketime_library() -> Path | None:
-    """データベースの時計をずらす部品（libfaketime。Debian・Ubuntu の faketime の部品）の場所。無ければ None。"""
-    return next((Path(x) for x in FAKETIME_PLACES if Path(x).exists()), None)
+def clock_compiler() -> str | None:
+    """試験の時計の部品（tests/db_clock.c）を作る道具（C の翻訳の道具 cc・gcc）。無ければ None（電話の一生の試験を飛ばす）。"""
+    return shutil.which("cc") or shutil.which("gcc")
+
+
+class DbClock:
+    """試験のデータベースの時計（1か所）。`shift(秒)` で、データベースの時刻を「いまから何秒ずらすか」にする（Python の時計はずらさない）。
+
+    ずらす量は、時計のファイルの先頭の8バイト（ナノ秒）。データベースの処理は、このファイルを1回だけメモリに写して読む（tests/db_clock.c）。
+    書くときもメモリに写した所へ8バイトを1度に書く（読み手が半分だけ書けた値を見ない）。
+    ⛔ 2026-11-20 前の libfaketime（時刻を読むたびにファイルを開く）は、データベースの割り込みの最中にメモリを借りて処理を倒した（tests/db_clock.c の説明）。"""
+
+    def __init__(self, folder: Path):
+        compiler = clock_compiler()
+        if compiler is None:
+            raise RuntimeError("試験の時計の部品を作る道具（cc）がありません")
+        self.file, self.library = folder / "clock", folder / "db_clock.so"
+        self.file.write_bytes(bytes(8))
+        subprocess.run([compiler, "-O2", "-shared", "-fPIC", "-o", str(self.library), str(CLOCK_SOURCE), "-ldl"],
+                       check=True, capture_output=True)
+        os.chmod(self.file, 0o644)
+        os.chmod(self.library, 0o755)
+        self._fd = os.open(self.file, os.O_RDWR)
+        self._map = mmap.mmap(self._fd, 8)
+        self._shift = ctypes.c_int64.from_buffer(self._map)
+
+    def shift(self, seconds: float) -> None:
+        self._shift.value = round(seconds * 1_000_000_000)
+
+    def close(self) -> None:
+        del self._shift
+        self._map.close()
+        os.close(self._fd)
 
 
 @contextmanager
-def clock_cluster() -> Iterator[tuple[str, Path]]:
-    """時計を進められる使い捨てのデータベースを立て、（管理者の接続文字列, 時計のファイル）を返す（電話の一生の試験＝tests/test_life.py
-    だけが使う。ほかの試験は時計をずらさない、ふつうのデータベースで流す）。時計のファイルに「いまから何秒ずらすか」を書くと、データベースの
-    now()・clock_timestamp() がその時刻になる（Python の時計はずらさない）。部品が無ければ RuntimeError。"""
-    if faketime_library() is None:
-        raise RuntimeError("データベースの時計をずらす部品（libfaketime。apt の libfaketime）がありません")
+def clock_cluster() -> Iterator[tuple[str, DbClock]]:
+    """時計を進められる使い捨てのデータベースを立て、（管理者の接続文字列, 時計）を返す（電話の一生の試験＝tests/test_life.py
+    だけが使う。ほかの試験は時計をずらさない、ふつうのデータベースで流す）。`時計.shift(秒)` で、データベースの now()・clock_timestamp() が
+    いまからその秒だけずれた時刻になる（Python の時計はずらさない）。部品を作る道具が無ければ RuntimeError。"""
     folder = Path(tempfile.mkdtemp(prefix="salescall-clock-"))
-    clock = folder / "clock"
-    clock.write_text("+0\n")
-    if hasattr(os, "geteuid") and os.geteuid() == 0:
-        shutil.chown(folder, "postgres", "postgres")
-        os.chmod(clock, 0o666)
     try:
-        with _throwaway_cluster("54339", clock) as dsn:
-            yield dsn, clock
+        clock = DbClock(folder)
+        try:
+            if hasattr(os, "geteuid") and os.geteuid() == 0:
+                shutil.chown(folder, "postgres", "postgres")
+            with _throwaway_cluster("54339", clock) as dsn:
+                yield dsn, clock
+        finally:
+            clock.close()
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 

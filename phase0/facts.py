@@ -34,12 +34,12 @@ FIELD, DESC = "fact", "お客様に事実を伺う質問か"
 TOOL = ("facts", "質問ごとの、事実を伺う質問か")
 
 
-def by_model(client, model: str, questions: list[str]) -> list[bool | None]:
+def by_model(client, model: str, questions: list[str], think: bool = False) -> list[bool | None]:
     """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions と同じ並びの答え（無ければ None）を返す。送り先は部品の作りで決まる
     （Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask_flags）。"""
     from askitems import ask_flags
 
-    return ask_flags(client, model, PROMPT, questions, FIELD, DESC, TOOL)
+    return ask_flags(client, model, PROMPT, questions, FIELD, DESC, TOOL, think)
 
 
 # Anthropic（Claude Haiku 5.5）に同じ文・同じ読み取りで答えさせる（作り手の代わり＝Gemini の Flash が混んでいる間。meanings.by_model_anthropic と同じ。

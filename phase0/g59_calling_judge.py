@@ -65,6 +65,15 @@ LINES = [
     ("岡田ですね。失礼ですが、どちら様でしょうか？", F("同", "受", "無", "無")),
     ("どういったご用件でしょうか？", F("同", "不", "無", "無")),          # 誰が尋ねているかの手がかりは無い（ご本人が尋ねることもある）
     ("どちらの岡田でしょうか？", F("同", "受", "無", "無")),              # お呼びした方を、ほかの人のこととして尋ねた
+    # 試しの言葉（尋ねているかの「尋ねている」に、こちらが言ったことを聞き取れなかった・もう一度言ってほしいと言ったのも入れたとき＝まとめ役 CL-1 の頼み rv178/X の6回目 (2)(3)）：
+    # 名乗りと呼ぶ一言を聞き取れなかった方。話している方の正解は「どういったご用件でしょうか？」と同じ形（前と同じ方・誰かは決められない）・こちらの声が届いていない様子
+    ("え？", F("同", "不", "無", "無") | {HEAR: {HEAR_LOST}}),
+    ("すみません、聞こえなかったです", F("同", "不", "無", "無") | {HEAR: {HEAR_LOST}}),
+    ("何とおっしゃいました？", F("同", "不", "無", "無") | {HEAR: {HEAR_LOST}}),
+    # 試しの言葉（尋ねているかの「どの方をお呼びかを尋ねている」を分けたとき＝まとめ役 CL-1 の頼み rv178/X の続きの続き (3)）：どの方かを2つから選ぶように尋ねた・どちら様か
+    # （名乗り）。話している方の正解は同じ形の行のまま（どの方か＝「どちらの岡田でしょうか？」・どちら様か＝「どういったご用件でしょうか？」と同じく誰が尋ねているかの手がかりは無い）
+    ("営業部の岡田でしょうか、それとも経理の岡田でしょうか？", F("同", "受", "無", "無")),
+    ("失礼ですが、どちら様でしょうか？", F("同", "不", "無", "無")),
     ("あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？", F("同", "受", "無", "在", "在")),
     (AWAY_TO_OTHER := "岡田は外出しておりますので、別の者に代わります。少々お待ちください。", F("同", "受", "待", "在", "在")),
     # 名乗り・用件・お呼びした方のほかのことを尋ねる（⛔ 2026-10-25 J10b：番号の出どころに AIが用件の録音で答えた ⇒ 尋ねているかの問い合わせで、
@@ -131,26 +140,38 @@ LINES_CONFIRMED = [
 # こちらに尋ねている言葉（呼んでいる段の、別の問い合わせ Flow.asks_context が「尋ねている」と読むべきもの。ほかの言葉は全部「尋ねていない」）。
 # ⛔ 2026-10-22：目的の人の判定の選択肢に「こちらに聞いている」を足す形は、質問は読めたが「お待たせいたしました。」を Sonnet が3回とも
 #    「ご本人」と読むなど、ほかの言葉の読み方まで変わった（3.5 Flash Lite 103/111・Sonnet 102/111）＝取り下げて、別の問い合わせにした
-ASKING = {"岡田ですね。失礼ですが、どちら様でしょうか？", "どういったご用件でしょうか？", "どちらの岡田でしょうか？",
-          "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？", "えっと、どちら様でしょうか？"}
+ASKING = {"岡田ですね。失礼ですが、どちら様でしょうか？", "どういったご用件でしょうか？",
+          "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？", "えっと、どちら様でしょうか？", "失礼ですが、どちら様でしょうか？",
+          # 候補の行（LINES_ASKED）の読み手2人がそろって「尋ねている」（「はい、それで？」は1人が「決められない」も＝表の形に無い読み＝測りで数える）
+          "失礼ですが、どういったご用件でしょうか？", "はい、それで？",
+          # 試しの言葉：こちらが言ったことを聞き取れなかった（「尋ねている」の説明に入れた＝まとめ役 CL-1 の頼み rv178/X の6回目 (2)(3)）
+          "え？", "すみません、聞こえなかったです", "何とおっしゃいました？"}
+# どの方をお呼びかを尋ねている言葉（flowctl.ASKS_WHO と読むべきもの。2026-11-20 に「尋ねている」から分けた＝まとめ役 CL-1 の頼み rv178/X の続きの続き (3)。帳面 0-3 のとおり
+# 「尋ねている」を正解に持っていた行を全部読み直し、どの方かを尋ねている言葉はこの1つだった（ほかは、どちら様か・ご用件か・用件を促した「はい、それで？」・代わりにご用件を伺う
+# 申し出＝言葉と説明の文から「尋ねている」のまま）。2つ目は足した試しの言葉）
+ASKING_WHO = {"どちらの岡田でしょうか？", "営業部の岡田でしょうか、それとも経理の岡田でしょうか？"}
 # ほかのことを尋ねている言葉（「ほかのことを尋ねている」と読むべきもの。ASKING は「名乗り・用件・お呼びした方のことを尋ねている」と読むべきもの）
 ASKING_OTHER = {"この番号はどちらでお知りになりましたか？", "失礼ですが、御社はどちらにある会社なんですか？", "キャンセル料ってかかるんですか？",
                 "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？"}
 # 尋ねているかは、どちらと読んでもよい言葉：代わりにご用件を伺うという申し出（人が読んでも「ご用件をお聞かせください」と取れる。流れの制御は、
 # 「尋ねている」でも、問いの形の申し出として代わりの方の報告を止めない＝Flow._offer_while_asking）。2026-10-29 G-59facets_r1：Sonnet は「尋ねている」
 ASKS_EITHER = {"岡田はただいま外出しておりますので、私が代わりにご用件をお伺いします。"}
+# 尋ねているかは「ほかのことを尋ねている」と「尋ねていない」のどちらと読んでもよい言葉：申し出の形の問いかけ（候補 S1-14＝読み手2人とも両方を挙げた）
+ASKS_OTHER_EITHER = {"そうですね、戻りましたら折り返しさせましょうか？"}
 
 
 def asks_truths(text: str, only: bool = False) -> tuple[str, ...]:
     """行の言葉の「尋ねているか」の正しい読み（唯一の決まり＝測り run の asks_accept・asks_kind と、測りの数えが場面に渡す正しい読み
-    g59_flow_check.calling_acts）：名乗り・用件・お呼びした方のことを尋ねている（ASKING）・ほかのことを尋ねている（ASKING_OTHER）・どちらと読んでもよい
+    g59_flow_check.calling_acts）：名乗り・用件を尋ねている（ASKING）・どの方をお呼びかを尋ねている（ASKING_WHO）・ほかのことを尋ねている（ASKING_OTHER）・どちらと読んでもよい
     （ASKS_EITHER＝尋ねている・尋ねていない）・尋ねていない。聞こえ方だけを数える行（only）は正解を付けていない＝どれも。"""
-    from flowctl import ASKS_NO, ASKS_OTHER, ASKS_YES
+    from flowctl import ASKS_NO, ASKS_OTHER, ASKS_WHO, ASKS_YES
     if only:
-        return ASKS_YES, ASKS_OTHER, ASKS_NO
+        return ASKS_YES, ASKS_WHO, ASKS_OTHER, ASKS_NO
     if text in ASKS_EITHER:
         return ASKS_YES, ASKS_NO
-    return (ASKS_YES,) if text in ASKING else (ASKS_OTHER,) if text in ASKING_OTHER else (ASKS_NO,)
+    if text in ASKS_OTHER_EITHER:
+        return ASKS_OTHER, ASKS_NO
+    return (ASKS_YES,) if text in ASKING else (ASKS_WHO,) if text in ASKING_WHO else (ASKS_OTHER,) if text in ASKING_OTHER else (ASKS_NO,)
 
 
 # 2つの事実が重なる言葉（2026-10-29 に足した。⛔ 1つの選びの形では、どちらかの事実を捨てる）：(相手の言葉, その前に相手が言ったこと, 確かめたあとか, 正解)
@@ -258,15 +279,16 @@ BEFORE_READ = {TO_TARGET: _HOLDING, "それでは岡田にお繋ぎします。"
 
 
 def steps_before(before: str | None) -> list:
-    """行の「その前に相手が言ったこと」を、場面を組む1か所（g59_flow_check.scene）の手順 [(相手の言葉, 読み, 会話AIの操作)] にする（唯一の作り）。
-    読みは読みの字（足す読みがあれば項目ごとの答えに足した形）。後任の方へ切り替えた退職の言葉（DEPARTED_SAID）は、場面が後任の方の場面として先に流すので入れない。"""
+    """行の「その前に相手が言ったこと」を、場面を組む1か所（g59_flow_check.scene）の手順 [(相手の言葉, 読み, 会話AIの操作, 尋ねているかの読み)] にする（唯一の作り）。
+    読みは読みの字（足す読みがあれば項目ごとの答えに足した形）。尋ねているかの読みは、その言葉の正しい読み（asks_truths の1つ目。会話AIの答えの報告は、この読みを待って
+    決める＝flowctl.Flow._answer_judged。まとめ役 CL-1 の頼み rv178/X の5回目）。後任の方へ切り替えた退職の言葉（DEPARTED_SAID）は、場面が後任の方の場面として先に流すので入れない。"""
     from g59_flow_check import facts
     out = []
     for p in (before or "").split("／"):
         if not p or p == DEPARTED_SAID:
             continue
         code, op, *side = BEFORE_READ[p]
-        out.append((p, facts(code) | side[0] if side else code, ("report_party", {"party": op}) if isinstance(op, str) else op))
+        out.append((p, facts(code) | side[0] if side else code, ("report_party", {"party": op}) if isinstance(op, str) else op, asks_truths(p)[0]))
     return out
 
 
@@ -393,6 +415,9 @@ def cases(confirm: str) -> list[Case]:
             + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, hear_before(a), a, False, f) for t, a, f in lines_hear()])
     full = {(t, b, c) for t, b, c, _ in LINES_FULL}
     rows += [(t, b, c, False, f) for t, b, c, f in LINES_FULL]
+    asked = {c["id"]: c for c in _candidate_rows()}
+    full |= {(asked[i]["text"], asked[i]["before"], asked[i]["asked"]) for i in LINES_ASKED if asked[i]["full"]}
+    rows += [(asked[i]["text"], asked[i]["before"], asked[i]["asked"], False, f) for i, f in LINES_ASKED.items()]
     # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉の正解は、行に END を書いたもの（ご本人の「…会議中で手が離せないのですが。」＝
     #    急いでいる）のほかは「言っていない」（断り・取り次げない・急ぎ・怒りの言葉は無い。⛔ 11-01 は1つずつ読まずに全部を「言っていない」にしていた＝
     #    2026-11-05 に71の言葉を1つずつ読み直した）。
@@ -475,13 +500,77 @@ CANDIDATES = [
 ]
 
 
+def _candidate_rows() -> list[dict]:
+    """候補の行の全部（分身 M の5場面50行の番号と場面の欄）。"""
+    return [{"id": f"{sid}-{i}", "scene": sid, "title": title, "text": t, "before": before, "asked": asked, "successor": False, "full": full}
+            for sid, title, before, asked, full, words in CANDIDATES for i, t in enumerate(words, 1)]
+
+
 def candidates() -> list[dict]:
     """正解の表の候補の行（正解なし）：{番号・場面・場面の説明・相手の言葉・その前に相手が言ったこと・確かめたあとか・後任の方の場面か・フルネームの印}。
     行の形は測りの行と同じ（row_scene・judge_questions にそのまま渡せる）。"""
-    # 表へ移した言葉（LINES_FULL＝2026-11-20 rv176/S の S3-5・S4-5）は候補に出さない（同じ行を2か所に持たない）。番号は候補の並びのまま（読み手の答えの名札が変わらない）
+    # 表へ移した言葉（LINES_FULL＝2026-11-20 rv176/S の S3-5・S4-5・LINES_ASKED＝分身 S3 の続き (3) の48行）は候補に出さない（同じ行を2か所に持たない）。番号は候補の並びのまま
+    # （読み手の答えの名札が変わらない）
     moved = {(t, b) for t, b, _, _ in LINES_FULL}
-    return [{"id": f"{sid}-{i}", "scene": sid, "title": title, "text": t, "before": before, "asked": asked, "successor": False, "full": full}
-            for sid, title, before, asked, full, words in CANDIDATES for i, t in enumerate(words, 1) if (t, before) not in moved]
+    return [c for c in _candidate_rows() if (c["text"], c["before"]) not in moved and c["id"] not in LINES_ASKED]
+
+
+# 候補の行の正解（分身 S3 の続き (3)＝まとめ役 CL-1 の頼み rv178/S3）：答えを伏せた読み手2人（rv178/S3/readers の束 g＝今の文の目的のお客様の判定・尋ねているか）が全部の項目を読み、
+# 2人がそろった読みはその読み（42行の全部の項目と、6行のそろった項目）・割れた項目は決まりで決めた（S1-13・S3-6＝もう在籍していない方の出られない理由は使わない＝言っていないも
+# 決められないも正解（11-19 日本時間21時台の決め）／S1-15＝ご事情を伺った一言への「はい、…」は伺ったとおり＝不在（meaning_judge.calling_rules）／S1-19＝「結構です。」は
+# 「はい」で伺ったとおりとは言っていない＝言っていない・電話を終える言葉は、断りとも読めて言葉から決まらない＝決められない・断ったの境目（10-17「『結構です。』だけでは判断
+# できない」・2人とも両方を挙げた）。尋ねているかは ASKING・ASKING_OTHER・ASKS_OTHER_EITHER（S1-14）の1か所。行の言葉・その前の言葉・確かめたあとか・フルネームの印は候補の
+# CANDIDATES の1か所（ここに書き写さない）。⏳ 読み手の気づき（ご事情を伺った一言への「いいえ」「本人はおります」に当たる事情が無い など）は rv178/S3/notes.md の 13
+LINES_ASKED = {
+    "S1-1": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方", "決められない"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-2": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方", "決められない"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-3": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方", "決められない"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-4": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方", "決められない"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-5": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"理由を言わずに取り次げない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-6": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"通話・営業を断った"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-7": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"通話・営業を断った"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-8": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"不在", "長期の不在"}},
+    "S1-9": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"不在"}},
+    "S1-10": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"あとで", "不在"}},
+    "S1-11": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"理由を言わずに取り次げない", "通話・営業を断った"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-12": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"長期の不在"}},
+    "S1-13": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"在籍していない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"決められない", "理由は言っていない"}},
+    "S1-14": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"折り返し"}, ABSENT_WHY: {"不在"}},
+    "S1-15": {SPEAKER: {"前と同じ方"}, WHO: {"代理の方（どれかは分からない）", "受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"伝言", "申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-16": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"取り次ぎを待つ"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-17": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方", "決められない"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-18": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"決められない", "言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S1-19": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"決められない", "通話・営業を断った"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S2-1": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方", "決められない"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S2-2": {SPEAKER: {"前と同じ方"}, WHO: {"決められない"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"通話・営業を断った"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S2-3": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"お休み"}},
+    "S2-4": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"理由を言わずに取り次げない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S2-5": {SPEAKER: {"前と同じ方"}, WHO: {"決められない"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"通話・営業を断った"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S2-6": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方", "決められない"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S3-1": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"取り次ぎを待つ"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S3-2": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"取り次ぎを待つ"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S3-3": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"お休み"}},
+    "S3-4": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"不在"}},
+    "S3-6": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"在籍していない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"決められない", "理由は言っていない"}},
+    "S3-7": {SPEAKER: {"前と同じ方", "前と違う方"}, WHO: {"ご本人"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S3-8": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方", "決められない"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S3-9": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方", "決められない"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S4-1": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"取り次ぎを待つ"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S4-2": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"どの方か分からず取り次げない", "理由を言わずに取り次げない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S4-3": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"不在", "長期の不在"}},
+    "S4-4": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"取り次ぎを待つ"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S4-6": {SPEAKER: {"前と違う方"}, WHO: {"ご本人", "決められない"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S5-1": {SPEAKER: {"前と同じ方"}, WHO: {"決められない"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S5-2": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S5-3": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"取り次ぎを待つ"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S5-4": {SPEAKER: {"前と同じ方"}, WHO: {"ご本人"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S5-5": {SPEAKER: {"前と同じ方"}, WHO: {"ご本人"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S5-6": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"不在"}},
+    "S5-7": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"取り次ぎを待つ"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S5-8": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"通話・営業を断った"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S5-9": {SPEAKER: {"前と同じ方"}, WHO: {"決められない"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+    "S5-10": {SPEAKER: {"前と同じ方"}, WHO: {"決められない"}, PHONE: {"何もない"}, ABOUT: {"言っていない"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},
+}
 
 
 def prompts_fingerprint(sees_target: bool | None = None) -> dict[str, tuple[int, str]]:
@@ -615,6 +704,9 @@ async def run(args) -> dict:
     summary["ほかの質問を差し戻せた（ほかの読みがあり、名乗り・用件の読みが無い）"] = (
         f"{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_OTHER and any(r.get(f'{k}_asks') == ASKS_OTHER for k in measured) and not any(r.get(f'{k}_asks') == ASKS_YES for k in measured))}"
         f"/{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_OTHER)}")
+    # どの方をお呼びかを尋ねている（flowctl.ASKS_WHO＝2026-11-20 に分けた）の外れ（ほかの言葉をどの方と読んでかけ直さない締め・どの方の質問を名乗り・用件と読んで締めない）は、
+    # 測りの数えの1か所（g59_tally.cascade の尋ねているかの問い合わせ＝flow_kind。会話AIの「お呼びした方で答える」報告＝g59_flow_check.REPORTS）で、流れの制御の動きで数える
+    # （⛔ 4bc94b4d はここに値だけで数える2つを足した＝数える所が2つ。まとめ役 CL-1 の頼み rv178/X の4回目 (2) で外した）
     summary |= {f"{k}（前の言葉つき）": f"{sum(1 for r in rows if r['before'] and r.get(k) in r['accept'])}/{sum(1 for r in rows if r['before'])}"
                 for k in measured}
     # 取り次ぎの読み（流れの制御は、読みのどれか1つでも「取り次ぎを待つ」なら黙って待つ＝flowctl.HOLD_READINGS）。⛔ 2026-10-25 J10b：不在と取り次ぎの

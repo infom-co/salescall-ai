@@ -98,6 +98,7 @@ class TurnResult:
     silent: bool = False     # 決めた秒数のうちに、声も操作も出なかった（AIが黙った。silent_after_s。DESIGN.md 6-7 の張り替えへ）
     expects_speech: bool = False  # 話させる形の返事を送った（このあとAIが話すはず）
     off_script: bool = False      # AIの声が、渡した言い方から外れたので止めた（offscript.SpeechGate。DESIGN.md 6-7）
+    off_again: bool = False       # 止めない見張り（SpeechGate の stop=False＝外れて止めたあとの言い直しのターン）で、AIの声が外れた（止めずに受け取りを続けた）
     heard: dict | None = None     # 止めたときに相手に聞こえていたもの（SpeechGate.heard）
     first_audio_after_s: float | None = None
     finished_after_s: float | None = None
@@ -340,11 +341,18 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                     # 文字が声より先に届くかを測り、英語などをプログラムが止められるかを判断する（2026-10-13 G-16c）
                     r.events.append({"at_s": arrived, "kind": "ai_said", "text": sc.output_transcription.text,
                                      "audio_s": round(len(r.audio) / 2 / (r.audio_rate or 24000), 3)})
-                    if gate is not None and not r.off_script and gate.on_text(sc.output_transcription.text, arrived) == "off":
-                        r.off_script = True
-                        r.heard = gate.heard(arrived, bytes(r.audio), r.audio_rate or 24000)
-                        r.events.append({"at_s": arrived, "kind": "off_script", "text": gate.text, "heard": r.heard,
-                                         "audio_s": round(len(r.audio) / 2 / (r.audio_rate or 24000), 3)})
+                    if (gate is not None and not r.off_script and not r.off_again
+                            and gate.on_text(sc.output_transcription.text, arrived) == "off"):
+                        if gate.stop:
+                            r.off_script = True
+                            r.heard = gate.heard(arrived, bytes(r.audio), r.audio_rate or 24000)
+                            r.events.append({"at_s": arrived, "kind": "off_script", "text": gate.text, "heard": r.heard,
+                                             "audio_s": round(len(r.audio) / 2 / (r.audio_rate or 24000), 3)})
+                        else:
+                            # 止めない見張り（外れて止めたあとの言い直しのターン）：外れたことだけを印にして、受け取りを続ける（呼ぶ側が流れの制御へ知らせる）
+                            r.off_again = True
+                            r.events.append({"at_s": arrived, "kind": "off_script_again", "text": gate.text,
+                                             "audio_s": round(len(r.audio) / 2 / (r.audio_rate or 24000), 3)})
                 if sc.model_turn is not None:
                     for part in sc.model_turn.parts or []:
                         blob = part.inline_data

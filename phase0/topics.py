@@ -118,7 +118,7 @@ def clean(topic: str | None) -> str:
 
 
 def fits(question: str, topic: str | None) -> bool:
-    """モデルの答えを聞くことに使えるか（唯一の形の決まり＝check。考える Sonnet の答えも同じ＝import_ai._settled の fits）。"""
+    """モデルの答えを聞くことに使えるか（唯一の形の決まり＝check。考える Sonnet の答えも models_decide を通して同じ＝import_ai._decide_each）。"""
     from announces import spoken
 
     return bool(topic) and check(topic) and spoken(topic)   # かっこを含まない（声で言う言葉＝announces.spoken の1か所。見直し (13) の C7）

@@ -68,24 +68,32 @@ def right_readings(got: dict, facts: dict) -> list[dict]:
     return [dict(zip(keys, c)) for c in product(*(sorted(facts[k]) for k in keys))]
 
 
-def off_reports(got: dict, facts: dict, r: dict) -> list[str]:
-    """判定の読み got（項目ごとの答え）で、行 r の場面の本番の流れの制御の動きが、正しい読みの動きと違う会話AIの報告の名前の並び（唯一の比べ。同じなら空）。
+def off_reports(got: dict | None, facts: dict, r: dict, asks: str | None = None) -> list[str]:
+    """判定の読みで、行 r の場面の本番の流れの制御の動きが、正しい読みの動きと違う会話AIの報告の名前の並び（唯一の比べ。同じなら空）。判定の読みは、
+    目的のお客様の判定の読み got（項目ごとの答え）か、尋ねているかの問い合わせの読み asks（そのときの got は None）の1つ（測りの数えの2つの問い合わせ＝cascade の
+    PARTS）。もう1つの問い合わせは正しい読み（正解の表の読み right_readings・尋ねているかの正しい読み g59_calling_judge.asks_truths）を同じ入口で渡す。
     行の場面を本番の流れの制御に組み（g59_flow_check.row_scene）、読みを本番と同じ入口で渡し、会話AIの報告（g59_flow_check.REPORTS＝ご本人・受付の方・
-    代理の方・代わった方・後任の方・報告なし）ごとに動きの名前（g59_flow_check.act_name）を比べる：その報告で、判定の読みの動きが正しい読みのどれかの
-    動きと同じなら同じ。場面を組めない行は g59_flow_check.NoScene・今の問いで読めない判定の読みは g59_flow_check.Unreadable を上げる（正解の読みが読めなければ
-    正解の表の誤り＝止める）。"""
+    代理の方・代わった方・後任の方・お呼びした方で答える・報告なし）ごとに動きの名前（g59_flow_check.act_name）を比べる：その報告で、判定の読みの動きが、
+    もう1つの問い合わせの同じ正しい読みでの正しい読みのどれかの動きと同じなら同じ（正解の動きも判定の読みの動きも g59_flow_check.calling_acts の1か所）。
+    場面を組めない行は g59_flow_check.NoScene・今の問いで読めない判定の読みは g59_flow_check.Unreadable を上げる（正解の読みが読めなければ正解の表の誤り＝止める）。
+    ⛔ 4bc94b4d まで、尋ねているかの読みは比べず（いつも正しい読み）、尋ねているかの外れは値だけで数えていた（まとめ役 CL-1 の頼み rv178/X の4回目 (1)(2)）"""
     import g59_flow_check as fc
+    readings = right_readings(facts if got is None else got, facts)   # 尋ねているかの読みを比べるときは、正解の表の項目の全部
     try:
-        rights = [fc.calling_acts(r, c) for c in right_readings(got, facts)]
+        rights = [fc.calling_acts(r, c) for c in readings]
     except fc.Unreadable as e:
         raise ValueError(f"正解の表の読みが今の問いで読めない（{r['text']}）：{e}") from None
-    mine = fc.calling_acts(r, got)
-    # 正しい尋ねているかの読み（a）ごとに比べ、どれかで違えば、その報告は違う
-    return [name for i, (name, _) in enumerate(fc.REPORTS) if any(mine[a][i] not in {x[a][i] for x in rights} for a in range(len(mine)))]
+    if asks is None:
+        mine = fc.calling_acts(r, got)
+        # 正しい尋ねているかの読み（a）ごとに比べ、どれかで違えば、その報告は違う
+        return [name for i, (name, _) in enumerate(fc.REPORTS) if any(mine[a][i] not in {x[a][i] for x in rights} for a in range(len(mine)))]
+    # 目的のお客様の判定の正しい読み（c）ごとに比べ、どれかで違えば、その報告は違う
+    mine = [fc.calling_acts(r, c, asks)[0] for c in readings]
+    return [name for i, (name, _) in enumerate(fc.REPORTS) if any(m[i] not in {y[i] for y in x} for m, x in zip(mine, rights))]
 
 
-def flow_miss(got: dict, facts: dict, r: dict) -> str | None:
-    """判定の読み got で、行 r の場面の本番の流れの制御の動きが正しい読みの動きと違えば、その種類（唯一の数え。違わなければ None）：全部の報告で違う
+def flow_miss(got: dict | None, facts: dict, r: dict, asks: str | None = None) -> str | None:
+    """判定の読み（目的のお客様の判定の got か、尋ねているかの問い合わせの asks＝off_reports）で、行 r の場面の本番の流れの制御の動きが正しい読みの動きと違えば、その種類（唯一の数え。違わなければ None）：全部の報告で違う
     （ALL_REPORTS）か、一部の報告で違う（SOME_REPORTS＋報告の名前＝会話AIの報告で外れが動きを変えるかが変わる＝会話AIが判定に加わっている所）。
     報告ごとの比べは off_reports の1か所。場面を組めない行は NO_SCENE・今の問いで読めない読みは UNREADABLE。
     ⛔ 2026-11-18（見直し (13) の持ち場 D の D1・D2）：それまでは流れの制御の決まりを手で写した印（flow_flags：読み・不在・電話を代わった方・後任の方・
@@ -93,7 +101,7 @@ def flow_miss(got: dict, facts: dict, r: dict) -> str | None:
     変わる）を「項目だけ」と数え、(D2) 電話を終える言葉の読みを必ず「締める」と数えていた（本番は取り次ぎを待つ読みがあれば待つ）。"""
     import g59_flow_check as fc
     try:
-        off = off_reports(got, facts, r)
+        off = off_reports(got, facts, r, asks)
     except fc.NoScene:
         return NO_SCENE
     except fc.Unreadable:
@@ -103,14 +111,15 @@ def flow_miss(got: dict, facts: dict, r: dict) -> str | None:
     return ALL_REPORTS if len(off) == len(fc.REPORTS) else f"{SOME_REPORTS}：{'・'.join(off)}"
 
 
-def flow_kind(got: dict | None, facts: dict, r: dict) -> str | None:
+def flow_kind(got: dict | None, facts: dict, r: dict, asks: str | None = None) -> str | None:
     """1行の判定の読み got の、流れの制御の動きの外れの種類（同じなら None）：項目がそろわない（INCOMPLETE）・flow_miss の種類。聞こえ方だけを数える行は、
-    動きを数えない（None）。plan・agree・cascade・misses の1か所。"""
-    if not g.facts_whole(got, facts):
+    動きを数えない（None）。plan・agree・cascade・misses の1か所。asks＝尋ねているかの問い合わせの判定の読み（渡すと、その読みの外れの種類＝got は None。
+    目的のお客様の判定は正解の表の読み＝off_reports。cascade の尋ねているかの問い合わせ）。"""
+    if asks is None and not g.facts_whole(got, facts):
         return INCOMPLETE
     if hear_only(r):
         return None
-    return flow_miss(got, facts, r)
+    return flow_miss(got, facts, r, asks)
 
 
 UNCOUNTED = (NO_SCENE, UNREADABLE)   # 流れの制御の動きを比べられない行（別に数えて出す＝黙って数えない形にしない）
@@ -371,13 +380,12 @@ def cascade(stages: list[str]) -> dict:
     （members_for）と先に出すもの（leads_of）を本番の1か所から作り、判定ごとの記録の秒と確かな読みを、本番の決め方（Race）に記録の秒で通す
     （race_recorded）。記録の無い判定で決まりうる行は、決めたとは数えない：どの届き方でも記録の無い判定（測っていない Sonnet など）か「どれも答えない」
     になる行は「記録の無い判定に回る」、記録のある判定とない判定のどちらでも決まりうる行は「記録が足りない」（流す判定の名前つき＝次の測りの
-    --only の言葉）。決めた行の外れは、流れの制御の動きが変わるもの（目的のお客様の判定＝flow_kind・尋ねているか＝「尋ねている」かが正解と違う。
-    種類＝外れの種類）と、
-    項目だけのものに分ける。2秒超＝決めた秒が会話の側の待つ長さ（その回の待つ長さ＝waits）を超える（記録の無い判定の届き方によっては超える行も数える）。
+    --only の言葉）。決めた行の外れは、流れの制御の動きが変わるもの（2つの問い合わせとも flow_kind の1か所＝目的のお客様の判定の読み・尋ねているかの読みを
+    本番と同じ入口で渡し、会話AIの報告ごとに正しい読みの動きと比べる。種類＝外れの種類）と、項目だけのもの（目的のお客様の判定だけ）に分ける。
+    ⛔ 4bc94b4d まで、尋ねているかの外れは値だけで数えていた（「尋ねている」かが正解と違う＝まとめ役 CL-1 の頼み rv178/X の4回目 (2)）。2秒超＝決めた秒が会話の側の待つ長さ（その回の待つ長さ＝waits）を超える（記録の無い判定の届き方によっては超える行も数える）。
     待つ長さ（あいさつの録音を流す回か＝waits）で決める判定が変わる行は「待つ長さで変わる」（どちらの判定の読みも外れを数える＝外れを隠さない）。
     ⛔ 2026-11-06 日本時間8時台（EN-C の指摘8）：線を手で渡し、並べた順で線から上かだけを見ていた（届いた秒を見ない＝本番の組と違う判定で決めたと
     数えうる）・どれも線より下なら、組で測った記録（今の組）の答えを使っていた"""
-    from flowctl import ASKED
     from meaning_judge import RACE, leads_of, members_for, question_kind
     table = current()
     have: dict[str, dict] = {}                         # 判定の名前 ⇒ {(場面の鍵, 回): (行, 列)}
@@ -412,22 +420,17 @@ def cascade(stages: list[str]) -> dict:
             def miss(w) -> None:
                 """記録のある判定 w で決めたときの外れ（流れの制御の動きが変わるもの・項目だけのもの）を数える。"""
                 who, got = names[w], runs[w][2]
-                if sfx == "":
-                    kind = flow_kind(got, facts, sc_row)
-                    if moves(kind):
-                        moved[(part, who, sc)] += 1
-                        kinds[(part, kind.split("：")[0])] += 1
-                        out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got, kind))
-                    elif kind in UNCOUNTED:
-                        unbuilt[(part, who, sc, kind)] += 1
-                        if not g.facts_ok(got, facts):
-                            out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got, f"{kind}・項目の外れ"))
-                    elif not g.facts_ok(got, facts):
-                        only[(part, who, sc)] += 1
-                elif sc_row.get("asks_accept") is not None and (got in ASKED) != sc_row["asks_accept"]:
+                kind = flow_kind(got, facts, sc_row) if sfx == "" else flow_kind(None, facts, sc_row, asks=got)
+                if moves(kind):
                     moved[(part, who, sc)] += 1
-                    kinds[(part, "尋ねているかが正解と違う")] += 1
-                    out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got, "尋ねているかが正解と違う"))
+                    kinds[(part, kind.split("：")[0])] += 1
+                    out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got, kind))
+                elif kind in UNCOUNTED:
+                    unbuilt[(part, who, sc, kind)] += 1
+                    if sfx == "" and not g.facts_ok(got, facts):
+                        out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got, f"{kind}・項目の外れ"))
+                elif sfx == "" and not g.facts_ok(got, facts):
+                    only[(part, who, sc)] += 1
             if winners <= known:
                 if any(at > wait for _, at, wait in outs):
                     late[(part, "ご本人の回" if TARGET_IS_THERE in acc else "ほかの回")] += 1

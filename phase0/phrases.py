@@ -1107,7 +1107,10 @@ CLOSING = "お忙しいところお時間をいただきましてありがとう
 # ✅ 2026-11-02 日本時間6時33分 ユーザー：「お客様「でもやっぱり、今の業者で十分なので。」こちら「はい、お忙しいところお時間をいただきましてありがとう
 # ございました。それでは失礼いたします。」だと唐突なので、こちら「はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。
 # それでは失礼いたします。」の方がいいんじゃないでしょうか？」（ご承認いただけなかったときの手順の外の、最終目的の申し出を断られたときにも当てた）
-CLOSING_AFTER_DECLINE = "承知いたしました。" + CLOSING
+# お断りを受ける一言 DECLINE_RECEIPT は、お断りのすぐあと（返事のいちばん先）。締めの前にほかの決まった言葉（業務の「答えのあとに伝える一言」など）を流す返事では、
+# この一言を共通の一言の録音 decline_receipt として先に流し、締めはお礼の締め CLOSING（flowctl.Flow._receipt_first の1か所。分身 N の束 n4＝OPEN-A12）
+DECLINE_RECEIPT = "承知いたしました。"
+CLOSING_AFTER_DECLINE = DECLINE_RECEIPT + CLOSING
 # 次の質問の前のつなぎの言葉の録音の名前（ファイル名に使う）。✅ 2026-10-15 ユーザー：「両方録音の場合は、良いものを録音として残すので
 # 問題ない。AIが喋る時だけ、相槌を入れないと問題が起こる」⇒ つなぎの言葉は共通の一言で録音し、質問の文（依頼主の単位）の前に流す
 # 録音の読み上げには、続きの言葉があることを示す読点を付けて渡す（つなぎの言葉だけの録音が、言い切りの調子にならないように。録音の
@@ -1282,7 +1285,8 @@ def message_again(text: str) -> str | None:
     return MESSAGE_AGAIN if text != MESSAGE_AGAIN and text.startswith(head) and text.endswith(tail) and "から" in text[len(head):-len(tail)] else None
 # お礼の一言を言ったあとに、同じ電話で重ねて申し出られた（「いえいえ、戻りましたらこちらから折り返させますので。」）：ご厚意を2回とも受け止め、こちらから
 # 連絡する形を保つ一言（そのあと、いま伺っている質問）。さらに重ねられたら、時刻を無理に伺わず「分からない」と同じ道へ（押し問答にしない）。
-# ⏳ 言い方は伺い中（2026-11-12 まとめ役の指示＝お勧めの形で入れる）。選ぶのは flowctl.Flow._offer_reply の1か所
+# 言い方は 2026-11-12 まとめ役の指示でお勧めの形を入れた。言い方を伺った伺い5 は ✅ 2026-11-13 日本時間20時06分19秒「伺い5はイ（相手の好意を2回目は無下にしない）」・伺い7 は 22時17分01秒「伺い7はイ」で閉じた（折り返し・伝言の2回目の好意はお言葉に甘える＝flowctl.Flow._callback。この一言がまだ流れる場面が
+# あるかは棚卸し rv179/I の I94-23）。選ぶのは flowctl.Flow._offer_reply の1か所
 OFFER_THANKS_AGAIN = "重ねてお気遣いありがとうございます。お手数をおかけしてはいけませんのでこちらからご連絡させていただきますね。"
 # お呼びした方が、もう在籍していない（退職・異動・担当が変わった）：✅ 2026-10-22 ユーザー「基本は後任の方をお呼びする＋業務ごとに選べる」
 # ✅ 2026-10-23 ユーザー：「さようでと実際に使う人はほとんどいません」⇒ 同じ理由で「そうでしたか。」に（⏳ 言い方はユーザーに伺う）
@@ -1421,9 +1425,9 @@ OWN_FALLBACK = "恐れ入ります。そのご質問は私では正確にお答�
 # ✅ 2026-11-05 日本時間3時33分11秒 ユーザー（続きの電話の言い方へのご修正）：「恐れ入ります。前回お伺いしたご質問(場合によっては「ご要望」「ご意見」)は私では
 # 正確にご説明(お返事・ご回答)できませんので担当の者に申し伝えさせていただきますね。」＝お客様の言ったことの種類（ご質問・ご要望・ご意見）で、名前と返し方を
 # そろえる（「点」は言わない）。どの種類かは、お客様の言葉を聞いた会話AIが、答えの文と一緒に選ぶ（受け答えの一言 TALK_FALLBACK と同じ形）。同じ理由は、この電話で
-# 点を伺ったときの一言（✅ 11-02 5時56分「その点は…ご説明できません…OK」）にも当たる（10-19 の決まり）＝「その」＋種類。⏳ 種類と返し方の組（ご要望＝お返事・
-# ご意見＝ご回答）は、ご修正の括弧の並びで組んだ ⇒ ✅ 11-05 ユーザー：「(1) 種類と返し方の組み合わせ：お返事とご回答はどちらにでも使えるけど、間違っては
-# いない。」
+# 点を伺ったときの一言（✅ 11-02 5時56分「その点は…ご説明できません…OK」）にも当たる（10-19 の決まり）＝「その」＋種類。種類と返し方の組（ご要望＝お返事・
+# ご意見＝ご回答）は、ご修正の括弧の並びで組んだ（✅ 2026-11-05 日本時間3時49分53秒 ユーザー：「(1) 種類と返し方の組み合わせ：お返事とご回答はどちらにでも使えるけど、
+# 間違ってはいない。」＝今の組のまま）
 POINT_KINDS = {"question": ("ご質問", "ご説明"), "request": ("ご要望", "お返事"), "opinion": ("ご意見", "ご回答")}
 
 
@@ -1492,7 +1496,8 @@ HOW_NOW = "いかがなさいますか？"
 # ユーザー「(1)〜(4)ともイでOK」の (1)（途中のご報告の (イ)「1回だけ「はい、それではおおよその目安だけでもお伺いしてもよろしいでしょうか？」と伺い…」）
 ESTIMATE_ASK = "それではおおよその目安だけでもお伺いしてもよろしいでしょうか？"
 # 続きの電話の始めのご説明（19時26分の (A)＝「前回お伺いした（その点）の件ですが、」から）が、自分で答える受け皿（知っていることの文そのまま＝その点の短い
-# 言葉は会話AIが作るので受け皿では言えない）になったときの話し始め（録音。続けて会話AIが知っていることの文を言う）。⏳ 同じく伺う
+# 言葉は会話AIが作るので受け皿では言えない）になったときの話し始め（録音。続けて会話AIが知っていることの文を言う）。✅ 2026-11-05 日本時間3時49分00秒 ユーザー「(3) 頭の
+# 「前回お伺いした件ですが、」：上記のような例外を除き、基本OK」（例外＝点を言っていただけなかったときの一言＝own_fallback_point_again の側で直した）
 RESUMED_FALLBACK_LEAD = "前回お伺いした件ですが、"
 # 受け答え（世間話・お礼・気遣い・お客様のお話。flowctl.Flow._own_answer の talk）で、AIの返す文が確かめに通らなかった・中身を確かめられなかった
 # ときに流す一言（共通の一言の録音。こちらについての事実を言わないので、確かめなくてよい）。どれを流すかは、お客様の言葉を聞いた会話AIが、
@@ -1640,7 +1645,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK, "announce_recheck_unheard": unheard_form(""),
+            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, "decline_receipt": DECLINE_RECEIPT, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK, "announce_recheck_unheard": unheard_form(""),
             LISTED_DIALED_ID: LISTED_ASK["mobile_dialed"],
             "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{rid: SUCCESSOR[k] for k, rid in SUCCESSOR_IDS.items()},
             **{rid: w for w, rid in NAME_HEAD_IDS.items()},   # お名前の前の言葉（「恐れ入りますが」）＝名前の録音の前に流す（flowctl.name_plays）

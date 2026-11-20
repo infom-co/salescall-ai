@@ -748,8 +748,12 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     log_start, plan = len(flow.log), restate_next
                     t = time.monotonic()
                     await send_text(s, plan["message"])
+                    # 言い直しのターン（2回目）も同じ見分け（SpeechGate）で見て、外れたら止めずに流し、流れの制御の同じ入口へ「止めていない」で知らせる（おかしな動き＝
+                    # 発信は止めずに警告。D6-32＝分身 N の束 n10。⛔ 3cd6ec5c まで、このターンは見張らず、外れても誰にも知らされなかった）
                     turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle_call, timeout_s=30, on_heard=flow.on_heard,
-                                              silent_after_s=SILENT_SWAP_S)
+                                              silent_after_s=SILENT_SWAP_S, gate=SpeechGate(lambda: plan["say"], stop=False))
+                    if turn.off_again:
+                        flow.on_off_script(plan["say"], stopped=False)
                     await add_turn(turn, {"restate": plan["say"]}, log_start, i - 1, voice)
                     if not turn.silent:
                         restate_next = None

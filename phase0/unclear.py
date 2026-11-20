@@ -8,7 +8,7 @@
 伺わずに、この答えにする＝flowctl.Flow._no_doubts_step の1か所）。
 
 決め方（facts.decide と同じ形）：文字のモデル2つに、1回の問い合わせでまとめて答えさせる（by_model）。2つの答えがそろい、「無い」にあたる選択肢がその
-質問の選択肢にあるときだけ決まる。そろわない・答えが無いときは空（伺う）。⚠️ どちらに倒しても誤りは残りうる：ほかの質問を、分からない点が無いかを伺う
+質問の選択肢にあるときだけ決まる。そろわない質問は、取込で考える Sonnet が決める（扱いの1か所＝import_ai.SPLIT。帳面 0-2）。それでも決まらない・答えが無いときは空（伺う）。⚠️ どちらに倒しても誤りは残りうる：ほかの質問を、分からない点が無いかを伺う
 質問と取り違えると、伺うべき答えを伺わずに決めてしまう（依頼者へ誤った答えが渡る）。取り違えなければ、重ねて伺うだけ（お客様には同じことを2回伺うが、
 答えは正しい）⇒ 誤った答えの重いほう（伺わずに決める）を避ける側に倒す。
 """
@@ -37,12 +37,12 @@ FIELDS = {"no": ("integer", "質問の番号"), "asks": ("boolean", "ほかに�
 TOOL = ("unclear", "質問ごとの、ほかに分からない点が無いかを伺う質問か")
 
 
-def by_model(client, model: str, questions: list[tuple[str, tuple]]) -> list[dict | None]:
+def by_model(client, model: str, questions: list[tuple[str, tuple]], think: bool = False) -> list[dict | None]:
     """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions（(質問の文, 選択肢の並び)）と同じ並びの答え（無ければ None）を返す。
-    送り先は部品の作りで決まる（Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask）。"""
+    送り先は部品の作りで決まる（Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask。think＝考える形で聞く＝そろわなかった質問だけを聞く考える Sonnet）。"""
     from askitems import ask
 
-    return _read_items(ask(client, model, PROMPT + _body(questions), FIELDS, tool=TOOL), len(questions))
+    return _read_items(ask(client, model, PROMPT + _body(questions), FIELDS, tool=TOOL, think=think), len(questions))
 
 
 def _read_items(items: list, n: int) -> list[dict | None]:
