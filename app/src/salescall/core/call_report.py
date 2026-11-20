@@ -1675,6 +1675,18 @@ def load(tx: Tx, attempt_id: UUID) -> CallReport | None:
     return load_with_source(tx, attempt_id)[0]
 
 
+MACHINE_PARTIES = ("voicemail", "ivr", "fax")   # 電話口が機械だった種別（PARTY_KINDS のうち、人でないもの。締めた理由の MACHINE_ENDS と同じ名前）
+
+
+def machine_party(tx: Tx, attempt_id: UUID) -> str | None:
+    """その通話の電話口が機械だったときの種別（留守番電話 voicemail・自動音声 ivr・FAX fax。1か所＝依頼者へ渡す通話の終わり方の材料。CL-3 の 20）：
+    会話の報告の電話口の種別（いちばん新しい報告＝`load`）のうち、最初に出た機械の種別。お客様と話した通話（`CallReport.talked`）・報告の無い通話は None。"""
+    r = load(tx, attempt_id)
+    if r is None or r.talked:
+        return None
+    return next((p for p in r.parties if p in MACHINE_PARTIES), None)
+
+
 def talked_in(tx: Tx, attempt_id: UUID) -> bool:
     """その通話でお客様と話したか（1か所。会話の報告の人の証の表＝`CallReport.talked` を読む。報告が無ければ、いいえ）。状態の表の入口
     （core/health の「こちらの不具合なしにお客様と話し終えた」E5）と、締め（core/settle の、あとでお客様と話した通話があるか）が読む。

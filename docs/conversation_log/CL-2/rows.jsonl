@@ -4332,3 +4332,5 @@
 {"at": "2026-11-20T23:16:13+09:00", "who": "CL-2", "text": "Adding a check of the two readers to this test (the row that rests and the two ended calls)."}
 {"at": "2026-11-20T23:17:21+09:00", "who": "CL-2", "text": "38 の読む部品を作り、壊し試しも見つかりました。ここで記録して上げます。"}
 {"at": "2026-11-20T23:17:38+09:00", "who": "CL-2", "text": "次は 8（依頼者の範囲の停止を、契約者の取引で一度に読む見方）です。今の停止の読み方と範囲の守りを読みます。"}
+{"at": "2026-11-20T23:20:30+09:00", "who": "CL-2", "text": "I wrote a conditional branch that never runs; replacing it with a real human-call case (a rebuilt report on the same call, which the one reader prefers)."}
+{"at": "2026-11-20T23:20:44+09:00", "who": "CL-2", "text": "Now update the marks comment (item 7), add mutations, write the notebook entries (including the request to CL-1 about item 13), and commit."}

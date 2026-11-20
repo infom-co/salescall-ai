@@ -8617,6 +8617,10 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '"SELECT task_id, state, moved_at FROM salescall.task_states WHERE stage = %s ORDER BY moved_at, task_id LIMIT %s",',
      '"SELECT task_id, state, moved_at FROM salescall.task_states WHERE stage IS DISTINCT FROM %s OR true ORDER BY moved_at, task_id LIMIT %s",',
      ("tests.test_troubles.OurTroubles.test_two_in_a_row_on_one_row_rest_it_and_the_line_moves_to_the_next_row",)),
+    ('電話口の種別を、お客様と話した通話でも機械と答える', 'src/salescall/core/call_report.py',
+     '    if r is None or r.talked:\n        return None\n    return next((p for p in r.parties if p in MACHINE_PARTIES), None)',
+     '    if r is None:\n        return None\n    return next((p for p in r.parties if p in MACHINE_PARTIES), "voicemail")',
+     ("tests.test_conversation_io.Materials.test_the_machine_on_the_line_is_read_from_the_report",)),
 )
 
 
