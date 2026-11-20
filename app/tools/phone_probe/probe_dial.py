@@ -24,6 +24,9 @@ WATCH = 20.0   # 1回の発信で、画面を見ている長さ（秒）
 
 def main() -> None:
     sys.path.insert(0, str(OUT))
+    repo_src = OUT.parents[1] / "src"   # リポジトリの中（app/tools/phone_probe）なら、本物の部品を読む
+    if (repo_src / "salescall" / "agent" / "phones" / "screen_uia.py").exists():
+        sys.path.insert(0, str(repo_src / "salescall" / "agent" / "phones"))
     try:
         import screen_uia
     except ImportError:

@@ -24,6 +24,9 @@ STATUS_WORDS = {"送信済み", "送信中", "送信失敗", "未送信", "再�
 
 def main() -> None:
     sys.path.insert(0, str(OUT))
+    repo_src = OUT.parents[1] / "src"   # リポジトリの中（app/tools/phone_probe）なら、本物の部品を読む
+    if (repo_src / "salescall" / "agent" / "phones" / "screen_uia.py").exists():
+        sys.path.insert(0, str(repo_src / "salescall" / "agent" / "phones"))
     try:
         import probe_screen
         import screen_uia

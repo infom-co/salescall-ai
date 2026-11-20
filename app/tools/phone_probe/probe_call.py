@@ -4,7 +4,7 @@
 1回で確かめる（docs/PHONE.md 3章の R-2〜R-6 を、本番と同じ部品で）。管理者の PC で、このリポジトリの中から動かす：
     cd C:\\Users\\User\\SalesCall\\salescall-ai
     git pull
-    py app\\src\\salescall\\agent\\phones\\probe_call.py
+    py app\\tools\\phone_probe\\probe_call.py
 
 - かける相手は、ご家族の携帯だけ。番号はその場で打ち、ファイルにも結果にも残さない（結果には下4けただけ）。
 - 結果は phone_call_result.json（このファイルと同じフォルダ。番号・お名前・声は入らない＝出来事の名前と秒数だけ）。
@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve()
-sys.path.insert(0, str(HERE.parents[3]))   # app/src
+sys.path.insert(0, str(HERE.parents[2] / "src"))   # app/src（この道具は本番の外＝app/tools/phone_probe に置く）
 
 from salescall.agent.phones import audio, rakuten_link  # noqa: E402
 
