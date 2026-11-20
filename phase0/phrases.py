@@ -268,6 +268,11 @@ CLOSE_DECLINED = "お忙しいところ申し訳ございませんでした。�
 # かけ直しの申し出（DESIGN.md 6-2・flowctl.Flow._op_request_callback）のときに、システムが足す質問の文。鍵＝役目（何を聞くか）。
 # ✅ 2026-10-14 ユーザー：「電話に出られる時間などはお分かりになりますでしょうか？」（別の番号へかけ直すとき）
 # ✅ 2026-10-19 ユーザー：残りの3つも、下の言い方（不在は「お戻りになられますでしょうか」）。決まった言い方なので、言葉の途中に読点を入れない（10-15）
+# 悩み・困りごとのお答えへの受けの言葉の唯一の1か所（ある＝そうだったんですね・無い＝それは何よりです）。深める一言のお返事に伺う一言 E3・E4（と同じ受けで始まる
+# E1・E5）の頭と、顧客獲得型の本題の段の悩みのお答えへの相づち（ACK の soudattan・naniyori＝flowctl.Flow._told_ack）が読む。✅ 2026-11-16 日本時間12時48分22秒 ユーザー
+# 「「何度かあった」の場合に、「そうだったんですね。…」で受けます。でしょ。「特に無い」には「それは何よりです。しかし、…」」・本書 9-9 の終わり（✅ 2026-11-20 日本時間16時13分06秒の段）
+# の CL-1 の読み (90)「悩みのお答えへの受けは 11-16 の形（ある＝「そうだったんですね。」・無い＝「それは何よりです。」）」（分身 U1）
+TOLD_ACK = {"yes": "そうだったんですね。", "no": "それは何よりです。"}
 CALLBACK_ASK = {
     "back_time": "恐れ入りますが何時ごろお戻りになられますでしょうか？",                  # 不在：戻られる時刻（✅ 必ず聞く＝ユーザーの指示）
     # 不在で、受付の方の重ねての折り返しの申し出をお言葉に甘えて受けたあと（OFFER_ACCEPTED のあと＝flowctl.THEIRS_PLAN）：戻られる時刻。✅ 2026-11-14 日本時間
@@ -340,7 +345,7 @@ CALLBACK_ASK = {
     # もし、そちらの会社の方で解決できないような問題や心配事はございませんか？」などの質問を入れ込むんじゃないですか？」（決まった言い方なので、言葉の途中の読点は
     # 外した＝10-15。⏳ 録音は声の型ごとに作って聞いていただく）。✅ 2026-11-16 日本時間0時42分38秒 ユーザー「もしはいらないですね。「そちらの会社の方で解決できない
     # ような問題や心配事はございませんか？」もしくは、…」＝お言葉の1つ目の形（「もし」を外した。⏳ 録り直しは CL-2 の段取り＝0-4）
-    "elsewhere": "そうだったんですね。そちらの会社の方で解決できないような問題や心配事はございませんか？",
+    "elsewhere": TOLD_ACK["yes"] + "そちらの会社の方で解決できないような問題や心配事はございませんか？",
     # ほかの会社のことを伺った一言（E1）に問題を言っていただき、会話AIが応えたあとのお返事で、1通話1回深めて伺う一言（システムの質問 E2＝flowctl.Flow._deepen_ask）の、
     # 困りごとの言葉を入れない形（会話AIが困りごとの言葉を書けない・確かめに通らないとき。共通の一言の録音 callback_deepen）。言葉を入れる形は DEEPEN_ASK（会話AIが言う）。
     # ✅ 2026-11-16 日本時間0時42分38秒 ユーザー「伺い29：「これまでに、○○(対応の遅さのせい)で、問題や不都合が発生したことが何度かおありなのでしょうか？」…」
@@ -349,17 +354,17 @@ CALLBACK_ASK = {
     # 深める一言（E2）に、これまでに問題や不都合があったとお返事いただいたときに伺う一言（システムの質問 E3＝flowctl.Flow._deepen_decided。頭に相づちは付けない＝
     # 「そうだったんですね。」が受けの言葉）。✅ 2026-11-16 日本時間12時48分22秒 ユーザー「「何度かあった」の場合に、「そうだったんですね。今後大きな問題に発展する懸念も
     # ございますが、何か手をお打ちですか？」で受けます。でしょ。」（決まった言い方なので言葉の途中の読点は外した＝10-15。⏳ 録音は声の型ごとに作って聞いていただく）
-    "deepen_measures": "そうだったんですね。今後大きな問題に発展する懸念もございますが何か手をお打ちですか？",
+    "deepen_measures": TOLD_ACK["yes"] + "今後大きな問題に発展する懸念もございますが何か手をお打ちですか？",
     # ほかの会社のことを伺った一言（E1）に困りごとは無いと言われた、手短でない電話で伺う決め手（システムの質問 E5＝flowctl.Flow._elsewhere_decided。頭に相づちは
     # 付けない＝「それは何よりです。」が受けの言葉）。✅ 2026-11-19 日本時間15時10分27秒 ユーザー「伺い47：場合により、アとイの使い分け…」（イ「ちなみにそちらの会社を
     # お選びになった決め手はどのような点でしたでしょうか？」。手短でない電話はイ＝まとめ役 CL-1 の頼み (1)）
-    "elsewhere_point": "それは何よりです。ちなみにそちらの会社をお選びになった決め手はどのような点でしたでしょうか？",
+    "elsewhere_point": TOLD_ACK["no"] + "ちなみにそちらの会社をお選びになった決め手はどのような点でしたでしょうか？",
     # 深める一言（E2）に、これまでに問題は無かったとお返事いただいたときに伺う一言（システムの質問 E4）の、困りごとが続く形の句を入れない形（会話AIが句を書けない・
     # 確かめに通らないとき。共通の一言の録音 callback_deepen_ahead）。句を入れる形は DEEPEN_AHEAD_ASK（会話AIが言う）。✅ 2026-11-16 日本時間12時48分22秒 ユーザー
     # 「「特に無い」には「それは何よりです。しかし、（対応が遅いままだと）今は問題が起こっていなくても今後大きな問題に発展することが懸念されそうですね？」」（決まった
     # 言い方なので読点は外した＝10-15。⛔ 96579d84 まで、会話AIの受け止めの言葉・使えなければ録音 deepen_ahead「今は問題が起こっていなくても今後大きな問題に発展する
     # ことも懸念されますものね。」＝問いではなかった）
-    "deepen_ahead": "それは何よりです。しかし今は問題が起こっていなくても今後大きな問題に発展することが懸念されそうですね？",
+    "deepen_ahead": TOLD_ACK["no"] + "しかし今は問題が起こっていなくても今後大きな問題に発展することが懸念されそうですね？",
     # 急いでいるが手短になら聞くと言われたとき（flowctl.END_BRIEF）に「ありがとうございます。」のあとに伺う一言（システムの質問 H3＝flowctl.Flow._brief_ask）の、要約の
     # 入らない形（営業の要約も用件の名詞も無い業務。共通の一言の録音 callback_brief）。要約の入る形は BRIEF_ASK（業務ごとの録音＝名乗りの部分 brief）。✅ 2026-11-16
     # 日本時間12時48分22秒 ユーザー「・伺い31：お客様：今ちょっと立て込んでるので、手短にお願いできますか。こちら：ありがとうございます。（要約）の件でお電話させて
@@ -521,7 +526,7 @@ DEEPEN_ASK = "これまでに{t}で問題や不都合が発生したことが何
 # 深める一言に、これまでに問題や不都合は無かったとお返事いただいたときに伺う一言（CALLBACK_ASK の deepen_ahead＝システムの質問 E4）の、困りごとが今のまま続くと
 # したらの句（{c}＝会話AIが書いた「対応が遅いままだと」のような「〜と」で終える句。確かめは困りごとの言葉と同じ1か所＝flowctl.Flow._proposal_problem。値の入る文なので
 # 会話AIが言う＝flowctl.Flow._deepen_put）を入れる形。✅ 2026-11-16 日本時間12時48分22秒 ユーザー（お言葉は CALLBACK_ASK の deepen_ahead）
-DEEPEN_AHEAD_ASK = "それは何よりです。しかし{c}今は問題が起こっていなくても今後大きな問題に発展することが懸念されそうですね？"
+DEEPEN_AHEAD_ASK = TOLD_ACK["no"] + "しかし{c}今は問題が起こっていなくても今後大きな問題に発展することが懸念されそうですね？"
 assert DEEPEN_AHEAD_ASK.format(c="") == CALLBACK_ASK["deepen_ahead"]
 
 
@@ -670,18 +675,39 @@ PAIN_ASK = "{who}はこういうお悩みはございませんですか？"     
 CASE_LEAD = "とあるサービスがありまして、"                     # (6) 何をするかは言わない（共通の一言 case_lead。続けて業務設定の事例＝依頼者の単位の録音 case（番号））
 LISTEN_WHY = "ただですね、{who}が実際そういう風になるかどうかわからないんです。"          # (7) の1つ目
 LISTEN_REASON = "理由はですね、{who}のことを詳しくは存じ上げてないからなんです。"         # (7) の2つ目
-LISTEN_SAFE = "もし当てはまらなかった時はご安心ください。押し売りするつもりなんかもう一切ございませんので、その時はすぐ帰りますのでご安心ください。"
+# (7) の「その時はすぐ帰りますので」の所（業務設定の訪問するか＝instruction.Business.meeting_visit → 言葉）：訪問する＝お言葉の文のまま・訪問しない（オンラインやお電話でご説明する）＝
+# 「その時はすぐにお時間をお返ししますので」（事実でないことは言わない＝本書 9-9 の守り。本書 9-9 の終わりの CL-1 の読み (91)＝✅ 2026-11-20 日本時間16時13分06秒の段。分身 U1）。
+# 録音の名前は visit_id の1か所（訪問しない形は（名前）_remote）
+SAFE_BACK = {True: "その時はすぐ帰りますので", False: "その時はすぐにお時間をお返ししますので"}
+LISTEN_SAFE = "もし当てはまらなかった時はご安心ください。押し売りするつもりなんかもう一切ございませんので、{back}ご安心ください。"
 LISTEN_SURE = ("もし当てはまったら間違いなく喜んでいただけますと。もう時間作ってよかった。教えてくれてありがとうまで感動していただける自信はあります。"
-               "ただ、当てはまらない可能性もあるんですよね。で、" + LISTEN_SAFE)              # (7) のお名前の入らない所（共通の一言 listen_sure）
+               "ただ、当てはまらない可能性もあるんですよね。で、" + LISTEN_SAFE)              # (7) のお名前の入らない所（共通の一言 listen_sure・{back}＝SAFE_BACK）
 LISTEN_ASK = "そういった意味で、{who}のことですね。ぜひ詳しく知りたいので、一度お話を聞かせてください。"   # (7) の「聞かせてください」
 LISTEN_TIME = "そのためのお時間、{t}だけよろしくお願いします。"   # (7) の終わり（依頼者の単位の録音 meeting_time。{t}＝業務設定のお時間）。すぐ日時の2択（(9)）
 COMPANY_WHO = "御社"                                            # お名前の分からない方への文の（お名前）様の所
 BUT_LEAD = "そうですよね。"                                     # (8) 本題のお断りの受け（共通の一言 but_lead。続けて「ただ（会話AIが書いた中身）。」）
-BUT_SAFE = "ただ、" + LISTEN_SAFE                               # (8) 会話AIの中身が使えないとき（(7) のお言葉の文＝共通の一言 but_safe）
+BUT_SAFE = "ただ、" + LISTEN_SAFE                               # (8) 会話AIの中身が使えないとき（(7) のお言葉の文＝共通の一言 but_safe・{back}＝SAFE_BACK）
+
+
+def visit_id(rid: str, visit: bool) -> str:
+    """訪問するかで言い方が替わる共通の一言（listen_sure・but_safe＝SAFE_BACK の入る文）の録音の名前の唯一の作り方（流す flowctl.Flow._visit_play・録音の表 RECORDED）：
+    訪問する＝その名前のまま・訪問しない＝（名前）_remote。"""
+    return rid if visit else f"{rid}_remote"
 # 受付の方へ伝える用件の言葉（伺い85＝営業・ご案内の言葉ではなく「大切なお話」）。受付の方への一文と顧客獲得型の決まった伝言（standard_message）の両方がこの1か所を読む
 # （伺い87「大切な」か「お役に立つ」かの答えで両方が一緒に替わる）。分身 P の続き
-IMPORTANT_TALK = "大切なお話"
-RECEPTION_PURPOSE = "{who}にとって" + IMPORTANT_TALK + "がございましてお電話いたしました。"   # 受付の方へ伝える用件の一文（名前の録音の台帳 reception_purpose）
+# ⇒ 業務設定の値 → 言葉（既定 TALK_DEFAULT＝大切なお話・業務設定で「お役に立つお話」も選べる＝instruction.Business.reception_talk。「場合により」の使い分けの条件は
+# トークスクリプトで要る形が出たときに決める＝それまでは業務ごとの選びだけ）。本書 9-9 の終わり（✅ 2026-11-20 日本時間16時13分06秒 ユーザー「伺い87：受付の方への一文を
+# 「大切なお話」がメインだが、「お役に立つお話」も業務や場合により使う」）の CL-1 の読み (87)。分身 U1。⛔ それまでは「大切なお話」の1つだけ
+IMPORTANT_TALK = {"important": "大切なお話", "useful": "お役に立つお話"}
+TALK_DEFAULT = "important"
+RECEPTION_PURPOSE = "{who}にとって{talk}がございましてお電話いたしました。"   # 受付の方へ伝える用件の一文（{talk}＝IMPORTANT_TALK の言葉。名前の録音の台帳 reception_form）
+# 業務設定の値 → 受付の方への一文の名乗りの部分の名前（＝名前の録音の台帳の続く言葉の名前。既定は今の reception_purpose のまま・ほかは reception_purpose_（値））
+RECEPTION_PARTS = {t: "reception_purpose" if t == TALK_DEFAULT else f"reception_purpose_{t}" for t in IMPORTANT_TALK}
+
+
+def reception_form(talk: str) -> str:
+    """受付の方への一文の形（{who} の入る文）を業務設定の値 talk で作る唯一の場所（名前の録音の台帳 NAME_FORMS・後任の方の形 SUCCESSOR＝instruction.Target.reception_purpose）。"""
+    return RECEPTION_PURPOSE.replace("{talk}", IMPORTANT_TALK[talk])
 RECEPTION_WHO = "ご担当者様"                                    # お呼びする方のお名前の無い業務の（お呼びする方）
 # お名前の入る文のうち、名前の分からない方には「御社」の形で流す文（鍵＝名前の録音の台帳の名前・共通の一言は（鍵）_company）
 WHO_LINES = {"pain_ask": PAIN_ASK, "listen_why": LISTEN_WHY, "listen_reason": LISTEN_REASON, "listen_ask": LISTEN_ASK}
@@ -972,6 +998,10 @@ ACK = {
     # 期待するような言い方にしない＝✅ 2026-10-14 ユーザー：S2・S4 の「はい」が物欲しそう・期待しているように聞こえる＝instruction.THINKING_RULE と同じ読み方）。
     # ✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」＝判定が「まだ考えている途中」と読んだら、プログラムがこの録音を流して待つ
     "aizuchi": "はい。",
+    # 顧客獲得型の本題の段の悩みのお答えへの受け（flowctl.Flow._told_ack）：ある＝「そうだったんですね。」・無い＝「それは何よりです。」（言葉は TOLD_ACK の1か所＝深める一言の
+    # お返事に伺う一言 E3・E4 の頭と同じ）。本書 9-9 の終わりの CL-1 の読み (90)（✅ 2026-11-20 日本時間16時13分06秒の段・16時13分55秒「他も書いてることばかりだろ！」）。分身 U1
+    "soudattan": TOLD_ACK["yes"],
+    "naniyori": TOLD_ACK["no"],
 }
 # 相づちのあとの間（相づちの声の終わりから、続けて流す録音・AIの声の始まりまで）の唯一の場所（電話接続モジュールは、流れの制御の返事の
 # ack_pause_s を守る。聞き比べの声を作る stitch_gap も、ここを読む）。相づちの言葉の終わりの記号＝ふつう入る記号で決める。
@@ -1223,12 +1253,13 @@ MESSAGE_STANDARD = "それでは{who}{about}お電話があったとお伝えい
 MESSAGE_AGAIN = MESSAGE_STANDARD.format(who="", about="")
 
 
-def standard_message(company: str, caller: str, noun: str = "", acquire: bool = False) -> str:
+def standard_message(company: str, caller: str, noun: str = "", talk: str | None = None) -> str:
     """決まった伝言の文を作る唯一の場所（instruction.Business.replay_parts の message）。company・caller は名乗りと同じ声に出す形（Business._said）。
-    acquire＝顧客獲得型の業務：用件の所は業務の用件ではなく「大切なお話で」（受付の方への一文と同じ言葉 IMPORTANT_TALK。本書 9-9 の終わり【決まりで決めて入れる】・
+    talk＝顧客獲得型の業務の受付の方への言葉の業務設定の値（instruction.Business.reception_talk）：用件の所は業務の用件ではなく「大切なお話で」「お役に立つお話で」（受付の方への
+    一文と同じ言葉 IMPORTANT_TALK＝伺い87 の業務設定で両方が一緒に替わる。分身 U1）。本書 9-9 の終わり【決まりで決めて入れる】・
     ✅ 2026-11-20 日本時間2時18分01秒「伺い85：…営業ではなく、○○様にとって、「大切な話」「役に立つ話」としてかけるので、営業では断られない。」）。分身 P の続き。
     ⛔ 12de0daa まで、顧客獲得型でも「求人広告の掲載の件で」（営業の言葉）が受付の方に伝わった"""
-    about = f"{IMPORTANT_TALK}で" if acquire else f"{of_matter(noun)}件で" if noun else ""
+    about = f"{IMPORTANT_TALK[talk]}で" if talk else f"{of_matter(noun)}件で" if noun else ""
     return MESSAGE_STANDARD.format(who=f"{company}の{caller}から", about=about)
 
 
@@ -1266,9 +1297,9 @@ SUCCESSOR = {"target": "恐れ入りますが後任のご担当者様はいら�
              "target_transfer": TARGET_TRANSFER.format(who="後任のご担当者様"),
              # 顧客獲得型の受付の方への一文（RECEPTION_PURPOSE）の後任のご担当者様の形（いまお呼びしている方の呼び名にそろえる＝分身 P の (10)。その部分のある業務だけ＝
              # SUCCESSOR_IF_PART・flowctl.successor_parts）
-             "reception_purpose": RECEPTION_PURPOSE.format(who="後任のご担当者様")}
+             **{RECEPTION_PARTS[t]: reception_form(t).format(who="後任のご担当者様") for t in IMPORTANT_TALK}}
 # 後任の方の形のうち、その部分のある電話の名乗りの部分にだけ当てるもの（受付の方への一文＝顧客獲得型の法人の業務だけ。flowctl.successor_parts の1か所）
-SUCCESSOR_IF_PART = ("reception_purpose",)
+SUCCESSOR_IF_PART = tuple(RECEPTION_PARTS.values())
 # 共通の一言の録音で流す形（流れの制御が流しうるものだけ＝録音の表 RECORDED の名前）。⛔ 2026-11-19（分身 AA＝穴 (C)）まで、流れないはっきりしない返事への
 # 聞き返しの後任の方の形 successor_reconfirm を録音の表に入れていた（文 SUCCESSOR["target_reconfirm"] は 2026-11-20 の分身 L まで残っていた＝上の TARGET_RECONFIRM）
 # 後任の方もいらっしゃらないと言われ、その役職の方をお呼びするときの名乗りの部分（流れの制御の部分 → 業務の名乗りの部分。唯一の表＝作る instruction.Business.replay_parts・
@@ -1280,14 +1311,15 @@ ROLE_PARTS = {"target": "target_role", "target_confirm": "target_role_confirm", 
               "target_transfer": "target_role_transfer",
               # 顧客獲得型の受付の方への一文（名前の録音の台帳 reception_purpose の、役職の呼び方の名前の部分＋今ある続く言葉。分身 P の (10)。その部分の無い業務は外す＝
               # flowctl.Flow._role_parts）
-              "reception_purpose": "reception_purpose_role"}
+              **{p: f"{p}_role" for p in RECEPTION_PARTS.values()}}
 # 名乗りの部分の名前のうち、続く言葉の名前と違うもの → その続く言葉の名前（唯一の表＝お名前の前の言葉を流す flowctl.name_plays・続く言葉の試験。CL-2 の
 # recordings.name_needs と同じ組み方）：フルネームでお呼びし直す一言は呼ぶ一言と同じ続く言葉・携帯電話の持ち主の確かめ mobile_owner（伺い65 イ＝分身 N）は個人の呼ぶ一言と
 # 同じ続く言葉・役職の方の部分（ROLE_PARTS）は今ある続く言葉
 NAME_PART_TAILS = {"target_full": "target", "target_successor_full": "target_successor", "mobile_owner": "target_individual",
                    **{v: k for k, v in ROLE_PARTS.items()}}
 SUCCESSOR_IDS = {"target": "successor_call", "target_confirm": "successor_confirm",
-                 "unavailable_confirm": "successor_unavailable", "target_transfer": "successor_transfer", "reception_purpose": "successor_reception_purpose"}
+                 "unavailable_confirm": "successor_unavailable", "target_transfer": "successor_transfer",
+                 **{p: f"successor_{p}" for p in RECEPTION_PARTS.values()}}   # 受付の方への一文の後任の方の形（業務設定の言葉ごと＝RECEPTION_PARTS）
 # 前の電話で、お呼びした方が在籍していないと言われた会社への次の電話（予約証の successor）：その方の後任のご担当者様をお呼びする一言（依頼主の単位の
 # 録音＝前任の方のお名前が入る）。✅ 2026-10-24 ユーザー「まだ会話に入っていない言い方5つOK」（CL-2 の連絡帳 4-140：「（前任の方のお名前）様の後任の
 # ご担当者様」をお呼びする）。確かめる一言・聞き返しは、通話の中で後任の方へ切り替えたときと同じ（SUCCESSOR＝共通の一言の録音）
@@ -1307,7 +1339,7 @@ NAME_FORMS = {"target": TARGET_CALL["法人"], "target_individual": TARGET_CALL[
               # 顧客獲得型の2回目からの受け止めの終わり（「〇〇様ももう大丈夫でしたよね。」＝YES_RECEIVE_NAMED。お呼びした方ご本人と話しているとき）
               "yes_received": YES_RECEIVE_NAMED,
               # 顧客獲得型の本題の段のお名前の入る文と、受付の方へ伝える用件の一文（分身 K2。言葉の途中の読点は外した形＝録音の文と同じ）
-              **{k: fixed_words(v) for k, v in {"acquire_glad": ACQUIRE_GLAD_NAMED, **WHO_LINES, "reception_purpose": RECEPTION_PURPOSE}.items()}}
+              **{k: fixed_words(v) for k, v in {"acquire_glad": ACQUIRE_GLAD_NAMED, **WHO_LINES, **{RECEPTION_PARTS[t]: reception_form(t) for t in IMPORTANT_TALK}}.items()}}
 NAME_TAILS = {k: v.split("{who}", 1)[1] for k, v in NAME_FORMS.items()}
 NAME_HEADS = {k: v.split("{who}", 1)[0] for k, v in NAME_FORMS.items() if v.split("{who}", 1)[0]}
 # お名前の前の言葉（NAME_HEADS の値＝「恐れ入りますが」）を流す共通の一言の録音の名前（頭の言葉 → 録音の名前。唯一の対応＝流す flowctl.name_plays・録音の表 RECORDED。
@@ -1615,8 +1647,9 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             # 顧客獲得型の Yes の質問の段の受け止め・「手短に」への一言（どの業務でも同じ文＝共通の一言。言葉の途中の読点は外す＝10-15）
             **{f"yes_received_{k}": fixed_words(v) for k, v in YES_RECEIVE.items()}, "yes_brief": fixed_words(YES_BRIEF),
             # 顧客獲得型の本題の段の、どの業務でも同じ文・お名前の分からない方への形（分身 K2）
-            "acquire_glad_lead": fixed_words(ACQUIRE_GLAD), "case_lead": fixed_words(CASE_LEAD), "listen_sure": fixed_words(LISTEN_SURE),
-            "but_lead": BUT_LEAD, "but_safe": fixed_words(BUT_SAFE),
+            "acquire_glad_lead": fixed_words(ACQUIRE_GLAD), "case_lead": fixed_words(CASE_LEAD), "but_lead": BUT_LEAD,
+            # 訪問するかで替わる2つ（visit_id の1か所＝訪問しない形は（名前）_remote。伺い91＝分身 U1）
+            **{visit_id(k, v): fixed_words(t.format(back=b)) for k, t in (("listen_sure", LISTEN_SURE), ("but_safe", BUT_SAFE)) for v, b in SAFE_BACK.items()},
             **{f"{k}_company": fixed_words(v.format(who=COMPANY_WHO)) for k, v in WHO_LINES.items()}}
 # システムの質問（callback_〜）を、2回目・3回目からの戻る一言のあとに流す形（決まりは back_fit の1か所。方法をお伝えした一言のあとの連絡先の一言も、2回目と同じ
 # 「それでは」を外した形＝flowctl.callback_question の announced）。⛔ 2026-11-07 日本時間4時台に見つけた：3時台に足した方法をお伺いしたあとの形（_announced）は
