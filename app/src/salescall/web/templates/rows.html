@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, next_tag, empty, flash, csrf %}
+{% from "parts.html" import go, tag, next_tag, empty, flash, csrf %}
 {% set active = "client" %}
 {% block title %}お客様リスト{% endblock %}
 {% block main %}
@@ -8,14 +8,8 @@
   <p class="lead">お客様ごとの、いまの状態と結果です。会社名を押すと、そのお客様の画面を開きます。</p></div>
   <span class="btn-row">
     <a class="btn main" href="{{ rbase }}/import">お客様リストを取り込む</a>
-    <details class="adder inline"><summary class="btn">結果を書き出す</summary>
-      <div class="panel">
-        <p class="muted">確定した結果だけを書き出します（結果の決め直し中のお客様は出しません）。依頼者へ出さない言葉が入っていれば、書き出さずに止めます。</p>
-        <a class="btn small" href="{{ rbase }}/results.xlsx">確かめるために書き出す（Excel）</a>
-        <a class="btn small" href="{{ rbase }}/results.csv">CSV で書き出す</a>
-        <a class="btn main small" href="{{ rbase }}/results">依頼者へ渡す（中身を見てから）</a>
-      </div>
-    </details>
+    {#- 書き出しの入口は「依頼者へ渡す内容」の画面の1か所（ここからは移るだけ） -#}
+    {{ go(rbase ~ "/results", "結果を見て、依頼者へ渡す") }}
   </span></div>
 {{ flash(done, ok) }}
 {% if more %}
