@@ -10,7 +10,7 @@
 使う所：flowctl.Question.asks_way（W1 の文の1か所＝flowctl._wish_text）。
 
 決め方（facts・target_asks と同じ形＝問い合わせと読み取りは askitems.ask_flags、合わせ方は askitems.agreed）：2つのモデルの答えがそろって「伺う質問」のときだけ真。
-そろわない・答えが無いときは偽＝今までどおり「ほかにご希望などは…」。⚠️ どちらに倒しても誤りは残りうる：方法を伺う質問を偽にすると、ご案内の方法を申し出ずに
+そろわない文は、取込で考える Sonnet が決める（扱いの1か所＝import_ai.SPLIT。帳面 0-2）。それでも決まらない・答えが無いときは偽＝今までどおり「ほかにご希望などは…」。⚠️ どちらに倒しても誤りは残りうる：方法を伺う質問を偽にすると、ご案内の方法を申し出ずに
 「ほかにご希望などは」と伺う（お客様が連絡の方法を言わず、ご案内できないまま終わりうる＝22時28分36秒のお言葉の場面）。方法でない質問を真にすると、方法でない
 お断り（今月中のご導入）のあとにご案内の方法を申し出る（会話がつながらない）⇒ 会話がつながらない側を避ける（G-71 の形で、試しの質問の文でそろいと取り違えを測る）。
 """
@@ -31,11 +31,11 @@ FIELD, DESC = "way", "ご案内・ご連絡の方法でよいかを伺う質問�
 TOOL = ("ways", "質問ごとの、ご案内・ご連絡の方法でよいかを伺う質問か")
 
 
-def by_model(client, model: str, questions: list[str]) -> list[bool | None]:
+def by_model(client, model: str, questions: list[str], think: bool = False) -> list[bool | None]:
     """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions と同じ並びの答え（無ければ None）を返す（askitems.ask_flags）。"""
     from askitems import ask_flags
 
-    return ask_flags(client, model, PROMPT, questions, FIELD, DESC, TOOL)
+    return ask_flags(client, model, PROMPT, questions, FIELD, DESC, TOOL, think)
 
 
 def decide(model_ways: list[bool | None]) -> bool:

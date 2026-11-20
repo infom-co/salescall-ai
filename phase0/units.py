@@ -10,7 +10,8 @@
   日本語の数え方の言葉で、業務ごとに足すものではない。
 - by_model：文字のモデルに、質問が何を数えているか（counted）と、数字のすぐあとに付ける言葉（unit）を答えさせる。1つに決まらない
   （広さ＝平米・畳・坪、期間＝日・か月・年 など）ときは空にさせる。
-- decide：2つを合わせる（どう合わせるかは G-41 の数で決める）。決まらなければ空＝単位を補わない（いまと同じ形のまま）。
+- decide：2つを合わせる（どう合わせるかは G-41 の数で決める）。合わない質問は、取込で考える Sonnet が決める（扱いの1か所＝import_ai.SPLIT。帳面 0-2）。それでも決まらなければ空＝単位を
+  補わない（いまと同じ形のまま）。
 使い方（会話のとき）：supply_unit が、数字だけの値（「3」「2か3」「3くらい」）に単位を補う。単位がもう付いている値（「3人」「3名様」
 「大人2人と子ども1人」「ふたり」）は変えない。補った値が、言い直し（「3人で大丈夫でしょうか？」）と依頼主へ渡す値（「3人」）の両方になる。
 """
@@ -79,13 +80,15 @@ FIELDS = {"no": ("integer", "質問の番号"), "counted": ("string", "何の数
 REQUIRED = ["no", "counted", "unit"]
 
 
-def by_model(client, model: str, questions: list[tuple[str, str]]) -> list[dict]:
+def by_model(client, model: str, questions: list[tuple[str, str]], think: bool = False) -> list[dict]:
     """questions＝[(業務の目的, 質問の文)]。1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。
-    戻り値は questions と同じ並びの [{"counted", "unit"(そろえたもの), "raw_unit", "reason"}]。答えの無い質問は unit を空にする。"""
+    戻り値は questions と同じ並びの [{"counted", "unit"(そろえたもの), "raw_unit", "reason"}]。答えの無い質問は unit を空にする。think＝考える形で聞く
+    （2つのモデルがそろわなかった質問だけを聞く考える Sonnet＝import_ai._decide_each）。"""
     from askitems import ask
 
     body = "\n".join(f"{n}：{purpose}／{q}" for n, (purpose, q) in enumerate(questions, 1))
-    got = {x.get("no"): x for x in ask(client, model, PROMPT + body, FIELDS, required=REQUIRED, tool=("units", "質問ごとの、数える言葉"))
+    got = {x.get("no"): x for x in ask(client, model, PROMPT + body, FIELDS, required=REQUIRED, tool=("units", "質問ごとの、数える言葉"),
+                                          think=think)
            if isinstance(x, dict)}
     out = []
     for n in range(1, len(questions) + 1):

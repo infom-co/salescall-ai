@@ -8,7 +8,7 @@
 ✅ 2026-10-16 ユーザー：「人は基本的に介在しないと何度も言っているよね！」⇒ 取込のプレビューで人が確かめる形にはしない。
 
 決め方（topics.decide と同じ形）：文字のモデル2つに、1回の問い合わせでまとめて答えさせる（by_model）。プログラムの確かめ（check）に通り、
-2つのモデルの言葉が同じときだけ使う（decide）。決まらない選択肢は空＝選択肢の名前で言い直す（返事の言葉だけの名前は言い直せないので、
+2つのモデルの言葉が同じときだけ使う（decide）。そろわない選択肢は、取込で考える Sonnet が決める（扱いの1か所＝import_ai.SPLIT。帳面 0-2）。それでも決まらない選択肢は空＝選択肢の名前で言い直す（返事の言葉だけの名前は言い直せないので、
 言い直さずに聞き返す＝flowctl._ask_confirm。止まらない）。⚠️ 意味を取り違えた言葉（「はい」に「まだ」の意味）は、相手が認めると逆の答えが
 渡る＝誤りを0にすることを一番にする（G-48 で1つずつ見る）。
 """
@@ -137,12 +137,12 @@ FIELDS = {"no": ("integer", "質問の番号"), "choice": ("string", "選択肢�
 TOOL = ("words", "選択肢ごとの言葉")
 
 
-def by_model(client, model: str, questions: list[tuple[str, tuple]], kind: str = "meaning") -> list[dict]:
+def by_model(client, model: str, questions: list[tuple[str, tuple]], kind: str = "meaning", think: bool = False) -> list[dict]:
     """questions＝[(質問の文, 選択肢の並び)]。1回の問い合わせでまとめて答えさせ、質問ごとに {選択肢: 言葉}（そろえたもの）を返す。kind＝言葉の種類（PROMPTS）。
-    送り先は部品の作りで決まる（Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask）。"""
+    送り先は部品の作りで決まる（Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask。think＝考える形で聞く＝そろわなかった質問だけを聞く考える Sonnet）。"""
     from askitems import ask
 
-    return _read_items(ask(client, model, PROMPTS[kind] + _body(questions), FIELDS, tool=TOOL), questions)
+    return _read_items(ask(client, model, PROMPTS[kind] + _body(questions), FIELDS, tool=TOOL, think=think), questions)
 
 
 def _body(questions: list[tuple]) -> str:
@@ -265,16 +265,17 @@ REPLY_FIELDS = {"no": ("integer", "質問の番号"), "word": ("string", "お客
                 "choice": ("string", "選択肢（書いてあるとおり）。決まらなければ空")}
 
 
-def by_model_replies(client, model: str, questions: list[tuple[str, tuple]]) -> list[dict]:
+def by_model_replies(client, model: str, questions: list[tuple[str, tuple]], think: bool = False) -> list[dict]:
     """受け入れにも断りにも取れる言葉（flowctl.AMBIGUOUS_WORDS）だけの答えが、質問ごとにどの選択肢の意味になるか。
-    1回の問い合わせでまとめて答えさせ、質問ごとに {言葉: 選択肢}（決まらない言葉は入れない）を返す。"""
+    1回の問い合わせでまとめて答えさせ、質問ごとに {言葉: 選択肢}（決まらない言葉は入れない）を返す（think＝考える形で聞く＝そろわなかった質問だけを聞く考える Sonnet）。"""
     from askitems import ask
     from flowctl import AMBIGUOUS_WORDS
 
     said = {w: f"{w}です" for w in AMBIGUOUS_WORDS}  # お客様の言葉の形（「結構です」）
     body = "\n".join(f"{n}：{q}／{'・'.join(c)}" for n, (q, c) in enumerate(questions, 1))
     out = [{} for _ in questions]
-    for x in ask(client, model, REPLY_PROMPT.format(words="」「".join(said.values())) + body, REPLY_FIELDS, tool=("replies", "曖昧な言葉ごとの選択肢")):
+    for x in ask(client, model, REPLY_PROMPT.format(words="」「".join(said.values())) + body, REPLY_FIELDS, tool=("replies", "曖昧な言葉ごとの選択肢"),
+                 think=think):
         if not isinstance(x, dict):
             continue
         n, word, choice = x.get("no"), clean(x.get("word")), clean(x.get("choice"))

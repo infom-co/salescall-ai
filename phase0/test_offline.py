@@ -12532,7 +12532,7 @@ class EndJudgedTest(unittest.TestCase):
         self.assertEqual(meanings.decide(HANDOFF_DO, ("訪問", "お電話"), rows, "way"), {"訪問": visit})
         asked = []
         orig = meanings.by_model
-        meanings.by_model = lambda c, m, items, kind="meaning": asked.append((m, kind, items)) or rows[len(asked) - 1:len(asked)] * len(items)
+        meanings.by_model = lambda c, m, items, kind="meaning", think=False: asked.append((m, kind, items)) or rows[len(asked) - 1:len(asked)] * len(items)
         try:
             got = import_ai.decide_way_words([(None, "a"), (None, "b")], [(HANDOFF_DO, ("訪問", "お電話"))])
         finally:
@@ -20169,7 +20169,8 @@ class ApprovalTest(unittest.TestCase):
 
     def test_unclear_question_is_decided_by_two_models(self):
         # 取込で、質問ごとに「ほかに分からない点が無いかを伺う質問か」と「無い」にあたる選択肢を、文字のAI2つに決めさせる（facts.decide と同じ形。人は確かめない）。
-        # 2つがそろったときだけ印を付ける（そろわなければ伺う側＝重ねて伺うほうが、伺うべき質問を飛ばすより害が軽い）
+        # 2つがそろったときだけ印を付ける（unclear.decide。取込は、そろわない質問を考える Sonnet に聞き、それでも決まらなければ伺う側＝重ねて伺うほうが、
+        # 伺うべき質問を飛ばすより害が軽い。考える Sonnet の試験は ImportSplitTest）
         import unclear
         conds = ("はい", "いいえ")
         yes = {"asks": True, "none": "いいえ"}
@@ -20182,10 +20183,10 @@ class ApprovalTest(unittest.TestCase):
         import import_ai
         from unittest import mock
         answers = {"m1": [yes, {"asks": False, "none": ""}], "m2": [yes, {"asks": False, "none": ""}]}
-        with mock.patch.object(unclear, "by_model", side_effect=lambda c, m, items: answers[m]):
+        with mock.patch.object(unclear, "by_model", side_effect=lambda c, m, items, think=False: answers[m]):
             self.assertEqual(import_ai.decide_unclear([(None, "m1"), (None, "m2")], [("ご不明な点はございますでしょうか？", conds),
                                                                                      ("資料は届いていますでしょうか？", conds)]), ["いいえ", ""])
-        def broken(c, m, items):
+        def broken(c, m, items, think=False):
             if m == "m2":
                 raise RuntimeError("時間切れ")
             return answers[m]
@@ -22302,6 +22303,142 @@ class ImportAITest(unittest.TestCase):
         fn = next(n for n in ast.walk(ast.parse(src.read_text(encoding="utf-8"))) if isinstance(n, ast.FunctionDef) and n.name == "preview")
         theirs = {a.arg for a in fn.args.kwonlyargs + fn.args.args if a.arg.startswith("decide_")}
         self.assertEqual(sorted(theirs ^ without_cl2_pending(self, set(import_ai.DECIDERS), theirs)), [], "CL-2 の取込とこちらで、決める処理の名前が違う")
+
+
+class ImportSplitTest(unittest.TestCase):
+    """取込で2つの文字のAIがそろわない材料の扱いは、import_ai の1か所（_decide_each）が、決め方ごとの表（import_ai.SPLIT）から読む：考える Sonnet で決める
+    決め方は、そろわない材料だけを、まとめて1回、考える Sonnet（deciders の referee）に考える形で聞き、その決め方の今の確かめ（decide＝形・選択肢・意味の言葉との向き）
+    を通った答えだけを、そろわなかった所だけに使う（通らない・答えない・referee が無いときは今の空）。書いてある既定とそのよりどころのある決め方（事実を伺う質問か・
+    目的から遠ざかる向き・お呼びする方の一文）は、既定のまま考える Sonnet に聞かない。そろったときも聞かない（そろって空も、決まった空）。✅ 帳面 0-2「そろわない
+    ときは、考える Sonnet で決め」・帳面 4-125 の ⏳（締める前の申し出のこちらがすること do）・本書 9-5 の ⚠️（印が空の質問は「続きまして」のまま＝11-07 日本時間
+    4時40分35秒「ここで「続きまして」はおかしいでしょ」）。⛔ 直す前は、ほかに分からない点が無いかの印・こちらがすることの言葉など13の決め方が考える Sonnet を
+    受けず、そろわなければ空・既定にし、そろわないときの扱いが決め方ごとに別々だった（棚卸し rv179/I の束2 B2・7章 L1）"""
+    ASKERS = [("a", "m1"), ("b", "m2")]
+    YES, NOT = {"asks": True, "none": "はい"}, {"asks": False, "none": ""}
+
+    def setUp(self):
+        self.calls = []
+
+    def fake(self, answers):
+        """モデルの名前ごとの答え（材料 → 答え。誤りを入れたモデルは問い合わせの誤り）を返す偽の by_model。考える形で聞かれたか（think）も控える。"""
+        def by(client, model, items, *rest, think=False):
+            self.calls.append((model, len(items), think))
+            if isinstance(answers[model], Exception):
+                raise answers[model]
+            return [answers[model](x) for x in items]
+        return by
+
+    def decide(self, name, target, answers, items, referee=True, seen=None):
+        from unittest import mock
+        import import_ai
+        with mock.patch(target, self.fake(answers)):
+            fns = import_ai.deciders(self.ASKERS, on_error=None if seen is None else (lambda e, m: seen.append(m)),
+                                     referee=("c", "sonnet") if referee else None)
+            return fns[name](items)
+
+    def sonnet(self):
+        return [c for c in self.calls if c[0] == "sonnet"]
+
+    def test_one_table_for_every_decider(self):
+        import inspect
+        import import_ai
+        self.assertEqual(set(import_ai.SPLIT), set(import_ai.DECIDERS))   # 決め方ごとに1行（表に無い決め方を作らない）
+        # 行は (扱い, よりどころ)：考える Sonnet で決める行は、それでも決まらないときの最後の段（帳面 0-2 の順・本書 6-2 の「決まらなければ空＝通話の中で確かめる」）、
+        # 書いてある既定の行は、その既定と倒す側を決めた理由の場所
+        want = {import_ai.BY_REFEREE: "最後の段＝", import_ai.WRITTEN: "既定＝"}
+        for name, (how, note) in import_ai.SPLIT.items():
+            self.assertTrue(how in want and note.startswith(want[how]) and "（" in note, f"{name}：{how}・{note}")
+        # 書いてある既定とそのよりどころがあるのは3つ（ほかは帳面 0-2 のとおり考える Sonnet）
+        self.assertEqual(sorted(n for n, (how, _) in import_ai.SPLIT.items() if how != import_ai.BY_REFEREE), ["decide_away", "decide_facts", "decide_target_asks"])
+        # 考える Sonnet は、呼ぶ側（deciders）が1か所から全部の決め方に渡す（決め方ごとに渡し分けない）
+        for name, fn in import_ai.DECIDERS.items():
+            self.assertIn("referee", inspect.signature(fn).parameters, name)
+
+    def test_split_unclear_mark_is_decided_by_the_referee(self):
+        q1, q2, q3 = "ご不明な点はございませんでしょうか？", "ほかに気になる点はございませんでしょうか？", "ご予約はされていますでしょうか？"
+        items = [(q, ("はい", "いいえ")) for q in (q1, q2, q3)]
+        m2 = {q1: self.YES, q2: self.NOT, q3: self.NOT}
+        answers = {"m1": lambda x: self.NOT if x[0] == q3 else self.YES, "m2": lambda x: m2[x[0]], "sonnet": lambda x: self.YES}
+        self.assertEqual(self.decide("decide_unclear", "unclear.by_model", answers, items), ["はい", "はい", ""])
+        self.assertEqual(self.sonnet(), [("sonnet", 1, True)])   # そろわない q2 だけを、まとめて1回・考える形で（そろって空の q3 は聞かない）
+        # 考える Sonnet が無い・答えない・答えが今の確かめに通らない（「無い」が選択肢に無い）ときは今の空（伺う）
+        self.assertEqual(self.decide("decide_unclear", "unclear.by_model", answers, items, referee=False), ["はい", "", ""])
+        seen = []
+        self.assertEqual(self.decide("decide_unclear", "unclear.by_model", {**answers, "sonnet": RuntimeError("503")}, items, seen=seen), ["はい", "", ""])
+        self.assertEqual(seen, ["sonnet"])
+        odd = {**answers, "sonnet": lambda x: {"asks": True, "none": "分かった"}}
+        self.assertEqual(self.decide("decide_unclear", "unclear.by_model", odd, items), ["はい", "", ""])
+        # そろったときは聞かない
+        self.calls.clear()
+        self.assertEqual(self.decide("decide_unclear", "unclear.by_model", {**answers, "m2": answers["m1"]}, items), ["はい", "はい", ""])
+        self.assertEqual(self.sonnet(), [])
+
+    def test_split_do_words_fill_only_the_split_choice(self):
+        # 締める前の申し出のこちらがすること（CloseOffer.do＝close_offer_do_question を decide_do_words に渡した「はい」の言葉）：そろわなければ申し出を作れなかった
+        from flowctl import CloseOffer, close_offer_do_question
+        offer = "それでは改めて資料をお送りさせていただいてもよろしいでしょうか？"
+        item = close_offer_do_question(offer)
+        do, no = "改めて資料をお送りさせていただきます", "改めての資料の送付は控えさせていただきます"
+        answers = {"m1": lambda x: {"はい": do, "いいえ": no}, "m2": lambda x: {"はい": "改めて資料をお送りします", "いいえ": no},
+                   "sonnet": lambda x: {"はい": do, "いいえ": "資料の送付は控えさせていただきます"}}
+        got = self.decide("decide_do_words", "meanings.by_model", answers, [item])
+        self.assertEqual(got, [{"はい": do, "いいえ": no}])   # そろった「いいえ」は考える Sonnet の言葉で替えない
+        self.assertEqual(self.sonnet(), [("sonnet", 1, True)])
+        self.assertEqual(CloseOffer(offer, "資料のお送りのご希望", ("メール", "郵送"), do=got[0]["はい"]).do, do)
+        # 考える Sonnet の言葉も、意味の言葉と向きがそろうときだけ（G-72）・referee が無ければ今のまま
+        flipped = {**answers, "sonnet": lambda x: {"はい": no, "いいえ": no}}
+        self.assertEqual(self.decide("decide_do_words", "meanings.by_model", flipped, [item]), [{"いいえ": no}])
+        self.assertEqual(self.decide("decide_do_words", "meanings.by_model", answers, [item], referee=False), [{"いいえ": no}])
+        # いまの話の向きを伺う言葉も同じ1つの決め方（設計書 6-10 の一本化の残りの (b)）
+        q, m = ImportAITest.Q, ImportAITest.MEANING
+        send, keep = "パンフレットをお送りした方がいい", "パンフレットはお送りしない方がいい"
+        doubt = {"m1": lambda x: {"はい": send, "いいえ": keep}, "m2": lambda x: {"はい": send + "ということ", "いいえ": keep},
+                 "sonnet": lambda x: {"はい": send, "いいえ": keep}}
+        self.assertEqual(self.decide("decide_doubt_words", "meanings.by_model", doubt, [(q, ("はい", "いいえ"), m)]), [{"はい": send, "いいえ": keep}])
+
+    def test_written_defaults_stay_without_the_referee(self):
+        q = "ご予約はされていますでしょうか？"
+        split = {"m1": lambda x: True, "m2": lambda x: False, "sonnet": lambda x: False}
+        self.assertEqual(self.decide("decide_facts", "facts.by_model", split, [q]), {q: True})   # そろわなければ事実を伺う質問
+        self.assertEqual(self.decide("decide_target_asks", "target_asks.by_model", {**split, "sonnet": lambda x: True}, [q]), {q: False})
+        away = {"m1": lambda x: {"はい": "進む", "いいえ": "遠ざかる"}, "m2": lambda x: {"はい": "遠ざかる", "いいえ": "遠ざかる"},
+                "sonnet": lambda x: {"はい": "進む", "いいえ": "遠ざかる"}}
+        self.assertEqual(self.decide("decide_away", "meanings.by_model", away, [(q, ("はい", "いいえ"), {})]), [("はい", "いいえ")])   # 1つでも遠ざかる＝安全側
+        self.assertEqual(self.sonnet(), [])
+
+    def test_other_split_answers_go_to_the_referee_and_agreed_empties_do_not(self):
+        pamph = "パンフレットをお送りしてもよろしいでしょうか？"
+        yes_m, no_m = "パンフレットをお送りしてよいということ", "パンフレットはお送りしないということ"
+        bus, conds = "送迎バスはご利用になりますでしょうか？", ("利用する", "利用しない")
+        maybe = {"choice": "利用する", "words": "送迎バスをご利用になる"}
+        sent = "資料はお手元に届いていますでしょうか？"
+        from phrases import HANDOFF_DO as do
+        visit = "詳しい者がご訪問のうえお話しさせていただきます"
+        cars = ("車の買い取り", "お持ちのお車の数を教えてください。")
+        # (決め方, 偽に替える by_model, 材料, m1, m2（そろわない）, 考える Sonnet, (直したあと, 2つとも m2 の答えでそろったとき))
+        cases = [
+            ("decide_units", "units.by_model", cars, {"unit": "台"}, {"unit": ""}, {"unit": "台"}, ({cars[1]: "台"}, {})),
+            ("decide_meanings", "meanings.by_model", (pamph, ("はい", "いいえ")), {"はい": yes_m, "いいえ": no_m}, {"はい": no_m, "いいえ": no_m},
+             {"はい": yes_m, "いいえ": yes_m}, ([{"はい": yes_m, "いいえ": no_m}], [{"はい": no_m, "いいえ": no_m}])),
+            ("decide_replies", "meanings.by_model_replies", (pamph, ("はい", "いいえ")), {"結構": "いいえ"}, {}, {"結構": "いいえ", "大丈夫": "はい"},
+             ([{"結構": "いいえ"}], [{}])),
+            ("decide_ways", "ways.by_model", "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？", True, False, True,
+             ({"担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？": True}, {"担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？": False})),
+            ("decide_maybes", "maybes.by_model", (bus, conds), maybe, {"choice": "", "words": ""}, maybe, ([("利用する", "送迎バスをご利用になる")], [()])),
+            ("decide_way_words", "meanings.by_model", (do, ("訪問", "お電話")), {"訪問": visit}, {"訪問": "担当者がご訪問いたします"}, {"訪問": visit},
+             ([{"訪問": visit}], [{}])),
+            ("decide_at_hand", "announces.hand_by_model", (sent, ("はい", "いいえ")), {"asks": True, "yes": "はい"}, {"asks": False, "yes": ""},
+             {"asks": True, "yes": "はい"}, (["はい"], [""])),
+        ]
+        for name, target, item, a, b, s, (after, agreed) in cases:
+            with self.subTest(name):
+                self.calls.clear()
+                got = self.decide(name, target, {"m1": lambda x, a=a: a, "m2": lambda x, b=b: b, "sonnet": lambda x, s=s: s}, [item])
+                self.assertEqual((got, self.sonnet()), (after, [("sonnet", 1, True)]))
+                # そろったとき（そろって空・そろって形に合わない＝どちらの文字のAIだけでも決まらない、も決まった空）は考える Sonnet に聞かない
+                self.calls.clear()
+                got = self.decide(name, target, {"m1": lambda x, b=b: b, "m2": lambda x, b=b: b, "sonnet": lambda x, s=s: s}, [item])
+                self.assertEqual((got, self.sonnet()), (agreed, []))
 
 
 
@@ -28314,7 +28451,7 @@ class TalkAndAcceptedTest(unittest.TestCase):
         self.assertEqual(import_ai.decide_matters([(a, "m1"), (b, "m2")], pairs, referee=(ref, "claude-sonnet-5-5")), [("キャンセル", ""), ("", "")])
         fns = import_ai.deciders([(a, "m1"), (a, "m2")])
         self.assertEqual(fns["decide_matters"](pairs), [("キャンセル", ""), ("料金", "")])
-        self.assertIn("decide_matters", import_ai.REFEREED)
+        self.assertEqual(import_ai.SPLIT["decide_matters"][0], import_ai.BY_REFEREE)
 
 
 class MessageAgainTest(unittest.TestCase):
@@ -28418,7 +28555,7 @@ class TopicRefereeTest(unittest.TestCase):
         got, calls = self.decide(two, None, referee=False)
         self.assertEqual(got, {self.RULE: "ご希望の日時", self.TEXTS[0]: "ご来店の人数"})
         self.assertEqual(len(calls), 2)
-        self.assertIn("decide_topics", import_ai.REFEREED)
+        self.assertEqual(import_ai.SPLIT["decide_topics"][0], import_ai.BY_REFEREE)
 
 
 class PurposeRefereeTest(unittest.TestCase):
@@ -28447,7 +28584,7 @@ class PurposeRefereeTest(unittest.TestCase):
                          ("先日お送りしたお見積りの件", [False, False, True]))
         self.assertEqual(self.decide(["先日お送りしたお見積りの件", "お見積り"], "ご提案の件")[0], "")   # 文に無い言葉は使わない
         self.assertEqual(self.decide(["先日お送りしたお見積りの件", "お見積り"], None)[0], "")
-        self.assertIn("decide_purposes", import_ai.REFEREED)
+        self.assertEqual(import_ai.SPLIT["decide_purposes"][0], import_ai.BY_REFEREE)
 
 
 class RewordsTest(unittest.TestCase):
@@ -28492,7 +28629,7 @@ class RewordsTest(unittest.TestCase):
         rows = iter([[self.PAY2, "ご予算は？"], [self.PAY2, fee2], [fee2]])
         with mock.patch.object(rewords, "by_model", by_model), mock.patch.object(rewords, "grounded", lambda c, m, *a: a[-1] != fee2):
             self.assertEqual(import_ai.decide_rewords([("a", "m1"), ("b", "m2")], items, referee=("c", "sonnet")), [self.PAY2, ""])
-        self.assertIn("decide_rewords", import_ai.REFEREED)
+        self.assertEqual(import_ai.SPLIT["decide_rewords"][0], import_ai.BY_REFEREE)
 
 
 class AlternativesTest(unittest.TestCase):
@@ -28578,7 +28715,7 @@ class AlternativesTest(unittest.TestCase):
         with mock.patch.object(alternatives, "by_model", by_model), mock.patch.object(alternatives, "grounded", ok):
             self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items, referee=("c", "sonnet")), [(self.ALT, ("",)), ("", ("",))])
         self.assertEqual(checked, [self.ALT])
-        self.assertIn("decide_alternatives", import_ai.REFEREED)
+        self.assertEqual(import_ai.SPLIT["decide_alternatives"][0], import_ai.BY_REFEREE)
         self.assertIn("decide_alternatives", import_ai.deciders([("a", "m1"), ("b", "m2")], referee=("c", "sonnet")))
 
 

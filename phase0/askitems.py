@@ -48,7 +48,7 @@ def ask(client, model: str, prompt: str, fields: dict[str, Field], *, required: 
     """prompt を1回送り、答えの並び（key の中身。読み取り・並べ直しは呼ぶ側）を返す。fields＝{欄の名前: (型, 説明)}（並びのまま送る）。
     required＝Gemini の答えの形で欠かせない欄（無ければ全部。Anthropic は strict なので全部）。tool＝Anthropic の道具の (名前, 説明)。
     think＝Anthropic を考える形で聞く（考える段を入れ、道具を使わず返事の形を決めて JSON で返させる＝判定の「考える Sonnet」と同じ送り方
-    meaning_judge.OTHER_JUDGES。名前を指定した道具の呼び出しは考える段を飛ばすため）。2つの文字のAIがそろわなかった文だけを聞く所（import_ai.decide_since）。
+    meaning_judge.OTHER_JUDGES。名前を指定した道具の呼び出しは考える段を飛ばすため）。2つの文字のAIがそろわなかった材料だけを聞く所（import_ai._decide_each）。
     Anthropic が答えの形で返さなければ誤りを上げる（呼ぶ側＝import_ai._each が、そのモデルの答えは無いとして決める）。"""
     if hasattr(client, "messages"):
         from meaning_judge import SPEND
@@ -80,12 +80,13 @@ def ask(client, model: str, prompt: str, fields: dict[str, Field], *, required: 
     return json.loads(r.text).get(key, []) or []
 
 
-def ask_flags(client, model: str, prompt: str, texts: list[str], field: str, desc: str, tool: tuple[str, str]) -> list[bool | None]:
+def ask_flags(client, model: str, prompt: str, texts: list[str], field: str, desc: str, tool: tuple[str, str], think: bool = False) -> list[bool | None]:
     """質問の文ごとに真か偽かを、1回の問い合わせでまとめて答えさせる唯一の場所（事実を伺う質問か＝facts・お呼びする方がいらっしゃるかの一文か＝target_asks・
     ご案内の方法を伺う質問か＝ways）。送る文は prompt＋「番号：質問の文」の並び、答えの欄は「no」（質問の番号）と field（desc の真偽）。texts と同じ並びの答え
-    （無い・形の違うものは None）を返す。⛔ 2026-11-05 まで、決め方ごとに同じ聞き方と読み取りを写していた（facts・target_asks の by_model と _read_items）。"""
+    （無い・形の違うものは None）を返す。think＝考える形で聞く（ask の1か所）。⛔ 2026-11-05 まで、決め方ごとに同じ聞き方と読み取りを写していた（facts・target_asks の
+    by_model と _read_items）。"""
     body = "\n".join(f"{n}：{t}" for n, t in enumerate(texts, 1))
-    items = ask(client, model, prompt + body, {"no": ("integer", "質問の番号"), field: ("boolean", desc)}, tool=tool)
+    items = ask(client, model, prompt + body, {"no": ("integer", "質問の番号"), field: ("boolean", desc)}, tool=tool, think=think)
     got = {x.get("no"): x.get(field) for x in items or [] if isinstance(x, dict)}
     return [got.get(n) if isinstance(got.get(n), bool) else None for n in range(1, len(texts) + 1)]
 
