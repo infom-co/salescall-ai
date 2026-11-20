@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from salescall.core import errors, gate, health, health_rules
+from salescall.core import attempts, errors, gate, health, health_rules
 from salescall.core.access import Tx
 from salescall.output import notices, words
 from salescall.web import links
@@ -71,22 +71,22 @@ def _runner_stuck(tx: Tx) -> list[Entry]:
     return [Entry(r["name"] or "回線", errors.LABELS["runner_stuck"], r["occurred_at"], "/t/lines", r["message"] or "") for r in rows]
 
 
-def _calls(where_sql: str) -> Callable[[Tx], list[Entry]]:
+def _calls(kind: str) -> Callable[[Tx], list[Entry]]:
+    """お詫びして終えた電話（直近 DAYS 日）。読むのは core の attempts.ended_with_trouble の1か所（絞り方は attempts.ENDED_KINDS。CL-2 4-451）。"""
     def collect(tx: Tx) -> list[Entry]:
-        rows = tx.all("SELECT attempt_id, task_id, trouble, trouble_why, ended_at FROM salescall.attempts"
-                      f" WHERE {where_sql} AND ended_at > now() - make_interval(days => %s) ORDER BY ended_at DESC LIMIT %s", (DAYS, LIMIT))
+        rows = attempts.ended_with_trouble(tx, kind, days=DAYS, limit=LIMIT)
         info = links.rows(tx, [r["task_id"] for r in rows])
         return [Entry(info[r["task_id"]]["who"], words.call_end(r["trouble"]), r["ended_at"],
                       f"{info[r['task_id']]['url']}/calls/{r['attempt_id']}", words.plain(r["trouble_why"] or "")) for r in rows if r["task_id"] in info]
     return collect
 
 
-def _rows(stage: str, detail: Callable[[Any], str]) -> Callable[[Tx], list[Entry]]:
+def _rows(stage: health_rules.TaskStage, detail: Callable[[Any], str]) -> Callable[[Tx], list[Entry]]:
+    """その段にいる行。読むのは core の health.rows_in_stage の1か所（CL-2 4-451）。"""
     def collect(tx: Tx) -> list[Entry]:
-        rows = tx.all("SELECT task_id, state, moved_at FROM salescall.task_states WHERE stage = %s ORDER BY moved_at, task_id LIMIT %s",
-                      (stage, LIMIT))
+        rows = health.rows_in_stage(tx, stage, limit=LIMIT)
         info = links.rows(tx, [r["task_id"] for r in rows])
-        return [Entry(info[r["task_id"]]["who"], detail(health.decode(r["state"])), r["moved_at"], info[r["task_id"]]["url"])
+        return [Entry(info[r["task_id"]]["who"], detail(r["state"]), r["moved_at"], info[r["task_id"]]["url"])
                 for r in rows if r["task_id"] in info]
     return collect
 
@@ -143,22 +143,22 @@ WATCHES: dict[str, Watch] = {
     "ring_tests": Watch("テスト番号の結果（直近7日）", "回線が電話網につながるかを、テスト番号に鳴らして確かめた結果です。「見分けられなかった」ときは、"
                         "すぐお知らせしています。", "tenant", _ring_tests, attention=False),
     "undecided_rows": Watch("番号か回線か、決まらず休んでいる行", "お客様のところで鳴らなかった電話が、番号のせいか回線のせいか、同じ回線の次の電話で"
-                            "決まるのを待っています。その行にこだわらず、回線は次の行へ進んでいます（計画書 10-3）。", "client",
-                            _rows("await_decision", lambda st: health_rules.TaskStage.AWAIT_DECISION.value)),
+                            "決まるのを待っています。その行にこだわらず、回線は次の行へ進んでいます。", "client",
+                            _rows(health_rules.TaskStage.AWAIT_DECISION, lambda st: health_rules.TaskStage.AWAIT_DECISION.value)),
     "fault_calls": Watch("こちらの不具合で終えた電話（直近7日）", "こちらのプログラムの不具合で終えた電話です。番号・回線・行の回数には数えません。"
-                         "直す担当へ修正依頼が出ています。", "client", _calls("salescall.trouble_ours(trouble)"), attention=False),
+                         "直す担当へ修正依頼が出ています。", "client", _calls("ours"), attention=False),
     "runner_stuck": Watch("お詫びのあとも通話の部品が戻らない（直近7日）", "通話の部品が、お詫びして終えたあとも戻らなかった記録です。",
                           "tenant", _runner_stuck, attention=False),
     "resting_rows": Watch("こちらの不具合で休ませている行", "同じ行で、こちらの不具合が続けて起きたので休ませています。", "client",
-                          _rows("resting", _resting)),
+                          _rows(health_rules.TaskStage.RESTING, _resting)),
     "recovery_rows": Watch("復旧を待っている行", "こちらの不具合で終えた電話の続きです。復旧を確かめたら、すぐ（お客様が出たあとならお詫びとともに）"
-                           "かけ直します。", "client", _rows("await_recovery", _stage_reason("await_recovery"))),
+                           "かけ直します。", "client", _rows(health_rules.TaskStage.AWAIT_RECOVERY, _stage_reason("await_recovery"))),
     "voice_rows": Watch("声が聞き取れず、かけ直しを待っている行", "声が聞き取れずに終えた電話（こちらの不具合には数えません）のあと、声が通ると"
-                        "分かっている回線を待っています。", "client", _rows("voice_redial", _stage_reason("voice_redial"))),
+                        "分かっている回線を待っています。", "client", _rows(health_rules.TaskStage.VOICE_REDIAL, _stage_reason("voice_redial"))),
     "name_recordings": Watch("名前の録音がそろわず、かけられない行", "お呼びする方のお名前などの録音がそろうまで、その行にはおかけしません。"
                              "録音がそろうと、自動でかけ始めます。", "client", _name_recordings),
     "voice_calls": Watch("声が聞き取れずに終えた電話（直近7日）", "お客様の電波などで声が聞き取れず、お詫びして終えた電話です。同じ回線で違うお客様に"
-                         "続けば、回線の異常として扱います。", "client", _calls("trouble = 'poor_audio'"), attention=False),
+                         "続けば、回線の異常として扱います。", "client", _calls("poor_audio"), attention=False),
 }
 
 

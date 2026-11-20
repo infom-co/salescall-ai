@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, business_settings, metrics
+from salescall.core import approval, business_settings, metrics, stops
 from salescall.core.access import Tx
 from salescall.output import words
 from salescall.web.context import Ctx
@@ -25,10 +25,19 @@ def open_stops(ctx: Ctx) -> list[dict[str, Any]]:
     停止（全体・契約者・回線の範囲）と、依頼者ごとの取引で見える停止を合わせ、同じ停止は1つにする。⛔ 2026-11-18 の見本の画面で、
     契約者の取引だけを読み、依頼者の範囲の停止を数え漏らしていたのを見つけた。各行の `client_id`＝開く・解くときに使う取引の依頼者
     （依頼者・業務の範囲だけ。ほかは None＝契約者の取引）。"""
-    found: dict[int, dict[str, Any]] = {r["event_id"]: {**r, "client_id": None} for r in ctx.tenant(lambda tx: tx.all(_OPEN))}
-    for c in ctx.clients():
-        for r in ctx.client(c["client_id"], lambda tx: tx.all(_OPEN + " WHERE scope IN ('client', 'business')"), read_only=True):
-            found[r["event_id"]] = {**r, "client_name": c["name"]}
+    found: dict[int, dict[str, Any]] = {}
+    def tenant_side(tx: Tx) -> list[Any]:   # 契約者の取引で見える停止と、依頼者・業務の範囲の停止の一覧（core の stops.client_stops＝CL-2 4-452）
+        return [tx.all(_OPEN), stops.client_stops(tx)]
+    own, scoped = ctx.tenant(tenant_side)
+    found.update({r["event_id"]: {**r, "client_id": None} for r in own})
+    # 依頼者・業務の範囲の停止の理由の文は、その依頼者の取引でしか読めないので、停止のある依頼者だけを開く（前は、すべての依頼者を開いていた）
+    names = {c["client_id"]: c["name"] for c in ctx.clients()}
+    by_client: dict[Any, list[int]] = {}
+    for r in scoped:
+        by_client.setdefault(r["client_id"], []).append(r["event_id"])
+    for cid, ids in by_client.items():
+        for r in ctx.client(cid, lambda tx, ids=ids: tx.all(_OPEN + " WHERE event_id = ANY(%s)", (ids,)), read_only=True):
+            found[r["event_id"]] = {**r, "client_name": names.get(cid, "")}
     return sorted(found.values(), key=lambda r: (r["at"], r["event_id"]), reverse=True)
 
 
