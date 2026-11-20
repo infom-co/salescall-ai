@@ -232,6 +232,10 @@ class UiaScreen:
                 raise RuntimeError(f"{key} が見つからない")
             self._press(part)
             time.sleep(0.5)
+        # 「＋」（新しいメッセージ）を押すと「メッセージ」「グループ」のメニューが出るので、メニューの中の「メッセージ」を選ぶ
+        # （左の「メッセージ」のタブと同じ名前なので、＋を押したあとに新しく出た部品だけから選ぶ。2026-11-20 管理者が教えてくれた）
+        self._press(self._menu_choice(main, "メッセージ"))
+        time.sleep(0.5)
         box = None
         for _ in range(20):
             box = self._part(main, "to_box")
@@ -255,6 +259,25 @@ class UiaScreen:
         if send is None:
             raise RuntimeError("送信のボタンが見つからない")
         self._press(send)
+
+    def _menu_choice(self, main: Any, name: str) -> Any:
+        """「＋」を押したあとに出たメニューの中から、name の項目を選ぶ。左のタブ（rktn-route-list の中）は選ばない。
+        メニューは、いつもの窓の中か、別の小さな窓に出る。"""
+        tab = self._part(main, "message_tab")
+        tab_id = tab.element_info.runtime_id if tab is not None else None
+        for _ in range(20):
+            places = [main] + [w for w in self._desktop.windows() if (w.element_info.class_name or "").startswith("Chrome_WidgetWin")]
+            for place in places:
+                for kind in ("MenuItem", "ListItem", "Button"):
+                    try:
+                        found = place.descendants(control_type=kind, title=name)
+                    except Exception:
+                        found = []
+                    for c in found:
+                        if c.element_info.runtime_id != tab_id:
+                            return c
+            time.sleep(0.1)
+        raise RuntimeError(f"＋のメニューの「{name}」が見つからない")
 
     @staticmethod
     def _paste_focused(text: str) -> None:
