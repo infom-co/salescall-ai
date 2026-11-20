@@ -12927,8 +12927,9 @@ class Flow:
                 o["sounded"] = True
         if "silence_s" in reply:
             return
-        # お客様に何か聞こえた返事か：会話AIの声がもう流れた返事（voiced＝相づちを流さない＝_ack_choice）も、相づちを流した返事と同じ（伺い・待つ状態・上限は今のまま＝束 n7）
-        talked = reply.get("play") or reply.get("say") or reply.get("speak") or reply.get("ack") or reply.get("voiced")
+        # お客様に何か聞こえた返事か：会話AIの声がもう流れた返事（voiced＝相づちを流さない＝_ack_choice）も、相づちを流した返事と同じ（伺い・待つ状態・上限は今のまま＝束 n7）。
+        # 会話AIが話す通話で会話AIに質問を伺わせる返事（_ai_asked）も同じ（L16）
+        talked = reply.get("play") or reply.get("say") or reply.get("speak") or reply.get("ack") or reply.get("voiced") or self._ai_asked(reply)
         scene = self._quiet_scene(reply, bool(talked), quiet)
         q = self.silence
         limit = False   # この返事から待つ上限を数え始めるか（下の1か所で付ける）
@@ -16546,10 +16547,16 @@ class Flow:
         last: dict[str, int] = {}
         for i, x in enumerate(self.log):
             r = x["reply"]
-            asked = "" if self.play_recordings else "".join(a or b for a, b in ASKED_NOTE.findall(r.get("message") or ""))
-            spoken = "".join(p.get("text") or "" for p in r.get("play") or []) + (r.get("say") or "") + asked
+            spoken = "".join(p.get("text") or "" for p in r.get("play") or []) + (r.get("say") or "") + self._ai_asked(r)
             last |= {t: i for t in texts if t in spoken}
         return last
+
+    def _ai_asked(self, reply: dict) -> str:
+        """会話AIが話す通話で、その返事が会話AIに伺わせる質問の文（知らせの ask_note・next_note の「…」＝ASKED_NOTE。無ければ・録音で流す通話は ""）。唯一の読み＝
+        お客様がその所でもう聞いた文（_heard_last）と、お客様に何か聞こえた返事の数え（黙ったときの見張り _silence_watch。会話AIの声が終わった時を知るのは電話接続側＝
+        流れの制御は返事に秒を付けるだけ）。⛔ d8b0d355 まで、見張りはこの文を数えず、会話AIに次の質問（E1「そうだったんですね。…」など）を言わせる相づちの無い
+        返事に、黙ったときの見張りも待つ上限も付かなかった（L16＝分身 N の書き置き (6-1)）"""
+        return "" if self.play_recordings else "".join(a or b for a, b in ASKED_NOTE.findall(reply.get("message") or ""))
 
     def _brief_ask(self) -> dict:
         """急いでいるが手短になら聞くと言われた（_brief_due）：「ありがとうございます。」（相づちの録音＝_ack_choice）のあと、「（要約）の件でお電話させていただきましたが

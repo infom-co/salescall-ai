@@ -47222,3 +47222,33 @@ class NotAQuestionThirdBackTest(unittest.TestCase):
         third = self.backs(f)[2]
         self.assertEqual((third["result"], f.current), ("replayed", "Q1"))
         self.assertIn(BACK_TO_MIDWAY, str(third))   # 問いの形の質問は、3回目も「確認の途中でしたので…」＋質問（11-07 日本時間4時40分35秒のまま）
+
+
+class AiAskedWatchTest(unittest.TestCase):
+    """分身 O（L16＝分身 N の書き置き (6-1)）：会話AIが話す通話で、会話AIに次の質問を言わせる返事（相づちも録音も無い＝E1「そうだったんですね。そちらの会社の
+    方で…」など）にも、黙ったときの見張り（silence_s）と待つ上限（hold_wait_s）を付ける。お客様に聞こえる返事の数えは黙ったときの見張りの1か所
+    （Flow._silence_watch）で、会話AIに伺わせる知らせ（ASKED_NOTE＝ask_note・next_note）の文も、お客様に聞こえた文と数える（お客様がもう聞いた文を読む
+    Flow._heard_last と同じ1か所 Flow._ai_asked）。会話AIの声が終わった時を知るのは電話接続側＝流れの制御は返事に秒を付けるだけ。11-04 日本時間4時54分
+    「会話の側の待つ所すべてに上限」・10-14「止まらない」。⛔ d8b0d355 まで、録音で流す通話・会話AIの声が流れた返事には付き、会話AIが黙った返事の E1 には
+    付かなかった（rv182/N/probe/n7/e1q.py の1行目）"""
+
+    def test_the_question_the_ai_asks_is_watched(self):
+        from flowctl import ELSEWHERE_YES, JUDGMENTS, UNDECIDED, Flow, Question
+        t = OtherCompanyClueSendWayTest()
+        got = {}
+        for play in (True, False):
+            f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                      Question("Q2", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("お電話", "メール"))], play_recordings=play)
+            f.use_checks(*JUDGMENTS)
+            t.turn(f, "はい、しています。", t.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+            f.on_callee(); f.on_heard("うちは別の会社に頼んでますので。")
+            for k in JUDGMENTS:
+                f.on_check(k, t.rd(UNDECIDED, elsewhere=ELSEWHERE_YES))
+            f.on_decided()
+            got[play] = f.judged_turn(voiced=False)
+        ai, rec = got[False], got[True]
+        self.assertEqual((ai["result"], ai["question_id"], ai.get("ack"), ai.get("play")), ("next", "E1", None, None))
+        # 会話AIに言わせる E1 にも、録音で流す E1 と同じ見張りの秒・待つ上限（流れの制御は秒を付けるだけ）
+        self.assertEqual((ai.get("silence_s"), ai.get("hold_wait_s")), (rec.get("silence_s"), rec.get("hold_wait_s")))
+        self.assertIsNotNone(ai.get("silence_s"))
+        self.assertIsNotNone(ai.get("hold_wait_s"))
