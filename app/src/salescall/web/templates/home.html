@@ -23,20 +23,21 @@
     <div class="muted hint" style="margin-top:6px">{% if watch_first %}{{ watch_first[0][0].title }}（{{ watch_first[0][1]|length }}件）{% if watch_total > watch_first[0][1]|length %}ほか{% endif %}{% else %}回線・休んでいる行に、気をつけることはありません{% endif %}</div>
   </a>
   <div class="card">
-    {{ stat("今日かけた電話", per_client|sum(attribute="dialed_today")) }}
-    <div class="muted hint" style="margin-top:6px">日本時間の今日・発信まで進んだ電話</div>
+    {{ stat("今日かけた電話", per_client|sum(attribute="dialed")) }}
+    <div class="muted hint" style="margin-top:6px">うちお客様と話した {{ per_client|sum(attribute="talked") }}（日本時間の今日）</div>
   </div>
 </div>
 
 <h2 style="margin-top:28px">依頼者ごと</h2>
 {% if per_client %}
 <div class="table-scroll"><table class="list">
-  <thead><tr><th>依頼者</th><th class="num">今日かけた</th><th class="num">かけ直し待ち</th><th class="num">{{ words.NEXT_KINDS["hold"].screen }}</th><th class="num">済み</th><th class="num wide">これから</th><th class="num">承認待ち</th></tr></thead>
+  <thead><tr><th>依頼者</th><th class="num">今日かけた</th><th class="num">話せた</th><th class="num">かけ直し待ち</th><th class="num">{{ words.NEXT_KINDS["hold"].screen }}</th><th class="num">済み</th><th class="num wide">これから</th><th class="num">承認待ち</th></tr></thead>
   <tbody>
   {% for c in per_client %}
     <tr>
       <td><a href="/c/{{ c.client_id }}">{{ c.name }}</a></td>
-      <td class="num">{{ c.dialed_today }}</td>
+      <td class="num">{{ c.dialed }}</td>
+      <td class="num">{{ c.talked }}</td>
       <td class="num">{{ c.call }}</td>
       <td class="num">{{ c.hold }}</td>
       <td class="num">{{ c.end }}</td>

@@ -51,10 +51,12 @@
 {% endif %}
 {% set fresh = not figures.results %}
 {% if not fresh %}
-<div class="grid cols-3 stats" {% if stopped or needs %}style="margin-top:16px"{% endif %}>
-  <div class="card">{{ stat("今日かけた電話", today.dialed_today) }}<div class="muted hint" style="margin-top:6px">日本時間の今日・発信まで進んだ電話</div></div>
-  <div class="card">{{ stat("かけ直し待ち", today.call) }}<div class="muted hint" style="margin-top:6px">次の電話の予定がある行</div></div>
-  <div class="card">{{ stat(words.NEXT_KINDS["hold"].screen, today.hold) }}<div class="muted hint" style="margin-top:6px">システムが結果を決め直しているお客様です（することはありません。依頼者へは出しません）</div></div>
+{#- 今日の電話（計画書 5-2「発信状況」。数えるのは core の metrics.day の1か所＝web/counts.client_today） -#}
+<div class="grid cols-4 stats">
+  <div class="card">{{ stat("今日かけた電話", today.dialed) }}<div class="muted hint" style="margin-top:6px">うち電話に出た {{ today.answered }}（留守番電話・自動音声も入ります）</div></div>
+  <div class="card">{{ stat("お客様と話した", today.talked) }}<div class="muted hint" style="margin-top:6px">今日。受付の方との電話も入ります</div></div>
+  <div class="card">{{ stat("目的のお客様と話せた", today.reached) }}<div class="muted hint" style="margin-top:6px">今日。お呼びする方ご本人と話せた電話</div></div>
+  <div class="card">{{ stat("かけ直し待ち", today.call) }}<div class="muted hint" style="margin-top:6px">次の電話の予定がある行{% if today.hold %}。ほかに{{ words.NEXT_KINDS["hold"].screen }} {{ today.hold }}（することはありません）{% endif %}</div></div>
 </div>
 {% endif %}
 {% if waiting %}
@@ -97,6 +99,17 @@
     {% else %}<p class="muted">今日、新しく止めた行はありません。</p>{% endif %}
   </div>
 </section>
+{#- 必須の質問の答えの数（計画書 5-2「必須項目の『取れた』『-』『✕』の数（別々に）」。数えるのは core の metrics.required_items の1か所） -#}
+{% if business and required %}
+<section class="card required-answers">
+  <h2>必須の質問の答え</h2>
+  <p class="muted">これまでの電話で、お客様ごとのいちばん新しい判定に使った答えを数えています（依頼者へ渡すファイルと同じ答えです）。</p>
+  <div class="table-scroll"><table class="list">
+    <thead><tr><th>質問</th>{% for k, label in words.ITEM_MARK_WORDS.items() %}<th class="num">{{ label }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for r in required %}<tr><td>{{ r.question }}</td>{% for k in words.ITEM_MARK_WORDS %}<td class="num">{{ r.tally.get(k, 0) }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
 {% endif %}
 {% if business %}
 <section class="card mode-card" style="margin-top:16px">

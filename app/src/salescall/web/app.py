@@ -1076,6 +1076,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         "verification": verification, "stages": stages,
                         "deficit": usage.deficit_notice(tx),   # 赤字か＝core の1か所の答え（依頼者全体のもの。業務のタブにも出す）
                         "figures": counts.business_figures(tx, business_id),   # 業務の成果（数えるのは counts の1か所）
+                        "required": [] if business_id is None else counts.required_answers(tx, business_id),
                         "steps": [] if business_id is None else counts.setup_steps(tx, client_id, business_id, needs)}
             values = ctx.client(client_id, read, read_only=True)
             return page(request, "client.html", person, ctx, waiting=_waiting(ctx, client_id, business_id), done=done, ok=bool(ok),

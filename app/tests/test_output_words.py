@@ -163,6 +163,13 @@ class NotForClient(unittest.TestCase):
                 self.assertEqual(words.not_for_client(text), [])
 
 
+class AnswerMarks(unittest.TestCase):
+    def test_every_answer_mark_has_a_word(self):
+        """必須の質問の答えの数の分け方（core の judge.ITEM_MARKS と not_asked）のすべてに、画面の言葉がある。"""
+        from salescall.core import judge
+        self.assertEqual(set(words.ITEM_MARK_WORDS), set(judge.ITEM_MARKS) | {"not_asked"})
+
+
 if __name__ == "__main__":
     unittest.main()
 

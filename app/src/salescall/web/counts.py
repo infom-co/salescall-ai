@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval
+from salescall.core import approval, business_settings, metrics
 from salescall.core.access import Tx
 from salescall.web.context import Ctx
 
@@ -52,19 +52,33 @@ SCOPE_HOLDS: dict[str, Any] = {
 
 
 def client_today(tx: Tx, business_id: UUID | None = None) -> dict[str, int]:
-    """依頼者の取引で、今日（日本時間）の数と、行の次の予定ごとの数。business_id を渡せば、その業務の行だけ（業務のタブ）。
-    依頼者のタブと業務のタブは、同じこの部品で数える（業務の絞り方は、行 → 実施回 → 業務の1つ）。"""
-    today = tx.today()
+    """依頼者の取引で、今日（日本時間）の電話の数と、行の次の予定ごとの数。business_id を渡せば、その業務の行だけ（業務のタブ）。
+    今日の数（かけた dialed・電話に出た answered＝留守番電話・自動音声も入る・お客様と話した talked・目的のお客様と話せた reached）は
+    core の `metrics.day` の1か所（品質の段・業務の指標と同じ数え方。CL-2 4-455。⛔ 前は、かけた数をここで別の式で数えていた）。"""
     only = "" if business_id is None else " AND t.run_id IN (SELECT run_id FROM salescall.runs WHERE business_id = %s)"
     extra = () if business_id is None else (business_id,)
-    dialed = tx.one("SELECT count(*) AS n FROM salescall.attempts a JOIN salescall.tasks t ON t.task_id = a.task_id"
-                    " WHERE salescall.is_dialed(a.state) AND (a.claimed_at AT TIME ZONE 'Asia/Tokyo')::date = %s" + only,
-                    (today, *extra))["n"]
     kinds = {r["kind"]: r["n"] for r in tx.all(
         "SELECT coalesce(n.kind::text, 'none') AS kind, count(*) AS n FROM salescall.tasks t"
         " LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id WHERE true" + only + " GROUP BY 1", extra)}
-    return {"dialed_today": dialed, "call": kinds.get("call", 0), "hold": kinds.get("hold", 0),
+    return {**metrics.day(tx, tx.today(), business_id=business_id), "call": kinds.get("call", 0), "hold": kinds.get("hold", 0),
             "end": kinds.get("end", 0), "none": kinds.get("none", 0)}
+
+
+def required_answers(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:
+    """業務の必須の質問ごとの「取れた」「-」「✕」などの数（計画書 5-2「必須項目の『取れた』『-』『✕』の数（別々に）」）。数えるのは
+    core の `metrics.required_items` の1か所（行ごとのいちばん新しい判定に使った答え）。期間は、これまでのすべての電話。見出しは、
+    いちばん新しい版の質問の「聞くこと」（依頼者へ渡すファイルの見出しと同じ1か所＝result_rows.question_headers の元）。"""
+    from datetime import datetime, timedelta, timezone
+    got = metrics.required_items(tx, business_id, since=datetime(2000, 1, 1, tzinfo=timezone.utc),
+                                 until=datetime.now(timezone.utc) + timedelta(days=1))
+    names: dict[str, str] = {}
+    v = tx.one("SELECT version_id FROM salescall.business_versions WHERE business_id = %s ORDER BY version_no DESC LIMIT 1", (business_id,))
+    if v is not None:
+        try:
+            names = {q.id: (q.ask_about or q.text) for q in business_settings.load(tx, v["version_id"]).questions}
+        except LookupError:
+            names = {}
+    return [{"question": names.get(q, q), "tally": t} for q, t in got.items()]
 
 
 # ── 業務の成果（計画書 5-2 の「業務成果」と「門で止めた件数（理由別）」。docs/DASHBOARD.md 5-7・5-8）──────────────────
