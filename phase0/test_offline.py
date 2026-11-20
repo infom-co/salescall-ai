@@ -44893,7 +44893,7 @@ class S2ReaderBorderTest(unittest.TestCase):
         # 「いいです。」「大丈夫です。」）は、答えたくないにしない（表の正解＝決められない）。⛔ 直す前は、読み手2人とも「答えたくない」とも読んだ（束 e の #11・#18・#19・#21・#22）。
         # 控える・差し控える（11-01 日本時間3時45分）は今のまま
         from meaning_judge import REFUSED_FACT
-        self.assertIn("受け入れとも断りとも取れる短い言葉", REFUSED_FACT)
+        self.assertIn("断りの意味とも取れる短い言葉", REFUSED_FACT)   # 分身 S2 の仕上げで「受け入れとも断りとも」を事実を伺う質問の言い方に直した（S2ReReadBorderTest の test_4）
         self.assertIn("控える", REFUSED_FACT)
 
 
@@ -44938,6 +44938,81 @@ class S2DecidedProposalTest(unittest.TestCase):
             self.assertIn(words, REFUSED_FACT)
         self.assertNotIn("答えることを控える・断る", REFUSED_FACT)
         self.assertNotIn("このあとの電話", SYSTEM_DESC["refused"])   # ふつうの質問の文は変えない
+
+
+class S2ReReadBorderTest(unittest.TestCase):
+    """分身 S2 の仕上げ（CL-1 の頼み (3)）：読み直しの束（rv176/S2/readers の r1・r2）で、答えを伏せた読み手2人がそろって説明の境目が分かりにくいと書いた所のうち、お答え・ご判断で
+    正解が決まっている言葉だけ、判定の説明の文の1か所ずつを直す（お客様に聞こえる言葉・流れの制御の動きは変えない。お呼びする段の文は、怒っているの境目のほかは変えない）。"""
+
+    def test_1_refusing_the_offered_call_without_saying_which_calls(self):
+        # ✅ 2026-11-01 日本時間20時11分「2.「かけてこないでください」（折り返しの申し出への返事）：…担当者からの折り返しを拒否しただけ」・「3.「そういった案内はお断りします」
+        # （説明会の質問への返事）：2.と同じ」＝言っていない。⛔ 直す前は、読み手2人とも「申し出たお電話だけか、このあとの電話全部か」「同じ種類のご案内か、営業の電話全体か」が
+        # 言葉から決まらないと書き、「通話・営業を断った」とも読んだ（束 r1 の #2・#3・#23・#24）。境目は答えの段の「言っていない」の説明の1か所
+        from flowctl import END_NONE, end_choices
+        ans, call = end_choices(False)[END_NONE], end_choices(True)[END_NONE]
+        for words in ("言い分けていなければ", "言い分けていなくても", "このあとの電話を断る言い方でも"):
+            self.assertIn(words, ans)
+        self.assertNotIn("言い分け", call)
+
+    def test_2_no_time_to_decline_the_offer_is_hurry(self):
+        # ✅ 2026-11-01 日本時間20時11分「1.「いま時間がないので結構です」（折り返しの申し出への返事）：言っていないし、急いでいる」・表の正解＝急いでいる（11-01 日本時間23時59分
+        # 「(a) OK」）。⛔ 直す前は「言っていない」の説明が急いでいるへ送るのに、急いでいるの説明には申し出を断った場面が無かった（束 r1 の #1・#22＝読み手2人とも書いた）
+        from flowctl import END_HURRY, end_choices
+        self.assertIn("前の質問の申し出を断ったのも", end_choices(False)[END_HURRY])
+        self.assertNotIn("申し出", end_choices(True)[END_HURRY])
+
+    def test_3_unfinished_or_unclear_refusal_is_undecided(self):
+        # 表の正解（✅ 2026-11-01 日本時間23時59分「(a) OK」）「そういうお電話はちょっと……。」＝決められない（電話を断っていそうだが言い切っていない）・✅ 11-01 日本時間20時56分・
+        # 22時31分「もういいです」＝いまの話の向きを先に伺う（決められない）・10-17 ユーザー「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」。
+        # ⛔ 直す前は、読み手2人とも「通話・営業を断った」「この電話を終えたい・念を押して断った」と読んだ（束 r1 の #8・#9＝取り消せない発信禁止の印の側）。境目は答えの段の
+        # 「決められない」の説明の1か所（お呼びする段の文は変えない。「念を押」は怒っている・念押しの説明だけ＝AngryBoundaryTest）
+        from flowctl import UNDECIDED, end_choices
+        ans, call = end_choices(False)[UNDECIDED], end_choices(True)[UNDECIDED]
+        for words in ("言い切らずに濁しただけ", "事実を伺う質問に", "もう、と添えて", "はっきり言ったなら"):
+            self.assertIn(words, ans)
+            self.assertNotIn(words, call)
+        self.assertNotIn("念を押", ans)
+
+    def test_4_short_word_to_a_fact_question_has_no_acceptance(self):
+        # 10-17 ユーザー「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」：事実を伺う質問には「受け入れ」に当たる答えが無い。⛔ 直す前は「受け入れとも
+        # 断りとも取れる短い言葉」と書き、読み手2人とも、事実を伺う質問への短い言葉に当たるか分かりにくいと書いた（束 r1 の #10・#17・#18・#20・#21）
+        from meaning_judge import REFUSED_FACT
+        self.assertIn("どれかの答えの意味とも、断りの意味とも取れる短い言葉", REFUSED_FACT)
+        self.assertNotIn("受け入れとも断りとも", REFUSED_FACT)
+
+    def test_5_undecided_answer_covers_fact_questions(self):
+        # 10-17 ユーザー（上と同じ）・表の正解（取込の言葉）「大丈夫です。」＝している・決められない。⛔ 直す前は「決められない」の「受け入れにも断りにも取れる」が申し出への返事の
+        # 言い方で、読み手2人とも、事実を伺う質問への言葉に当たるか分かりにくいと書いた（束 r1 の #16・#19）
+        from flowctl import UNDECIDED
+        from meaning_judge import KIND_DESC
+        self.assertIn("事実を伺う質問への言葉なら、どれかの答えの意味とも、断りの意味とも取れる", KIND_DESC[UNDECIDED])
+
+    def test_6_ladder_side_choose_or_neither_must_be_said_clearly(self):
+        # ✅ 2026-11-20 日本時間16時25分52秒「伺い94：はもう一方で大丈夫そうなら、エでいいし、もう一方では不安そうならウでしょ」：もう一方を条件のように挙げただけ・そちらも不安そう
+        # は片方だけ合わない。⛔ 直す前は、読み手2人とも「どちらも合わない」「答えた」とも読み、はっきり選んだ・合わないと言ったの線が分かりにくいと書いた（束 r1 の #34・#35）
+        from flowctl import LADDER_NEITHER, LADDER_SIDE_TAIL, VALUE_CHOICE, Question, ladder_choice_desc
+        q = Question("C1", "金曜日と火曜日ではどちらがよろしいでしょうか？", "datetime", conditions=(VALUE_CHOICE, LADDER_NEITHER, "金曜日" + LADDER_SIDE_TAIL, "火曜日" + LADDER_SIDE_TAIL))
+        d = ladder_choice_desc(q, "金曜日" + LADDER_SIDE_TAIL)
+        for words in ("そちらなら、と挙げただけ", "はっきり選んで頼んだ", "もう一方も合わないと、はっきり言った"):
+            self.assertIn(words, d)
+
+    def test_7_ladder_other_ok_even_with_a_little_hesitation(self):
+        # ✅ 2026-11-20 日本時間16時25分52秒「伺い94：はもう一方で大丈夫そうなら、エでいいし…」：「大丈夫そう」＝そちらなら空いていそう・大丈夫そうと言った（少しためらう言い方が
+        # 付いても）。⛔ 直す前は、読み手2人とも、ためらいの付いた言い方が「大丈夫そう」か「不安そう・大丈夫とは言っていない」か分かりにくいと書いた（束 r1 の #37）
+        from flowctl import LADDER_OTHER_OK, LADDER_OTHER_UNSURE, ladder_other_choices
+        c = ladder_other_choices(False, True)
+        self.assertIn("少しためらう言い方が付いていても", c[LADDER_OTHER_OK])
+        self.assertNotIn("ためら", c[LADDER_OTHER_UNSURE])
+
+    def test_8_angry_command_wins_and_annoyance_is_not_rudeness(self):
+        # ✅ 2026-11-20 日本時間2時18分01秒「伺い81：…OK」（「しつこい」は締めずに続ける・はっきり怒っている例「いい加減にしてください！」）。⛔ 直す前は、読み手2人とも、続く・重なる
+        # ことへのとがめが「無礼だと責めた」か、不満と命令が1つの言葉にそろうときどちらか、が分かりにくいと書いた（束 r2 の #3・#4）。境目は angry_not の1か所（どちらの段も）
+        from flowctl import angry_not
+        for calling in (False, True):
+            t = angry_not(calling)
+            self.assertIn("うんざりした言い方でとがめたのも", t)
+            self.assertIn("嫌がった不満と一緒に言っても", t)
+
 
 
 class VLadderFarDaysTest(unittest.TestCase):
