@@ -45851,7 +45851,8 @@ class XCallingAskedAfterCallsTest(unittest.TestCase):
         self.assertIn(ASKS_WHO, ASKED)
         self.assertIn("どちらの〇〇か", ASKS_MEANINGS[ASKS_WHO])
         self.assertNotIn("どちらの〇〇か", ASKS_MEANINGS[ASKS_YES])
-        self.assertIn("名乗り・用件・どの方をお呼びかのほか", ASKS_MEANINGS[ASKS_OTHER])
+        # 境目の1か所には、こちらが言ったことの聞き直しも入る（「尋ねている」の側＝まとめ役 CL-1 の頼み rv178/X の6回目 (2)）
+        self.assertIn("名乗り・用件・どの方をお呼びか・こちらが言ったことの聞き直しのほか", ASKS_MEANINGS[ASKS_OTHER])
         f = self.asked([], "どちらの岡田でしょうか？", "同受xx")
         self.assertIn(ASKS_WHO, f.asks_context()[0].conditions)
 
@@ -46063,7 +46064,9 @@ class XAsksWhoTableTest(unittest.TestCase):
         self.assertTrue(all(v == (ASKS_WHO,) for k, v in got.items() if k in who))
         self.assertEqual({t for (t, _), v in got.items() if v == (ASKS_YES,)},
                          {"岡田ですね。失礼ですが、どちら様でしょうか？", "どういったご用件でしょうか？", "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？",
-                          "えっと、どちら様でしょうか？", "失礼ですが、どういったご用件でしょうか？", "はい、それで？", "失礼ですが、どちら様でしょうか？"})
+                          "えっと、どちら様でしょうか？", "失礼ですが、どういったご用件でしょうか？", "はい、それで？", "失礼ですが、どちら様でしょうか？",
+                          # こちらが言ったことを聞き取れなかった試しの言葉（6回目 (2)(3) で「尋ねている」の説明に入れた）
+                          "え？", "すみません、聞こえなかったです", "何とおっしゃいました？"})
         self.assertEqual(g.asks_truths("岡田はただいま外出しておりますので、私が代わりにご用件をお伺いします。"), (ASKS_YES, ASKS_NO))
         self.assertEqual(set(g.asks_truths("（雑音）", only=True)), {ASKS_YES, ASKS_WHO, ASKS_OTHER, ASKS_NO})
         self.assertTrue(set(g.asks_truths("（雑音）", only=True)) >= set(ASKED))
@@ -46300,3 +46303,61 @@ class XAnswerReportJudgedTest(unittest.TestCase):
                 if not played:
                     self.assertEqual(rep["result"], "rejected")
                     self.assertEqual(f.items["Q1"].state, "empty")
+
+
+class XAskedAgainDescTest(unittest.TestCase):
+    """判定の説明の文で、こちらの名前・会社名・用件を頼みの形で聞いた・こちらが言ったことを聞き取れなかったのを「尋ねた」側に入れる（まとめ役 CL-1 の頼み rv178/X の6回目。
+    ✅ 2026-11-06 日本時間15時20分30秒「(1)…OK」＝「もう一度言ってほしい」と「こちらの名前・会社名・意味を尋ねたのは別」・本書 9-4 の「目的のお客様」の (8)・2026-10-22 の
+    3回目「相手の申し出と想定外の質問を、決まった答え1つに押し込めない」）。境目は説明の1か所（答えの段＝flowctl.query_choices・お呼びする段＝flowctl.ASKS_MEANINGS）。
+    ⛔ 0a4ba032 で会話AIの答えの報告を判定の読みで決めるようにしたら、説明が狭く、今まで答えていた場面（名前の聞き返し・聞き取れなかった方）に答えなくなりうる形だった"""
+
+    def test_1_answer_stage_query_takes_our_name_asked_as_a_request(self):
+        from flowctl import QUERY_NO, QUERY_YES, query_choices
+        got = query_choices(False)
+        self.assertIn("こちらの名前・会社名・用件", got[QUERY_YES])
+        self.assertIn("頼みの形", got[QUERY_YES])
+        self.assertNotIn("こちらの名前・会社名・用件", got[QUERY_NO])   # 境目は「ある」の説明の1か所だけに書く
+        self.assertIn(f"「{QUERY_YES}」", got[QUERY_NO])                 # 「頼みは尋ねたとしない」からは、その1か所を指す
+        self.assertEqual(query_choices(True), {})   # お呼びする段は別の問い合わせ（尋ねているか）
+
+    def test_2_calling_asks_takes_what_we_said_unheard(self):
+        from flowctl import ASKS_MEANINGS, ASKS_OTHER, ASKS_YES
+        self.assertIn("聞き取れなかった", ASKS_MEANINGS[ASKS_YES])
+        self.assertIn("もう一度言ってほしい", ASKS_MEANINGS[ASKS_YES])
+        self.assertIn("聞き直し", ASKS_MEANINGS[ASKS_OTHER])   # 3つの尋ねているの境目（ほかのことの説明の1か所）にも入れる
+
+    def test_3_test_words_are_rows_of_the_tables(self):
+        import g59_calling_judge as g
+        import g59_tally as t
+        from flowctl import ASKS_YES, HEAR, HEAR_LOST, QUERY, QUERY_YES, UNDECIDED
+        from review_words import answer_words
+        b, _, _ = g.flows(None)
+        rows = {(c[0], c[2]): c for c in g.cases(b.target.confirm())}
+        for text in ("え？", "すみません、聞こえなかったです", "何とおっしゃいました？"):
+            c = rows[(text, None)]
+            self.assertEqual(g.asks_truths(text), (ASKS_YES,), text)
+            self.assertEqual(c[5][HEAR], {HEAR_LOST}, text)
+            self.assertFalse(t.hear_only(g.case_row(c)), text)   # 聞こえ方だけを数える行ではない（尋ねているかも数える）
+        got = {it["text"]: it["label"] for it in answer_words()}
+        for text in ("もう一度お名前をよろしいですか？", "すみません、会社名をもう一度教えてもらえますか？"):
+            self.assertEqual((got[text]["accept"], got[text][QUERY]), ([UNDECIDED], [QUERY_YES]), text)
+
+    def test_4_the_same_words_asked_as_a_request_are_relabelled(self):
+        # 正解の表の行を読み直した（帳面 0-3）：「お待たせいたしました、ご用件をお伺いしてもよろしいでしょうか。」は、確かめのあと（E の G23）も
+        # 頼みの形で用件を聞いた＝こちらへ尋ねた問いがある（同じ言葉の G16 と同じ。⛔ 0a4ba032 まで G23 は付けていなかった＝どちらも正解）
+        import g53_meaning as G
+        from flowctl import QUERY_YES
+        row = {"set": "E", "qid": "G23", "text": "お待たせいたしました、ご用件をお伺いしてもよろしいでしょうか。", "asked": "念のためお使いの回線は光回線でよろしいでしょうか？"}
+        self.assertEqual(G.query_truths(row), (QUERY_YES,))
+
+    def test_5_the_flow_answers_these_by_the_recording(self):
+        # 尋ねた側の読みなら、会話AIの選んだ録音で答える（(8) の道・答えの段の聞かれたことへの答え。流れの制御は変えない）
+        import g59_flow_check as fc
+        from flowctl import ASKS_YES
+        f = fc.scene([])[0]
+        fc.heard(f, "え？", "同不xx", ASKS_YES)
+        r = f.apply("replay_opening", {"part": "all"})
+        self.assertEqual((r["result"], [p.get("part") for p in r["play"]]), ("replayed", ["intro", "target"]))
+        g = fc.scene([("はい、そうです。", "同本xx", fc.T)])[0]
+        g.on_callee(); g.on_heard("もう一度お名前をよろしいですか？"); g.on_check("judge", query_reading())
+        self.assertEqual(g.apply("replay_opening", {"part": "intro"})["result"], "replayed")
