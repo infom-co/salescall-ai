@@ -24,7 +24,7 @@ import json
 from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices, LADDER_OTHER, LADDER_SIDE_TAIL, ladder_choice_desc, ladder_other_choices, ladder_sides,
-                     NEAR, near_choices, near_fits)
+                     NEAR, near_choices, near_fits, MISGIVING, misgiving_choices)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -791,11 +791,12 @@ def used_sure(confs: dict | None, cond: str, away: bool = False) -> float | None
     お知らせのときだけ数えた＝流れの制御もそのときだけ使い、資料の申し出への「いえ、大丈夫です。」を「いいえ」と読むとお断りで締めた）
     お呼びする段の相手の申し出（OFFER）はいつも使う（申し出があれば応じ方が替わる＝電話を終える言葉かと同じ）・お呼びした方が出られない理由（ABSENT_WHY）は、
     その読みがお呼びした方は出られない・ご本人がいまは話せないと読んだとき（away＝読みの印 Reading.away）だけ使う（流れの制御が理由を読むのはそのときだけ＝
-    Flow._absent_why）。"""
+    Flow._absent_why）。迷っている点を言ったか（MISGIVING）は、答えが「迷っている」のときだけ使う（流れの制御が読むのはそのときだけ＝Flow._hesitation。分身 P の (4)）。"""
     if not confs:
         return None
     vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)
-            and (k != ABSENT_WHY or away) and (k != LADDER_OTHER or str(cond).endswith(LADDER_SIDE_TAIL)) and (k != NEAR or cond == UNDECIDED)]
+            and (k != ABSENT_WHY or away) and (k != LADDER_OTHER or str(cond).endswith(LADDER_SIDE_TAIL)) and (k != NEAR or cond == UNDECIDED)
+            and (k != MISGIVING or cond == HESITATING)]
     return min(vals) if vals and all(isinstance(c, (int, float)) for c in vals) else None
 
 
@@ -862,8 +863,12 @@ def answer_items(q, asked: str | None = None) -> dict:
     # flowctl.near_answer の1か所・使うのは Flow._check_again）。✅ 2026-11-05 日本時間23時56分48秒「ア」・⛔✅ 11-08 日本時間16時34分23秒（答えは決められない＝近さは別の項目）。
     # ほかの質問の文・返事の形は変わらない（分身 B（rv179 の束1 の B1））
     near = {NEAR: near_choices(False, q)} if asked is None and near_fits(q) else {}
+    # 迷っているお客様に応じる質問（flowctl.hears_hesitation＝答えの選べるもの「迷っている」を出す質問と同じ1か所。最初の答えも言い直しへの返事も）だけ、迷っている点を言ったか
+    # （MISGIVING。読みを組み合わせるのは flowctl.misgiving_said の1か所・使うのは Flow._hesitation）。本書 9-3「取得済みのことを重ねて聞かない」・OPEN-A25・H-6。
+    # ほかの質問の文・返事の形は変わらない（分身 P の (4)＝n2）
+    misgiving = {MISGIVING: misgiving_choices(False, q)} if hears_hesitation(q) else {}
     return (side_items(False) | purpose | own | ({PROMPT_REPLY: prompt_reply_choices(False, q.prompted)} if getattr(q, "prompted", "") and not asks_wrong(q.prompted) else {})
-            | ({AWAY: away_choices(False, True, PROMPTED if getattr(q, "prompted", "") else "")} if away_fits(q, bool(asked)) else {}) | ladder | near)
+            | ({AWAY: away_choices(False, True, PROMPTED if getattr(q, "prompted", "") else "")} if away_fits(q, bool(asked)) else {}) | ladder | near | misgiving)
 
 
 def items_text(q, asked: str | None = None) -> str:
@@ -1360,6 +1365,9 @@ JEV_ITEMS[ABSENT_WHY] = "いまお呼びしている方が電話に出られな�
 # 言い直さない質問の最初の答えだけ（flowctl.NEAR・near_answer＝分身 B（rv179 の束1 の B1））
 JEV_ITEMS[NEAR] = ("お客様の言葉が、答えのどれもはっきりとは指していない（答えが「決められない」）なら、言葉の意味がいちばん近い答えはどれですか？（答えとは別に読みます。"
                    + NOW_ONLY + "）")
+# 迷っているお客様に応じる質問だけ（flowctl.MISGIVING・misgiving_said＝分身 P の (4)＝n2）
+JEV_ITEMS[MISGIVING] = ("お客様が、どの答えにするか迷っていると言ったなら、決めかねているわけ（迷っている点）も言いましたか？（答えとは別に読みます。"
+                        + NOW_ONLY + "）")
 # 答えの段だけ（flowctl.wrong_choices・wrong_said。お呼びする段は「お呼びした方の事情」の項目が読む。分身 AC）
 JEV_ITEMS[WRONG] = "お客様は、こちらがかけた電話番号が違うと伝えましたか？（答えとは別に読みます。" + NOW_ONLY + "）"
 assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"

@@ -29,7 +29,7 @@ from common import HERE, KeyRing, base_parser, describe_error, require_python, s
 from flowctl import (ABSENT_WHY, OFFER, ANY, END_DOUBT_WHY, before_words, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, AWAY, ELSEWHERE, ELSEWHERE_YES, ELSEWHERE_NO, QUERY_YES, QUERY_NO, END_ANGRY, END_HURRY, END_NONE,
                      END_PRESSED, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS,
                      WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading, WRONG, WRONG_NOT_SAID, LADDER_OTHER,
-                     NEAR)
+                     NEAR, MISGIVING, MISGIVING_OFF, HESITATING)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, Reading, judge, judge_other
 
@@ -235,7 +235,8 @@ def either(it: dict) -> bool:
 SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由", QUERY: "問い", PROMPT_REPLY: "声かけ", AWAY: "別の話", ELSEWHERE: "他社",
                OFFER: "申し出", ABSENT_WHY: "出られない理由", WRONG: "番号違い",
                LADDER_OTHER: "もう一方",
-               NEAR: "近い答え"}   # 申し出・出られない理由はお呼びする段だけ（G-53 の答えの段の行では None）・もう一方は日時の2択の質問だけ（伺い94）・近い答えは言い直さない質問の最初の答えだけ（B1）
+               NEAR: "近い答え",
+               MISGIVING: "迷いの点"}   # 申し出・出られない理由はお呼びする段だけ（G-53 の答えの段の行では None）・もう一方は日時の2択の質問だけ（伺い94）・近い答えは言い直さない質問の最初の答えだけ（B1）
 assert set(SIDE_SUFFIX) == set(SIDE_ITEMS), "記録の見出しは、答えとは別に読む項目の表と同じ項目"
 # 判定の確からしさの広がりを記録する見出し（{判定の名前のあとに付ける語: 読みの属性}。唯一の表＝記録と、使い回すときに外す語）。
 # ✅ 2026-11-07 日本時間10時29分25秒 ユーザー「d1-ultraの確からしさが低いのは、こちらの設問か選択肢、説明の問題ということでしょ！」＝
@@ -730,6 +731,19 @@ def near_truths(it: dict) -> tuple:
     並び）。付けていない行は読んでいない（None＝その項目を読まない質問と同じ。ladder_other_truths と同じ形）。この項目を読む質問の行は、どれも1行ずつ正解を付けた（帳面 0-3 の (2)）"""
     got = _label(it)
     return tuple((got or {}).get(NEAR) or (None,))
+
+
+def misgiving_truths(it: dict, answer) -> tuple:
+    """正解の表の行の、迷っている点を言ったか（flowctl.MISGIVING＝迷っているお客様に応じる質問だけの項目・分身 P（CL-1 の頼み rv183/P の (4)＝n2））の正解（中の名前の並び）のうち、
+    答えの正解 answer の読みと組みになるもの（唯一の組み方＝label_readings）：項目の説明のとおり、答えが「迷っている」なら「迷っていない」を除いたもの・ほかの答えなら「迷っていない」
+    だけ（答えが「迷っている」と「決められない」などの境目の行は、両方の正解を並べてある＝答えごとに当たる方を組む）。付けていない行は読んでいない（None＝その項目を読まない質問と同じ。
+    ladder_other_truths と同じ形）。この項目を読む質問の行は、どれも1行ずつ正解を付けた（帳面 0-3 の (2)）"""
+    got = (_label(it) or {}).get(MISGIVING)
+    if not got:
+        return (None,)
+    fits = tuple(v for v in got if (v != MISGIVING_OFF) == (answer == HESITATING))
+    assert fits, (it.get("qid"), it.get("text"), answer, got)   # 正解の付け方の誤り（答えの正解と項目の正解が組めない）を黙って通さない
+    return fits
 
 
 def elsewhere_truths(it: dict) -> tuple:
@@ -1703,7 +1717,7 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
     """正解の表の行 it から、正しい読みの組み合わせを全部作る（唯一の作り＝正解の動き step_wants）：答え（accept）× 言い切り（境目 either なら両方・
     ほかは「曖昧」の印 hedged の逆）× こちらへ尋ねた問いか（query_truths）× 別のお話か（away_truths）× 電話を終える言葉か（has_end なら end_accept・
     無ければ読んでいない）× こちらがかけた電話番号が違うと伝えたか（wrong_truths）× 声かけへのお返事だけか（prompt_truths）× 合わないと言わなかったほうで大丈夫そうか（ladder_other_truths）×
-    どの答えもはっきり指していないときのいちばん近い答え（near_truths）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
+    どの答えもはっきり指していないときのいちばん近い答え（near_truths）× 迷っている点を言ったか（misgiving_truths＝答えごと）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
     正解 talk False の行は、その答えと食い違う前の話の答え＝flowctl.off_talk の1か所。ほかは前の話から決まる答えは無い）。聞こえ方は hear_truth。"""
     from flowctl import why_choices
     out = []
@@ -1725,12 +1739,13 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
                                         for pr in prompt_truths(it):
                                             for lo in ladder_other_truths(it):
                                                 for nr in near_truths(it):
-                                                    r = Reading(a, firm)
-                                                    for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it)), (WRONG, wn),
-                                                                 (PROMPT_REPLY, pr), (LADDER_OTHER, lo), (NEAR, nr)):
-                                                        setattr(r, k, v)
-                                                    r.prior = p
-                                                    out.append(r)
+                                                    for mg in misgiving_truths(it, a):
+                                                        r = Reading(a, firm)
+                                                        for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it)), (WRONG, wn),
+                                                                     (PROMPT_REPLY, pr), (LADDER_OTHER, lo), (NEAR, nr), (MISGIVING, mg)):
+                                                            setattr(r, k, v)
+                                                        r.prior = p
+                                                        out.append(r)
     return out
 
 
@@ -1772,6 +1787,9 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     helps = set(HESITATE_ACT.values())   # 迷っている方への動き（hesitates の1か所）
     if want & helps and act not in helps:
         return "⛔迷っているのに、選ぶ助けを伝えずに待つ・聞き直す・締める"   # ✅ 13時05分06秒「…急かすのは最悪な手ですよ。」
+    if act in helps and want & helps:
+        # 迷っているが、伺うか選ぶ助けかが違う（迷っている点をもう言ったのに伺う・まだ言っていないのに伺わない＝flowctl.misgiving_said。分身 P の (4)）
+        return "迷っている点の読み違い（もう言った点を伺う・言っていない点を伺わずに選ぶ助けへ）"
     if act in helps:
         return "迷っていないのに、迷っている点を伺う・選ぶ助けを伝える"
     if act.startswith(OTHER_ACT):

@@ -3656,6 +3656,34 @@ def near_answer(q: "Question", readings) -> str | None:
     return next((c for c in q.conditions if label(c) == name), None) if name else None
 
 
+# 迷っているお客様に応じる質問（hears_hesitation）への言葉で、迷っている点（決めかねているわけ）をもう言ったか（答えとは別の項目＝答えは「迷っている」のまま。読む質問は
+# hears_hesitation の質問だけ＝meaning_judge.answer_items が決める＝ほかの質問・お呼びする段の文は変わらない）。読みを組み合わせるのは misgiving_said の1か所・使うのは迷っている方への
+# 応じ方の1か所（Flow._hesitation：言ったなら「どういった点でお迷いでしょうか？」を伺わずに、その点に会話AIが応える選ぶ助けへ＝お客様に尋ねられて答える1か所と同じ道）。本書 9-3
+# 「取得済みのことを重ねて聞かない」（OPEN-A25・H-6）。説明は意味で書き、試しの言葉と同じ言い方の例は書かない。分身 P（CL-1 の頼み rv183/P の (4)＝n2）
+MISGIVING, MISGIVING_HEADING = "misgiving", "迷っている点を言ったか"
+MISGIVING_SAID, MISGIVING_UNSAID, MISGIVING_OFF = "迷っている点を言った", "迷っているが点は言っていない", "迷っていない"
+
+
+def misgiving_choices(calling: bool, q: "Question | None" = None) -> dict:
+    """迷っている点を言ったかの選べるもの（{中の名前: 説明}）。答えの段の、迷っているお客様に応じる質問（hears_hesitation）だけ（ほかは {}＝段ごとの項目 side_items には出ない）。
+    点を言ったかの境目は、この3つの説明の1か所。"""
+    if calling or q is None or not hears_hesitation(q):
+        return {}
+    return {MISGIVING_SAID: (f"答えの選べるものは「{HESITATING}」で、決めかねているわけ（気になっていること・比べている中身・決め手にしたいこと）も言った"
+                             "（答えの名前を並べただけ・同じ問いを言い直しただけは、わけを言ったことにはならない）"),
+            MISGIVING_UNSAID: (f"答えの選べるものは「{HESITATING}」だが、決めかねているわけは言っていない（迷っている・決めかねている、とだけ言った・答えの名前を並べただけ・"
+                               "どれがよいか・必要かどうか、と同じ問いを言い直しただけ）"),
+            MISGIVING_OFF: (f"答えの選べるものが「{HESITATING}」ではない（どれかの答えを選んだ・決められない・考えている途中・わからない など、ほかの選べるものに当たる）")}
+
+
+def misgiving_said(readings) -> bool:
+    """迷っている点をもう言ったか（唯一の決まり＝Flow._hesitation）：判定の組の読み（この通話で使う判定ごと。届いていないものは None）がどれも、この項目（MISGIVING）を
+    「迷っている点を言った」と読んだ。1つでも届いていない・項目が無い・ほかの読み（割れた）・1つも無い ⇒ 偽＝今のまま「どういった点でお迷いでしょうか？」を伺う側
+    （伺わないのは、そろって言ったと読んだときだけ。ladder_other_ok と同じ形）。"""
+    got = list(readings)
+    return bool(got) and all(r is not None and getattr(r, MISGIVING, None) == MISGIVING_SAID for r in got)
+
+
 # 答えとは別に、判定がお客様の言葉ごとに読む項目の唯一の表（{項目の名前: (見出し, 選べるものを作る関数)}。並びは問い合わせの文の並び）。
 # 読むのは、お呼びする段の項目（target_facets）・答えの段の項目（meaning_judge.answer_items）・判定の決まりの文・Jev の問い・読み取り（Reading の
 # 同じ名前の値）。⛔ 2026-11-02 まで「電話を終える言葉か」だけを7か所に写して持っていた＝項目を足すと、写し漏れで片方の段だけ読まなくなる
@@ -3664,7 +3692,8 @@ SIDE_ITEMS = {END: (END_HEADING, end_choices), HEAR: (HEAR_HEADING, hear_choices
               QUERY: (QUERY_HEADING, query_choices), PROMPT_REPLY: (PROMPT_REPLY_HEADING, prompt_reply_choices), AWAY: (AWAY_HEADING, away_choices),
               ELSEWHERE: (ELSEWHERE_HEADING, elsewhere_choices), OFFER: (OFFER_HEADING, offer_choices),
               ABSENT_WHY: (ABSENT_WHY_HEADING, absent_why_choices), WRONG: (WRONG_HEADING, wrong_choices),
-              LADDER_OTHER: (LADDER_OTHER_HEADING, ladder_other_choices), NEAR: (NEAR_HEADING, near_choices)}
+              LADDER_OTHER: (LADDER_OTHER_HEADING, ladder_other_choices), NEAR: (NEAR_HEADING, near_choices),
+              MISGIVING: (MISGIVING_HEADING, misgiving_choices)}
 
 
 def side_items(calling: bool) -> dict:
@@ -9579,7 +9608,8 @@ class Flow:
           伺ったあとのお返事が答えではない（迷っている点を言った）⇒ 会話AIが、確かめた自分の言葉で、業務の情報の範囲で選ぶ助けを伝え、お返事を待つ（尋ねられて
           答える1か所と同じ道＝お返事が答えなら受け取る・相づちだけなら最終の確かめ＝_resume）
         - "point"：迷っていると言い終えたが、まだ「どういった点でお迷いでしょうか？」を伺っていなくて、選択肢ごとの良い点・気をつける点が無い・もう伝えた
-          ⇒「はい、」＋その一言を1回（_hesitate_point。同じ問いを2度言わない＝11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）
+          ⇒「はい、」＋その一言を1回（_hesitate_point。同じ問いを2度言わない＝11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）。迷っている点をもう
+          言った（判定の組がそろって読んだ＝misgiving_said）なら伺わずに "help"（9-3「取得済みのことを重ねて聞かない」。日時の2択の段も同じ。分身 P の (4)＝n2）
         - "final"：選ぶ助けを伝えたあと（選ぶ助けがいちばん新しい応じ方）に、お客様が「まだ決められない」「まだ決めていない」と言った（_not_deciding）
           ⇒ 保留で締める（_hesitate_now → _undecided_final＝「承知しました。それではこの件は保留とさせていただきますね。」。最初の答えの段でも言い直しの段でも
           同じ。18時台のご報告の (イ) の文「それでも決められなければ保留で締める。」＝22時02分54秒「イでOK」）。相づち（「なるほど。」＝決められない・理由は
@@ -9628,16 +9658,20 @@ class Flow:
             # 読みにしない（⛔ 同じ見直しの H-1 を直す途中、流れの制御に通して見つけた形）
             return None
         readings = [self.check.get(k) for k in JUDGMENTS]
+        # 迷っている点をもう言ったか（この通話で使う判定の組がそろって読んだ＝misgiving_said の1か所。使わない判定は数えない＝near_answer・ladder_other_ok と同じ）
+        said = misgiving_said([self.check.get(k) for k in JUDGMENTS if k in self.checks_used])
         if q.ladder and self.items[qid].ladder is not None:
             # 日時の2択の段（伺い60＝決まりで決めた）：迷っている方には「はい、どういった点でお迷いでしょうか？」を1回だけ。選ぶ助け（こちらから1つに絞ってお勧めする＝
             # 0時09分49秒「こっちが一瞬でも提案したら…強制感」）・保留の締め（かけ直しの日時を保留で締めない）は当てない＝2回目からは今の道（会話AIの報告を待つ）
-            if hesitates(readings) and point is None:
+            if hesitates(readings) and point is None and not said:
                 return "point"
             # 伺ったあとの、答えではないお返事（迷っている点を言った＝判定が迷っている・決められないと読んだ。別のお話・電話を終える言葉・こちらへの問いは除く＝それぞれの道）：
             # 本書 9-3（お客様のお話にもひとこと返す）のとおり、会話AIが業務の情報の範囲でひとこと応えてから、いまの2択を伺い直す番（help＝_ladder_word。こちらから1つに
             # 絞ってお勧めしない＝0時09分49秒）。1回だけ（ひとことを伝えた印 helped のあとは今の道）。点が2つとも合わない向きなら、判定の「どちらも合わない」の今の1か所
             # （_ladder_neither）が先に受け持つ。分身 P の (6)。⛔ 2f61767d まで、迷っている点に応えずに「はい、恐れ入ります。（いまの2択）」と伺い直した
-            if (point is not None and helped is None and not talked_away(readings) and (hesitates(readings) or undecided(readings))
+            # 迷っている点をもう言った（判定の組がそろって読んだ＝misgiving_said）なら、伺う前でも同じ番（「どういった点でお迷いでしょうか？」を重ねて伺わない＝9-3「取得済みの
+            # ことを重ねて聞かない」。分身 P の (4)＝n2）
+            if ((point is not None or said) and helped is None and not talked_away(readings) and (hesitates(readings) or undecided(readings))
                     and self._plain_reply(readings)):
                 return "help"
             return None
@@ -9660,7 +9694,9 @@ class Flow:
             # (4) と同じ道。選ぶ質問の (3) と同じ決まり＝理由の読みが割れた・無い「分からない」も）
             return "approval" if (hesitates(readings) or first_undecided) and "approval" not in h else None
         if hesitates(readings):
-            return "point" if point is None and (not q.option_notes or helped is not None) else "help"
+            # 迷っている点をもう言った（判定の組がそろって読んだ＝misgiving_said）：「どういった点でお迷いでしょうか？」を伺わずに、その点に会話AIが応える選ぶ助けへ（お客様に
+            # 尋ねられて答える1か所と同じ道＝help。本書 9-3「取得済みのことを重ねて聞かない」・OPEN-A25・H-6。分身 P の (4)＝n2）。⛔ n2 まで、点を言ったお客様にも伺い直した
+            return "point" if point is None and (not q.option_notes or helped is not None) and not said else "help"
         if not open_:
             return None
         if helped is not None and (point is None or point < helped) or estimate is not None:
