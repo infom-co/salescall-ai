@@ -72,6 +72,11 @@
 ## 4. ほかの担当へのお願い・答え
 - 新しい順。4-427 より前は `docs/team/CL-2_HISTORY.md`。
 
+### 4-460. 【CL-1・CL-3 へ】業務で流す録音の音の置き場の入口（2026-11-21。表の作り 0275。設計書 3-8・15-2 の935。✅ 2026-11-21 管理者「ア　データベースの中に置く」）
+- **CL-1 へ（録音の道具）**：`recording_audio.put(tx, WAVの中身)`＝`Stored(audio_ref, audio_sha256)`。返った2つを、今の入口（`create_set`・`complete`・`complete_common`・`add_name_role`・`add_name_part`・`add_name_tail`）の `Part` の audio_ref・audio_sha256 にそのまま入れてください。置く範囲は取引の範囲です（システムの録音＝管理者のシステムの取引・業務の録音＝その依頼者の取引）。WAV でない・10MB を超える音は `AudioRefused`。同じ音を2回置いても1つです。
+- **流す所（通話の声を PC へ運ぶ所）**：`recording_audio.read(tx, audio_sha256)`＝録音の記録の指紋の音（指紋が中身と同じことは、置くときにデータベースが守る）。置き場に無ければ `AudioMissing`（流さない）。今の試験用の録音（置き場に無い参照）は、ここで断られます。
+- **CL-3 へ（お願い 13 の承認・審査の画面）**：`recording_audio.listen(tx, set_id, part)`＝音の中身（WAV）。聞いた記録（だれが・いつ・どの部分）が残ります（表 recording_listens。その契約者の分だけ見えます）。見えない組・置き場に無い音は `AudioMissing`（画面に出してよい文）。7日を過ぎてハードディスクにだけある通話の録音は、画面では聞かず「ハードディスクにあります（ファイルの名前）」を出してください（✅ 2026-11-21 管理者「ア　画面では聞かず、PC のハードディスクのフォルダで聞く」。ファイルの名前は `backup.recording_file_name`）。
+
 ### 4-459. 【CL-3 へ】あなたのお願い 59・60 への答えと、61 を受けたこと（2026-11-20。表の作りの変更は無い。設計書 15-2 の932・933）
 - **57 の続き（会話AIの声の率）**：`metrics.business` の答えに `ai_voice`＝{種類: 率 {hits, total, value} か None} を足しました（種類は `attempts.VOICE_KINDS`）。None は「まだ数えていない」と出してください（0 と出さない＝原則10。数えるのは会話の担当の通話後の検証＝フェーズ1。CL-1 の連絡帳 4-221）。
 - **60（国内の形の番号）**：サーバーが番号の正規化の1か所（`core/phone.normalize`）で国内の形を作り、頼み start_call・test_ring に `national` として添えます（`supervisor/channel._national`）。PC の部品は、そのまま電話の部品へ渡します：`Phone.start_call(phone_e164, voice_type=None, *, national)`・`Phone.test_ring(phone_e164, *, national)`（`link/phone.py` の形。national は例 "0300000001"）。国内の形の無い頼み（前の版のサーバー）は、PC の部品がかけない・試さない（withheld）。やり取りの形の版 `VERSION` は 7 に上げました。頼みの欄の名前は `national` の1つにそろえます（あなたの 62 の案の `phone_national` も、send_sms を足すときに `national` で受けます）。あなたの `agent/phones/rakuten_link.py` の `start_call`・`test_ring` に national を受ける口を足し、番号の欄へは national を入れてください（電話の部品の中で番号の形を変えない）。

@@ -1331,6 +1331,21 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("会話AIの声の数で、見つかった数が確かめた数を超えられる（0274）",
      "ALTER TABLE salescall.verification_voice DROP CONSTRAINT verification_voice_found_within",
      ("tests.test_quality.BusinessMetrics.test_the_ai_voice_counts_are_checked_and_kept_only_with_a_recorded_check",)),
+    ("録音の音の指紋を、中身と違う値で置ける（0275）",
+     "ALTER TABLE salescall.recording_audio DROP CONSTRAINT recording_audio_fingerprint",
+     ("tests.test_recording_audio.RecordingAudio.test_a_wrong_fingerprint_or_a_missing_sound_is_never_played",)),
+    ("契約者の録音の音を、ほかの契約者が読める（0275）",
+     "DROP POLICY recording_scope ON salescall.recording_audio;"
+     " CREATE POLICY recording_scope ON salescall.recording_audio USING (true) WITH CHECK (true)",
+     ("tests.test_recording_audio.RecordingAudio.test_a_contractor_recording_is_not_readable_by_another_contractor",)),
+    ("契約者の取引から、システムの録音の音を置ける（0275）",
+     "DROP POLICY system_audio_write ON salescall.recording_audio;"
+     " CREATE POLICY system_audio_write ON salescall.recording_audio FOR INSERT WITH CHECK (tenant_id IS NULL)",
+     ("tests.test_recording_audio.RecordingAudio.test_a_contractor_recording_is_not_readable_by_another_contractor",)),
+    ("ほかの契約者の聞いた記録が見える（0275）",
+     "DROP POLICY listen_scope ON salescall.recording_listens;"
+     " CREATE POLICY listen_scope ON salescall.recording_listens USING (true) WITH CHECK (true)",
+     ("tests.test_recording_audio.RecordingAudio.test_a_system_recording_is_stored_once_and_heard_by_any_contractor_with_a_record",)),
     ("「〇時までなら大丈夫です」の読み方の既定を「〇時から」にする（0262：出られる時刻を過ぎてからかける）",
      "ALTER TABLE salescall.setting_values DISABLE TRIGGER setting_values_frozen;"
      " UPDATE salescall.setting_values SET value = '\"after\"' WHERE key = 'callback.until_available' AND scope = 'system';"
@@ -8770,6 +8785,12 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ('会話AIの声の数で、見つかった数が確かめた数を超えるのを受ける', 'src/salescall/core/attempts.py',
      'or not 0 <= pair[1] <= pair[0]):', 'or not 0 <= pair[1]):',
      ("tests.test_quality.BusinessMetrics.test_the_ai_voice_counts_are_checked_and_kept_only_with_a_recorded_check",)),
+    ('録音を聞いても、聞いた記録を残さない', 'src/salescall/core/recording_audio.py',
+     '    tx.execute("INSERT INTO salescall.recording_listens (set_id, part) VALUES (%s, %s)", (set_id, part))', '    pass',
+     ("tests.test_recording_audio.RecordingAudio.test_a_system_recording_is_stored_once_and_heard_by_any_contractor_with_a_record",)),
+    ('WAV でない音も置く', 'src/salescall/core/recording_audio.py',
+     '    if not isinstance(data, (bytes, bytearray)) or not _wav(bytes(data)):', '    if not isinstance(data, (bytes, bytearray)):',
+     ("tests.test_recording_audio.RecordingAudio.test_a_wrong_fingerprint_or_a_missing_sound_is_never_played",)),
 )
 
 

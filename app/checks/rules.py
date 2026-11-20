@@ -250,6 +250,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "voice_types": {"INSERT": frozenset({_CORE + "recordings.py"})},           # 声の型（管理者が足す。0059）
     "recording_sets": {"INSERT": frozenset({_CORE + "recordings.py"})},       # 録音の版と承認（6-13。0047）
     "recordings": {"INSERT": frozenset({_CORE + "recordings.py"})},
+    "recording_audio": {"INSERT": frozenset({_CORE + "recording_audio.py"})},     # 業務で流す録音の音（置く1か所。0275）
+    "recording_listens": {"INSERT": frozenset({_CORE + "recording_audio.py"})},   # 聞いた記録（聞く1か所。0275）
     "recording_approvals": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "recording_readings": {"INSERT": frozenset({_CORE + "recordings.py"})},    # 録音で選んだ名前の読み（Intent.md 6-2。0099）
     # 版の録音の部分の一覧（会話の担当の録音の道具が recordings.list_parts で渡す。計画書 6-1 (4)。0212）
