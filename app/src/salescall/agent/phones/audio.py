@@ -85,3 +85,9 @@ class Framer:
         n = len(buf) // self.size
         self._rest = buf[n * self.size:]
         return [buf[i * self.size:(i + 1) * self.size] for i in range(n)]
+
+
+def rms_of(pcm: bytes) -> float:
+    """その切れ目の音の大きさ（二乗平均の平方根）。"""
+    x = samples(pcm)
+    return (sum(v * v for v in x) / len(x)) ** 0.5 if len(x) else 0.0
