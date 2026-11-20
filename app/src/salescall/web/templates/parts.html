@@ -5,6 +5,10 @@
     info（青）＝区別のための情報／色なし＝何もない（0件・なし）。「何もない」を緑にしない（よい知らせと見分けがつかなくなる） -#}
 {% macro tag(text, tone="") -%}<span class="tag {{ tone }}">{{ text }}</span>{%- endmacro %}
 
+{#- 行き先（別の画面へ移るだけ）の部品。押すと何かが始まる・決まるもの（取り込む・書き出す・渡す・やめる）だけをボタンの形にし、
+    移るだけのものは、この文字の形にそろえる（ボタンの形だと、押すと何かが起きるように読める＝2026-11-20 の見直し） -#}
+{% macro go(href, label) -%}<a class="go" href="{{ href }}">{{ label }}</a>{%- endmacro %}
+
 {% macro stat(label, value, tone="") -%}
 {%- set tone = "" if value == 0 or value == "0" else tone -%}   {#- 0件は色を付けない（色の役割の「何もない」） -#}
 <div class="stat {{ tone }}"><span class="label">{{ label }}</span><span class="value">{{ value }}</span></div>

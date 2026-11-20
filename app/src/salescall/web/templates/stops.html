@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, empty, flash %}
+{% from "parts.html" import go, tag, empty, flash %}
 {% set active = "stops" %}
 {% block title %}止まっているもの{% endblock %}
 {% block main %}
@@ -16,7 +16,7 @@
       <td>{{ words.stop_scope(s.scope) }}{% if s.client_name %}<span class="muted">：{{ s.client_name }}</span>{% endif %}</td>
       <td class="num">{{ time(s.at) }}</td>
       <td class="wide">{{ s.reason }}</td>
-      <td class="num"><a class="btn small" href="{{ ('/c/' ~ s.client_id) if s.client_id else '/t' }}/stops/{{ s.event_id }}">開く</a></td>
+      <td class="num">{{ go((('/c/' ~ s.client_id) if s.client_id else '/t') ~ '/stops/' ~ s.event_id, "何で止まったか") }}</td>
     </tr>
   {% endfor %}
   </tbody>

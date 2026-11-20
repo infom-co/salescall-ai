@@ -7,7 +7,7 @@
 {% set rbase = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
 <div class="title-row"><div class="titles"><h1>依頼者へ渡す内容の見本</h1>
   <p class="lead">書き出すファイルと同じ中身です。確定した結果だけで、結果の決め直し中のお客様は出しません。取れなかった答えは、お客様の言葉で書きます。</p></div>
-  <span class="btn-row"><a class="btn" href="{{ rbase }}/results.xlsx">確かめるために書き出す（Excel）</a><a class="btn" href="{{ rbase }}/results.csv">（CSV）</a></span></div>
+  <span class="btn-row"><a class="btn" href="{{ rbase }}/results.xlsx">確かめるために書き出す（Excel）</a><a class="btn" href="{{ rbase }}/results.csv">CSV で書き出す</a></span></div>
 {# 依頼者へ渡すファイルは、形（Excel・CSV）を選んで1回で書き出す（同じ受け口。形は output/files.FORMATS の1か所） #}
 <form method="post" action="{{ rbase }}/results.xlsx" data-download class="card handover">{{ csrf(token) }}
   <b>依頼者「{{ client.name }}」へ渡すファイル（{{ rows|length }}行・控えを残す）</b>

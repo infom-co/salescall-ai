@@ -62,6 +62,10 @@ h3 { font-size: 14px; margin: 0 0 8px; font-weight: 700; color: var(--muted); }
                                    background: var(--primary); }
 .tab.home { border-right: 1px solid var(--line); padding-right: 16px; margin-right: 4px; color: var(--text); }
 .tab.empty { color: var(--muted); font-weight: 400; }
+/* 依頼者のタブの並びは、ほかの部品（全体・グループ・＋依頼者・探す）に押しつぶされない（2026-11-20：スマホで幅0になり、いま開いている
+   依頼者も見えず、タブで切り替えられなかった）。入りきらなければ折り返す。狭い画面では、いつも2段目に全幅で並べる（下の @media） */
+.tabrow.clients { flex-wrap: wrap; }
+.tabrow.clients .scroller { flex: 1 1 260px; }
 .tabrow.businesses { background: var(--surface-2); border-top: 1px solid var(--line); padding-left: 24px; }
 .tabrow.businesses .scroller { flex: 0 1 auto; mask-image: none; }
 .tabrow.businesses .tab { height: 38px; font-weight: 500; }
@@ -256,6 +260,9 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   .filters .pick { margin-left: 0; width: 100%; }
   .filters select { flex: 1; max-width: none; }
   .tabrow { padding: 0 6px; }
+  .title-row .btn-row .search-inline { flex: 1 1 100%; }
+  .tabrow.clients .scroller { order: 10; flex-basis: 100%; border-top: 1px solid var(--line); }
+  .tabrow.clients > .adder:not(.group-pick) { margin-left: auto; }
   .tab { padding: 0 11px; }
   .tabrow.businesses { padding-left: 6px; }
   .finder .panel { position: fixed; top: 100px; left: 8px; right: 8px; width: auto; }
@@ -266,7 +273,8 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   .top { gap: 8px; padding: 0 10px; }
 }
 .question label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
-.fix-card { scroll-margin-top: calc(var(--chrome, 108px) + 12px); }
+/* 飛び先（#…）は、上に留まる帯とタブの下に出す（どの飛び先も同じ1か所。前は「直す」の札だけにあった） */
+[id] { scroll-margin-top: calc(var(--chrome, 108px) + 12px); }
 /* お客様リストのレ点と一括の印 */
 .bulk { position: sticky; top: var(--chrome, 108px); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; margin-bottom: 12px; }
 .bulk select, .bulk input[type=text], .inline-mark select, .inline-mark input[type=text] { height: 34px; border: 1px solid var(--line); border-radius: 8px;
@@ -483,3 +491,11 @@ p.big-number b { font-size: 28px; }
 ul.plain-list { list-style: none; margin: 8px 0 0; padding: 0; }
 ul.plain-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 0; border-top: 1px solid var(--line); }
 fieldset.pick-dests { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px 12px; margin: 0; }
+
+/* 行き先（別の画面へ移るだけ＝parts.go）。ボタンの形にしない：色の付いた文字と「›」。並べるときは .go-links */
+a.go { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 2px 0; font-weight: 600; color: var(--primary); white-space: nowrap; }
+a.go::after { content: "›"; font-size: 1.15em; line-height: 1; transform: translateY(-1px); }
+a.go:hover { text-decoration: underline; text-underline-offset: 3px; }
+.go-links { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 18px; }
+.title-row > .go-links { flex-basis: 100%; }
+.mode-card .title-row > .go-links { flex-basis: auto; }
