@@ -142,6 +142,9 @@ REASONS: dict[str, Reason] = {
     "same_number_interval": Reason("同じ番号へ、ほかの業務・実施回・依頼者の電話がかかったばかりです（依頼者ごとの設定の間をあけます）",
                                    "wait", "plan"),
     "cross_client_interval_other_tenant": Reason("同じ番号へかけたばかりです", "wait", "plan"),   # 契約者の外は、中身を出さない
+    # 顧客獲得型で、同じ業務の前の実施回にアポ（最終目的）を断られたお客様：前の電話から業務の設定 business.declined_wait_days の日数をあける（✅ 2026-11-20
+    # ユーザー（計画書 9-9）「伺い83：…切られたり起こっていなかったらウ（間をあけてかける。30日）」。待つ時刻は core/target_policy.declined_wait_until の1か所。0263）
+    "declined_wait": Reason("同じ業務の前の実施回で、アポを断られたお客様です（業務の設定の日数をあけてかけます）", "wait", "plan"),
     "other_client_promise": Reason("同じ番号へ、ほかの約束の電話がかかります（契約者の設定で、その電話が済むまで待ちます）", "wait", "plan_if_known"),
     "number_promise_soon": Reason("同じ番号へ、お客様が時刻を指定した約束の電話が、もうすぐかかります（その電話が済むまで待ちます）", "wait", "plan_if_known"),
     "line_unknown": Reason("その回線はありません", "cannot_judge", "line"),
@@ -465,6 +468,13 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
                                             business_id=task["business_id"]) or r["wait_until"], "same_number_interval", True))
             else:
                 limits.append((r["wait_until"], "cross_client_interval_other_tenant", True))
+    # 顧客獲得型で、同じ業務の前の実施回にアポを断られたお客様（target_policy.declined_wait_until の1か所。その日の、かけてよい時間帯の始まりから）
+    if not promised:
+        wait = target_policy.declined_wait_until(tx, task["task_id"], normalize(task["phone_e164"]), client_ref=task["client_ref"],
+                                                 tenant_id=task["tenant_id"], client_id=task["client_id"], business_id=task["business_id"])
+        if wait is not None:
+            limits.append((next_opening(tx, wait, tenant_id=task["tenant_id"], client_id=task["client_id"], business_id=task["business_id"])
+                           or wait, "declined_wait", True))
     # 同じ番号へ、お客様が時刻を指定した約束の電話（同じ契約者のほかの行。同じ依頼者・ほかの依頼者とも）が、約束の前に回線を空ける
     # 長さ（promise_guard_seconds＝この業務の平均通話時間）のうちに来るなら、約束でない電話は待つ（約束の電話より先に、同じお客様へ
     # ほかの電話が届かない。⛔ 見直し15：前は回線の取り置きだけで、同じ番号へのふつうの電話は約束の直前でもかかった）。約束の時刻を

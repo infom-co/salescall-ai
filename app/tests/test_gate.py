@@ -15,7 +15,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from unittest import mock
 
-from salescall.core import (approval, common_phrases, attempts, customer_contacts, business_rules, calendar, call_report, calling_hours, dial_exit, dnc, fix_requests,
+from salescall.core import (approval, common_phrases, attempts, customer_contacts, business_rules, business_settings, calendar, call_report, calling_hours, dial_exit, dnc, fix_requests,
                             gate, health,
                             next_action, quality_stage, recordings, scheduler, settings, settle, stops, target_policy, tasks)
 from salescall.core.call_report import Cut
@@ -306,6 +306,35 @@ class DataReasons(Base):
         self.assertIsNone(self.tx(u, lambda tx: target_policy.block_reason(
             tx, normalize(other), client_ref="K-001", tenant_id=u["tenant"], client_id=u["client"], business_id=u["business"],
             task_id=None)))
+
+    def test_an_acquiring_business_calls_a_customer_who_declined_after_the_set_days(self):
+        """顧客獲得型の業務（電話の型 acquire）で、アポ（最終目的）を断られたお客様には、同じ業務の次の実施回で、前の電話から業務の設定 business.declined_wait_days
+        （初め30日）あけてかける（✅ 2026-11-20 ユーザー（計画書 9-9）「伺い83：…切られたり起こっていなかったらウ（間をあけてかける。30日）」）。行は止めない
+        （かけない理由に当たらない）・門は日数を待つ（待つ理由 declined_wait＝その日の、かけてよい時間帯の始まりから）。確認の電話の業務は今のまま（かけない＝上の試験）。
+        電話の型は、断られた電話の業務の版で決める（core/business_settings.DECLINED_NEXT の1か所）。"""
+        from tests.test_judge import goal_refused
+        from tests.test_settle import TALK
+        s = self.ready()
+        run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+        t2 = self.w.task(s["tenant"], s["client"], run2, s["contact"])
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験：次の実施回の最初の予定"))
+        self.past_attempt(s, TALK, verify=True, report=goal_refused(make_report()))   # 本物の通話で断られた（0225）
+        ended = self.tx(s, lambda tx: tx.one("SELECT max(ended_at) AS at FROM salescall.attempts WHERE task_id = %s", (s["task"],)))["at"]
+        why = lambda: self.tx(s, lambda tx: target_policy.task_block_reason(   # noqa: E731
+            tx, t2, normalize(s["phone"]), client_ref=None, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
+        pace = lambda: self.tx(s, lambda tx: gate.pacing(tx, t2))   # noqa: E731
+        self.assertEqual(why()[0], "declined_in_business")                       # 確認の電話の業務：かけない（今のまま）
+        self.assertNotEqual(pace().binding, "declined_wait")
+        with mock.patch.object(business_settings, "call_type", return_value=business_settings.CALL_ACQUIRE):
+            self.assertIsNone(why())                                              # 顧客獲得型：行は止めない
+            p = pace()
+            self.assertEqual(p.binding, "declined_wait")
+            opening = self.tx(s, lambda tx: gate.next_opening(tx, ended + timedelta(days=30), tenant_id=s["tenant"], client_id=s["client"],
+                                                              business_id=s["business"]))
+            self.assertEqual(p.earliest, opening or ended + timedelta(days=30))
+            self.assertEqual(self.claim(s, task=t2).reason, "declined_wait")      # 門は待つ（行を終えない）
+            self.put_client(s, "business.declined_wait_days", 45)                 # 日数は設定（業務・依頼者ごと）
+            self.assertGreaterEqual(pace().earliest, ended + timedelta(days=45))
 
     def test_a_customer_who_declined_on_another_number_of_the_row_is_not_called(self):
         """行のほかの番号（記録だけの番号）が、同じ業務で断られた行の番号・お客様を止める発信禁止なら、取込のあとでも門はかけない（取込と同じ

@@ -131,6 +131,11 @@ TARGET_CLASSES = ("corporate", "individual")      # お客様の区分：法人�
 # 尺度の表の1か所（会話の側は flowctl.SCALES・こちらは発信禁止と切れ方・次の実施回＝`CALL_TYPE_RULES`）。PAINS_MAX＝悩みと事例の組の上限（会話の側の flowctl.PAINS_MAX）
 CALL_CONFIRM, CALL_ACQUIRE = "confirm", "acquire"
 CALL_TYPES = (CALL_CONFIRM, CALL_ACQUIRE)
+# 同じ業務で用件・最終目的を断られたお客様に、次の実施回でかけるか（電話の型ごとの扱いの表。ここだけ。CL-1 の尺度の表 flowctl.SCALES の goal_refused_next と同じ分け方）：
+# setting＝業務の設定 business.call_declined_again（いいえ＝かけない＝初め／はい）。✅ 2026-11-01 管理者：伺い8／after_days＝その実施回ではかけず、次の実施回で、
+# 前の電話から業務の設定 business.declined_wait_days の日数あけてかける（読むのは core/target_policy の1か所）。✅ 2026-11-20 ユーザー（計画書 9-9）「伺い83：…切られたり
+# 起こっていなかったらウ（間をあけてかける。30日）」。切られた・怒っていたら発信禁止・苦情＝ここに来ない
+DECLINED_NEXT = {CALL_CONFIRM: "setting", CALL_ACQUIRE: "after_days"}
 PAINS_MAX = 3
 TARGET_CLASSES_OPEN = ("corporate",)              # いま選べる区分：法人だけ（Intent.md 3-1・18-3）。個人は、13章の確かめが済み、
 #                                                   名乗りの法定事項と拒否の即時登録をシステムが強制する形を作ってから開く（設定では開けない）
@@ -2091,6 +2096,11 @@ def who_unclear_blanks(tx: Tx, task_id: UUID, *, before: datetime | None = None)
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
     have = {"full_name": t["target_full_name"], "department": t["target_department"]}
     return tuple(f for f in WHO_UNCLEAR_FIELDS if not have[f])
+
+
+def call_type(tx: Tx, version_id: UUID) -> str:
+    """その版の業務の電話の型（CALL_TYPES。読むのはここだけ＝中身は置いた時に確かめ済みの `load` の1か所。書いていない前の版は確認の電話）。"""
+    return load(tx, version_id).call_type
 
 
 def anyone_target(tx: Tx, version_id: UUID) -> bool:
