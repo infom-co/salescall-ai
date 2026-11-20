@@ -3639,15 +3639,20 @@ class DialFixAfterCalls(SettleBase):
         aid = self.call(s, report=rep(("reception",), not_reached="absent"))
         self.settle(s, aid)
         with self.assertRaises(Rejected) as e:
-            self.tx(s, lambda tx: attempts.record_reached_target(tx, aid, True))
+            self.tx(s, lambda tx: attempts.record_talk(tx, aid, reached_target=True, talked=True))
         self.assertEqual(e.exception.constraint, "attempt_reached_target_by_settle")
-        self.tx(s, lambda tx: attempts.record_reached_target(tx, aid, False))   # 変わらない書き直しは、通す（締め直しと同じ値）
+        self.tx(s, lambda tx: attempts.record_talk(tx, aid, reached_target=False, talked=True))   # 変わらない書き直しは、通す（締め直しと同じ値。受付の方と話した＝人と話した）
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT reached_target, talked FROM salescall.attempts WHERE attempt_id = %s", (aid,))),
+                         {"reached_target": False, "talked": True})
+        with self.assertRaises(Rejected) as e:   # お客様と話したか（0270）も、締めの記録の外では書けない
+            self.tx(s, lambda tx: attempts.record_talk(tx, aid, reached_target=False, talked=False))
+        self.assertEqual(e.exception.constraint, "attempt_reached_target_by_settle")
         # 人（管理者・契約者）の取引で契約者の版を足しても、印は書けない（システムの締め・締め直しの取引だけ。0239 で通したのはシステムの処理の取引だけ）
 
         def by_person(tx):
             results.append(tx, s["task"], kind="human", business_state="declined", attempt_id=aid, judge_version=None, complaint=False,
                            snapshot={}, detail={}, decided_by="契約者")
-            attempts.record_reached_target(tx, aid, True)
+            attempts.record_talk(tx, aid, reached_target=True, talked=True)
         with self.assertRaises(Rejected) as e:
             self.tx(s, by_person, OPERATOR)
         self.assertEqual(e.exception.constraint, "attempt_reached_target_by_settle")

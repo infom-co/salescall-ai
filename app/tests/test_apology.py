@@ -621,7 +621,7 @@ class ApologyAfterDialFix(ApologyBase):
                     self.assertEqual((p["kind"], p["purpose"], p["promised"], p["handover"], p["contact_id"]), (*want, s["contact"]))
 
     def test_an_apology_call_records_whether_it_reached_the_target(self):
-        """お詫びの電話で目的のお客様と話せたかも、ふつうの通話と同じ1か所（attempts.record_reached_target。締めの処理が、お詫びの電話の結びを書いた同じ
+        """お詫びの電話で目的のお客様と話せたかも、ふつうの通話と同じ1か所（attempts.record_talk。締めの処理が、お詫びの電話の結びを書いた同じ
         取引で書く＝0211 の守り）に記録する（引き継ぎを確かめる印 next_action._handover_due が、いまの担当の期の通話で読む）。データベースの監査 K の
         (b)：お詫びの締めの記録を消しても落ちる試験が無かった。"""
         s = self.fresh(stage_cap=20)

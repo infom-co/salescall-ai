@@ -139,6 +139,16 @@ DNC_PARTS: dict[str, str] = {"refused_in_call": "refusal", "refused_unclear_chec
 # （next_action.FORMER_NUMBER_ANSWERS）・お詫びの電話の番号の止め（settle）が読む。⛔ 2026-11-15 の見直しまで：3か所に同じ組を書いていた
 NUMBER_ONLY = frozenset(r for r, part in DNC_PARTS.items() if part != "refusal")
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
+# 項目の状態 → 依頼者へ渡す印の分け方（1か所。計画書 5-2「必須項目の『取れた』『-』『✕』の数（別々に）」・11-3「-（わからない）と ✕（拒否）」・10-1「-（未解決）」）：
+# taken＝取れた（TAKEN）／dont_know＝「-」（わからない・未解決）／refused＝「✕」（拒まれた）／open＝まだ取れていない（聞いていない・聞き取っている途中）
+ITEM_MARKS = ("taken", "dont_know", "refused", "open")
+
+
+def item_mark(state: str | None) -> str:
+    """項目の状態の、依頼者へ渡す印の分け方（ITEM_MARKS。1か所）。項目が無ければ open。"""
+    if state in TAKEN:
+        return "taken"
+    return {"dont_know": "dont_know", "unresolved": "dont_know", "refused": "refused"}.get(state or "", "open")
 # 会話の報告を受け取った状態（取れた＋「わからない」「答えたくない」。会話の側の flowctl.TAKEN と同じ）：前の答えで伺う質問は、前の質問が
 # この状態になってから、その答えで伺うかが決まる（会話の側の Flow._follow_ups。`not_asked` の1か所）
 ANSWERED = TAKEN | {"dont_know", "refused"}

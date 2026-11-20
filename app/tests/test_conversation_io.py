@@ -154,6 +154,19 @@ class Materials(SettleBase):
         self.assertIn({"kind": "mobile", "value": mobile.e164, "source": "customer", "dialed": False},
                       self.tx(s, lambda tx: conversation_io.listed_contacts(tx, aid)))
 
+    def test_the_machine_on_the_line_is_read_from_the_report(self):
+        """電話口が機械だった通話の種別（call_report.machine_party の1か所。CL-3 の 20）：会話の報告の電話口の種別のうち機械のもの（留守番電話・自動音声・FAX）。
+        お客様と話した通話・報告の無い通話は None。"""
+        from tests.support import make_report
+        s = self.ready()
+        aid = self.answered(s)
+        self.assertIsNone(self.tx(s, lambda tx: call_report.machine_party(tx, aid)))                 # 報告がまだ無い
+        self.tx(s, lambda tx: call_report.save(tx, aid, make_report(("voicemail",), end="voicemail")))
+        self.assertEqual(self.tx(s, lambda tx: call_report.machine_party(tx, aid)), "voicemail")
+        # 作り直した報告で人と話していれば None（読むのは、いちばん新しい報告＝call_report.load の1か所）
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, make_report(("reception",)), evidence="試験：作り直した報告"), OPERATOR)
+        self.assertIsNone(self.tx(s, lambda tx: call_report.machine_party(tx, aid)))
+
     def test_earlier_answers_and_the_handlings_of_a_question(self):
         """前の通話で取れた答え（続きから聞く電話で、取れた質問を伺わない）と、質問ごとの「理由×扱い」（業務の決まりの1か所）。"""
         s = self.ready()
