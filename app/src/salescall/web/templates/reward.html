@@ -18,7 +18,7 @@
     <dt>赤字の知らせの早さ</dt><dd>{{ cautions[current.deficit_caution][0] if current.deficit_caution in cautions else "—" }}</dd>
     <dt>いつから</dt><dd>{{ time(current.valid_from) }}</dd>
   </dl>
-  {% else %}{{ empty("報酬の決まりが設定されていません", "決まりが無いあいだは、赤字かどうかを判断しません（発信は止めません）。下の「決まりを足す」から入れてください。") }}{% endif %}
+  {% else %}{{ empty("報酬の決まりが設定されていません", "決まりが無いあいだは、赤字かどうかを判断しません（発信は止めません）。「決まりを足す」から入れてください。") }}{% endif %}
 </section>
 <section class="card">
   <h2>決まりを足す</h2>

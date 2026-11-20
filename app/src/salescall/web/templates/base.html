@@ -47,6 +47,13 @@
     <div class="group">全体</div>
     {% for key, (name, href) in words.PAGES.items() %}<a href="{{ href }}" {% if active == key %}aria-current="page"{% endif %}>{{ name }}</a>
     {% endfor %}
+    {#- 依頼者・業務の中にいるときは、その中の画面のまとまりを足す（いま開いている画面に印。どこにいるかを左でも見失わない） -#}
+    {% if client %}<div class="group nav-place">依頼者「{{ client.name }}」</div>
+    {% for suf, name in words.CLIENT_NAV.items() %}{% set href = "/c/" ~ client.client_id ~ suf %}<a href="{{ href }}" {% if request.url.path == href %}aria-current="page"{% endif %}>{{ name }}</a>
+    {% endfor %}
+    {% if business %}<div class="group nav-place">業務「{{ business.name }}」</div>
+    {% for suf, name in words.BUSINESS_NAV.items() %}{% set href = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ suf %}<a href="{{ href }}" {% if request.url.path == href %}aria-current="page"{% endif %}>{{ name }}</a>
+    {% endfor %}{% endif %}{% endif %}
     {% if person.is_admin %}<div class="group">管理者だけ</div>
     {% for key, (name, href) in words.ADMIN_PAGES.items() %}<a href="{{ href }}" {% if active == key %}aria-current="page"{% endif %}>{{ name }}</a>
     {% endfor %}{% endif %}

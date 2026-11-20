@@ -309,6 +309,12 @@ PAGES: dict[str, tuple[str, str]] = {
 ADMIN_PAGES: dict[str, tuple[str, str]] = {"admin_tenants": ("契約者を選ぶ", "/admin/tenants"), "system_settings": ("システムの初めの値", "/admin/settings")}
 
 
+# 依頼者・業務の中の画面（左の道しるべの「依頼者『○○』」「業務『○○』」のまとまりと、ページの上の行き先が、同じ名前をここから引く。
+# 鍵は、依頼者・業務の住所のあとに付く部分）
+CLIENT_NAV: dict[str, str] = {"": "概要（全業務）", "/dnc": "発信禁止", "/destinations": "結果の送り先", "/settings": "この依頼者の設定"}
+BUSINESS_NAV: dict[str, str] = {"": "業務の概要", "/reward": "報酬の決まり", "/samples": "誤判定率と抜き取り", "/settings": "この業務の設定"}
+
+
 def page(key: str) -> str:
     """画面の名前（PAGES・ADMIN_PAGES の1か所）。"""
     return (PAGES.get(key) or ADMIN_PAGES[key])[0]

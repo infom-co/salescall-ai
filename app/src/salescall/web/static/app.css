@@ -121,6 +121,7 @@ ul.numbers li.old .num { color: var(--muted); font-weight: 500; text-decoration:
 /* ── 左の道しるべと中身 ── */
 .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: calc(100vh - 98px); }
 .nav { border-right: 1px solid var(--line); padding: 16px 10px; background: var(--surface); }
+.nav .group.nav-place { text-transform: none; letter-spacing: 0; color: var(--text); border-top: 1px solid var(--line); margin-top: 10px; overflow-wrap: anywhere; }
 .nav .group { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .08em; padding: 14px 10px 6px; }
 .nav a { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 8px; color: var(--text); }
 .nav a:hover { background: var(--surface-2); text-decoration: none; }
@@ -135,7 +136,8 @@ ul.numbers li.old .num { color: var(--muted); font-weight: 500; text-decoration:
 
 /* ── 部品 ── */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 20px; }
-.grid { display: grid; gap: 16px; }
+.grid { display: grid; gap: 16px; align-items: start; }   /* 並べた札は上でそろえ、高さはそろえない（短い札の下が大きく空いていた） */
+.grid.stats { align-items: stretch; }   /* 数の札の並びだけは高さをそろえる（数字の行が横にそろう） */
 .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .stack > * + * { margin-top: 16px; }

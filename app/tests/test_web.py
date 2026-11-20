@@ -666,6 +666,17 @@ class Web(_World):
                 self.assertIn(f'<a href="{href}" aria-current="page">{name}</a>', page)
         self.assertNotIn("見張り", self.get("A", "/t").text + self.get("A", "/t/watch").text)   # 前は「見張り」と「気をつけること」の2つの名前
 
+    def test_inside_a_client_the_side_nav_shows_where_you_are(self):
+        """依頼者・業務の中では、左の道しるべに、その中の画面のまとまりが出て、開いている画面に印が付く（名前は words の1か所）。"""
+        from salescall.output import words as w
+        c, b = self.a["client"], self.a["business"]
+        for path, name in ((f"/c/{c}", w.CLIENT_NAV[""]), (f"/c/{c}/dnc", w.CLIENT_NAV["/dnc"]),
+                           (f"/c/{c}/b/{b}", w.BUSINESS_NAV[""]), (f"/c/{c}/b/{b}/settings", w.BUSINESS_NAV["/settings"])):
+            with self.subTest(path=path):
+                page = self.get("A", path).text
+                self.assertIn(f'<a href="{path}" aria-current="page">{name}</a>', page)
+        self.assertNotIn("nav-place", self.get("A", "/t").text)                  # 全体の画面では出さない
+
     def test_the_way_back_is_the_breadcrumb_only(self):
         """戻り方はパンくずの1か所（全体の画面の下の画面も、親の画面へ戻れる）。ページごとの「← 戻る」は書かない
         （取り込みの手順の中で1つ前の手順へ戻るリンクは別）。"""

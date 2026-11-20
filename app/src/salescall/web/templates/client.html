@@ -10,9 +10,9 @@
   <form class="search-inline" method="get" action="/c/{{ client.client_id }}/search"><input type="search" name="q" placeholder="お客様を探す（会社名・管理番号・電話番号）" aria-label="お客様を探す"></form>
   </span>
   <nav class="go-links" aria-label="{{ 'この業務' if business else 'この依頼者' }}の画面">
-  {% if not business %}{{ go("/c/" ~ client.client_id ~ "/dnc", "発信禁止") }}{% endif %}
-  {{ go("/c/" ~ client.client_id ~ "/destinations" ~ ("#b-" ~ business.business_id if business else ""), "結果の送り先") }}
-  {{ go("/c/" ~ client.client_id ~ ("/b/" ~ business.business_id if business else "") ~ "/settings", "この業務の設定" if business else "この依頼者の設定") }}
+  {% if not business %}{{ go("/c/" ~ client.client_id ~ "/dnc", words.CLIENT_NAV["/dnc"]) }}{% endif %}
+  {{ go("/c/" ~ client.client_id ~ "/destinations" ~ ("#b-" ~ business.business_id if business else ""), words.CLIENT_NAV["/destinations"]) }}
+  {{ go("/c/" ~ client.client_id ~ ("/b/" ~ business.business_id if business else "") ~ "/settings", words.BUSINESS_NAV["/settings"] if business else words.CLIENT_NAV["/settings"]) }}
   </nav></div>
 {{ flash(done, ok) }}
 {% if deficit %}{{ deficit_card(client, deficit, token, "/c/" ~ client.client_id ~ ("/b/" ~ business.business_id if business else "")) }}{% endif %}
@@ -103,8 +103,8 @@
   <div class="title-row"><h2 style="margin:0">{{ "検証モード" if verification else "フルオート" }}</h2>
     {% set bb = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id %}
     <nav class="go-links" aria-label="この業務の画面">{% if versions %}{{ go(bb ~ "/versions/" ~ versions[0].version_id, "電話の台本（版 " ~ versions[0].version_no ~ "）") }}{% endif %}
-    {{ go(bb ~ "/reward", "報酬の決まり") }}
-    {{ go(bb ~ "/samples", "誤判定率と抜き取り") }}
+    {{ go(bb ~ "/reward", words.BUSINESS_NAV["/reward"]) }}
+    {{ go(bb ~ "/samples", words.BUSINESS_NAV["/samples"]) }}
     {#- 前は「切り替える（業務の設定）」＝押すと切り替わるように読めた。移るだけなので、どこで変えるかを言う -#}
     {{ go(bb ~ "/settings#g-approval", "検証モードかフルオートかを変える（設定）") }}</nav></div>
   <p class="muted">{% if verification %}発信の前に行を承認し、結果を確かめてから確定します。少ない件数の段から始め、指標が基準の内なら次の段へ進みます。{% else %}承認なしでかけ、判定した結果をそのまま確定します。{% endif %}</p>
