@@ -183,6 +183,12 @@ def open_stops(tx: Tx, *, tenant_id: UUID | None, client_id: UUID | None,
     )
 
 
+def client_stops(tx: Tx) -> list[dict[str, Any]]:
+    """契約者の取引で、その契約者の依頼者・業務の範囲のまだ解かれていない停止（番号・原因・範囲・依頼者・業務・時刻。理由の文は依頼者の取引で `explain` から）。
+    依頼者の取引・全体の取引では空（データベースの1か所 salescall.tenant_client_stops。0269。CL-3 の 8）。"""
+    return tx.all("SELECT event_id, scope, cause, client_id, business_id, at FROM salescall.tenant_client_stops()")
+
+
 def blocking(tx: Tx, *, tenant_id: UUID | None, client_id: UUID | None, business_id: UUID | None,
              line_id: UUID | None = None, kind: str | None) -> list[dict[str, Any]]:
     """まだ解かれていない停止（`open_stops` と同じ範囲）のうち、その種類の電話を止めるもの（門が使う。決まりはデータベースの

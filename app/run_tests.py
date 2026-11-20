@@ -1285,6 +1285,12 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("選ぶ設定の選び肢が無い・1つだけ・選ばない設定に選び肢がある定義を入れられる（0082）",
      "ALTER TABLE salescall.setting_definitions DROP CONSTRAINT setting_definitions_choices",
      ("tests.test_settings.Choice.test_only_the_declared_choices_are_accepted",)),
+    ("契約者の取引で読む依頼者の停止に、ほかの契約者の停止も入れる（0269）",
+     _edited("0269_tenant_client_stops.sql", "CREATE FUNCTION salescall.tenant_client_stops", "    AND s.tenant_id = salescall.cur_tenant()\n", "\n", end="\n$$;"),
+     ("tests.test_stops.StopsAreNotVisibleToOtherClients.test_the_contractor_reads_every_client_stop_at_once",)),
+    ("依頼者の取引でも、依頼者の範囲の停止を一度に読める（0269）",
+     _edited("0269_tenant_client_stops.sql", "CREATE FUNCTION salescall.tenant_client_stops", " AND salescall.cur_client() IS NULL", "", end="\n$$;"),
+     ("tests.test_stops.StopsAreNotVisibleToOtherClients.test_the_contractor_reads_every_client_stop_at_once",)),
     ("「〇時までなら大丈夫です」の読み方の既定を「〇時から」にする（0262：出られる時刻を過ぎてからかける）",
      "ALTER TABLE salescall.setting_values DISABLE TRIGGER setting_values_frozen;"
      " UPDATE salescall.setting_values SET value = '\"after\"' WHERE key = 'callback.until_available' AND scope = 'system';"
