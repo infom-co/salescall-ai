@@ -21,6 +21,15 @@ SCREEN: dict[str, dict[str, str]] = {
     "dial": {"auto_id": "dialpad_call_btn", "control_type": "Button"},               # 発信
     "call_ui": {"auto_id": "call-ui", "control_type": "Document"},                   # 通話の窓の中身
     "hang_up": {"title": "通話を終了", "control_type": "Button"},                     # 通話を終了
+    # ショートメール（R-9。2026-11-20 に読んだ＝docs/phone_probe/rakuten_link_screen.md）
+    "message_tab": {"title": "メッセージ", "control_type": "Button"},                # 「メッセージ」のタブ
+    "new_message": {"auto_id": "create_new_btn", "control_type": "Button"},         # 新しいメッセージ
+    "to_box": {"auto_id_re": r"^mat-chip-list-input-\d+$", "control_type": "Edit"},  # 宛先の欄（Id の数は変わりうる）
+    "to_chips": {"title": "Contact selection", "control_type": "List"},            # 入った宛先の一覧
+    "sms_note": {"auto_id": "message_sms_learn_more_btn", "control_type": "Hyperlink"},   # ショートメールで送られる知らせ
+    "body": {"title": "メッセージを入力", "control_type": "Text"},                    # 本文の欄（入力欄の形では出ない。押して貼り付ける）
+    "send": {"auto_id": "message_send_btn", "control_type": "Button"},             # 送信
+    "messages": {"auto_id": "chat-msg-container", "control_type": "Document"},     # 送ったメッセージが並ぶ所
 }
 TIMER = re.compile(r"^\d{1,2}:\d{2}$")      # 通話の時間の表示（例「00:02」）
 # ⏳ スマホとの連携が切れたときの表示（スマホの Wi-Fi を切って読む＝2-6）。分かるまでは、いつもの窓があれば連携しているとみなす
@@ -44,7 +53,14 @@ class UiaScreen:
         return w if w.exists(timeout=0) else None
 
     def _part(self, win: Any, key: str) -> Any | None:
-        p = win.child_window(**SCREEN[key])
+        spec = dict(SCREEN[key])
+        if "auto_id_re" in spec:   # Id の数が変わりうる部品は、形で探す
+            pattern = re.compile(spec.pop("auto_id_re"))
+            for c in win.descendants(control_type=spec.get("control_type")):
+                if pattern.match(c.element_info.automation_id or ""):
+                    return c
+            return None
+        p = win.child_window(**spec)
         return p if p.exists(timeout=0) else None
 
     @staticmethod
@@ -196,3 +212,73 @@ class UiaScreen:
         if button is None:
             raise RuntimeError("「通話を終了」が見つからない")
         self._press(button)
+
+    # ── ショートメール（R-9。⏳ 送れたかの表示は、確かめで本物を読んでから決める）──
+    def send_sms(self, number: str, text: str) -> None:
+        """国内の形の番号へ、ショートメールを1通送る（宛先を入れる → 本文を貼り付ける → 送信）。送れなければ例外。
+        送れたかの確かめ（画面の「送信済み」などの表示）は ⏳ R-9 で本物を読んでから足す。"""
+        if not DOMESTIC.fullmatch((number or "").strip()):
+            raise ValueError("番号は、国内の形の数字だけで渡してください")
+        if not text.strip():
+            raise ValueError("本文が空")
+        main = self._win("main")
+        if main is None:
+            raise RuntimeError("Rakuten Link の窓が無い")
+        if self._win("call") is not None:
+            raise RuntimeError("通話中は送らない（⏳ R-9 で通話中に送れるかを確かめる）")
+        for key in ("message_tab", "new_message"):
+            part = self._part(main, key)
+            if part is None:
+                raise RuntimeError(f"{key} が見つからない")
+            self._press(part)
+            time.sleep(0.5)
+        box = None
+        for _ in range(20):
+            box = self._part(main, "to_box")
+            if box is not None:
+                break
+            time.sleep(0.1)
+        if box is None:
+            raise RuntimeError("宛先の欄が見つからない")
+        self._paste(box, number)
+        box.type_keys("{ENTER}")
+        time.sleep(1.0)
+        chips = self._part(main, "to_chips")
+        if chips is None or not chips.children():
+            raise RuntimeError("宛先が入らなかった")
+        body = self._part(main, "body")
+        if body is None:
+            raise RuntimeError("本文の欄が見つからない")
+        body.click_input()
+        self._paste_focused(text)
+        send = self._part(main, "send")
+        if send is None:
+            raise RuntimeError("送信のボタンが見つからない")
+        self._press(send)
+
+    @staticmethod
+    def _paste_focused(text: str) -> None:
+        """いまの入力の場所へ貼り付ける（本文の欄は入力欄の形で出ないので、押したあとに貼り付ける）。"""
+        import win32clipboard as cb
+        from pywinauto.keyboard import send_keys
+        cb.OpenClipboard()
+        try:
+            try:
+                old = cb.GetClipboardData(cb.CF_UNICODETEXT)
+            except Exception:
+                old = None
+            cb.EmptyClipboard()
+            cb.SetClipboardText(text, cb.CF_UNICODETEXT)
+        finally:
+            cb.CloseClipboard()
+        try:
+            send_keys("^v")
+            time.sleep(0.3)
+        finally:
+            cb.OpenClipboard()
+            try:
+                cb.EmptyClipboard()
+                if old is not None:
+                    cb.SetClipboardText(old, cb.CF_UNICODETEXT)
+            finally:
+                cb.CloseClipboard()
