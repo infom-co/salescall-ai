@@ -119,7 +119,13 @@ BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class
                # 区切る）・受けていただいたときにこちらがすること（「…させていただきます」。書かなければ取込の AI が申し出の文から決め、決まらなければ
                # 締める前の申し出は入れない＝`review`）
                "締める前の申し出の文": "close_offer_text", "締める前の申し出の聞くこと": "close_offer_topic",
-               "締める前の申し出の方法": "close_offer_ways", "締める前の申し出でこちらがすること": "close_offer_do"}
+               "締める前の申し出の方法": "close_offer_ways", "締める前の申し出でこちらがすること": "close_offer_do",
+               # 電話の型と顧客獲得型の材料（業務設定の call_type・yes_asks・special・pains・meeting_time。確かめは business_settings._acquire の1か所。
+               # CL-1 の連絡帳 4-207・4-208・4-211。✅ 2026-11-20 ユーザー「伺い78：…ア」）：電話の型（書かなければ確認の電話）・Yes の質問の材料（「／」か改行で
+               # 区切る・伺う順）・特別感の条件・悩みと事例（組ごとの欄・PAINS_MAX まで）・お時間
+               "電話の型": "call_type", "Yes の質問の材料": "yes_asks", "特別感の条件": "special", "お時間": "meeting_time",
+               **{f"悩み{i}": f"pain{i}" for i in range(1, business_settings.PAINS_MAX + 1)},
+               **{f"悩み{i}の事例": f"case{i}" for i in range(1, business_settings.PAINS_MAX + 1)}}
 LABELS: dict[str, dict[str, str]] = {
     "type": {"日付": "date", "時刻": "time", "日時": "datetime", "数": "number", "金額": "amount", "名前": "name",
              "電話番号": "phone", "メール": "email", "住所": "address", "はい／いいえ": "yes_no", "選択肢": "choice",
@@ -148,6 +154,7 @@ LABELS: dict[str, dict[str, str]] = {
     "closed_on_holidays": {"はい": True, "いいえ": False},
     "weekday": {f"{w}{x}": k for w, k in zip("月火水木金土日", ("mon", "tue", "wed", "thu", "fri", "sat", "sun")) for x in ("", "曜日")},
     "goal_mode": {"どれか1つで果たせる": "any", "全部が要る": "all"},
+    "call_type": {"確認の電話": "confirm", "顧客獲得型": "acquire"},
     "required": {"はい": True, "○": True, "いいえ": False, "": False},
 }
 # かけ直しのシートで、システムが決める結果（業務では変えない＝business_rules.SYSTEM_POLICIES）。前のひな形にはこの行があったので、
@@ -485,10 +492,30 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         **({"offer_ways": _split(basic["offer_ways"])} if basic.get("offer_ways") else {}),
         **({"handoff_ways": _split(basic["handoff_ways"])} if basic.get("handoff_ways") else {}),
         **_close_offer(basic, problems),
+        **_acquire(basic, problems),
         "questions": questions, "names": names,
         "rules": {"handling": handling, "retry": retry, "forbidden": forbidden},
     }
     return raw, problems, {"名前": where_n, "質問": where_q, "想定問答": where_a}
+
+
+def _acquire(basic: dict[str, str | None], problems: list[str]) -> dict[str, Any]:
+    """シート「基本」の電話の型と顧客獲得型の材料を、業務設定の形にする（書いた欄だけ入れる。足りない・余る・型と合わないは業務設定の確かめ
+    business_settings._acquire の1か所が問題に出す）。悩みと事例は、組ごとの欄（悩み1・悩み1の事例…）を番号の順に [悩み, 事例] の並びにする（片方だけの組も
+    そのまま渡し、確かめが断る）。"""
+    out: dict[str, Any] = {}
+    if basic.get("call_type"):
+        out["call_type"] = _label("call_type", basic["call_type"], "シート「基本」の電話の型", problems)
+    if basic.get("yes_asks"):
+        out["yes_asks"] = _split(basic["yes_asks"])
+    for k in ("special", "meeting_time"):
+        if basic.get(k):
+            out[k] = basic[k]
+    pains = [[basic.get(f"pain{i}") or "", basic.get(f"case{i}") or ""] for i in range(1, business_settings.PAINS_MAX + 1)
+             if basic.get(f"pain{i}") or basic.get(f"case{i}")]
+    if pains:
+        out["pains"] = pains
+    return out
 
 
 def _close_offer(basic: dict[str, str | None], problems: list[str]) -> dict[str, Any]:

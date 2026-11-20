@@ -545,7 +545,8 @@ def name_needs(tx: Tx, task_id: UUID) -> NameNeeds | None:
     承認を待つと約束の時刻に遅れる）。後任の方の一言は法人だけ。役職の部分は、法人の名前の行で部署・役職があるとき（呼ぶ一言・後任の方の
     一言の頭）。名前・読み・部署と役職は、会話が読む1か所（`business_settings.target_of`。読みが決まらない名前は、まず言ってみる読み＝
     会話がそれで呼ぶ。会話で確かめた読みがあればそれ）。"""
-    target = business_settings.target_of(tx, task_id)["target"]
+    of = business_settings.target_of(tx, task_id)
+    target = of["target"]
     if target is None:
         return None
     business = tx.one("SELECT r.business_id FROM salescall.tasks t JOIN salescall.runs r ON r.run_id = t.run_id"
@@ -553,13 +554,7 @@ def name_needs(tx: Tx, task_id: UUID) -> NameNeeds | None:
     corporate = target["kind"] == "法人"
     role = target["role"] or None
     named = bool(target["name"])
-    # 引き継ぎを確かめる一言の名前の入る形（carried_target）も、続きの電話でどなたに繋がるかが前もって分からないので、目的のお客様のいる業務ならどの行も
-    # 初めから要る（約束の一言・取り次げないの確かめの一言と同じ。録音は声ごとの続く言葉1つ＝行ごとに増えない。CL-1 の連絡帳 4-151 の伺い11）
-    # かけた番号が携帯電話の番号のときの確かめる一言（mobile_confirm）も、どの行が携帯電話の番号になるかを前もって決めないので、お名前のある行はどの行も初めから
-    # 要る（CL-1 の連絡帳 4-192 の (b) の (2)）。お取り次ぎをお願いし直す一言（target_transfer）は法人の行だけ（同 4-197 の (a)。どちらも声ごとに1本）
-    tails = ("target" if corporate or not named else "target_individual", "target_confirm", "target_reconfirm",
-             "promise_again", "unavailable_confirm", "carried_target") + (("target_successor", "target_transfer") if corporate else ()) \
-        + (("mobile_confirm",) if named else ())
+    tails = _name_tails(corporate, named, of["call_type"])
     if named:
         reading = target["reading"] or None
         if reading is None:
@@ -572,10 +567,39 @@ def name_needs(tx: Tx, task_id: UUID) -> NameNeeds | None:
         full_role = (target["department"] + (role or "")) if target["department"] else role
         roles = tuple(dict.fromkeys(r for r in (role, full_role) if corporate and r))
         names = tuple(dict.fromkeys((NameKey(reading=reading), NameKey(reading=full))))
+        if corporate and role:
+            # 後任の方もいらっしゃらないときにお呼びする、その役職の方の名乗りの部分（target_role ほか・顧客獲得型の reception_purpose_role）：名前の部分は役職の呼び方
+            # （役職のみの行と同じ鍵）＋今ある続く言葉（会話の側の phrases.ROLE_PARTS・NAME_PART_TAILS。CL-1 の連絡帳 4-213・4-214）
+            names += (NameKey(role=role),)
         return NameNeeds(business, roles, names, tails)
     if role is None:   # 呼ぶ名前も役職も無い（門が target_name_missing・target_role_missing で先に断る）
         return NameNeeds(business, (), (), tails, no_reading=True)
     return NameNeeds(business, (), (NameKey(role=role),), tails)   # 役職のみ：役職の呼び方が名前の部分。呼ぶ一言は法人の形（phrases.target_call）
+
+
+# 顧客獲得型の行だけで要る続く言葉（会話の側の instruction.Business.replay_parts の顧客獲得型の部分。CL-1 の連絡帳 4-208・4-211）：2回目からの受け止めの終わり
+# yes_received・本題の段のお名前の入る文（acquire_glad・pain_ask・listen_why・listen_reason・listen_ask）。法人の行は受付の方への一文 reception_purpose も
+ACQUIRE_TAILS = ("yes_received", "acquire_glad", "pain_ask", "listen_why", "listen_reason", "listen_ask")
+
+
+def _name_tails(corporate: bool, named: bool, call_type: str) -> tuple[str, ...]:
+    """目的のお客様のいる行で要る続く言葉（1か所。会話の側の instruction.Business.replay_parts の名前の入る部分と、名乗りの部分→続く言葉の対応 phrases.NAME_PART_TAILS
+    と同じ決まり）。どの行が約束の電話・後任の方の電話・携帯電話の番号の電話になるかは前もって分からないので、その行で流れうる一言はどれも初めから要る（録音は声ごとの
+    続く言葉1つ＝行ごとに増えない。CL-1 の連絡帳 4-151・4-152）：
+    - 呼ぶ一言（法人＝target・個人＝target_individual）・確かめる一言・約束の一言・取り次げないの確かめ・引き継ぎの確かめ（carried_target）
+    - 法人：後任の方の一言（target_successor）・お取り次ぎをお願いし直す一言（target_transfer。4-197 の (a)）
+    - お名前のある行：携帯電話の番号のときの確かめ（mobile_confirm。4-192 の (b) の (2)）・携帯電話の番号で別の方と言われ続けたときの確かめ（名乗りの部分 mobile_owner
+      ＝続く言葉 target_individual。4-212）
+    - 顧客獲得型：`ACQUIRE_TAILS`・法人は受付の方への一文 reception_purpose（4-211・4-214）
+    ⛔ 2026-11-20：確かめへの返事がはっきりしないときの聞き返し target_reconfirm は、会話の側が流さなくなったので外した（CL-1 の連絡帳 4-210）。"""
+    tails = ["target" if corporate or not named else "target_individual", "target_confirm", "promise_again", "unavailable_confirm", "carried_target"]
+    if corporate:
+        tails += ["target_successor", "target_transfer"]
+    if named:
+        tails += ["mobile_confirm", "target_individual"]
+    if call_type == business_settings.CALL_ACQUIRE:
+        tails += [*ACQUIRE_TAILS, *(("reception_purpose",) if corporate else ())]
+    return tuple(dict.fromkeys(tails))
 
 
 def _missing(tx: Tx, needs: NameNeeds, voice_name: str) -> list[tuple[str, str]]:

@@ -112,9 +112,10 @@ def calling_acts(r: dict, got: dict) -> tuple:
     会話AIの報告（REPORTS）ごとの流れの制御の動きの名前（act_name）の並び。同時に出る「尋ねているか」の問い合わせ（convo の asks＝Flow._asking_now：
     質問なら先に答える）の読みは、正しい読み（g59_calling_judge.asks_truths。どちらでもよい言葉は、そのどれも）を同じ入口で渡す＝目的のお客様の判定の外れだけを
     比べる（尋ねているかの外れは、測りの数えの「尋ねているか」の問い合わせで別に数える）。返す：正しい尋ねているかの読みごとの、報告ごとの名前の並び。
-    同じ行・同じ読みは1回だけ流す。組めない場面は NoScene・今の問いで読めない読みは Unreadable。"""
+    同じ行・同じ読みは1回だけ流す（同じ行＝場面を組む row_scene が読む欄の全部。フルネームのある業務の印 full も＝⛔ 分身 S（rv176/S）まで鍵に無く、印の無い行の動きを
+    印のある行にも使っていた＝試験 RereadRowsTest の test_4）。組めない場面は NoScene・今の問いで読めない読みは Unreadable。"""
     import g59_calling_judge as g
-    k = (r["text"], r["before"] or None, bool(r["asked"]), r["successor"], json.dumps(got, ensure_ascii=False, sort_keys=True))
+    k = (r["text"], r["before"] or None, bool(r["asked"]), r["successor"], bool(r.get("full")), json.dumps(got, ensure_ascii=False, sort_keys=True))
     if k not in _ACTS:
         out = []
         for asks in g.asks_truths(r["text"]):

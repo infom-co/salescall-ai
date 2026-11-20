@@ -477,7 +477,7 @@ class Later1022(unittest.TestCase):
         分かるお客様＝別の方へ／不在・長期の不在・お休み＝それまでは出られない／分かる時＝それまでに確かめておく）には until_why を書かせない
         （同じことを2つの項目で表さない）。あとで などは until_why（無ければ分からない）。書き戻しても落とさない。"""
         rec = {"turn": 2, "said": "3時までなら大丈夫です。", "time": "3時まで"}
-        for why, extra, expected in (("later", {"until_why": "unavailable"}, "unavailable"),
+        for why, extra, expected in (("later", {"until_why": "unavailable"}, "unavailable"), ("later", {"until_why": "available_until"}, "available_until"),
                                      ("later", {"until_why": "preparing"}, "preparing"), ("later", {}, None),
                                      ("other_number", {"number": "03-1234-5678"}, "other_party"), ("absent", {}, "unavailable"),
                                      ("long_absent", {}, "unavailable"), ("day_off", {}, "unavailable"),
@@ -1526,7 +1526,7 @@ class TheirsBackTime1114(unittest.TestCase):
         """「〇日まで」（「9日までには出社します」）は、その日のうちに戻る＝いちばん遅い戻りはその日の終わり（「明日」と同じ＝その日の終わりの1時間後、
         依頼者の時間の外なら、その日のかけてよい時間の最後の方。✅ 2026-11-15 ユーザー）。理由・契約者の設定によらない（judge.THEIRS_READ）。
         ⛔ 2026-11-15 の見直しまで：理由がそれまでは出られない（初め）のとき、その日から終わり無しと読んでずらさず、9日の時間帯の始まりにかけた。"""
-        now_rules = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "now")))
+        now_rules = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "now"), ("available_until", "now")))
         for callee in (CALLEE, now_rules):
             with self.subTest(callee=callee.until_rules):
                 raw = self.okada("9日までに")
@@ -1561,7 +1561,7 @@ class TheirsBackTime1114(unittest.TestCase):
         unreached = {"absent": "absent", "day_off": "absent", "long_absent": "absent", "unavailable": "not_transferred", "later": None}
         # 読み方は、いま電話を続けられなかった理由と、その理由ごとの契約者の設定（callback.until_*）によらない1か所（judge.THEIRS_READ）：設定を「今から」
         # にした業務でも、戻ると言った時刻より前にかけない（⛔ 2026-11-15 の見直しまで：設定 now の業務では「いま〜3時」と読み、14時55分にかけえた）
-        now_rules = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "now")))
+        now_rules = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "now"), ("available_until", "now")))
         for why, nr in unreached.items():
             for callee in (CALLEE, now_rules):
                 with self.subTest(why=why, callee=callee.until_rules):
@@ -1572,3 +1572,78 @@ class TheirsBackTime1114(unittest.TestCase):
         raw = self.okada("3時までに", theirs=False)
         raw["facts"]["callback"][0]["why"], raw["not_reached"] = "later", None
         self.assertEqual((from_json(raw).callback.until_reason, self.judged(raw).state), (None, "unknown"))
+
+
+class Received1120(unittest.TestCase):
+    """CL-1 の連絡帳 4-207〜4-215（2026-11-20。顧客獲得型ほか）の受け取り：断り文句 refusal_said・言い直して確かめた時刻の24時間の値 clock24・日を改めるお礼の締め
+    yes_used_up・no_pain・役職の方へ切り替えた記録 departed の to_role。"""
+
+    def raw(self, end="done", **facts):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            **{k: list(v) for k, v in facts.items()}, "end": [{"turn": 9, "said": "はい。", "reason": end}]}}
+
+    def test_the_refusal_words_are_kept_as_said_and_returned_to_the_client(self):
+        """refusal_said（4-208 の (2)・4-211）：お客様の言ったまま（said）・種類 what・段 at を読み、置いて読み直しても同じ。どの判定でも依頼者へ返す（判定の中身
+        refusal_said）。人の言葉でしか起きない（話した証）。"""
+        rows = [{"turn": 3, "said": "うちは結構です。", "what": "refused", "at": "yes"},
+                {"turn": 7, "said": "今忙しいんで。", "what": "busy", "at": "main"},
+                {"turn": 1, "said": "ほかでやってますので。", "what": "elsewhere", "at": "reception"}]
+        r = from_json(self.raw(refusal_said=rows))
+        self.assertEqual(([(x.what, x.at, x.evidence.said) for x in r.refusals_said], from_json(r.to_json())),
+                         ([("refused", "yes", "うちは結構です。"), ("busy", "main", "今忙しいんで。"), ("elsewhere", "reception", "ほかでやってますので。")], r))
+        self.assertEqual(run(self.raw(refusal_said=rows[:1])).detail["refusal_said"],
+                         [{"said": "うちは結構です。", "what": "refused", "at": "yes"}])
+        self.assertNotIn("refusal_said", run(self.raw()).detail)
+        self.assertTrue(from_json({**self.raw(), "facts": {"refusal_said": rows[:1]}}).talked)
+        for bad in ({**rows[0], "what": "angry"}, {**rows[0], "at": "close"}, {**rows[0], "at": None}, {**rows[0], "x": 1},
+                    {**rows[0], "turn": None}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(refusal_said=[bad]))
+
+    def test_the_confirmed_clock_is_read_and_returned_to_the_client(self):
+        """clock24（4-212）：会話の側が通話の終わりの答えで作る（発話を持たない）。question・value・date・times を読み、依頼者へ返す（判定の中身 clock24）。
+        前の通話で取れた答えも入るので、この通話の人の証にはしない。"""
+        rows = [{"question": "C1", "value": "明日の午後3時から5時", "date": "2026-11-21", "times": ["15:00", "17:00"]},
+                {"question": "Q3", "value": "3時半", "date": None, "times": ["15:30"]}]
+        r = from_json(self.raw(clock24=rows))
+        self.assertEqual(([c.to_json() for c in r.clock24], from_json(r.to_json())), (rows, r))
+        self.assertEqual(run(self.raw(clock24=rows)).detail["clock24"], rows)
+        self.assertNotIn("clock24", run(self.raw()).detail)
+        self.assertFalse(from_json({**self.raw(), "facts": {"clock24": rows}}).talked)
+        for bad in ([{**rows[0], "times": ["24:00"]}], [{**rows[0], "times": ["3:00"]}], [{**rows[0], "times": []}],
+                    [{**rows[0], "date": "11/21"}], [{**rows[0], "date": "2026-02-30"}], [{**rows[0], "question": ""}],
+                    [{**rows[0], "value": None}], [{**rows[0], "turn": 3}], [rows[0], rows[0]]):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(clock24=bad))
+
+    def test_a_polite_close_for_another_day_is_not_called_again_that_day(self):
+        """yes_used_up・no_pain（4-208・4-211）：日を改めるお礼の締め（発信禁止ではない）。人の言葉の締め（話した証）・判定の中身 another_day（同じ日には
+        かけ直さない＝next_action.not_today）。ほかの締めには付かない。"""
+        from salescall.core.next_action import not_today, unreached_of
+        connect = [{"turn": 1, "said": "はい、岡田です。", "read": ["ai", "judge"], "judging": True}]   # 目的のお客様に繋いだあと（Yes の質問・本題の段）
+        for end in ("yes_used_up", "no_pain"):
+            with self.subTest(end=end):
+                r = from_json(self.raw(end))
+                self.assertEqual((r.another_day, r.talked, from_json(r.to_json())), (True, True, r))
+                j = run(self.raw(end, connect=connect), items={})
+                self.assertEqual((j.state, j.dnc_reason, j.detail["another_day"], not_today(*unreached_of(j))), ("incomplete", None, True, True))
+        j = run(self.raw("done", connect=connect), items={})
+        self.assertEqual(("another_day" in j.detail, not_today(*unreached_of(j))), (False, False))
+
+    def test_a_switch_to_the_role_keeps_the_row_and_calls_the_role_from_then_on(self):
+        """departed の to_role（4-213 の (ア)(イ)）：後任の方もいらっしゃらず、その役職の方へ切り替えた記録は、行を終える記録に数えない（departed_end）。
+        行が終わらなければ、これからの電話ははじめから役職の方（判定の中身 role_call。後任の方の印 successor は立てない）。to_role は後任の方へ切り替えた
+        記録（successor が真）だけに付く。役職の方もいらっしゃらない記録（to_role の無い successor の記録）は終える。"""
+        first = {"turn": 2, "said": "岡田は退職しました。", "policy": "successor", "read": ["ai"], "successor": False}
+        role = {"turn": 4, "said": "後任もいないんですよ。", "policy": "successor", "read": ["ai"], "successor": True, "to_role": True}
+        r = from_json({**self.raw(), "not_reached": "departed", "facts": {"departed": [first, role]}})
+        self.assertEqual((r.departed_end, r.turned_to_role, r.turned_to_successor, from_json(r.to_json())), (False, True, True, r))
+        j = run({**self.raw(), "not_reached": "departed", "facts": {"departed": [first, role]}}, items={})
+        self.assertEqual((j.detail.get("role_call"), "successor" in j.detail), (True, False))
+        gone = {**role, "to_role": False}
+        r = from_json({**self.raw(), "not_reached": "departed", "facts": {"departed": [first, gone]}})
+        self.assertEqual((r.departed_end, r.turned_to_role), (True, False))
+        r = from_json({**self.raw(), "not_reached": "departed", "facts": {"departed": [first]}})
+        self.assertEqual((r.departed_end, r.turned_to_role, r.turned_to_successor), (False, False, True))
+        with self.assertRaises(ReportInvalid):
+            from_json({**self.raw(), "not_reached": "departed", "facts": {"departed": [{**first, "to_role": True}]}})

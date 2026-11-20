@@ -22,13 +22,13 @@ from salescall.core.access import Access, Actor, Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
 # 試験の判定に渡す、お客様の時間の設定（本番は gate.callee_settings が設定から読む。試験は値を自分で決めて渡す＝初めの値と同じ形：
-# 営業時間 9〜19時・お客様指定の歯止め時間 7〜22時・1回分 30分＝0125・「〇時まで」の理由ごとの決め方は初めの値＝0127・言葉ごとの幅は
+# 営業時間 9〜19時・お客様指定の歯止め時間 7〜22時・1回分 30分＝0125・「〇時まで」の理由ごとの決め方は初めの値＝0127・0262・言葉ごとの幅は
 # 初めの値＝0088：朝〜10時・午前〜12時・午後13時〜・夕方16〜18時・夜18〜20時）。⛔ 見直し18：前は1回分を1時間のままにしていた（初めの値は
 # 2026-10-23 から30分）。⛔ 見直し23 の (2)：言葉ごとの幅は、時刻の読みと判定の既定の写しに頼っていた
 CALLEE_PERIODS = spoken_time.periods_from({"morning": (0, 10 * 3600), "forenoon": (0, 12 * 3600), "afternoon": (13 * 3600, 24 * 3600),
                                            "evening": (16 * 3600, 18 * 3600), "night": (18 * 3600, 20 * 3600)})
 CALLEE = calling_hours.CalleeSettings((9 * 3600, 19 * 3600), (7 * 3600, 22 * 3600), 1800,
-                                      (("other_party", "now"), ("unavailable", "after"), ("preparing", "slot_after")),
+                                      (("other_party", "now"), ("unavailable", "after"), ("preparing", "slot_after"), ("available_until", "now")),
                                       tuple(sorted(CALLEE_PERIODS.items())))
 
 # 試験の次の動きに渡す、かけてよい時間帯が見つからない行をもう一度確かめるまでの秒（本番は next_action.no_opening_recheck が仮の設定
@@ -576,12 +576,12 @@ def full_version(w: "World", s: dict, target_person: dict | None = None, *, cont
 
 
 def schedule_call(tx, task_id, call_at, *, contact_id, cause: str, promised: bool, purpose: str = "normal",
-                  wrong_contact_id=None, callee_at=None, window=None, successor: bool = False,
+                  wrong_contact_id=None, callee_at=None, window=None, successor: bool = False, role_call: bool = False,
                   number_again: str | None = None) -> int:
     """試験の場面を作る：次の動きの記録に、かける予定を直に書く（本番では、予定を書くのは次の動きの決め方だけ）。"""
     from salescall.core import next_action
     return next_action._append(tx, task_id, call_at=call_at, end_reason=None, cause=cause, promised=promised,
-                               target=next_action.Target(contact_id, None, purpose, wrong_contact_id, successor=successor,
+                               target=next_action.Target(contact_id, None, purpose, wrong_contact_id, successor=successor, role_call=role_call,
                                                          number_again=number_again or ("wrong_party" if purpose == "ask_number_again"
                                                                                        else None)),
                                callee_at=callee_at,

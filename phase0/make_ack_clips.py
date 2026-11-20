@@ -187,6 +187,31 @@ MAX_S["question_long"] = 17.0
 # 3回目から戻るときの一言（phrases.BACK_TO_MIDWAY・27字）を、上の104字の一言と1本にした形（131字＝見込み 21.2秒）の上限（2026-11-07 日本時間4時40分35秒のご指摘）
 HOW["question_xl"] = HOW["question"]
 MAX_S["question_xl"] = 24.0
+# 顧客獲得型の Yes の質問の段の受け止め（phrases.YES_RECEIVE＝共通の一言 yes_received_（鍵））と「手短に」への一言（yes_brief）：お客様のお断り・お忙しさを心の底から
+# 受け止める読み方（✅ 2026-11-20 日本時間0時09分49秒 ユーザー「心の底から受け止める。（ひとこと端的に受け止めるのは相手に反撃されるすきを与える）」）。2回目からの
+# 受け止め（約50字＝見込み 8.1秒）が入る上限
+from phrases import YES_RECEIVE  # noqa: E402
+HOW["yes_received"] = ("電話で、お客様のお断りやお忙しさを、心の底から受け止めて共感するように、温かく、申し訳なさを込めて。言葉の途中で区切らずに、"
+                       "なめらかに、ひと続きで")
+MAX_S["yes_received"] = 9.0
+HOW_OF.update({f"yes_received_{k}": "yes_received" for k in YES_RECEIVE} | {"yes_brief": "yes_received"})
+# 顧客獲得型の本題の段（分身 K2）：特別感・事例・「聞かせてください」の一続き・9-9 の (7) の文は、お客様のことを思って誠実に語りかける読み方（「聞かせてください」の
+# お名前の入らない所＝約150字＝見込み 25秒が入る上限）。「あっ、でしたよね、」はお返事を受けて、ちょうど良かったと喜ぶ読み方。本題のお断りの受け「そうですよね。」は Yes の質問の段の
+# 受け止めと同じ読み方。お名前の分からない方への悩みの伺いは質問の読み方
+HOW["acquire_talk"] = ("電話で、お客様のことを思って、落ち着いた温かい声で、誠実に、自信を持って丁寧に語りかけるように。言葉の途中で区切らずに、なめらかに、ひと続きで")
+MAX_S["acquire_talk"] = 27.0
+HOW["acquire_glad"] = "電話で、お客様のお返事を受けて、ちょうど良かったと心から喜ぶように、親しみを込めて、自然に"
+MAX_S["acquire_glad"] = 2.0
+HOW_OF.update({"acquire_glad_lead": "acquire_glad", "but_lead": "yes_received", "pain_ask_company": "question",
+               **{k: "acquire_talk" for k in ("case_lead", "listen_sure", "but_safe", "listen_why_company", "listen_reason_company", "listen_ask_company")}})
+# 訪問しない業務の「その時はすぐにお時間をお返ししますので」の形（phrases.visit_id の _remote。伺い91＝分身 U1）も同じ読み方
+from phrases import visit_id  # noqa: E402
+HOW_OF.update({visit_id(k, False): HOW_OF[k] for k in ("listen_sure", "but_safe")})
+# 顧客獲得型の悩みのお答えへの受けの相づち（phrases.ACK の soudattan「そうだったんですね。」・naniyori「それは何よりです。」＝伺い90＝分身 U1）：悩みを打ち明けてくださった方には
+# 共感して・無いと言われたら相手の様子を肯定して受ける読み方（11-14 日本時間14時31分38秒「軽くあしらったように思われ感じが悪い」にならない）
+HOW["soudattan"] = "電話で、お客様が打ち明けてくださったお悩みを、心から共感して受け止めるように、温かく、ゆっくりめに"
+HOW["naniyori"] = "電話で、お客様のご様子が良いことを、心から良かったと肯定して受け止めるように、温かく、自然に"
+MAX_S["soudattan"] = MAX_S["naniyori"] = 2.0
 
 
 def question_how(text: str) -> str:
@@ -231,10 +256,33 @@ HOW_OF["brief_go"] = "back_again"
 HOW["brief_left"] = ("電話で、お急ぎのお客様に、伺うことがもう少しで終わることを伝えて、安心していただけるように、丁寧に、少し急いだ調子で。"
                      "言葉の途中で区切らずに")
 MAX_S["brief_left"] = 12.0
+# 手短に伺っている途中、形が1つしか無い所で3回目に急かされたときの一言（phrases.BRIEF_SORRY・質問ごとの依頼主の単位の録音＝script_table。✅ 2026-11-20 日本時間4時44分42秒
+# ユーザー「伺い57」）：急いでいるお客様にお時間をいただいていることを心からお詫びし、伺っていることを一言だけ丁寧に伺う。「お忙しいところ」は崩れやすい（帳面 0-4＝人が聞いて
+# 選ぶ前に通ったと言わない）
+HOW["brief_sorry"] = ("電話で、お急ぎのお客様にお時間をいただいていることを心からお詫びしながら、伺っていることを一言だけ丁寧に伺うように、誠実に、少し急いだ調子で。"
+                      "言葉の途中で区切らずに")
+MAX_S["brief_sorry"] = 9.0
 # 連絡先の一言の鍵は言い方の表の1か所（phrases._CONTACT_RESUMED＝flowctl.contact_again_key。⛔ 2026-11-05 まで役目を手で並べていた＝オンラインの一言を足すと漏れる）
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})
 HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
+# お客様リストに分かっている連絡先を、いまお電話している番号へ SMS で送ってよいかを伺う一言（phrases.LISTED_DIALED_ID＝伺い66 の値の入らない一言の共通の一言の録音。
+# 分身 P の (9)）：連絡先を伺う一言と同じ長い問いの読み方
+HOW_OF["listed_mobile_dialed"] = "question_long"
+# お名前の前の言葉（phrases.NAME_HEAD_IDS。名前の録音の前に流す共通の一言＝flowctl.name_plays）の読み方：言葉ごとの役目の唯一の表（頭の言葉 → 読み方の鍵）。どれも
+# 言い切らずに後ろの名前の録音へ続く調子で（つなぎの言葉の録音と同じく短い）。「恐れ入りますが」＝お願い・お尋ねの前に添える（分身 L・CL-2 の連絡帳 4-443）／
+# 「じゃあ」＝話を前へ進める切り替え／「ただですね」「理由はですね」＝誠実に言葉を選んで続ける前置き／「そういった意味で」＝ここまでをまとめてお願いへつなぐ前置き
+# （顧客獲得型の本題の段の文の頭＝分身 K2）。頭の言葉を足したら、ここにも役目を足す（試験 NameHeadReadingTest が漏れを見る）。⛔ f1c0af7e まで、どの頭の言葉も
+# お願い・お尋ねの前に添える読み方1つだった（分身 K2 の問い・分身 N の (12)）。禁止の言葉（「明るく」「はきはき」）は使わない（帳面 0-4）
+from phrases import NAME_HEAD_IDS  # noqa: E402
+NAME_HEAD_ROLES = {"恐れ入りますが": "name_head", "じゃあ": "name_head_shift", "ただですね": "name_head_care", "理由はですね": "name_head_care",
+                   "そういった意味で": "name_head_sum"}
+HOW["name_head"] = "電話で、お願いやお尋ねの前に添える言葉として、丁寧に、柔らかく、短く。言い切らずに、すぐ後ろに言葉が続く調子で"
+HOW["name_head_shift"] = "電話で、お話を前へ進める切り替えの言葉として、前向きに、自然に、短く。言い切らずに、すぐ後ろに言葉が続く調子で"
+HOW["name_head_care"] = "電話で、誠実に言葉を選んでお話を続ける前置きとして、落ち着いて、丁寧に、短く。言い切らずに、すぐ後ろに言葉が続く調子で"
+HOW["name_head_sum"] = "電話で、ここまでのお話をまとめてお願いへつなぐ前置きとして、誠実に、丁寧に、短く。言い切らずに、すぐ後ろに言葉が続く調子で"
+MAX_S.update({"name_head": 1.4, "name_head_shift": 1.0, "name_head_care": 1.6, "name_head_sum": 1.8})
+HOW_OF.update({NAME_HEAD_IDS[w]: k for w, k in NAME_HEAD_ROLES.items() if w in NAME_HEAD_IDS})
 HOW_OF["callback_authority"] = "authority"
 # 待つか、かけ直すかを1回伺う一言（phrases.CALLBACK_ASK["wait_or_later"]・約59字）：判断いただけるお立場かの一言と同じ「2つから選んでいただく問い」の形なので、
 # 同じ読み方と長さの上限（✅ 2026-11-05 日本時間23時56分48秒 ユーザー「(ア)」）
@@ -242,6 +290,17 @@ HOW_OF["callback_wait_or_later"] = "authority"
 # 同じ伺いの頭の無い形（phrases.WAIT_ASK_PLAIN_ID＝理由を言わずに待つように言われ、黙ったまましばらくたったときに相づちなしで伺う。✅ 2026-11-15 日本時間21時55分35秒
 # ユーザー（伺い24））：同じ問いの形なので同じ読み方と長さの上限（相づちのあとに続けて読まない＝別の録音）
 HOW_OF[WAIT_ASK_PLAIN_ID] = "authority"
+# 待つことへの迷いに添える一言（phrases.WAIT_SOON＝wait_soon・伺い76 ウ）・待っていただいたお話への返事の頭の一言（phrases.OMATASE＝omatase・伺い74 ア）・答えの段で番号違いの
+# 読みが割れたときに伺う一言（phrases.WRONG_NUMBER_ASK＝wrong_number_ask・頭のお詫びは相づちの録音 taihen_shitsurei・伺い72 エ）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー。
+# 読み方は場面の気持ちに合わせて書く（お詫び＝申し訳なさそうに・2026-10-14〜15 の決まり）。⏳ 録音は声の型ごとに作って聞いていただく（承認まで流さない）
+HOW["wait_soon"] = ("電話で、お客様をお待たせしていることを心から申し訳なく思いながら、すぐにご案内することを伝えて安心していただけるように、誠実に、丁寧に、"
+                    "落ち着いた調子で。言葉の途中で区切らずに")
+MAX_S["wait_soon"] = 4.5
+HOW["omatase"] = "電話で、お客様をお待たせしたことを申し訳なく思いながら、丁寧に、落ち着いた調子で、短く"
+MAX_S["omatase"] = 2.4
+HOW["wrong_number_ask"] = ("電話で、こちらが番号を間違えてお掛けしてしまったかもしれないことを申し訳なく思いながら、丁寧に確かめるようにお聞きするように。"
+                           "言葉の途中で区切らずに")
+MAX_S["wrong_number_ask"] = 4.6
 # 確かめて戻るお客様を待つ一言（phrases.WAIT_REPLY。頭の「はい、」は相づちの録音）：こちらはこのまま待っていると、落ち着いて伝える
 HOW["wait_reply"] = "電話で、お客様が確かめてくるあいだ、こちらはこのまま電話口で待っていると、落ち着いて丁寧に伝えるように"
 MAX_S["wait_reply"] = 4.0  # 判断いただけるお立場か・お取次ぎのみかを聞く一言は長い（76字）ので、読み方と長さの上限は別  # 後任の方をお呼びする・確かめる一言（phrases.SUCCESSOR）も質問の読み方
@@ -369,14 +428,18 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import (ANSWER_PREFIX, BRIEF_LEFT_IDS, BUSINESS_ROLES, accepted_line, brief_left_line, offer_questions, DAY_VARIANTS, approval_explanation, callback_question, day_question, day_recording_id, fill_day, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer, wish_ways,
+    import dataclasses
+    from flowctl import chooses_when, ladder_opening
+    from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, accepted_line, brief_left_counts, brief_left_line, brief_sorry_line, offer_questions, DAY_VARIANTS, approval_explanation, callback_question, day_question, day_recording_id, fill_day, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer, wish_ways,
                          taken_line, tell_recording_id)
     from instruction import reading_variants
     from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, again_fit, back_fit, question_clip
 
     items = [("intro", business.opening_parts()[1], "intro")]
-    if business.purpose_line:
-        items.append(("purpose", business.purpose_line, "purpose"))
+    # 用件の一文（顧客獲得型は「（用件の名詞）の件でお電話しているんですけど、」＝instruction.Business.purpose_text の1か所。業務の入口でない試しの業務は用件の一文のまま）
+    purpose = business.purpose_text() if hasattr(business, "purpose_text") else business.purpose_line
+    if purpose:
+        items.append(("purpose", purpose, "purpose"))
     # 相手に聞かれたことへの決まった言い方（「AIですか？」）・留守番電話の伝言・伝言・引き止めの一言（業務が書いたときだけ＝replay_parts）も、依頼主の単位
     # （DESIGN.md 6-13 の3）。業務が書かなかった「AIですか？」の答えは標準＝共通の一言の録音（phrases.STANDARD_PARTS）なので、ここには入らない。
     # 目的の人を呼ぶ一言・確かめる一言は、電話をかける相手ごとに名前が変わるので、ここではなく名前の録音の台帳（DESIGN.md 4-3）
@@ -402,6 +465,13 @@ def script_table(business) -> tuple[dict, dict]:
             items += [(question_clip(p["id"], p["lead"]), p["text"], question_how(p["text"])) for p in question_forms(qs, q.id)]
         # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
         items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
+        if getattr(business, "accept_free", ()) and chooses_when(q):
+            # お客様に日時を選んでいただく質問（伺い62）を2択で伺い始める形（文・録音の名前は flowctl.ladder_opening の1か所＝聞くことを頭に入れた値の入らない2択の録音
+            # 「（番号）_ladder_kind」「（番号）_ladder_half」。頭のつなぎの言葉の形ごとの名前は業務の質問と同じ question_forms。値の入る2択は会話AIの声＝録音にしない）。分身 P の (5)
+            for step in ("kind", "half"):
+                lq = ladder_opening(dataclasses.replace(q, ladder="accept"), step, (), {})
+                items += [(question_clip(p["id"], p["lead"]), p["text"], question_how(p["text"]))
+                          for p in question_forms([lq if x.id == q.id else x for x in business.questions], q.id)]
         if (taken := taken_line(q)) is not None:
             # 業務の申し出の質問を受けていただいて、そのまま締めるときの、こちらがすることの言い切り（名前と文は flowctl.taken_line の1か所＝「（番号）_taken」・
             # 「パンフレットをお送りさせていただきますね。」）：確かにすることを言う一言＝申し伝える一言（wish_told_）と同じ読み方。✅ 2026-11-17 日本時間2時14分44秒
@@ -409,7 +479,10 @@ def script_table(business) -> tuple[dict, dict]:
             items.append((*taken, "own_fallback"))
         # 手短に伺っている途中の言い直しの確かめで重ねて急かされた2回目に流す、安心していただく一言（文・名前・流しうる質問は flowctl.brief_left_line の1か所＝「（番号）_brief_only」
         # 「（番号）_brief_one_more」。✅ 2026-11-19 日本時間14時18分13秒 ユーザー（伺い52 場面A））
-        items += [(*line, "brief_left") for n in BRIEF_LEFT_IDS if (line := brief_left_line(q, n)) is not None]
+        items += [(*line, "brief_left") for n in brief_left_counts(business.questions, q) if (line := brief_left_line(q, n)) is not None]
+        # 形が1つしか無い所で3回目に急かされたときの一言（文・名前は flowctl.brief_sorry_line の1か所＝「（番号）_brief_sorry」。✅ 2026-11-20 日本時間4時44分42秒「伺い57」）
+        if (line := brief_sorry_line(q)) is not None:
+            items.append((*line, "brief_sorry"))
         if asks_wish(q):
             # 決められないのがお客様の最終の決定のとき、その質問を締める一言（文は flowctl.pending_line・名前は flowctl.pending_recording_id。✅ 2026-11-06
             # 日本時間11時19分55秒 ユーザー「(2) …「承知しました。それではパンフレットは保留とさせていただきますね。」とパンフレットは締めて、次へ」）
@@ -456,6 +529,15 @@ def script_table(business) -> tuple[dict, dict]:
             items += [(rid, text, question_how(text)) for rid, text in dict([(oq.recording, oq.text)] + fitted).items()]
             if asks_wish(oq):
                 items.append((pending_recording_id(oq), pending_line(oq), "question"))
+    # 顧客獲得型の Yes の質問（中身の入る依頼主の単位の録音。材料ごと×頭の言葉の形＝flowctl.yes_forms の1か所。流す形は flowctl.yes_question）。受け止めの一言・「手短に」への
+    # 一言は共通の一言（phrases.RECORDED の yes_received_・yes_brief）、2回目の受け止めのお名前は名前の録音の台帳（yes_received）
+    from flowctl import yes_forms
+    items += [(rid, text, question_how(text)) for rid, text in yes_forms(getattr(business, "yes_asks", ()))]
+    # 顧客獲得型の本題の段の、業務設定の中身が入る文（特別感の条件・悩み・事例・お時間＝依頼者の単位の録音。flowctl.main_forms の1か所＝分身 K2）。問いではない＝語りかける
+    # 読み方（acquire_talk）。お名前の入る文は名前の録音の台帳（phrases.NAME_FORMS）、決まった文・お名前の分からない方への形は共通の一言（phrases.RECORDED）
+    from flowctl import main_forms
+    items += [(rid, text, "acquire_talk") for rid, text in main_forms(getattr(business, "special", ""), getattr(business, "pains", ()),
+                                                                       getattr(business, "meeting_time", ""))]
     table, readings = {}, {}
     for base, text, how in items:
         variants = reading_variants(text, business.names)
