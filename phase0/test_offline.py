@@ -35561,27 +35561,23 @@ class CallingHeardQuestionTest(unittest.TestCase):
             self.assertIn(HOLD_TIMEOUT, OtherCompanyClueSendWayTest.heard(end), label)
             self.assertEqual((f.end_reason, f.not_reached, f.facts["hold_timeout"][-1]["waited_s"]), ("hold_timeout", "not_transferred", f.hold_wait_s), label)
 
-    def test_3_asked_which_target_after_the_calls_are_used_up_is_answered(self):
-        # 呼ぶ一言を使い切ったあとに「どちらの岡田でしょうか？」と聞かれた（詳しい呼ぶ一言のない方）：尋ねられたことには使い切ったあとでも答える（まとめ役 CL-1 の頼み rv178/X の
-        # (B)＝XCallingAskedAfterCallsTest）＝呼ぶ一言の3回目は流さず、答え方を選び直していただく（本書 9-4 の (8) の1か所）。選び直した答え（用件）のあとお返事を待つ間は、待つ上限の
-        # まま。⛔ 77fdeb7d まで、何も流さずに待った（待つ上限だけ）。⛔ a13eb002 まで、会話AIの報告を差し戻して「何も言わずに待つ」と知らせ、上限が無く無言が続いた
+    def test_3_asked_which_target_after_the_calls_are_used_up_closes_with_thanks(self):
+        # 呼ぶ一言を使い切ったあとに「どちらの岡田でしょうか？」と聞かれた（詳しい呼ぶ一言のない方＝業務にフルネームも部署も無い）：使い切る前と同じ1か所（_asked_target）で、
+        # 詳しい呼ぶ一言が無いので、お礼を言って締め、依頼者に「お名前だけではどの方か分からなかった」と返す（今の who_unclear の道。本書 9-4 の「担当者が不在」の行の ✅ 1時54分
+        # 「OK」＝まとめ役 CL-1 の続き (1)＝XCallingAskedAfterCallsTest）。⛔ 77fdeb7d まで、何も流さずに待った（待つ上限だけ）。⛔ f323939c は答え方を選び直させた。
+        # ⛔ a13eb002 まで、会話AIの報告を差し戻して「何も言わずに待つ」と知らせ、上限が無く無言が続いた
         import g59_flow_check as fc
         from meaning_judge import read
-        from phrases import HOLD_TIMEOUT
+        from phrases import CLOSING
         f, _, _ = fc.scene([], checks=("judge", "asks"))
         fc.heard(f, "いいえ、私は山田と申します。", "同別xx")
         f.judged_turn(voiced=False)
         fc.heard(f, "どちらの岡田でしょうか？", "同受xx")
         f.on_check("asks", read(f.asks_context()[0], json.dumps({"choice": "尋ねている"}, ensure_ascii=False)))
         rep = f.apply("replay_opening", {"part": "target"})
-        self.assertEqual((rep["result"], OtherCompanyClueSendWayTest.heard(rep)), ("rejected", ""))
-        self.assertTrue(rep["message"].startswith("お呼びする一言は、この方にもう2回お伝えしました"))
-        rep = f.apply("replay_opening", {"part": "purpose"})
-        self.assertEqual((rep["result"], OtherCompanyClueSendWayTest.heard(rep), rep.get("hold_wait_s")),
-                         ("replayed", "失礼いたしました。ご予約の確認でお電話いたしました。", f.hold_wait_s))
+        self.assertEqual((rep["result"], OtherCompanyClueSendWayTest.heard(rep)), ("end", "はい、" + CLOSING))
         self.assertEqual(f._calls_to_speaker(), 2)
-        self.assertIn(HOLD_TIMEOUT, OtherCompanyClueSendWayTest.heard(f.on_hold_timeout()))
-        self.assertEqual((f.end_reason, f.not_reached), ("hold_timeout", "not_transferred"))
+        self.assertEqual((f.end_reason, f.not_reached), ("not_transferred", "who_unclear"))
 
     def test_3_other_silent_waits_have_the_wait_limit_too(self):
         # 答えの段：お客様に尋ねられ、報告の無いターンに会話AIの声がもう流れた（何も流さずにお客様の返事を待つ）＝同じ1か所で待つ上限
@@ -35855,14 +35851,13 @@ class CallingRestTest(unittest.TestCase):
         self.assertEqual(f._calling_asked().id, f.calling_question.id)
         r = self.say(f, "はい？", "同不xx")
         self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r), len(f.transfer_asked)), ("hold", "はい、", 1))
-        # 詳しい呼ぶ一言のあとに使い切った（何も流さない＝呼ぶ一言の3回目は流さず、答え方を選び直していただく＝rv178/X の (B)）ときも、判定に見せるのはその方が聞いた
-        # 詳しい呼ぶ一言のまま（お呼びし直す返事が飛ばすのは確かめる一言だけ）
+        # 詳しい呼ぶ一言で答えたあとに、また「どちらの岡田でしょうか？」と聞かれた（詳しい呼ぶ一言は1通話1回＝もう使った）：お礼を言って締める（今の who_unclear の道＝
+        # まとめ役 CL-1 の続き (1)。⛔ 77fdeb7d まで何も流さずに待ち、f323939c は答え方を選び直させた）
+        from phrases import CLOSING
         f = self.opened()
         self.say(f, "どちらの岡田でしょうか？", "同受xx", "尋ねている", ("replay_opening", {"part": "target"}))
         r = self.say(f, "どちらの岡田でしょうか？", "同受xx", "尋ねている", ("replay_opening", {"part": "target"}))
-        self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r)), ("rejected", ""))
-        f.on_callee(); f.on_heard("少々お待ちください。")
-        self.assertEqual(f.judge_context()[0].text, CallingHeardQuestionTest.FULL)
+        self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r), f.not_reached), ("end", "はい、" + CLOSING, "who_unclear"))
 
     def test_2_an_unheard_report_after_a_reply_to_the_same_words_is_not_answered_twice(self):
         # 同じ発話に、もう応じていた（会話AIの「目的の人」の報告に、判定の読みが届かず確かめた）あとの「聞き取れない」の報告：重ねて応じない（_calling_reported の again）
@@ -45794,22 +45789,26 @@ class S3RestPrepTest(unittest.TestCase):
 
 
 class XCallingAskedAfterCallsTest(unittest.TestCase):
-    """尋ねられたことには、呼ぶ一言を使い切ったあとでも答える（まとめ役 CL-1 の頼み rv178/X の (B)。本書 9-4 の「目的のお客様」の (8)「質問かは、目的のお客様の判定とは別の
-    問い合わせ（尋ねているか）で読み、取り次ぎ・不在より先に答える」・(2)「用件を聞かれたら用件を流してもう一度だけ呼ぶ」と (5)「呼ぶ一言は1人に2回まで」・2026-10-22 の3回目
-    「相手の申し出と想定外の質問を、決まった答え1つに押し込めない」・2026-10-14「止まらない」）。答え方は (8) の1か所のまま（名乗り・用件の録音・答えを持っていない質問の受け皿）。
-    使い切っていれば、答えのあとに呼ぶ一言は足さない（回数の決まりはそのまま）。直すのは、使い切ったら尋ねられても待つと決めていた1か所（Flow._asked_target）だけ。
-    ⛔ 77fdeb7d まで、呼ぶ一言を使い切った方に、会話AIがどなたをお呼びかを答える一言（「お呼びした方」）を選ぶと、何も流さずに待った＝G-59 の表の S5-10（確かめる一言のあとに
-    「どちら様でしょうか？」と聞かれ、名乗りと呼ぶ一言で答えたあとの「はい、それで？」＝読み手2人とも「尋ねている」）に黙った（分身 S3 の書き置き rv178/S3/notes.md の 14 の (B)）"""
+    """尋ねられたことには、呼ぶ一言を使い切ったあとでも答える（まとめ役 CL-1 の頼み rv178/X の (B) と続き (1)(2)）。
+    (1) 「どちらの岡田でしょうか？」（どなたをお呼びかを聞かれた＝会話AIの「お呼びした方」）：使い切る前と同じ1か所（Flow._asked_target）で答える＝「はい、」＋まだお伝えして
+        いない部署・フルネームの入った詳しい呼ぶ一言（聞かれたことへの答え＝呼ぶ一言の回数で止めない・1通話1回）。詳しい呼ぶ一言が無い・もう使ったなら、お礼を言って締め、
+        かけ直さず、依頼者に「お名前だけではどの方か分からなかった」と返す（今の who_unclear の道＝Flow._who_unclear）。本書 9-4 の「担当者が不在」の行の ✅ 2026-11-01
+        日本時間23時59分・11-02 日本時間1時22分「(b) OK」・1時54分「OK」。
+    (2) 名乗り・用件を聞かれた：本書 9-4 の (8) の今の1か所のまま（判定の組が何を聞かれたかを名乗り・用件と読めば、会話AIの選んだ録音で答える＝受け皿は使わない。受け皿は、
+        ほかのことを聞かれたときだけ＝Flow._asked_other）。使い切っていれば、答えのあとに呼ぶ一言は足さない（Flow._continue）。
+    ⛔ 77fdeb7d まで、使い切った方に会話AIが「お呼びした方」を選ぶと何も流さずに待った（G-59 の表の S5-10＝分身 S3 の書き置きの 14 の (B)）。⛔ f323939c（分身 X の1つ目）は
+       そこで答え方を選び直させ、2回目は受け皿（「そのご質問は私では正確にお答えできません…」）を流した＝「どちらの岡田でしょうか？」に用件・受け皿で答えた（CL-1 の続き (1)(2)）"""
     S5 = "はい。／失礼ですが、どちら様でしょうか？"   # G-59 の S5 の場面の前の言葉（確かめたあとに名乗りを聞かれ、名乗りと呼ぶ一言で答えた＝呼ぶ一言を2回使い切った）
+    USED = [("いいえ、私は山田と申します。", "同別xx", ("report_party", {"party": "target"}))]   # 呼ぶ一言のすぐあとに別の方と言われてお呼びし直した（2回目）
 
     @staticmethod
-    def asked(before, text, reading, asks="尋ねている", business=None):
-        """G-59 の表の場面（前の言葉の正しい読み＝g59_calling_judge.steps_before）を本番の流れの制御に組み、行の言葉 text を判定の組（2つ）が reading（G-59 の候補の行の番号＝
-        その行の正解・読みの字）で読み、尋ねているかを asks で読んだところ（会話AIの報告の前）。"""
+    def asked(steps, text, reading, asks="尋ねている", business=None):
+        """場面（steps＝[(相手の言葉, 読みの字, 会話AIの報告)]か G-59 の表の前の言葉）を本番の流れの制御に組み、行の言葉 text を判定の組（2つ）が reading（G-59 の候補の行の
+        番号＝その行の正解・読みの字）で読み、尋ねているかを asks で読んだところ（会話AIの報告の前）。"""
         import g59_calling_judge as gc
         import g59_flow_check as fc
         from meaning_judge import read
-        f, _, _ = fc.scene(gc.steps_before(before), checks=("judge", "judge2"), business=business)
+        f, _, _ = fc.scene(gc.steps_before(steps) if isinstance(steps, str) else steps, checks=("judge", "judge2"), business=business)
         f.on_callee(); f.on_heard(text)
         q = f.judge_context()[0]
         got = {k: sorted(v)[0] for k, v in gc.LINES_ASKED[reading].items()} if reading in gc.LINES_ASKED else fc.facts(reading)
@@ -45822,57 +45821,64 @@ class XCallingAskedAfterCallsTest(unittest.TestCase):
     def parts(r):
         return [p.get("part", p.get("id")) for p in r.get("play") or []]
 
-    def test_1_asked_after_the_calls_are_used_up_is_answered_not_waited(self):
-        # S5-10「はい、それで？」（用件を促した）：呼ぶ一言はこの方にもう2回。会話AIが「お呼びした方」を選んでも黙って待たず、呼ぶ一言の3回目も流さず、答え方を選び直して
-        # いただく（(8) の1か所＝選び直し）。選び直した「用件」は用件の録音で答え、呼ぶ一言は足さない。答えたあとお返事を待つ間は、待つ上限のまま
-        from phrases import HOLD_TIMEOUT
+    def test_1_which_target_after_the_calls_are_used_up_gets_the_full_call_once(self):
+        # 使い切ったあとの「どちらの岡田でしょうか？」（フルネームのある業務・詳しい呼ぶ一言はまだ）：「はい、」＋詳しい呼ぶ一言（回数で止めない）
+        import g59_flow_check as fc
+        f = self.asked(self.USED, "どちらの岡田でしょうか？", "同受xx", business=fc.b_full)
+        self.assertEqual(f._calls_to_speaker(), 2)
+        r = f.apply("replay_opening", {"part": "target"})
+        self.assertEqual((r["result"], self.parts(r), OtherCompanyClueSendWayTest.heard(r)),
+                         ("call_target", ["target_full"], "はい、営業部部長の「おかだたろう」様はいらっしゃいますでしょうか？"))
+        self.assertEqual(f.phase, "calling")
+
+    def test_2_which_target_with_nothing_more_to_tell_closes_with_thanks(self):
+        # 詳しい呼ぶ一言が無い（業務にフルネームも部署も無い）・もう使った（1通話1回）：お礼の締め・かけ直さない・依頼者に「お名前だけではどの方か分からなかった」（今の who_unclear の道）
+        import g59_flow_check as fc
+        from phrases import CLOSING
+        for business, steps in ((None, self.USED), (fc.b_full, "どちらの岡田でしょうか？")):
+            f = self.asked(steps, "どちらの岡田でしょうか？", "同受xx", business=business)
+            r = f.apply("replay_opening", {"part": "target"})
+            self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r)), ("end", "はい、" + CLOSING), business)
+            self.assertEqual((f.end_reason, f.not_reached, len(f.facts["who_unclear"])), ("not_transferred", "who_unclear", 1), business)
+
+    def test_3_name_or_purpose_after_the_calls_are_used_up_is_answered_by_the_recording(self):
+        # 名乗り・用件を聞かれた（S5-10「はい、それで？」・S5-9）：判定の組が名乗り・用件と読めば、会話AIの選んだ録音で答え、呼ぶ一言は足さない（今のまま）。受け皿は使わない。
+        # 報告の無いターンは、尋ねられた発話では動かない（会話AIが答える番＝今のまま）
+        from phrases import OWN_FALLBACK
         f = self.asked(self.S5, "はい、それで？", "S5-10")
         self.assertEqual(f._calls_to_speaker(), 2)
-        self.assertIsNone(f.judged_turn(voiced=False))   # 報告の無いターン：尋ねられた＝会話AIが答える番（今のまま）
-        r = f.apply("replay_opening", {"part": "target"})
-        self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r)), ("rejected", ""))
-        self.assertIn("もう2回お伝えしました", r["message"])
-        self.assertIn("「用件」", r["message"])
+        self.assertIsNone(f.judged_turn(voiced=False))
         r = f.apply("replay_opening", {"part": "purpose"})
-        self.assertEqual((r["result"], self.parts(r), OtherCompanyClueSendWayTest.heard(r), r.get("hold_wait_s")),
-                         ("replayed", ["purpose"], "失礼いたしました。ご予約の確認でお電話いたしました。", f.hold_wait_s))
-        self.assertEqual(f._calls_to_speaker(), 2)
-        self.assertIn(HOLD_TIMEOUT, OtherCompanyClueSendWayTest.heard(f.on_hold_timeout()))
-        self.assertEqual((f.end_reason, f.not_reached), ("hold_timeout", "not_transferred"))
-
-    def test_2_the_same_unusable_choice_again_gets_the_fallback(self):
-        # 選び直していただいたあとも、同じ発話でまた「お呼びした方」を選んだ：AIに選ばせず、答えを持っていない質問の受け皿（断らない一言の録音）で応える（(8) の
-        # 「選び直させたあとも同じ答え方を選んだら…」の1か所＝ほかのことを聞かれたのに名乗り・用件で答えようとしたときと同じ）。呼ぶ一言は流さない
-        from phrases import OWN_FALLBACK
-        f = self.asked(self.S5, "はい、それで？", "S5-10")
-        f.apply("replay_opening", {"part": "target"})
-        r = f.apply("replay_opening", {"part": "target"})
-        self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r).endswith(OWN_FALLBACK)), ("own_answer", True))
-        self.assertEqual(f._calls_to_speaker(), 2)
-
-    def test_3_other_ways_of_asking_after_the_calls_are_used_up(self):
-        # 同じ理由が当たるほかの尋ねられ方（今までも答えていたもの＝変えない）：用件を聞かれた（S5-9）＝用件の録音だけ（呼ぶ一言は足さない）・名乗りを聞かれた＝名乗りの録音だけ・
-        # ほかのことを聞かれたのに用件で答えようとした＝選び直し、また用件なら受け皿（(8) の1か所）
-        from phrases import OWN_FALLBACK
+        self.assertEqual((r["result"], self.parts(r), OtherCompanyClueSendWayTest.heard(r)),
+                         ("replayed", ["purpose"], "失礼いたしました。ご予約の確認でお電話いたしました。"))
         f = self.asked(self.S5, "失礼ですが、どういったご用件でしょうか？", "S5-9")
-        r = f.apply("replay_opening", {"part": "purpose"})
-        self.assertEqual((r["result"], self.parts(r)), ("replayed", ["purpose"]))
+        self.assertEqual(self.parts(f.apply("replay_opening", {"part": "purpose"})), ["purpose"])
         f = self.asked(self.S5, "えっと、どちら様でしょうか？", "同不xx")
-        r = f.apply("replay_opening", {"part": "intro"})
-        self.assertEqual((r["result"], self.parts(r)), ("replayed", ["intro"]))
+        self.assertEqual(self.parts(f.apply("replay_opening", {"part": "intro"})), ["intro"])
+        # 会話AIが「はい、それで？」に「お呼びした方」を選んでも、名乗り・用件と読まれた発話には受け皿を流さず、選び直しもさせない（どなたをお呼びかの答え＝(1) の1か所。
+        # フルネームのある業務なら詳しい呼ぶ一言）
+        import g59_flow_check as fc
+        f = self.asked(self.S5, "はい、それで？", "S5-10", business=fc.b_full)
+        r = f.apply("replay_opening", {"part": "target"})
+        self.assertEqual((r["result"], self.parts(r)), ("call_target", ["target_full"]))
+        self.assertFalse(OtherCompanyClueSendWayTest.heard(r).endswith(OWN_FALLBACK))
+
+    def test_4_other_questions_still_get_the_fallback(self):
+        # ほかのことを聞かれたのに用件で答えようとした：選び直し、また用件なら受け皿（(8) の今の1か所＝変えない）
+        from phrases import OWN_FALLBACK
         f = self.asked(self.S5, "この番号はどちらでお知りになりましたか？", "同不xx", asks="ほかのことを尋ねている")
         self.assertEqual(f.apply("replay_opening", {"part": "purpose"})["result"], "rejected")
         r = f.apply("replay_opening", {"part": "purpose"})
         self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r).endswith(OWN_FALLBACK)), ("own_answer", True))
         self.assertEqual(f._calls_to_speaker(), 2)
 
-    def test_4_before_the_calls_are_used_up_nothing_changes(self):
+    def test_5_before_the_calls_are_used_up_nothing_changes(self):
         # まだ使い切っていない方（呼ぶ一言は1回）に「どちらの岡田でしょうか？」と聞かれた：今までどおり詳しい呼ぶ一言（フルネームのある業務）・いつもの呼ぶ一言で答える
         import g59_flow_check as fc
-        f = self.asked("", "どちらの岡田でしょうか？", "同受xx", business=fc.b_full)
+        f = self.asked([], "どちらの岡田でしょうか？", "同受xx", business=fc.b_full)
         r = f.apply("replay_opening", {"part": "target"})
         self.assertEqual((r["result"], self.parts(r)), ("call_target", ["target_full"]))
-        f = self.asked("", "どちらの岡田でしょうか？", "同受xx")
+        f = self.asked([], "どちらの岡田でしょうか？", "同受xx")
         r = f.apply("replay_opening", {"part": "target"})
         self.assertEqual((r["result"], self.parts(r)), ("call_target", ["target"]))
         self.assertEqual(f._calls_to_speaker(), 2)
@@ -45952,3 +45958,24 @@ class XCallingReceptionKeptTest(unittest.TestCase):
         r, f = self.said(steps + [("はい。", "同不xx", fc.R)], "ええ。", ("同不xx", "同不xx"), full=False)
         self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r)), ("hold", "はい、"))
         self.assertEqual(f.target_confirmed, [])
+
+    def test_4_the_same_reception_keeps_the_count_of_calls(self):
+        # 受付の方と読んで「はい、」で待ったあとも、判定の組が前と違う方・電話を代わった方と読むまでは同じ方＝呼ぶ一言の数えを引き継ぐ（本書 9-4 の (5)「呼ぶ一言は1人に
+        # 2回まで」・「確かめは電話口の方ごとに1回（取り次がれて代わった方は、もう一度確かめてよい）」＝まとめ役 CL-1 の続き (3)）。S3-9 で「はい、」と待ったあと、同じ方に
+        # 「どちら様でしょうか？」と聞かれた：名乗りで答え、呼ぶ一言の3回目は流さない（はじめの呼ぶ一言と詳しい呼ぶ一言で2回）。⛔ f323939c まで、「はい、」で待った次の言葉から
+        # 数え直し、名乗りのあとに3回目の呼ぶ一言を流した
+        import g59_calling_judge as gc
+        import g59_flow_check as fc
+        intro = ("replay_opening", {"part": "intro"})
+        steps = gc.steps_before(self.S3) + [("はい。", "同不xx", fc.R)]
+        r, f = self.said(steps, "失礼ですが、どちら様でしょうか？", ("同不xx", "同不xx"), op=intro, asks="尋ねている")
+        self.assertEqual((f._calls_to_speaker(), [p.get("part") for p in r["play"]]), (2, ["intro"]))
+        self.assertNotIn("いらっしゃいますでしょうか", OtherCompanyClueSendWayTest.heard(r))
+        # 判定の組のどれかが前と違う方（電話を代わった方）と読んだ：数え直す（呼ぶ一言を流す＝今のまま）
+        r, f = self.said(steps, "失礼ですが、どちら様でしょうか？", ("違不xx", "同不xx"), op=intro, asks="尋ねている")
+        self.assertEqual(f._calls_to_speaker(), 1)
+        self.assertEqual([p.get("part") for p in r["play"]][-1], "target")
+        # 取り次ぎを待つ言葉のあとに代わって出た方（前と違う方）：数え直す（今のまま）
+        r, f = self.said(gc.steps_before(self.S3) + [("少々お待ちください。", "同受待x", fc.R)], "失礼ですが、どちら様でしょうか？", ("違不xx", "違不xx"),
+                         op=intro, asks="尋ねている")
+        self.assertEqual([p.get("part") for p in r["play"]][-1], "target")

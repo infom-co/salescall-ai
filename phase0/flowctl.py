@@ -3850,6 +3850,13 @@ def combined_party(values, handover: bool = False) -> str | None:
     return "handover" if handover else "not_target"
 
 
+def same_speaker(value) -> bool:
+    """判定の読み1つが、いまの言葉を話した方を前と同じ方と読んだか（唯一の決まり＝新しい方の側か Flow._new_person_read・呼ぶ一言の数えを引き継ぐか Flow._calls_to_speaker）：
+    項目ごとの答えは「前と同じ方か」の項目。項目ごとに答えない読みは「代わった人が話し始めた」「決められない」でなければ前と同じ方。"""
+    facts = getattr(value, "facts", None) or {}
+    return facts[SPEAKER] == SPEAKER_SAME if SPEAKER in facts else str(value) not in (HANDOVER, UNDECIDED)
+
+
 def kept_reception(value) -> bool:
     """判定の読み1つが、前と同じ方の、受付・取次ぎの方か「決められない」だけの読みか（唯一の決まり＝同じ方の前の読みを引き継ぐ Flow._reception_kept）：話している方は
     受付・取次ぎの方か決められないで、ほかの事実（不在・在籍していない・取り次ぎを待つ・電話を代わった）を言っていない（読みが「別の方」「決められない」のまま）。
@@ -6614,10 +6621,11 @@ class Flow:
         # 呼んでいる段の、こちらに尋ねているかの読み（発話の番号ごと＝on_check の asks）と、取り次ぎの判定が区切りを動かす前の区切り（尋ねて
         # いた発話なら戻す＝尋ねた方は、こちらの答えを待っている）
         self.calling_asks: dict[int, str] = {}
-        self.other_rejected: int | None = None  # 答え方を選び直していただいた発話（_answer_again＝_asked_other・_asked_target。1発話に1回）
+        self.other_rejected: int | None = None  # 名乗り・用件で答えようとしたのを差し戻した発話（_asked_other。1発話に1回）
         self.returned_same_at: int | None = None  # 待たせた方が戻ったと、2つの判定がそろって読んだ区切り（speaker_from。_new_ears）
         self.asks_read: dict[int, set[str]] = {}  # 呼んでいる段の発話ごとの、尋ねているかの読み（何を聞かれたか＝_asked_other）
         self.hold_moved: dict[int, tuple[int, bool]] = {}
+        self.moved_after: dict[int, int] = {}   # 次の発話から新しい方の側にした区切り ⇒ その前の区切り（_new_speaker の after・呼ぶ一言の数え _calls_to_speaker）
         # 繋ぐのを止める弱い読み（確からしさが線より下の、「ご本人」ではない読み＝on_unsure）：いまの言葉の分（受け持ち → 見た言葉）と、
         # 終わった発話の分（発話の番号 → 受け持ち）。判定の読み（check・calling_judged）には入れない（_doubted）
         self.doubt: dict[str, tuple[str | None, object]] = {}   # いまの言葉への弱い読み（受け持ち → (読んだ言葉, 読み)＝on_unsure。繋ぐのを止める側だけ）
@@ -8728,10 +8736,14 @@ class Flow:
             return None if reply.get("fallback") and args.get("part") != "own" else "hai"
         if name == "replay_opening" and str(args.get("part")).startswith(ANSWER_PREFIX):
             return "hai"  # 想定問答の答え：聞かれたことに答える頭は「はい、」
-        if name == "replay_opening":
-            # 名乗りの流し直しの頭は「失礼いたしました。」（6-13）。代わった方へは、録音のあいさつから始まるので相づちは流さない
-            # 「AIですか？」への言い方（「何か問題でもございましたでしょうか？」）の頭に、お詫びは重ねない。質問に戻るときは「失礼いたしました。」
-            return None if args.get("part") in ("handover", "ai") else "shitsurei"
+        if name == "replay_opening" and args.get("part") in ("handover", "ai"):
+            # 代わった方へは、録音のあいさつから始まるので相づちは流さない。「AIですか？」への言い方（「何か問題でもございましたでしょうか？」）の頭に、お詫びは重ねない
+            return None
+        if name == "replay_opening" and result != "end":
+            # 名乗りの流し直しの頭は「失礼いたしました。」（6-13）。質問に戻るときも「失礼いたしました。」。締め（どなたをお呼びかを聞かれて、お伝えすることがもう無く
+            # お礼の締め＝_asked_target の who_unclear の道）は、締めた理由で選ぶ下の1か所（お名前だけではどの方か分からないと言われたときと同じ「はい、」＝まとめ役 CL-1 の
+            # 頼み rv178/X の続き (1)。頭に「失礼いたしました。」を重ねると、締めの「失礼いたします」と重なる＝10-14）
+            return "shitsurei"
         # 返事の頭に流す決まった一言（Flow._advance）の相づちは、その一言の決まり：聞き取れないまま先へ進むとき・締めの前の念のための確認の前でも同じ
         # （CL-1 の 11-03 のご判断の (7)。⛔ 見直しで見つけた：下の2つが先にあり、「はい、LINEでのご連絡のご希望を…」・「申し訳ございません、そのご希望を…」）
         if reply.get("wish_told") and result in ("next", "end", "recheck") and self._unheard_now():
@@ -10757,23 +10769,21 @@ class Flow:
         """受付の方に、どなたをお呼びしているかを聞かれた（「どちらの岡田でしょうか？」）：まだお伝えしていない部署・フルネームがあれば、それの入った
         呼ぶ一言（target_full＝お名前だけでは分からないと言われたときと同じ1つ・1通話1回）で、無ければいつもの呼ぶ一言で答える（お呼びし直すのは
         _call_target の1か所。頭は「はい、」）。✅ 2026-11-02 日本時間1時22分 ユーザー：(b)「OK」（伺い：「受付の方に「どちらの岡田でしょうか？」と
-        聞かれたときも、(2) と同じ「営業部部長の「おかだたろう」様は…」で答えてよいでしょうか。」）。呼ぶ一言をこの方に2回使い切ったあとは、呼ぶ一言は流さず
-        （回数の決まりはそのまま）、聞かれたことには答える＝答え方を選び直していただく（_answer_again）。"""
+        聞かれたときも、(2) と同じ「営業部部長の「おかだたろう」様は…」で答えてよいでしょうか。」）。詳しい呼ぶ一言は聞かれたことへの答え＝呼ぶ一言の回数で止めない
+        （1通話1回）。呼ぶ一言をこの方に2回使い切ったあとに、詳しい呼ぶ一言が無い・もう使ったなら、お礼を言って締め、かけ直さず、依頼者に「お名前だけではどの方か
+        分からなかった」と返す（お名前だけではどの方か分からないと言われたときと同じ1か所 _who_unclear。✅ 2026-11-02 日本時間1時54分「OK」）。"""
         if self.phase != "calling" or not self.target:
             return self._reject("いまはお呼びする段ではありません（お呼びした方には、もう繋がっています）。聞かれたことに合う答え方を選んでください。")
         if self.target.get("target_full") and not self.full_called:
             self.full_called = True
             return self._call_target(sorry=False, part="target_full") | {"answering": True}
         if self._calls_to_speaker() >= 2:
-            # 呼ぶ一言をこの方に2回使い切った（同じお願いを繰り返さない＝本書 9-4 の (5)「呼ぶ一言は1人に2回まで」はそのまま）：尋ねられたことには、使い切ったあとでも
-            # 答える＝答え方を選び直していただき、同じ発話でまた選べない答え方なら受け皿（本書 9-4 の「目的のお客様」の (8) の1か所＝_answer_again。選び直した名乗り・
-            # 用件の録音のあとにも呼ぶ一言は足さない＝_continue）。まとめ役 CL-1 の頼み rv178/X の (B)（(8)「質問かは…尋ねているかで読み、取り次ぎ・不在より先に答える」・
-            # (2)「用件を聞かれたら用件を流してもう一度だけ呼ぶ」・2026-10-22 の3回目「相手の申し出と想定外の質問を、決まった答え1つに押し込めない」・2026-10-14
-            # 「止まらない」）。⛔ 77fdeb7d まで、ここで何も流さずに待った（_call_target の使い切ったときの形）＝名乗りと呼ぶ一言のあとの「はい、それで？」に会話AIが
-            # 「お呼びした方」を選ぶと黙った（G-59 の表の S5-10＝分身 S3 の書き置き rv178/S3/notes.md の 14 の (B)）。⛔ a13eb002 まで、会話AIの報告を差し戻して
-            # 「何も言わずに待つ」と知らせ、待つ上限が付かず無言が続いた（いまの差し戻しは、待たせずに答え方を選び直していただく）
-            return self._answer_again("お呼びする一言は、この方にもう2回お伝えしました（同じお願いを繰り返しません）。聞かれたことには、ほかの答え方の "
-                                      f"replay_opening で答えます（{self._answer_choices()}）。")
+            # 呼ぶ一言をこの方に2回使い切り（同じお願いを繰り返さない＝本書 9-4 の (5)「呼ぶ一言は1人に2回まで」）、詳しい呼ぶ一言も無い・もう使った：お礼の締め（_who_unclear の
+            # 1か所＝通話の事実 who_unclear・繋がらなかった理由「お名前だけではどの方か分からなかった」）。尋ねられたことには使い切ったあとでも答える（まとめ役 CL-1 の頼み
+            # rv178/X の (B) と続き (1)＝本書 9-4 の「担当者が不在」の行の ✅ 2026-11-01 日本時間23時59分・11-02 日本時間1時22分「(b) OK」・1時54分「OK」）。
+            # ⛔ 77fdeb7d まで、ここで何も流さずに待った（_call_target の使い切ったときの形＝G-59 の表の S5-10 で黙った）。⛔ f323939c は答え方を選び直させ、2回目は受け皿を流した
+            # （「どちらの岡田でしょうか？」に用件・「そのご質問は私では正確にお答えできません…」で答えた）。⛔ a13eb002 まで、会話AIの報告を差し戻して「何も言わずに待つ」と知らせた
+            return self._who_unclear()
         return self._call_target(sorry=False) | {"answering": True}
 
     def _who_took_over(self) -> bool:
@@ -12150,21 +12160,13 @@ class Flow:
         got = self.asks_read.get(self.callee_turns, set())
         if ASKS_OTHER not in got or ASKS_YES in got:
             return None
-        said = f"（「{self.callee_said[:40]}」）" if self.callee_said else ""
-        return self._answer_again(f"このご質問{said}は、名乗りや用件のことではありません（名乗り・用件の録音では答えません）。replay_opening を"
-                                  f"「{PART_LABEL['own']}」（業務の情報で答えられる問い）か「{PART_LABEL['no_answer']}」（答えを持っていない問い）で"
-                                  f"呼びます（想定問答にある問いなら、その問いの名前）。{self._answer_choices()}")
-
-    def _answer_again(self, why: str) -> dict:
-        """会話AIが選んだ答え方では、尋ねられたことに答えられない（ほかのことを聞かれたのに名乗り・用件の録音＝_asked_other・呼ぶ一言を使い切った方にどなたをお呼びかを
-        答える一言＝_asked_target）：受けずに答え方を選び直していただき（why＝差し戻しの知らせ）、同じ発話でまた選べない答え方を選んだら、AIに選ばせず、答えを持って
-        いない質問の受け皿（断らない一言の録音＝_own_fallback）で応える（唯一の場所。1発話に選び直しは1回＝other_rejected）。本書 9-4 の「目的のお客様」の (8)
-        「ほかのことを聞かれたのに名乗り・用件の録音で答えようとしたら答え方を選び直させ、選び直させたあとも同じ答え方を選んだら、AIに選ばせず、答えを持っていない
-        質問の受け皿（断らない一言の録音）で応える」。"""
         if self.other_rejected == self.callee_turns:
             return self._own_fallback("no_answer", None, None, {}, {})
         self.other_rejected = self.callee_turns
-        return self._reject(why)
+        said = f"（「{self.callee_said[:40]}」）" if self.callee_said else ""
+        return self._reject(f"このご質問{said}は、名乗りや用件のことではありません（名乗り・用件の録音では答えません）。replay_opening を"
+                            f"「{PART_LABEL['own']}」（業務の情報で答えられる問い）か「{PART_LABEL['no_answer']}」（答えを持っていない問い）で"
+                            f"呼びます（想定問答にある問いなら、その問いの名前）。{self._answer_choices()}")
 
     def _known_line_of(self, part: str | None) -> str | None:
         """判定が「答えられるのに預かっている」の答えのもとに挙げた文（部分）が、知っていることの文のどれか（known_lines）なら、その文。
@@ -13175,11 +13177,7 @@ class Flow:
         名乗りから」・11-01「同じ長い文を2度言わない」。⛔ 4e94ba37 まで、判定の組の読みを1つにまとめた読み（meaning_said）が「決められない」だけで新しい方にし、
         名乗りを聞いた受付の方の「はい。」に確かめたあと、繋いだ・お呼びし直したときに、同じ方へ名乗りをもう一度流した（まとめ役の (X1)・rv94/ask50）"""
         now = self._judged_now() if self.words_complete else {}
-
-        def same(v) -> bool:
-            facts = getattr(v, "facts", None) or {}
-            return facts[SPEAKER] == SPEAKER_SAME if SPEAKER in facts else str(v) not in (HANDOVER, UNDECIDED)
-        return bool(now) and not all(same(v) for v in now.values())
+        return bool(now) and not all(same_speaker(v) for v in now.values())
 
     def _took_over_read(self, ai: str | None) -> bool:
         """答えの段・かけ直し／お立場の質問の途中で、電話口の方が替わったか（唯一の決まり＝取り次ぎのあとに確かめに戻る _target_back の入口 _party_known・
@@ -13755,12 +13753,29 @@ class Flow:
         start = turn + 1 if after else turn
         if start <= self.speaker_from or (not after and not sure and any(self.speaker_from <= c < turn for c in self.target_confirmed)):
             return
+        if after:
+            self.moved_after[start] = self.speaker_from   # 次の発話から新しい方の側にした（同じ方と読まれたら、呼ぶ一言の数えは前の区切りから＝_calls_to_speaker）
         self.speaker_from = start
         self.passed_on = True  # いま電話口にいる方（取り次ぎのあとなら、このあと出る方）は、まだ名乗りを聞いていない
 
     def _calls_to_speaker(self) -> int:
-        """いま電話口にいる方に、呼ぶ一言を流した回数。"""
-        return sum(c >= self.speaker_from for c in self.target_called)
+        """いま電話口にいる方に、呼ぶ一言を流した回数（唯一の数え）：その方の区切り（speaker_from）から数える。区切りが取り次ぎ・受付の方の待ち（次の発話から新しい方の側＝
+        _new_speaker の after）で動いたあとも、判定の組がその区切りからの言葉をどれも前と同じ方と読んでいれば（same_speaker・読みのまだ届いていない言葉はそのまま）、
+        同じ方＝前の区切りからの数えを引き継ぐ。数え直すのは、判定の組のどれかが前と違う方・電話を代わった方と読んだときだけ（本書 9-4 の (5)「呼ぶ一言は1人に2回まで」・
+        「確かめは電話口の方ごとに1回（取り次がれて代わった方は、もう一度確かめてよい）」＝まとめ役 CL-1 の頼み rv178/X の続き (3)）。判定を使わない通話（会話AIの通話の
+        試験）は区切りのまま。⛔ f323939c まで区切りのまま数え、受付の方と読んで「はい、」で待った同じ方に、次の言葉から呼ぶ一言を数え直した（S3-9 で「はい、」と待ったあとの
+        「どちら様でしょうか？」に、名乗りと3回目の呼ぶ一言を流した）"""
+        start = self.speaker_from
+        while self.judging and (before := self.moved_after.get(start)) is not None and self._same_speaker_since(start):
+            start = before
+        return sum(c >= start for c in self.target_called)
+
+    def _same_speaker_since(self, start: int) -> bool:
+        """発話の番号 start からいまの言葉までに届いた判定の読み（遅れて届いた分も・いまの言葉は出揃っていれば）が、どれも前と同じ方か（same_speaker の1か所。_calls_to_speaker）。"""
+        every = {t: v for t, v in self.calling_judged.items() if t >= start}
+        if self.words_complete:
+            every[self.callee_turns] = self._judged_now()
+        return all(same_speaker(x) for v in every.values() for x in v.values())
 
     @property
     def asked_target(self) -> str | None:
