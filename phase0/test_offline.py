@@ -42338,6 +42338,88 @@ class WaitedStoryKeptTest(unittest.TestCase):
         self.assertEqual(heard_words(r), "続きましてご希望の日時をお聞かせいただけますでしょうか？")
 
 
+class NearAnswerTest(unittest.TestCase):
+    """分身 B（rv179 の束1 の B1）：言い直さない質問（ほかのご希望 W1・LINE の伺い方・ご承認の手順）への会話の繋がらない答え（「電話とメールのほかにご希望は…」への
+    「それで結構です。」）は、答えは「決められない」のまま、判定が答えとは別の1項目「どの答えも指していないとき、いちばん近い答え」（flowctl.NEAR）で読み、判定の組が
+    そろって近いと読んだ答えで意味合いを尋ねる（「それで結構ですとおっしゃったのは、電話で大丈夫という意味合いでしょうか？」）。近い答えが読めない（どれにも近くない・
+    割れた・届かない・尋ねる言葉の無い答え）なら今のまま聞き直す・ご承認の手順の「決められない」は今のまま（「そうでしたっけ。」＝11-05 日本時間4時48分13秒）。
+    決まり＝✅ 2026-11-05 日本時間23時56分48秒「ア」（判定がいちばん近いと読んだ選択肢で尋ねる）・⛔✅ 11-08 日本時間16時34分23秒「さらに、判定が「電話」と読んだという
+    判定もおかしいですよね。」（この言葉の答えは決められない＝近さは答えとは別の項目）・本書 9-5 の会話1 の段。⛔ 59b4aa37 まで、近さを読む項目が無く、判定自身が答えを
+    選んだときだけ尋ね、「決められない」と読んだ言葉は「はい、恐れ入ります。ほかのご希望をもう一度お聞かせいただいてもよろしいでしょうか？」と聞き直した"""
+    W = OtherCompanyClueSendWayTest
+
+    def at_w1(self):
+        from flowctl import CALLBACK_IDS, NONE
+        w = self.W()
+        f = w.flow()
+        w.turn(f, "はい、しています。", w.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        r = w.turn(f, "どちらも要らないです。", w.rd(NONE), "record_answer", question_id="Q2", condition_id=NONE)
+        self.assertEqual(w.heard(r), "はい、それでは電話とメールのほかにご希望はございますでしょうか？")
+        return f, CALLBACK_IDS["other_wish"]
+
+    @staticmethod
+    def rd(near, choice=None):
+        from flowctl import NEAR, UNDECIDED
+        r = OtherCompanyClueSendWayTest.rd(choice or UNDECIDED)
+        setattr(r, NEAR, near)
+        return r
+
+    def said(self, f, words, readings, op=None, **args):
+        from flowctl import JUDGMENTS
+        f.on_callee(); f.on_heard(words)
+        for k, r in zip(JUDGMENTS, readings):
+            f.on_check(k, r)
+        f.on_decided()
+        return f.judged_turn(voiced=False) if op is None else f.apply(op, args)
+
+    def test_the_judge_reads_the_near_answer_only_on_questions_that_do_not_restate(self):
+        from flowctl import NEAR, NEAR_NONE, NEAR_OFF, CALLBACK_IDS
+        from meaning_judge import JEV_ITEMS, answer_items, items_text
+        f, w1 = self.at_w1()
+        q = f.for_judge(f.questions[w1])
+        got = answer_items(q).get(NEAR)
+        self.assertIsNotNone(got)
+        self.assertEqual(set(got), {*q.conditions, NEAR_NONE, NEAR_OFF})
+        self.assertIn(NEAR, items_text(q))
+        self.assertIn(NEAR, JEV_ITEMS)
+        self.assertNotIn(NEAR, answer_items(f.questions["Q1"]))                       # 言い直す質問には出さない
+        self.assertNotIn(NEAR, answer_items(q, "念のためほかにご希望は特に無いということでよろしいでしょうか？"))   # 最初の答えだけ
+        self.assertNotIn(NEAR, answer_items(f.for_judge(f.questions[CALLBACK_IDS["other_wish"]]), "x") or {})
+
+    def test_the_near_answer_asks_its_sense(self):
+        from flowctl import WISH_NONE
+        for op in (None, "record_answer"):
+            f, w1 = self.at_w1()
+            args = {"question_id": w1, "condition_id": WISH_NONE} if op else {}
+            r = self.said(f, "それで結構です。", [self.rd("電話"), self.rd("電話")], op, **args)
+            self.assertEqual((r.get("ack"), self.W.heard(r)),
+                             ("hai", "はい、それで結構ですとおっしゃったのは、電話で大丈夫という意味合いでしょうか？"), op)
+            self.assertEqual((f.items[w1].condition, f.awaiting_confirm), ("電話", w1), op)   # 意味合いを尋ねた一言へのお返事を待つ（言い直しへの返事と同じ1か所）
+
+    def test_without_an_agreed_near_answer_it_asks_again_as_now(self):
+        from flowctl import NEAR_NONE, NEAR_OFF, WISH_OTHER
+        again = "はい、恐れ入ります。ほかのご希望をもう一度お聞かせいただいてもよろしいでしょうか？"
+        for near in ([NEAR_NONE, NEAR_NONE], ["電話", "メール"], ["電話", None], [NEAR_OFF, NEAR_OFF], [WISH_OTHER, WISH_OTHER]):
+            f, w1 = self.at_w1()
+            r = self.said(f, "それで結構です。", [self.rd(n) for n in near])
+            self.assertEqual(self.W.heard(r), again, near)   # どれにも近くない・割れた・届かない・当たらない・尋ねる言葉の無い答え（ほかの希望）
+
+    def test_approval_steps_ask_the_sense_only_when_near(self):
+        # ご承認の手順の「ほかに…」（N2）：近い答えが「分かった」なら意味合いを尋ねる・どれにも近くない（どちらとも取れない）なら今のまま（11-05 4時48分13秒）
+        from flowctl import CALLBACK_IDS, NEAR, NEAR_NONE, UNDECIDED
+        from g53_meaning import _approval_scene, _scene_read, _scene_say
+        n2 = CALLBACK_IDS["other_point"]
+        f, now, g = (_approval_scene("other_point") for _ in range(3))
+        for x in (f, now, g):
+            x.use_checks("judge")
+        base = _scene_say(now, "そうでしたっけ。", _scene_read(UNDECIDED))
+        r = _scene_say(f, "まあ、そういうことなら。", _scene_read(UNDECIDED, **{NEAR: "分かった"}))
+        self.assertEqual(self.W.heard(r), "はい、まあ、そういうことならとおっしゃったのは、ほかにご納得いただけない点は特に無いという意味合いでしょうか？")
+        self.assertEqual(f.items[n2].condition, "分かった")
+        r = _scene_say(g, "そうでしたっけ。", _scene_read(UNDECIDED, **{NEAR: NEAR_NONE}))
+        self.assertEqual((r["result"], self.W.heard(r)), (base["result"], self.W.heard(base)))
+
+
 class ChoiceDeniedTest(unittest.TestCase):
     """分身 M（伺い70 の (1)＝決まりで決めた）：選ぶ質問の言い直し（「はい、それではカードで承りますね？」）への「いえ、違います。」は迷いではなく、こちらの言い直しを
     打ち消した言葉。判定の選べるものに「違う（こちらの言い直しを打ち消しただけで、ほかの選択肢は言っていない）」を足し（値を伺う型の「違う値を言われた」と同じ中の名前

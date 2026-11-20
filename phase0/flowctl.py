@@ -3606,6 +3606,47 @@ def ladder_other_ok(readings) -> bool:
     return bool(got) and all(r is not None and getattr(r, LADDER_OTHER, None) == LADDER_OTHER_OK for r in got)
 
 
+# 言い直さない質問（restates が偽＝ほかのご希望 W1・LINE の伺い方 C11・ご承認いただけなかったときの手順）への答えが、どの答えもはっきり指していない（答えの読みが「決められない」）
+# とき、言葉の意味がいちばん近い答え（答えとは別の項目＝答えは「決められない」のまま。意味合いを尋ねる候補の言葉のある質問＝near_fits の最初の答えだけ＝meaning_judge.answer_items が
+# 決める＝ほかの質問・言い直しへの返事・お呼びする段の文は変わらない）。読みを組み合わせるのは near_answer の1か所（Flow._near_now）・使うのは意味合いを尋ねる1か所
+# （Flow._check_again）。✅ 2026-11-05 日本時間23時56分48秒 ユーザー「ア」（判定がいちばん近いと読んだ選択肢で尋ね、近い選択肢が読めなければ今の「恐れ入ります。（聞くこと）を
+# もう一度…」）・⛔✅ 11-08 日本時間16時34分23秒「さらに、判定が「電話」と読んだという判定もおかしいですよね。」（この言葉の答えは決められない＝近さは答えとは別の項目＝本書 9-5 の
+# 会話1 の段）。説明は意味で書き、試しの言葉と同じ言い方の例は書かない。分身 B（rv179 の束1 の B1）
+NEAR, NEAR_HEADING = "near", "どの答えもはっきり指していないとき、いちばん近い答え"
+NEAR_NONE, NEAR_OFF = "どの答えにも近くない", "答えの読みが決められないではない"
+
+
+def near_fits(q: "Question") -> bool:
+    """判定がいちばん近い答え（NEAR）を読む質問か（唯一の決まり＝meaning_judge.answer_items・near_choices）：言い直さない質問で、意味合いを尋ねる候補の言葉のある答えが
+    1つ以上ある（asks_sense＝流れの制御が尋ねられる答えのある質問だけ。N1 のように候補の無い質問には出さない＝その判定の文は変わらない）。"""
+    return not restates(q) and any(asks_sense(q, c) for c in q.conditions)
+
+
+def near_choices(calling: bool, q: "Question | None" = None) -> dict:
+    """いちばん近い答えの選べるもの（{中の名前: 説明}）。答えの段の、near_fits の質問だけ（ほかは {}＝段ごとの項目 side_items には出ない）。名前は答えの中の名前（label）・
+    説明は答えの選べるものの名前（意味の言葉＝meaning_judge.options と同じ）を引く。答えを「決められない」と読まない言葉は「答えの読みが決められないではない」（この項目は使わない）。
+    近いと言えるかの境目は、この3つの説明の1か所。"""
+    if calling or q is None or not near_fits(q):
+        return {}
+    out = {label(c): (f"答えの選べるものは「{UNDECIDED}」（どの答えもはっきりとは指していない）が、言葉の意味がいちばん近い答えは"
+                      f"「{q.meanings.get(c) or label(c)}」") for c in q.conditions}
+    out[NEAR_NONE] = f"答えの選べるものは「{UNDECIDED}」で、言葉の意味が、どの答えに近いとも言えない（どちらとも取れる・どの答えとも関わらないことを言った）"
+    out[NEAR_OFF] = (f"答えの選べるものが「{UNDECIDED}」ではない（どれかの答えをはっきり指している・わからない・答えたくない・待つように言った・もう一度言ってほしい など、"
+                     "ほかの選べるものに当たる）")
+    return out
+
+
+def near_answer(q: "Question", readings) -> str | None:
+    """いちばん近い答えの読みを組み合わせる唯一の決まり（Flow._near_now）：判定の組の読み（この通話で使う判定ごと。届いていないものは None）がどれも、この項目（NEAR）を
+    同じ答えと読んだ＝その答え（中の名前）。1つでも届いていない・項目が無い・割れた・どれにも近くない・当たらない・1つも無い ⇒ None（今のまま聞き直す）。"""
+    got = list(readings)
+    if not got or any(r is None for r in got):
+        return None
+    names = {getattr(r, NEAR, None) for r in got}
+    name = names.pop() if len(names) == 1 else None
+    return next((c for c in q.conditions if label(c) == name), None) if name else None
+
+
 # 答えとは別に、判定がお客様の言葉ごとに読む項目の唯一の表（{項目の名前: (見出し, 選べるものを作る関数)}。並びは問い合わせの文の並び）。
 # 読むのは、お呼びする段の項目（target_facets）・答えの段の項目（meaning_judge.answer_items）・判定の決まりの文・Jev の問い・読み取り（Reading の
 # 同じ名前の値）。⛔ 2026-11-02 まで「電話を終える言葉か」だけを7か所に写して持っていた＝項目を足すと、写し漏れで片方の段だけ読まなくなる
@@ -3614,7 +3655,7 @@ SIDE_ITEMS = {END: (END_HEADING, end_choices), HEAR: (HEAR_HEADING, hear_choices
               QUERY: (QUERY_HEADING, query_choices), PROMPT_REPLY: (PROMPT_REPLY_HEADING, prompt_reply_choices), AWAY: (AWAY_HEADING, away_choices),
               ELSEWHERE: (ELSEWHERE_HEADING, elsewhere_choices), OFFER: (OFFER_HEADING, offer_choices),
               ABSENT_WHY: (ABSENT_WHY_HEADING, absent_why_choices), WRONG: (WRONG_HEADING, wrong_choices),
-              LADDER_OTHER: (LADDER_OTHER_HEADING, ladder_other_choices)}
+              LADDER_OTHER: (LADDER_OTHER_HEADING, ladder_other_choices), NEAR: (NEAR_HEADING, near_choices)}
 
 
 def side_items(calling: bool) -> dict:
@@ -9293,6 +9334,12 @@ class Flow:
             return self._check_again(qid, why, None, None)
         return self._ask_again(qid, self._ask_kind(), why)
 
+    def _near_now(self, q: "Question") -> str | None:
+        """答えを当てている言葉（heard_check）を、この通話の判定の組がそろって「いちばん近い答え」（NEAR）と読み、その答えで意味合いを尋ねられる（asks_sense）なら、その答え
+        （唯一の読み口＝意味合いを尋ねる _check_again・ご承認の手順の決められない読みの道 _undecided_way）。無ければ None。"""
+        c = near_answer(q, [self.heard_check.get(k) for k in JUDGMENTS if k in self.checks_used])
+        return c if asks_sense(q, c) else None
+
     def _word_choice(self, qid: str, said: str | None = None) -> str | None:
         """前の質問から意味が決まる曖昧な言葉だけのお返事（取込で決めた Question.reply_choice＝G-49・10-17）の選択肢（唯一の決まり＝受け取る所 _op_record_answer・
         決められない読みの道 _undecided_way）。選ぶ質問でない・その言葉でなければ None。"""
@@ -9312,7 +9359,9 @@ class Flow:
         if qid in self.since_plain:
             return "since"
         if q.callback in POINT_STAGES.values():
-            return "point"
+            # ご承認の手順の段：判定の組がそろって、意味合いを尋ねられる答えをいちばん近いと読めば（_near_now）、「わからない」とせず、聞き直しの1か所（_check_again＝その答えで
+            # 意味合いを尋ねる）へ。読めなければ（どちらとも取れない＝「どの答えにも近くない」など）今のまま「わからない」（11-05 日本時間4時48分13秒。分身 B（rv179 の束1 の B1））
+            return "again_check" if self._near_now(q) is not None else "point"
         if not q.checks_now:
             return "dash"
         if Flow._prior_back(q, self.heard_check) is not None:
@@ -10036,14 +10085,17 @@ class Flow:
                 # 先に言われた答え（質問はまだ流していない＝_offer_ahead）：その言葉に答えが無かったときと同じく、受け取らずに質問を流す（_resume の決まり）。
                 # ⛔ 同じ流しで見つけた：まだ伺っていない質問に「お電話が少し遠いようでしてもう一度お聞かせ…」と聞き返すことになった
                 return r
-            # 判定がいちばん近いと読んだ選択肢（back＝宣言した選択肢）があれば、聞き直さずに、その選択肢で意味合いを尋ねる（1つの答えに1回。候補の言葉が
-            # 作れなければ聞き直す）。✅ 2026-11-05 日本時間23時19分06秒 ユーザー（会話1）・23時56分48秒「ア」（お言葉は phrases.SENSE_ASK）
-            # 候補は判定自身が選んだ選択肢だけ（判定が決められない・待つと読んだときの back は会話AIの報告＝判定の読みではない。⛔ 入れる途中、流れの制御に
-            # 通して見つけた：決められないと読んだ「それで結構です。」に、会話AIの「無い」で尋ねていた）
+            # 判定がいちばん近いと読んだ選択肢があれば、聞き直さずに、その選択肢で意味合いを尋ねる（1つの答えに1回。候補の言葉が作れなければ聞き直す）。
+            # ✅ 2026-11-05 日本時間23時19分06秒 ユーザー（会話1）・23時56分48秒「ア」（お言葉は phrases.SENSE_ASK）。候補は判定の読みだけ：判定自身が選んだ選択肢
+            # （back＝宣言した選択肢）、無ければ判定の組がそろって「いちばん近い答え」と読んだ選択肢（答えとは別の項目 NEAR＝_near_now。判定が答えを「決められない」と読んだ
+            # 会話の繋がらない言葉＝⛔✅ 11-08 日本時間16時34分23秒。分身 B（rv179 の束1 の B1））。判定が決められない・待つと読んだときの back は会話AIの報告＝判定の読みでは
+            # ない（⛔ 入れる途中、流れの制御に通して見つけた：決められないと読んだ「それで結構です。」に、会話AIの「無い」で尋ねていた）
             judged = {str(v) for k in JUDGMENTS if (v := self.heard_check.get(k)) is not None}
-            if back in judged and not it.ambiguous_asked and asks_sense(q, back):
-                it.set("heard", f"{why}（「{(self.heard_said or '')[:20]}」）・判定のいちばん近い読み「{label(back)}」で意味合いを尋ねる")
-                it.condition, it.ambiguous_asked = back, True
+            pick = back if back in judged else self._near_now(q)
+            if pick is not None and not it.ambiguous_asked and asks_sense(q, pick):
+                read = "判定の読み" if pick == back else "判定の組がそろったいちばん近い答え"
+                it.set("heard", f"{why}（「{(self.heard_said or '')[:20]}」）・{read}「{label(pick)}」で意味合いを尋ねる")
+                it.condition, it.ambiguous_asked = pick, True
                 return self._ask_confirm(qid, after="sense")
             if why.startswith(END_DOUBT_WHY) and back in judged and back in q.conditions:
                 # 電話を終える言葉か判定でも決まらず、判定がいまの質問の答えと読んだ言葉（_topic_first）で、言い直さない質問に向きを伺うお客様に言う言葉（意味合いの

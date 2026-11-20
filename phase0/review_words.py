@@ -19,7 +19,8 @@ from flowctl import (ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_NONE, ABOUT_WRO
                      OFFER_NOT_SAID, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, ELSEWHERE, ELSEWHERE_ALL, ELSEWHERE_NO, HESITATING, KEEP_ON,
                      END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PHONE, PHONE_NONE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
                      REFUSED_LABEL, REPEAT, HEAR_LOST, SPEAKER, SPEAKER_SAME, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHO, WHO_RECEPTION, WHY_NOT_SAID, WRONG,
-                     WRONG_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question, ladder_side_name, pain_question, since_form)
+                     WRONG_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question, ladder_side_name, pain_question, since_form,
+                     NEAR, NEAR_OFF)
 from grounding import TOUCHED, UNTOUCHED, one_touched
 from meaning_judge import UNDECIDED, WITHDREW
 from phrases import PAIN_ASK
@@ -117,7 +118,7 @@ WHY_HESITATING = (DONT_KNOW_LABEL["undecided"], *WHY_OTHER)
 
 
 def _row(qid: str, text: str, accept, away=None, query=QUERY_NO, prompt=None, hedged=False, asked: str | None = None, why: str = "",
-         reason=None, wrong=None, scene=None, value: str | None = None, end=None, other=None, elsewhere=None) -> dict:
+         reason=None, wrong=None, scene=None, value: str | None = None, end=None, other=None, elsewhere=None, near=None) -> dict:
     label = {"accept": list(accept), "why": why}
     if hedged:
         label["hedged"] = True
@@ -125,10 +126,11 @@ def _row(qid: str, text: str, accept, away=None, query=QUERY_NO, prompt=None, he
         label["reason"] = list(reason)
     # end＝電話を終える言葉かの正解（無ければ「言っていない」＝g53_meaning.end_accept）・other＝合わないと言わなかったほうで大丈夫そうかの正解（日時の2択の段の行だけ＝
     # g53_meaning.ladder_other_truths。分身 S2）・elsewhere＝ほかの会社に頼んでいる・使っていると言ったかの正解（無ければ「言っていない」＝g53_meaning.elsewhere_truths。
-    # 正解の表 g53_labels.json の行と同じ欄。分身 S4）
+    # 正解の表 g53_labels.json の行と同じ欄。分身 S4）・near＝どの答えもはっきり指していないときのいちばん近い答えの正解（言い直さない質問の最初の答えだけ＝g53_meaning.near_truths。
+    # 分身 B（rv179 の束1 の B1））
     if end is not None:
         label["end"] = list(end) if isinstance(end, (list, tuple)) else [end]
-    for key, got in ((AWAY, away), (QUERY, query), (PROMPT_REPLY, prompt), (WRONG, wrong), (LADDER_OTHER, other), (ELSEWHERE, elsewhere)):
+    for key, got in ((AWAY, away), (QUERY, query), (PROMPT_REPLY, prompt), (WRONG, wrong), (LADDER_OTHER, other), (ELSEWHERE, elsewhere), (NEAR, near)):
         if got is not None:
             label[key] = list(got) if isinstance(got, (list, tuple)) else [got]   # 境目の行は並べた名前のどれも正解
     # scene＝場面の印（g53_meaning._connected_scene：お呼びした方に繋いだあとの答えの段・NEW_SCENES。無ければ目的のお客様のいない業務の最初の質問＝今までの行）。
@@ -444,15 +446,18 @@ PREP3_ROWS = [
              "あれば、そちら」）・ほかの会社の項目は #4 と同じ境目（「前の担当が決めた」＝その会社に頼むと決めた経緯）。理由は読み手2人とも「担当ではない」「決められない」だが数えない"
              "（答えが「決め手は無い」＝流れの制御は理由の読みを使わない＝この表の理由の決まり。どの理由の読みでも動きは同じ＝rv178/S4/probe/flow_t.txt）"),
     # (9) ほかのご希望 W1（G17 で「どちらも要らない」と言い切ったあと＝測りの W1 の場面 g73_system_words.wish_scenes）：会話の繋がらない「それで結構です。」＝決められない
-    {**_row("W1@G17", "それで結構です。", [UNDECIDED], reason=WHY_OTHER,
+    {**_row("W1@G17", "それで結構です。", [UNDECIDED], reason=WHY_OTHER, near=["電話", "メール"],
             why="「それで」が何を指すか言葉から決まらない＝会話が繋がらない＝決められない（✅ 2026-11-05 日本時間23時19分06秒「「それで結構です。」は会話がつながっていない＝「無い」と"
                 "受け取らず意味合いを尋ねる」・✅ 2026-11-08 日本時間16時34分23秒「判定が「電話」と読んだという判定もおかしい」＝本書 9-5 の会話1 の段の ⏳「W1 の試しの言葉に、この言葉と"
                 "同じ形の言葉を「決められない」で入れて測る」）。束 t の #8：読み手2人とも「ほかに希望は無い」と「決められない」の両方を挙げた（会話まで読むと「無い」）＝お答え"
-                "（11-05 の (2)「「ほかの希望は無い」とは受け取らず」・11-08＝この言葉の正解は会話が繋がらない＝決められない）で決めた＝決められないだけのまま（境目にしない）"), "set": "W1"},
+                "（11-05 の (2)「「ほかの希望は無い」とは受け取らず」・11-08＝この言葉の正解は会話が繋がらない＝決められない）で決めた＝決められないだけのまま（境目にしない）。"
+                "2026-11-21 分身 B（rv179 の束1 の B1）：いちばん近い答えは「電話」か「メール」（✅ 2026-11-05 日本時間23時19分06秒「「結構ですとおっしゃったのは、電話で結構です"
+                "(大丈夫です)という意味合いでしょうか？」のような尋ねの一言」＝「それで」は直前に並べた電話とメールを指す＝どちらも正解。「無い」は 11-05 の (2) のとおり当てない）"), "set": "W1"},
     # (10) ほかにご納得いただけない点 N2（ご承認いただけなかったときの手順＝g53_meaning._approval_scene の other_point）：本書 9-5 の (5) の ⏳「点を言っていない言葉の試しの言葉を作って」
     #      ＝選べるもの「分からない点・確かめたい点があると言ったが、どの点かは言っていない」の言葉（言葉は説明の文から作った。点を言った側の言葉は正解の表の N2 の9行）
-    {**_row("N2", "はい、まだあります。", ["点は言っていない"], why="ほかにもあると言ったが、どの点かは言っていない（選べるものの説明のとおり）"), "set": "N2"},
-    {**_row("N2", "ええ、まだちょっとありますね。", ["点は言っていない"], why="同じ（どの点かは言っていない）"), "set": "N2"},
+    {**_row("N2", "はい、まだあります。", ["点は言っていない"], near=[NEAR_OFF],
+            why="ほかにもあると言ったが、どの点かは言っていない（選べるものの説明のとおり）。いちばん近い答えは「答えの読みが決められないではない」（答えの正解から決まる・B1）"), "set": "N2"},
+    {**_row("N2", "ええ、まだちょっとありますね。", ["点は言っていない"], near=[NEAR_OFF], why="同じ（どの点かは言っていない・いちばん近い答えも同じ）"), "set": "N2"},
 ]
 
 

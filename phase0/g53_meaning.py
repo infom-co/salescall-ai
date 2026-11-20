@@ -28,7 +28,8 @@ from concurrent.futures import ThreadPoolExecutor
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ABSENT_WHY, OFFER, ANY, END_DOUBT_WHY, before_words, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, AWAY, ELSEWHERE, ELSEWHERE_YES, ELSEWHERE_NO, QUERY_YES, QUERY_NO, END_ANGRY, END_HURRY, END_NONE,
                      END_PRESSED, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS,
-                     WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading, WRONG, WRONG_NOT_SAID, LADDER_OTHER)
+                     WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading, WRONG, WRONG_NOT_SAID, LADDER_OTHER,
+                     NEAR)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, Reading, judge, judge_other
 
@@ -233,7 +234,8 @@ def either(it: dict) -> bool:
 # 外す語）。⛔ 2026-11-06 日本時間15時台まで、記録する3か所と外す語の並びが2つの項目を名前で手書きしていた（項目を足すと、記録の漏れで数えなくなる）
 SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由", QUERY: "問い", PROMPT_REPLY: "声かけ", AWAY: "別の話", ELSEWHERE: "他社",
                OFFER: "申し出", ABSENT_WHY: "出られない理由", WRONG: "番号違い",
-               LADDER_OTHER: "もう一方"}   # 申し出・出られない理由はお呼びする段だけ（G-53 の答えの段の行では None）・もう一方は日時の2択の質問だけ（伺い94）
+               LADDER_OTHER: "もう一方",
+               NEAR: "近い答え"}   # 申し出・出られない理由はお呼びする段だけ（G-53 の答えの段の行では None）・もう一方は日時の2択の質問だけ（伺い94）・近い答えは言い直さない質問の最初の答えだけ（B1）
 assert set(SIDE_SUFFIX) == set(SIDE_ITEMS), "記録の見出しは、答えとは別に読む項目の表と同じ項目"
 # 判定の確からしさの広がりを記録する見出し（{判定の名前のあとに付ける語: 読みの属性}。唯一の表＝記録と、使い回すときに外す語）。
 # ✅ 2026-11-07 日本時間10時29分25秒 ユーザー「d1-ultraの確からしさが低いのは、こちらの設問か選択肢、説明の問題ということでしょ！」＝
@@ -721,6 +723,13 @@ def ladder_other_truths(it: dict) -> tuple:
     いつもウ（避けた方だけを外した2つ）と数えていた＝エ（避けなかった方で次の2択）の行の外れを見分けられなかった（試験 S2MeasurePrepTest）"""
     got = _label(it)
     return tuple((got or {}).get(LADDER_OTHER) or (None,))
+
+
+def near_truths(it: dict) -> tuple:
+    """正解の表の行の、どの答えもはっきり指していないときのいちばん近い答え（flowctl.NEAR＝言い直さない質問の最初の答えだけの項目・分身 B（rv179 の束1 の B1））の正解（中の名前の
+    並び）。付けていない行は読んでいない（None＝その項目を読まない質問と同じ。ladder_other_truths と同じ形）。この項目を読む質問の行は、どれも1行ずつ正解を付けた（帳面 0-3 の (2)）"""
+    got = _label(it)
+    return tuple((got or {}).get(NEAR) or (None,))
 
 
 def elsewhere_truths(it: dict) -> tuple:
@@ -1693,7 +1702,8 @@ def flow_act(it: dict, q: Question, got, firm, prior=None, away=None) -> str | N
 def label_readings(it: dict, q: Question, has_end: bool) -> list:
     """正解の表の行 it から、正しい読みの組み合わせを全部作る（唯一の作り＝正解の動き step_wants）：答え（accept）× 言い切り（境目 either なら両方・
     ほかは「曖昧」の印 hedged の逆）× こちらへ尋ねた問いか（query_truths）× 別のお話か（away_truths）× 電話を終える言葉か（has_end なら end_accept・
-    無ければ読んでいない）× こちらがかけた電話番号が違うと伝えたか（wrong_truths）× 声かけへのお返事だけか（prompt_truths）× 合わないと言わなかったほうで大丈夫そうか（ladder_other_truths）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
+    無ければ読んでいない）× こちらがかけた電話番号が違うと伝えたか（wrong_truths）× 声かけへのお返事だけか（prompt_truths）× 合わないと言わなかったほうで大丈夫そうか（ladder_other_truths）×
+    どの答えもはっきり指していないときのいちばん近い答え（near_truths）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
     正解 talk False の行は、その答えと食い違う前の話の答え＝flowctl.off_talk の1か所。ほかは前の話から決まる答えは無い）。聞こえ方は hear_truth。"""
     from flowctl import why_choices
     out = []
@@ -1714,12 +1724,13 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
                                     for wn in wrong_truths(it):
                                         for pr in prompt_truths(it):
                                             for lo in ladder_other_truths(it):
-                                                r = Reading(a, firm)
-                                                for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it)), (WRONG, wn),
-                                                             (PROMPT_REPLY, pr), (LADDER_OTHER, lo)):
-                                                    setattr(r, k, v)
-                                                r.prior = p
-                                                out.append(r)
+                                                for nr in near_truths(it):
+                                                    r = Reading(a, firm)
+                                                    for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it)), (WRONG, wn),
+                                                                 (PROMPT_REPLY, pr), (LADDER_OTHER, lo), (NEAR, nr)):
+                                                        setattr(r, k, v)
+                                                    r.prior = p
+                                                    out.append(r)
     return out
 
 
