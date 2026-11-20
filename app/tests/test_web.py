@@ -150,7 +150,7 @@ class Web(_World):
         ensure_rules(World(), self.a)
         ok = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/versions/{self.a['version']}")
         self.assertEqual(ok.status_code, 200)
-        self.assertIn("業務設定の中身", ok.text)
+        self.assertIn("電話の台本", ok.text)
         self.assertNotIn(words_missing(), ok.text)
         from salescall.core import business_rules
         from salescall.output import words
@@ -656,6 +656,15 @@ class Web(_World):
                 page = self.get("A", path).text
                 crumbs = page[page.index('class="crumbs"'):page.index("</nav>", page.index('class="crumbs"'))]
                 self.assertIn("依頼者「依頼者X」", crumbs)
+
+    def test_every_page_has_one_name_and_marks_itself_in_the_side_nav(self):
+        """画面の名前は words.PAGES の1か所（左の道しるべ・見出し・ホームの札が同じ名前）。開いた画面は、左の道しるべで自分に印が付く。"""
+        from salescall.output import words as w
+        for key, (name, href) in w.PAGES.items():
+            with self.subTest(page=key):
+                page = self.get("A", href).text
+                self.assertIn(f'<a href="{href}" aria-current="page">{name}</a>', page)
+        self.assertNotIn("見張り", self.get("A", "/t").text + self.get("A", "/t/watch").text)   # 前は「見張り」と「気をつけること」の2つの名前
 
     def test_every_empty_state_says_what_comes_next(self):
         """空のときの形（parts.empty）は、次にすること・これから何が起きるかを必ず書く（「登録はありません」だけで終えない）。"""

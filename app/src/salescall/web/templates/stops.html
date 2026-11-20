@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% from "parts.html" import go, tag, empty, flash %}
 {% set active = "stops" %}
-{% block title %}止まっているもの{% endblock %}
+{% block title %}{{ words.page("stops") }}{% endblock %}
 {% block main %}
-<h1>止まっているもの</h1>
+<h1>{{ words.page("stops") }}</h1>
 <p class="lead">自動で解けるものは、システムが確かめて解きます。開くと、何で止まったかと、解く前に確かめることが出ます。</p>
 {{ flash(done, ok) }}
 {% if stops %}

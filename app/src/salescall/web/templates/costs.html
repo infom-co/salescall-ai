@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% from "parts.html" import tag, flash, csrf, empty, deficit_card %}
-{% block title %}費用と報酬{% endblock %}
+{% block title %}{{ words.page("costs") }}{% endblock %}
 {% block main %}
-<h1>費用と報酬</h1>
+<h1>{{ words.page("costs") }}</h1>
 <p class="lead">今月（日本時間の月初めから今まで）の、依頼者ごとの報酬と費用です。赤字になっても電話は止めません（お知らせだけです）。</p>
 {{ flash(done, ok) }}
 <h2>今月</h2>

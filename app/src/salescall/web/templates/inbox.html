@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% from "parts.html" import tag, flash, empty, csrf, inbox_item %}
 {% set active = "inbox" %}
-{% block title %}承認待ち{% endblock %}
+{% block title %}{{ words.page("inbox") }}{% endblock %}
 {% block main %}
-<h1>承認待ち</h1>
+<h1>{{ words.page("inbox") }}</h1>
 <p class="lead">確かめて、決めてください。急ぐものから並んでいます。</p>
 {{ flash(done, ok) }}
 <div class="filters" role="group" aria-label="承認待ちを絞る">

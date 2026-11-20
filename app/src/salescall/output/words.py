@@ -299,6 +299,21 @@ DEFICIT_CONFIRM = "確かめた（これ以上お知らせしない）"
 DNC_IMPORT_FIELD_WORDS: dict[str, str] = {"phone": "電話番号", "client_ref": "依頼者の管理番号"}
 
 
+# 全体の画面の名前と行き先（左の道しるべ・ページの見出し・ホームの数の札・上の帯の印が、同じ名前をここから引く1か所。並びは道しるべの順。
+# 2026-11-20 の見直し：左は「見張り」、ホームの札は「気をつけること」と、同じ画面が2つの名前で出ていた）
+PAGES: dict[str, tuple[str, str]] = {
+    "home": ("ホーム", "/t"), "inbox": ("承認待ち", "/t/inbox"), "stops": ("止まっているもの", "/t/stops"),
+    "watch": ("気をつけること", "/t/watch"), "notices": ("知らせ", "/t/notices"), "costs": ("費用と報酬", "/t/costs"),
+    "lines": ("回線と PC", "/t/lines"), "dnc": ("共通の発信禁止", "/t/dnc"), "settings": ("契約者の設定", "/t/settings"),
+}
+ADMIN_PAGES: dict[str, tuple[str, str]] = {"admin_tenants": ("契約者を選ぶ", "/admin/tenants"), "system_settings": ("システムの初めの値", "/admin/settings")}
+
+
+def page(key: str) -> str:
+    """画面の名前（PAGES・ADMIN_PAGES の1か所）。"""
+    return (PAGES.get(key) or ADMIN_PAGES[key])[0]
+
+
 # 設定のまとまりの名前（設定の名前の頭。データベースの設定の定義のすべての頭を書く。試験が突き合わせる）。
 # **並びは、設定の画面に出す順**＝契約者が業務を組み立てる仕事の順（業務 → いつかけるか → かける前の確かめ → お客様の扱い → 通話・会話 →
 # かけ直し → 決めたことの扱い → 結果 → 承認と品質 → 回線と PC → 費用・控え・知らせなどの裏方）。中の名前の順（英字の順）では並べない

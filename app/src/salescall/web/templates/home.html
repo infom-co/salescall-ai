@@ -9,17 +9,17 @@
 
 <div class="grid cols-4 stats">
   <a class="card {{ 'attention-stop' if stops }}" href="/t/stops" style="text-decoration:none;color:inherit">
-    {{ stat("止まっているもの", stops|length, "stop") }}
+    {{ stat(words.page("stops"), stops|length, "stop") }}
     <div class="muted hint" style="margin-top:6px">
       {% if stops %}{{ words.stop_cause(stops[0].cause) }}（{{ words.stop_scope(stops[0].scope) }}{% if stops[0].client_name %}：{{ stops[0].client_name }}{% endif %}）{% if stops|length > 1 %}ほか{% endif %}{% else %}止まっているものはありません{% endif %}
     </div>
   </a>
   <a class="card {{ 'attention-wait' if waiting_total }}" href="/t/inbox" style="text-decoration:none;color:inherit">
-    {{ stat("承認待ち", waiting_total, "wait") }}
+    {{ stat(words.page("inbox"), waiting_total, "wait") }}
     <div class="muted hint" style="margin-top:6px">{% if waiting_total %}いちばん急ぐもの：{{ first[0][1].title }}（{{ first[0][0].name }}）{% else %}承認待ちはありません{% endif %}</div>
   </a>
   <a class="card {{ 'attention-wait' if watch_total }}" href="/t/watch" style="text-decoration:none;color:inherit">
-    {{ stat("気をつけること", watch_total, "wait") }}
+    {{ stat(words.page("watch"), watch_total, "wait") }}
     <div class="muted hint" style="margin-top:6px">{% if watch_first %}{{ watch_first[0][0].title }}（{{ watch_first[0][1]|length }}件）{% if watch_total > watch_first[0][1]|length %}ほか{% endif %}{% else %}回線・休んでいる行に、気をつけることはありません{% endif %}</div>
   </a>
   <div class="card">

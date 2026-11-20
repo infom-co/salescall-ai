@@ -102,7 +102,7 @@
 <section class="card mode-card" style="margin-top:16px">
   <div class="title-row"><h2 style="margin:0">{{ "検証モード" if verification else "フルオート" }}</h2>
     {% set bb = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id %}
-    <nav class="go-links" aria-label="この業務の画面">{% if versions %}{{ go(bb ~ "/versions/" ~ versions[0].version_id, "業務設定の中身（版 " ~ versions[0].version_no ~ "）") }}{% endif %}
+    <nav class="go-links" aria-label="この業務の画面">{% if versions %}{{ go(bb ~ "/versions/" ~ versions[0].version_id, "電話の台本（版 " ~ versions[0].version_no ~ "）") }}{% endif %}
     {{ go(bb ~ "/reward", "報酬の決まり") }}
     {{ go(bb ~ "/samples", "誤判定率と抜き取り") }}
     {#- 前は「切り替える（業務の設定）」＝押すと切り替わるように読めた。移るだけなので、どこで変えるかを言う -#}
@@ -131,11 +131,11 @@
       <p class="muted">版の中身：{% for v in versions[:3] %}<a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/versions/{{ v.version_id }}">版 {{ v.version_no }}</a>{% if not loop.last %}・{% endif %}{% endfor %}</p>
       <label class="field" for="new-run">実施回の名前</label>
       <input id="new-run" type="text" name="name" required placeholder="例：12月分のお客様">
-      <label class="field" for="run-version">使う業務設定の版</label>
+      <label class="field" for="run-version">使う電話の台本の版</label>
       <select id="run-version" name="version_id">{% for v in versions %}<option value="{{ v.version_id }}">版 {{ v.version_no }}（{{ time(v.created_at) }}）{% if loop.first %}・いちばん新しい版{% endif %}</option>{% endfor %}</select>
       <button class="btn main small" type="submit">作って、お客様リストを取り込む</button>
       {% else %}
-      <p class="muted">この業務には、まだ業務設定の版がありません。業務の資料を取り込んで版を作ってから、実施回を作れます。</p>
+      <p class="muted">この業務には、まだ電話の台本がありません。業務の資料を取り込んで版を作ってから、実施回を作れます。</p>
       {% endif %}
     </form>
   </details>

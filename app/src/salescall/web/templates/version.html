@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% from "parts.html" import tag, empty, flash, csrf %}
 {% set active = "client" %}
-{% block title %}業務設定 版 {{ version.version_no }}{% endblock %}
-{% block crumb %}業務設定の中身{% endblock %}
+{% block title %}電話の台本 版 {{ version.version_no }}{% endblock %}
+{% block crumb %}電話の台本{% endblock %}
 {% block main %}
-<h1>業務設定の中身：版 {{ version.version_no }}</h1>
-<p class="lead">{{ time(version.created_at) }}に作った版です。版は変えられません（直すときは新しい版を作ります。前の版も残ります）。</p>
+<h1>電話の台本：版 {{ version.version_no }}</h1>
+<p class="lead">お客様との電話で話す中身（名乗り・用件・質問・想定問答）と、結果ごとのかけ直しです。かける時間帯や回数などは「この業務の設定」で決めます。{{ time(version.created_at) }}に作った版です。版は変えられません（直すときは新しい版を作ります。前の版も残ります）。</p>
 {% if problem %}<div class="flash ng" role="alert">{{ problem }}</div>
 {% elif s %}
 <div class="grid cols-2">

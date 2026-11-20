@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% from "parts.html" import tag, empty %}
-{% block title %}見張り{% endblock %}
+{% block title %}{{ words.page("watch") }}{% endblock %}
 {% block main %}
-<h1>見張り</h1>
+<h1>{{ words.page("watch") }}</h1>
 <p class="lead">回線と、休んでいる行・終えた電話の様子です。どれもシステムが決まりどおりに動かしています。上に出ている項目は、続くようなら確かめてください（何もない項目は、下にまとめています）。</p>
 {# 項目は web/watch.WATCHES の1か所。画面は答える場所の事実を並べるだけ（決め直さない） #}
 {% set busy = found|selectattr(2)|list %}
 {% set calm = found|rejectattr(2)|list %}
 {% if busy %}
-<nav class="filters" aria-label="見張りの項目">
+<nav class="filters" aria-label="気をつけることの項目">
   {% for key, w, got in busy %}<a class="chip" href="#{{ key }}">{{ w.title }} <b>{{ got|length }}</b></a>{% endfor %}
 </nav>
 {% endif %}
