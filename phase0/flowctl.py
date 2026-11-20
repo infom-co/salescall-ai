@@ -8610,6 +8610,12 @@ class Flow:
         - 答えを受け取ったすぐあとの締めの前の念のための確認（印 receipt＝_advance_to。業務の質問の確認も、お知らせの最終の確かめ＝_accepted_ask も）⇒ 次の質問へ
           進む返事と同じ決まりで、受け取った答えで選ぶ（確認の頭の「はい、」「申し訳ございません、」は決め打ちしない＝お詫びは確認を作る所が相づちのあとに置く）"""
         result = reply["result"]
+        if reply.get("voiced"):
+            # 報告の無いターンに会話AIの声がもうお客様に流れた（judged_turn の出口の印）：その声が受けの言葉＝相づちは流さない（どの返事でも同じ。伺い・待つ状態・
+            # 上限は返事のまま進める）。10-14（受けの言葉が2つ重ならない・「はい」が続かない）・✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」（考えている
+            # 途中の「はい。」を会話AIが言ったら重ねない）と同じ理由。⛔ 3cd6ec5c まで、考えている途中・迷っている点の2つの返事だけが見て、H2・待つ・確かめて戻る・
+            # あとでかけ直すには重ねた（束 n7＝OPEN-A5・棚卸し 7章 L9）
+            return None
         if reply.get("ask_reason") and result == "confirm_required":
             result = "recheck"   # 締めの前の念のための確認のお知らせの最終の確かめ（_advance_to の印 ask_reason）も、締めの前の確認として読む
         if result == "callee_asked":
@@ -8695,12 +8701,12 @@ class Flow:
             return None if reply.get("acked") or reply.get("quiet") else "hai"
         if result == "thinking":
             # まだ考えている途中（Flow._thinking）：「はい。」の相づち（落ち着いた声で、語尾を上げずに短く＝phrases.ACK の aizuchi）のあと待つ。会話AIが話す通話で、
-            # 報告の無いターンに会話AIが自分で「はい。」と言い、その声が流れた（voiced＝judged_turn）なら重ねない。✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」
-            return None if reply.get("voiced") else "aizuchi"
+            # 報告の無いターンに会話AIが自分で「はい。」と言い、その声が流れた（voiced＝judged_turn）なら重ねない（上の頭の1か所）。✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」
+            return "aizuchi"
         if result == "hesitate":
             # 迷っていると言い終えたお客様に、どういった点でお迷いかを1回伺う（Flow._hesitate_point）：「はい、」＋「どういった点でお迷いでしょうか？」
-            # （✅ 2026-11-07 日本時間18時03分49秒 ユーザー「(1) ア」）。会話AIの声がもう流れた（voiced）なら流さない（Flow._hesitate_now）
-            return None if reply.get("voiced") else "hai"
+            # （✅ 2026-11-07 日本時間18時03分49秒 ユーザー「(1) ア」）。会話AIの声がもう流れた（voiced）なら流さない（上の頭の1か所。Flow._hesitate_now）
+            return "hai"
         if result in ("rejected", "wait", "confirm_target", "end_trouble", "explain_point"):
             # 差し戻し・相手の言葉の途中・目的の人かを確かめる（どの報告から来ても同じ＝確かめる
             # 一言だけ。聞き返しにもお詫びは重ねない＝✅ 2026-10-22 ユーザーの言い方「おかだ様でお間違えなかったでしょうか？」）・
@@ -12563,6 +12569,13 @@ class Flow:
         plain = (final or soft) and again and not digressed and not repeat and not fresh
         base = self.soft_plain.get(q.id, q) if q is not None else None
         stuck = plain and soft_fits(q) and soft_form(base, lead) is base
+        if (q is not None and not asks and not q.reading_of and not fresh and (digressed or plain)
+                and self.back_counts.get(self._place(), 0) >= TALK_ON_SPOT):
+            # 問いでない一言（ご案内の申し出・振り返りの一言）へ、その場で3回目に戻る：3回目からの一言「確認の途中でしたので…が」がつながらない＝その場で戻らずに、
+            # 「-」にして締めの前へ回す（_talk_dash＝必須なら締めの前の念のための確認で1回）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い13 3回目は最後に
+            # 回したほうがよくないですか？」と同じ理由・同じ回数（TALK_ON_SPOT）＝CL-1 が決めた形。問いの形の質問は 11-07 日本時間4時40分35秒の形のまま（_back_play）。
+            # ⛔ 3cd6ec5c まで、何回目も2回目の一言「それではもう一度確認させていただきますね。」＋同じ申し出（束 n8＝OPEN-A11）
+            return self._led(play, "", self._talk_dash(q.id, "問いでない一言へ、その場で3回目に戻る（伺い13 と同じ理由で締めの前へ回す）"))
         back = [] if fresh else self._back_play(digressed, asks=asks, plain=plain, stuck=stuck)
         # 手短にお伺いする一言（_brief_go の1か所。戻る一言があれば、その一言が質問へのつなぎ＝流さない）。戻る一言と同じく質問の前の言葉（頭を重ねない）だが、お客様の
         # お返事は受けない（相づちは今の決まりのまま＝bridged にしない）
@@ -12855,7 +12868,8 @@ class Flow:
                 o["sounded"] = True
         if "silence_s" in reply:
             return
-        talked = reply.get("play") or reply.get("say") or reply.get("speak") or reply.get("ack")
+        # お客様に何か聞こえた返事か：会話AIの声がもう流れた返事（voiced＝相づちを流さない＝_ack_choice）も、相づちを流した返事と同じ（伺い・待つ状態・上限は今のまま＝束 n7）
+        talked = reply.get("play") or reply.get("say") or reply.get("speak") or reply.get("ack") or reply.get("voiced")
         scene = self._quiet_scene(reply, bool(talked), quiet)
         q = self.silence
         limit = False   # この返事から待つ上限を数え始めるか（下の1か所で付ける）
@@ -15100,6 +15114,10 @@ class Flow:
                 return None
             name, args, reply = got
             reply = self._turn_done(reply, before, None, took=bool(self._received_now()))
+            if voiced:
+                # 会話AIの声がもうお客様に流れた（その声が受けの言葉）：返事の印を1回付ける＝相づちの1か所（_ack_choice）が相づちを流さない。伺い・待つ状態・上限は
+                # 返事のまま進める（束 n7＝OPEN-A5・棚卸し 7章 L9）
+                reply["voiced"] = True
             reply["ack"] = self._ack(name, args, reply)
             if reply["ack"]:
                 reply["ack_pause_s"] = ack_pause_s(reply["ack"])
@@ -15195,9 +15213,8 @@ class Flow:
                     return "record_answer", {"question_id": self.current, "condition_id": UNDECIDED}, missed
             if reply is None:
                 return None
+            # （会話AIの声が流れた印 voiced は、どの返事にも入口 judged_turn の出口で1回付ける＝考えている途中の「はい。」も同じ）
             name, args = ("judged_turn", {}) if reply.get("result") == "replayed" else ("request_callback", {"why": "later", "wait": w})
-            if reply.get("result") == "thinking" and voiced:
-                reply["voiced"] = True   # 会話AIが自分で言った「はい。」（instruction.THINKING_RULE）が流れた：相づちを重ねない（_ack_choice）
         return name, args, reply
 
     def _end_judged(self, reason: str) -> "str | dict":

@@ -47025,3 +47025,92 @@ class XReadersXLabelsTest(unittest.TestCase):
         for it in rows:
             got = {h: G.step_wants(it, qmap[it["qid"]], h) for h in (True, False)}
             self.assertEqual(got, {h: {"「失礼いたしました。」のあと伺ったことを流し直す"} for h in (True, False)}, it["qid"])
+
+
+class VoicedTurnAckTest(unittest.TestCase):
+    """分身 N（束 n7＝OPEN-A5・棚卸し 7章 L9）：会話AIが話す通話で、報告の無いターンに会話AIの声がもう流れた（voiced）なら、流れの制御は相づち（返事の頭の
+    受けの言葉・「はい、」）だけを流さない。伺い（H2・時刻の伺い）・待つ状態・待つ上限は今のまま進める（声を出すのは会話AIの受けの言葉だけ・手順は進める）。
+    印は報告の無いターンの入口 Flow.judged_turn の出口で1回付け（返事の voiced）、読むのは相づちの1か所（Flow._ack_choice の頭）。10-14 の相づちの決まり
+    （受けの言葉が2つ重ならない・「はい」が続かない）・11-06 日本時間11時19分55秒「(1) ア」（声が流れたら相づちを重ねない）を全部の返事に当てた。
+    ⛔ 3cd6ec5c まで、考えている途中・迷っている点の2つの返事だけが見て、H2「承知しました。」のあとに「かしこまりました。〔H2〕」・待つ「はい、承知しました。」の
+    あとに「はい、」・確かめて戻る方には「はい、それではこのままお返事を待っております。」と重ねた（rv179/I/probe/a5_voiced_now.md）"""
+
+    def test_the_ack_is_dropped_but_the_step_goes_on(self):
+        from flowctl import HOLD_BACK, JUDGMENTS, LATER, WAIT_OR_LATER, WAIT_PLAIN, Flow, Question
+        t = OtherCompanyClueSendWayTest()
+
+        def flow():
+            f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                      Question("Q2", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("お電話", "メール"))], play_recordings=False)
+            f.use_checks(*JUDGMENTS)
+            t.turn(f, "はい、しています。", t.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+            return f
+
+        for words, reading in (("ちょっと相談してみないと分からないですね。", WAIT_OR_LATER), ("ちょっと待ってもらえますか。", WAIT_PLAIN),
+                               ("ちょっと確認してきますので、お待ちいただけますか。", HOLD_BACK), ("今ちょっと手が離せないので、またかけてもらえますか。", LATER)):
+            got = {}
+            for voiced in (False, True):
+                f = flow()
+                f.on_callee(); f.on_heard(words)
+                for k in JUDGMENTS:
+                    f.on_check(k, t.rd(reading))
+                f.on_decided()
+                got[voiced] = f.judged_turn(voiced=voiced)
+            quiet, voiced = got[False], got[True]
+            self.assertIsNotNone(quiet["ack"], words)   # 会話AIが黙っていたら、今までどおり相づちを流す
+            self.assertIsNone(voiced["ack"], words)     # 会話AIの声が流れたら、相づちは流さない
+            # 伺い・待つ状態・待つ上限・流す録音・会話AIに言わせる文は同じ（相づちのほかは変えない）
+            for k in ("result", "question_id", "hold_wait_s", "silence_s", "say", "silent", "ahead_offer"):
+                self.assertEqual(voiced.get(k), quiet.get(k), (words, k))
+            self.assertEqual([p.get("id") for p in voiced.get("play") or []], [p.get("id") for p in quiet.get("play") or []], words)
+
+
+class NotAQuestionThirdBackTest(unittest.TestCase):
+    """分身 N（束 n8＝OPEN-A11）：問いでない一言（ご案内の申し出「…ご案内させていただくこともできますが！」・振り返りの一言）には「確認の途中でしたのでもう一度
+    お伺いさせていただきますが」がつながらない＝3回目の戻りは、その場で戻らずに締めの前へ回す（「-」にして次へ。必須なら締めの前の念のための確認で1回）。
+    ✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い13 3回目は最後に回したほうがよくないですか？」を同じ理由で当てた（CL-1 が決めた形）。問いの形の質問は
+    11-07 日本時間4時40分35秒のお言葉の形のまま（3回目からは「確認の途中でしたので…」＋質問）。⛔ 3cd6ec5c まで、問いでない一言へは何回目も2回目の一言
+    「それではもう一度確認させていただきますね。」＋同じ申し出（11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」にも反した）"""
+
+    ANS = {"料金": "料金は月額3,000円です。", "期間": "期間の縛りはございません。", "解約": "いつでもご解約いただけます。"}
+
+    def backs(self, f):
+        from flowctl import QUERY, QUERY_YES, UNDECIDED
+        from meaning_judge import Reading
+        out = []
+        for ask in ("料金はおいくらですか？", "期間はどれくらいですか？", "解約はできますか？"):
+            got = Reading(UNDECIDED)
+            setattr(got, QUERY, QUERY_YES)
+            f.on_callee(); f.on_heard(ask); f.on_check("judge", got)
+            grounded(f, self.ANS[ask[:2]])
+            f.apply("replay_opening", {"part": "own", "answer": self.ANS[ask[:2]]})
+            f.on_callee(); f.on_heard("そうなんですね。"); f.on_check("judge", Reading(UNDECIDED))
+            out.append(f.apply("replay_opening", {"part": "resume"}))
+        return out
+
+    def test_the_third_back_to_an_offer_goes_to_the_end(self):
+        from flowctl import Flow, Question
+        from phrases import BACK_TO_AGAIN
+        nt = NoneOfThemTest()
+        for play in (True, False):
+            f = Flow([nt.way_question(offer_ways=("メール", "LINE", "ZOOM")), Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))],
+                     play_recordings=play, answers=self.ANS)
+            f.use_checks("judge")
+            HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、お電話はちょっと…。")
+            self.assertEqual(f.current, "W1")
+            first, second, third = self.backs(f)
+            self.assertEqual((first["result"], second["result"]), ("replayed", "replayed"), play)
+            self.assertIn(BACK_TO_AGAIN, str(second), play)   # 2回目は「それではもう一度確認させていただきますね。」＋申し出（今のまま）
+            # 3回目：その場で申し出へ戻らず、「-」にして次へ（ご不明な点の質問）
+            self.assertNotIn("ご案内させていただくこともできますが", str(third), play)
+            self.assertEqual((third["result"], third.get("question_id"), f.current, f.items["W1"].state), ("next", "Q2", "Q2", "unresolved"), play)
+
+    def test_a_question_keeps_the_third_back_line(self):
+        from flowctl import Flow, Question
+        from phrases import BACK_TO_MIDWAY
+        f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                  Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True, answers=self.ANS)
+        f.use_checks("judge")
+        third = self.backs(f)[2]
+        self.assertEqual((third["result"], f.current), ("replayed", "Q1"))
+        self.assertIn(BACK_TO_MIDWAY, str(third))   # 問いの形の質問は、3回目も「確認の途中でしたので…」＋質問（11-07 日本時間4時40分35秒のまま）
