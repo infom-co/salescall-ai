@@ -40,6 +40,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import approval, attempts, notify, settings, stops
+from salescall.core.metrics import counts as metrics_counts
 from salescall.core.judge import PROGRAM_CAUSES, UNKNOWN_CAUSES
 from salescall.core.access import Tx
 
@@ -233,24 +234,9 @@ def _incidents(tx: Tx, stop_event_id: int) -> list[str]:
 
 
 def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
-    """その版の指標（どれも記録から数える。数え方はここだけ）。値：hits・total・value・limit・inside。"""
+    """その版の指標（どれも記録から数える。数え方は core/metrics.counts の1か所）。値：hits・total・value・limit・inside。"""
     v = _version(tx, version_id)
-    row = tx.one(
-        f"WITH a AS ({_WINDOW}),"
-        " judged AS (SELECT r.* FROM salescall.task_results r JOIN a ON a.attempt_id = r.attempt_id WHERE r.kind = 'judged'),"
-        " talked AS (SELECT a.attempt_id FROM a WHERE salescall.reached_answer(a.attempt_id)"
-        "            AND EXISTS (SELECT 1 FROM judged j WHERE j.attempt_id = a.attempt_id))"
-        " SELECT (SELECT coalesce(sum(v.forbidden_speech), 0) FROM salescall.verification_summaries v JOIN a USING (attempt_id))"
-        "          AS forbidden,"
-        "        (SELECT coalesce(sum(v.items_disagreed), 0) FROM salescall.verification_summaries v JOIN a USING (attempt_id))"
-        "          AS ear_hits,"
-        "        (SELECT coalesce(sum(v.items_checked), 0) FROM salescall.verification_summaries v JOIN a USING (attempt_id))"
-        "          AS ear_total,"
-        "        (SELECT count(*) FROM judged j JOIN talked t ON t.attempt_id = j.attempt_id WHERE j.complaint) AS complaint,"
-        "        (SELECT count(*) FROM talked) AS talked,"
-        "        (SELECT count(*) FROM a WHERE state = 'technical_error') AS technical,"
-        f"        (SELECT count(*) FROM a WHERE {attempts.DIALED} AND NOT salescall.is_active(state))"
-        "          AS dialed", (version_id, version_id))
+    row = metrics_counts(tx, _WINDOW, (version_id, version_id))   # 数え方は core/metrics の1か所（画面の業務ごとの指標と同じ。CL-3 の 57）
     by_cause = {r["c"]: [str(x) for x in r["a"]] for r in tx.all(
         f"SELECT r.detail ->> 'unknown_cause' AS c, array_agg(r.attempt_id ORDER BY r.attempt_id) AS a"
         f" FROM salescall.task_results r JOIN ({_WINDOW}) a ON a.attempt_id = r.attempt_id"

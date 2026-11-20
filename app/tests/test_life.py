@@ -3,8 +3,8 @@
 本物の部品（回線ごとの処理 one_round〔回線の欄を聞く → テスト番号を鳴らす・候補 → 門 → 発信の出口 → 通話・待つ〕・締めの仕事
 settle_ready → 判定 → 次の動き）を、データベースの時計を進めながら何日分も通す（見直し20a の場面 r5・r4 と、壊れた回線。見直し21a の
 場面 a1・a2・a3・a4・a6・a7・a9・a10。見直し22 の場面）。時計は、この試験のためだけに立てる使い捨てのデータベース
-（run_tests.clock_cluster。libfaketime をデータベースの処理にだけ差し込む）の時計（Python の時計は進めない）。
-時計をずらす部品が無い機械では、この試験は飛ばす（壊し試しが、飛ばした試験では落ちないので、run_tests が「見張れていない」と知らせる）。
+（run_tests.clock_cluster。試験の時計の部品 tests/db_clock.c をデータベースの処理にだけ差し込む）の時計（Python の時計は進めない）。
+時計の部品を作る道具（cc）が無い機械では、この試験は飛ばす（壊し試しが、飛ばした試験では落ちないので、run_tests が「見張れていない」と知らせる）。
 
 **読み手と状態の欄を比べる**（DESIGN.md 17章の作り直しの4段目。2026-10-29）：どの場面も、時計を進める各時点で、読み手の答え（締めの
 待ち・次の動きが受け取る試行のせい・候補・番号の口・回線ごとの処理が休みの回線でかけないか）と、状態の欄を比べる（tests/shadow.py）。
@@ -25,7 +25,6 @@ import contextlib
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import run_tests
 from salescall.core import access as access_mod
@@ -47,8 +46,8 @@ _DB: dict = {}
 
 
 def setUpModule():
-    if run_tests.faketime_library() is None:
-        raise unittest.SkipTest("データベースの時計をずらす部品（libfaketime）がありません")
+    if run_tests.clock_compiler() is None:
+        raise unittest.SkipTest("データベースの時計の部品を作る道具（cc）がありません")
     stack = contextlib.ExitStack()
     dsn, clock = stack.enter_context(run_tests.clock_cluster())
     saved = {k: os.environ.get(k) for k in _ENV}
@@ -157,7 +156,7 @@ class Life(SupervisorBase):
 
     def jump(self, at: datetime) -> None:
         off = (at - datetime.now(timezone.utc)).total_seconds()
-        Path(_DB["clock"]).write_text(f"{off:+.3f}\n")
+        _DB["clock"].shift(off)
         got = self.db_now()
         self.assertLess(abs((got - at).total_seconds()), 5, (got, at))
 

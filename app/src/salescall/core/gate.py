@@ -885,6 +885,24 @@ def pacing(tx: Tx, task_id: UUID, *, contact_id: UUID | None = None, promised: b
     return _pacing(tx, task, tx.one("SELECT now() AS now")["now"], promised)
 
 
+# 門の断りの記録を書くか（止め始めの1か所。引数は (行, 理由, 行)）：その行のいちばん新しい断りと理由が違う、または、そのあとに門が通した電話がある（通して、また
+# 止めた＝止め始め）。⛔ 2026-11-20 まで：理由が同じなら、あいだに通した電話があっても書かず、いま止めている行・今日止め始めた数を少なく数えた（CL-3 の 43）
+_DENIAL_STARTS = (
+    "NOT EXISTS (SELECT 1 FROM (SELECT d.reason, d.denied_at FROM salescall.gate_denials d WHERE d.task_id = %s ORDER BY d.denial_id DESC LIMIT 1) l"
+    "            WHERE l.reason = %s AND NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = %s AND a.claimed_at > l.denied_at))")
+
+
+def denied_now(tx: Tx) -> dict[str, int]:
+    """門がいま止めている行の数（理由ごと。取引の依頼者の行。画面が読む1か所＝CL-3 の 43）：終わっていない行のうち、いちばん新しい断りのあとに門が通した電話の
+    無いもの（門が最後に見たときの理由。記録は止め始めの1か所＝`_DENIAL_STARTS`）。"""
+    return {r["reason"]: r["n"] for r in tx.all(
+        "SELECT l.reason, count(*) AS n FROM (SELECT DISTINCT ON (d.task_id) d.task_id, d.reason, d.denied_at FROM salescall.gate_denials d"
+        "                                     ORDER BY d.task_id, d.denial_id DESC) l"
+        " WHERE NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = l.task_id AND a.claimed_at > l.denied_at)"
+        "   AND NOT EXISTS (SELECT 1 FROM salescall.current_next_actions n WHERE n.task_id = l.task_id AND n.kind = 'end')"
+        " GROUP BY l.reason ORDER BY l.reason")}
+
+
 def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim | Denied:
     """その行に、その回線で発信してよいかを判定し、よければ予約する（1つの取引）。不許可は記録して返す。"""
     task = _task(tx, task_id)
@@ -897,14 +915,12 @@ def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim |
     except CalendarOutOfRange:
         outcome = _deny("calendar_out_of_range")
     if isinstance(outcome, Denied):
-        # 記録は、その行の断られた理由が変わったときだけ（同じ理由で何度も門へ渡し直しても、行を増やし続けない。⛔ 2026-10-22 の
+        # 記録は、その行の止め始めだけ（`_DENIAL_STARTS`。同じ理由で何度も門へ渡し直しても、行を増やし続けない。⛔ 2026-10-22 の
         # 見直し：同時の上限のあいだ、数秒ごとに1行ずつ増え、回線100本なら1日に百万行を超えた。理由ごとの数は、断られ始めた回で数える）
         denied_line = None if outcome.reason == "line_unknown" else line_id
         tx.execute("INSERT INTO salescall.gate_denials (tenant_id, client_id, task_id, line_id, reason)"
-                   " SELECT salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s"
-                   " WHERE (SELECT d.reason FROM salescall.gate_denials d WHERE d.task_id = %s"
-                   "        ORDER BY d.denial_id DESC LIMIT 1) IS DISTINCT FROM %s",
-                   (task_id, denied_line, outcome.reason, task_id, outcome.reason))
+                   f" SELECT salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s WHERE {_DENIAL_STARTS}",
+                   (task_id, denied_line, outcome.reason, task_id, outcome.reason, task_id))
         if outcome.reason in SETTING_GAPS:   # 設定の抜けで待っている：黙って待たせず、契約者に知らせる（止めない。原則6）
             notify.emit(tx, "setting_missing", key=f"gate:{outcome.reason}:{task['client_id']}:{task['run_id']}",
                         summary=SETTING_GAPS[outcome.reason], refs={"client_id": task["client_id"], "run_id": task["run_id"],

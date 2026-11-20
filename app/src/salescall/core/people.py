@@ -7,7 +7,8 @@
 - 画面は、要求ごとに印から管理者・契約者を読み（`by_session`）、`Person.actor` で取引を開く。取引の範囲は、データベースが、そのログインで確かめる
   （salescall.check_scope の1か所＝契約者は自分の契約者の取引だけ。access._run が必ず通す）。
 - 管理者・契約者がパスワードを替えたら、前の印はすべて使えなくする（`set_password`）。使えなくしたログイン（契約が終わった など）は、印も確かめも通らない。
-⏳ 2段階の確かめ（認証アプリ・パスキー）と Google のアカウントでのログインは、次の段で足す（計画書 14-1 の 2026-10-18 のご決定）。
+- 2段階の確かめはパスキーだけ（core/passkeys。✅ 2026-11-20 ユーザー「ア パスキーだけ」）：パスキーを登録した方の印は、パスキーか予備の合言葉で確かめるまで
+  使えない（`Session.needs_passkey`・判断は `by_session` の1か所）。⏳ Google のアカウントでのログインは次の段で足す（計画書 14-1 の 2026-10-18 のご決定）。
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from salescall.core import settings
+from salescall.core import passkeys, settings
 from salescall.core.access import Access, Actor, Refused, Tx
 
 LOGIN_CHECKER = Actor("ログインの確かめ", "system")   # ログインを確かめる取引の「誰が」（全体の取引のシステムの処理）
@@ -52,9 +53,11 @@ class Person:
 
 @dataclass(frozen=True)
 class Session:
-    """ログインが通ったときの答え。token は、このときだけ返す（データベースには指紋だけ）。"""
+    """ログインが通ったときの答え。token は、このときだけ返す（データベースには指紋だけ）。needs_passkey＝この印は、パスキーか予備の合言葉で
+    確かめるまで使えない（core/passkeys.verify_login・use_recovery_code）。"""
     token: str
     person: Person
+    needs_passkey: bool = False
 
 
 def _login_key(login_id: str) -> str:
@@ -150,13 +153,20 @@ def _lookup(tx: Tx, login_id: str) -> dict[str, Any] | None:
                   " FROM salescall.people p WHERE p.login_id = %s", (_login_key(login_id),))
 
 
-def _locked(tx: Tx, login_id: str) -> bool:
-    """続けて誤った回数が決めた回数を超えて、決めた長さがまだ過ぎていないか（1か所）。数えるのは、いちばん新しい成功のあとの失敗だけ。"""
+# 確かめの段ごとの、失敗と成功の記録の名前（続けて誤ったら断る `locked` の1か所が読む）。2段目の失敗は2段目の成功のあとからだけ数える
+# （パスワードが通るたびに数え直すと、パスワードを知る者が予備の合言葉を試し続けられる）
+STEPS = {"password": (("no_such_login", "wrong_password", "no_password", "inactive"), ("ok", "google_ok")),   # 1段目（パスワード・Google）
+         "second": (("passkey_failed", "recovery_code_failed"), ("passkey_ok", "recovery_code_ok"))}
+
+
+def locked(tx: Tx, login_id: str, step: str = "password") -> bool:
+    """その段（STEPS）で、続けて誤った回数が決めた回数を超えて、決めた長さがまだ過ぎていないか（1か所）。数えるのは、その段のいちばん新しい成功のあとの失敗だけ。"""
+    fails, oks = STEPS[step]
     most, span = int(_setting(tx, "login.max_failures")), int(_setting(tx, "login.lock_seconds"))
     row = tx.one("SELECT count(*) AS n, max(e.at) AS last FROM salescall.person_login_events e"
-                 " WHERE e.login_id = %s AND NOT e.ok AND e.why <> 'locked'"
-                 "   AND e.at > coalesce((SELECT max(o.at) FROM salescall.person_login_events o WHERE o.login_id = %s AND o.ok), '-infinity')",
-                 (login_id, login_id))
+                 " WHERE e.login_id = %s AND e.why = ANY(%s)"
+                 "   AND e.at > coalesce((SELECT max(o.at) FROM salescall.person_login_events o WHERE o.login_id = %s AND o.why = ANY(%s)), '-infinity')",
+                 (login_id, list(fails), login_id, list(oks)))
     return row["n"] >= most and row["last"] is not None and tx.one(
         "SELECT now() < %s AS v", (row["last"] + timedelta(seconds=span),))["v"]
 
@@ -168,7 +178,7 @@ def login(app: Access, login_id: str, password: str) -> Session | None:
 
     def work(tx: Tx) -> Session | None:
         row = _lookup(tx, key)
-        if _locked(tx, key):
+        if locked(tx, key):
             why = "locked"
         elif row is None:
             _matches(password, _DUMMY)   # 在るかを、かかる時間で教えない
@@ -181,16 +191,31 @@ def login(app: Access, login_id: str, password: str) -> Session | None:
             why = "inactive"
         else:
             why = "ok"
-        tx.execute("INSERT INTO salescall.person_login_events (login_id, person_id, ok, why) VALUES (%s, %s, %s, %s)",
-                   (key, None if row is None else row["person_id"], why == "ok", why))
+        note_login(tx, key, None if row is None else row["person_id"], why)
         if why != "ok":
             return None
-        token = secrets.token_urlsafe(32)
-        tx.execute("INSERT INTO salescall.person_sessions (token_sha, person_id, expires_at)"
-                   " VALUES (%s, %s, now() + make_interval(secs => %s))",
-                   (hashlib.sha256(token.encode()).hexdigest(), row["person_id"], int(_setting(tx, "login.session_seconds"))))
-        return Session(token, _person(row))
+        return start_session(tx, row)
     return app.in_system(LOGIN_CHECKER, work)
+
+
+def start_session(tx: Tx, row: dict[str, Any]) -> Session:
+    """1段目（パスワード・Google）が通った方に、ログインの印を作る1か所（ログインの確かめの取引の中で）。パスキーを登録した方は、2段目を通るまで印を
+    使えない（0271）。印は、このときだけ返す（データベースには指紋だけ）。"""
+    token = secrets.token_urlsafe(32)
+    second = passkeys.needs_second(tx, row["person_id"])
+    tx.execute("INSERT INTO salescall.person_sessions (token_sha, person_id, expires_at, needs_second)"
+               " VALUES (%s, %s, now() + make_interval(secs => %s), %s)",
+               (hashlib.sha256(token.encode()).hexdigest(), row["person_id"], int(_setting(tx, "login.session_seconds")), second))
+    return Session(token, _person(row), second)
+
+
+OK_WHYS = frozenset({"ok", "passkey_ok", "recovery_code_ok", "google_ok"})   # 通った確かめ（ログインの記録の why。データベースの守り person_login_events_ok と同じ）
+
+
+def note_login(tx: Tx, login_key: str, person_id: UUID | None, why: str) -> None:
+    """ログインの確かめの記録を書く1か所（パスワード＝`login`・2段目＝core/passkeys が呼ぶ。パスワード・合言葉そのものは残さない）。"""
+    tx.execute("INSERT INTO salescall.person_login_events (login_id, person_id, ok, why) VALUES (%s, %s, %s, %s)",
+               (login_key, person_id, why in OK_WHYS, why))
 
 
 def _person(row: dict[str, Any]) -> Person:
@@ -205,7 +230,8 @@ def by_session(app: Access, token: str | None) -> Person | None:
         "SELECT p.person_id, p.tenant_id, p.kind, p.name, p.login_id FROM salescall.person_sessions s"
         " JOIN salescall.people p ON p.person_id = s.person_id"
         " WHERE s.token_sha = %s AND s.expires_at > now() AND salescall.person_active(p.person_id)"
-        "   AND NOT EXISTS (SELECT 1 FROM salescall.person_session_ends e WHERE e.token_sha = s.token_sha)",
+        "   AND NOT EXISTS (SELECT 1 FROM salescall.person_session_ends e WHERE e.token_sha = s.token_sha)"
+        "   AND (NOT s.needs_second OR EXISTS (SELECT 1 FROM salescall.person_session_seconds x WHERE x.token_sha = s.token_sha))",   # 2段目（0271）
         (hashlib.sha256(token.encode()).hexdigest(),)))
     return None if row is None else _person(row)
 

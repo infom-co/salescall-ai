@@ -127,6 +127,25 @@ class StopsAreNotVisibleToOtherClients(unittest.TestCase):
         self.assertEqual(open_for(w, s2), [])
 
 
+    def test_the_contractor_reads_every_client_stop_at_once(self):
+        """契約者の取引で、その契約者の依頼者・業務の範囲のまだ解かれていない停止を一度に読める（stops.client_stops＝0269。CL-3 の 8）：番号・原因・範囲・依頼者・
+        業務・時刻だけ（理由の文は返さない）。ほかの契約者の停止・解いた停止・依頼者の取引からは読めない（空）。"""
+        w = World(); s = w.setup(); s2 = w.setup(tenant=s["tenant"]); other = w.setup()
+        a = w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: stops.stop(
+            tx, scope="client", cause="ai_connection", reason="x", tenant_id=s["tenant"], client_id=s["client"]))
+        b = w.a.in_client(SYSTEM, s2["tenant"], s2["client"], lambda tx: stops.stop(
+            tx, scope="business", cause="quality_gate", reason="y", tenant_id=s2["tenant"], client_id=s2["client"], business_id=s2["business"]))
+        w.a.in_client(SYSTEM, other["tenant"], other["client"], lambda tx: stops.stop(
+            tx, scope="client", cause="ai_connection", reason="z", tenant_id=other["tenant"], client_id=other["client"]))
+        got = w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.client_stops(tx))
+        self.assertEqual([(r["event_id"], r["scope"], r["cause"], r["client_id"], r["business_id"]) for r in got],
+                         [(a["event_id"], "client", "ai_connection", s["client"], None), (b["event_id"], "business", "quality_gate", s2["client"], s2["business"])])
+        self.assertNotIn("reason", got[0])
+        self.assertEqual(w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: stops.client_stops(tx)), [])   # 依頼者の取引からは読まない
+        w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: stops.resume(tx, a["event_id"], reason="試験：直った"))
+        self.assertEqual([r["event_id"] for r in w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.client_stops(tx))], [b["event_id"]])
+
+
 class ManualStops(unittest.TestCase):
     def setUp(self):
         self.w = World(); self.s = self.w.setup()

@@ -70,7 +70,7 @@ from salescall.core.access import Tx
 
 __all__ = ["ORDER", "Tick", "after_call", "after_settle", "blame_of", "by_hand_line", "by_hand_stop", "by_hand_task", "claimed",
            "decode", "encode", "fixed", "line_of", "number_dead", "number_held", "number_of", "number_set", "number_set_everywhere",
-           "number_wait", "removed", "stage_name", "storage_back", "storage_row_back", "storage_rows", "stuck", "task_of", "tested",
+           "number_wait", "removed", "rows_in_stage", "stage_name", "storage_back", "storage_row_back", "storage_rows", "stuck", "task_of", "tested",
            "tick", "waiting_decision"]
 
 LINE, TENANT, TASK, NUMBER, ATTEMPT = "line", "tenant", "task", "number", "attempt"
@@ -132,6 +132,13 @@ def decode(v: Any) -> Any:
     if "$p" in v:
         return tuple(decode(x) for x in v["$p"])
     return {k: decode(x) for k, x in v.items()}
+
+
+def rows_in_stage(tx: Tx, stage: hr.TaskStage, *, limit: int) -> list[dict[str, Any]]:
+    """その段にいる行（取引の依頼者の行。段に入った順に limit 行。画面の見張りの一覧が読む1か所＝CL-3 の 38）：[{task_id, state（読み戻した欄）, moved_at}]。"""
+    return [dict(r, state=decode(r["state"])) for r in tx.all(
+        "SELECT task_id, state, moved_at FROM salescall.task_states WHERE stage = %s ORDER BY moved_at, task_id LIMIT %s",
+        (stage.name.lower(), limit))]
 
 
 def stage_name(state: Any) -> str:
