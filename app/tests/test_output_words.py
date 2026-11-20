@@ -175,6 +175,18 @@ class MachineParties(unittest.TestCase):
         self.assertEqual(result_rows.call_end({"state": "ended", "machine": None}, None), words.ATTEMPT_STATES["ended"].client)
 
 
+class QuestionChoices(unittest.TestCase):
+    def test_value_questions_do_not_show_the_inner_mark_as_a_choice(self):
+        """値を伺う質問の選択肢（core の中の印 VALUE_CHOICE）は画面に出さない。選択肢で答える型だけ選択肢を並べる。"""
+        from types import SimpleNamespace
+        from salescall.core import business_settings
+        value = SimpleNamespace(type="datetime", choices=(business_settings.VALUE_CHOICE,))
+        self.assertEqual(words.question_choices(value), "（値を伺います）")
+        self.assertNotIn(business_settings.VALUE_CHOICE, words.question_choices(value))
+        pick = SimpleNamespace(type="choice", choices=("カード", "現金"))
+        self.assertEqual(words.question_choices(pick), "カード・現金")
+
+
 class AnswerMarks(unittest.TestCase):
     def test_every_answer_mark_has_a_word(self):
         """必須の質問の答えの数の分け方（core の judge.ITEM_MARKS と not_asked）のすべてに、画面の言葉がある。"""

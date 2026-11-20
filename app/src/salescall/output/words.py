@@ -421,6 +421,15 @@ QUALITY_METRIC_WORDS: dict[str, str] = {
 FIELD_TYPE_WORDS: dict[str, str] = {"date": "日付", "time": "時刻", "datetime": "日時", "number": "数", "amount": "金額", "name": "名前",
                                     "phone": "電話番号", "email": "メールアドレス", "address": "住所", "yes_no": "はい／いいえ",
                                     "choice": "選択肢", "free_text": "自由な答え"}
+def question_choices(q: Any) -> str:
+    """質問の選択肢の見せ方（1か所）：選択肢で答える型（core の business_settings.CHOICE_TYPES）だけ選択肢を並べる。値を伺う質問は、core が中の印
+    （VALUE_CHOICE＝「答えた」）を選択肢に持つので、それを出さずに「（値を伺います）」（2026-11-20：電話の台本の画面に「答えた」と出ていた）。"""
+    from salescall.core import business_settings
+    if q.type in business_settings.CHOICE_TYPES:
+        return "・".join(q.choices)
+    return "（値を伺います）"
+
+
 TARGET_PERSON_WORDS: dict[str, str] = {"role": "役職の方", "role_and_name": "役職（部署）とお名前の方", "name": "お名前の方",
                                        "anyone": "その店・会社の方ならどなたでも"}
 

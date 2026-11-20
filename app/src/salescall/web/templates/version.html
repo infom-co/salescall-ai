@@ -28,7 +28,7 @@
   <thead><tr><th class="num">順</th><th>質問</th><th>答えの形</th><th>必須</th><th class="wide">選択肢</th></tr></thead>
   <tbody>{% for q in s.questions %}
     <tr><td class="num">{{ loop.index }}</td><td>{{ q.text }}</td><td class="nowrap">{{ words.FIELD_TYPE_WORDS.get(q.type, words.NO_WORD) }}{% if q.unit %}（{{ q.unit }}）{% endif %}</td>
-      <td>{{ tag("必須", "info") if q.required else "" }}</td><td class="wide">{{ q.choices|join("・") }}</td></tr>
+      <td>{{ tag("必須", "info") if q.required else "" }}</td><td class="wide">{{ words.question_choices(q) }}</td></tr>
   {% endfor %}</tbody></table></div>
 <h2>想定問答</h2>
 {% if s.answers %}
