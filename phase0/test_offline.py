@@ -20504,6 +20504,13 @@ class ApprovalTest(unittest.TestCase):
         g.use_checks("judge")
         AmbiguousAnswerTest.say(g, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
         AmbiguousAnswerTest.say(g, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+        # （分身 O の L15：ご承認のお断りの言葉は N1 の先に言われた答え＝N1 はまだ流していない。本番どおり、その言葉を判定が N1 について読み直し（決められない）、
+        # 質問に戻って N1 を流してから、N1 へのお返事を読む。⛔ 50d51fd0 までは読み直しを渡さずに次の発話を当て、まだ聞いていない N1 の答えとして受けていた）
+        self.assertEqual(g.ahead_context()[0].id, n1)
+        for k in ("judge@ahead",):
+            g.on_check(k, UNDECIDED, g.callee_turns)
+        g.apply("replay_opening", {"part": "resume"})
+        self.assertTrue(g.items[n1].played)
         g.on_callee(); g.on_heard("うーん、全体的にというか。"); g.on_check("judge", Reading(UNDECIDED))
         r = g.apply("record_answer", {"question_id": n1, "condition_id": "unknown"})
         # 1回目は「承知しました。その中でも…」を1回伺う（✅ 2026-11-09 日本時間3時46分53秒）。2回目もどちらとも取れなければ、頭は「はい、」で手順を終える
@@ -47222,3 +47229,135 @@ class NotAQuestionThirdBackTest(unittest.TestCase):
         third = self.backs(f)[2]
         self.assertEqual((third["result"], f.current), ("replayed", "Q1"))
         self.assertIn(BACK_TO_MIDWAY, str(third))   # 問いの形の質問は、3回目も「確認の途中でしたので…」＋質問（11-07 日本時間4時40分35秒のまま）
+
+
+class AiAskedWatchTest(unittest.TestCase):
+    """分身 O（L16＝分身 N の書き置き (6-1)）：会話AIが話す通話で、会話AIに次の質問を言わせる返事（相づちも録音も無い＝E1「そうだったんですね。そちらの会社の
+    方で…」など）にも、黙ったときの見張り（silence_s）と待つ上限（hold_wait_s）を付ける。お客様に聞こえる返事の数えは黙ったときの見張りの1か所
+    （Flow._silence_watch）で、会話AIに伺わせる知らせ（ASKED_NOTE＝ask_note・next_note）の文も、お客様に聞こえた文と数える（お客様がもう聞いた文を読む
+    Flow._heard_last と同じ1か所 Flow._ai_asked）。会話AIの声が終わった時を知るのは電話接続側＝流れの制御は返事に秒を付けるだけ。11-04 日本時間4時54分
+    「会話の側の待つ所すべてに上限」・10-14「止まらない」。⛔ d8b0d355 まで、録音で流す通話・会話AIの声が流れた返事には付き、会話AIが黙った返事の E1 には
+    付かなかった（rv182/N/probe/n7/e1q.py の1行目）"""
+
+    def test_the_question_the_ai_asks_is_watched(self):
+        from flowctl import ELSEWHERE_YES, JUDGMENTS, UNDECIDED, Flow, Question
+        t = OtherCompanyClueSendWayTest()
+        got = {}
+        for play in (True, False):
+            f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                      Question("Q2", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("お電話", "メール"))], play_recordings=play)
+            f.use_checks(*JUDGMENTS)
+            t.turn(f, "はい、しています。", t.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+            f.on_callee(); f.on_heard("うちは別の会社に頼んでますので。")
+            for k in JUDGMENTS:
+                f.on_check(k, t.rd(UNDECIDED, elsewhere=ELSEWHERE_YES))
+            f.on_decided()
+            got[play] = f.judged_turn(voiced=False)
+        ai, rec = got[False], got[True]
+        self.assertEqual((ai["result"], ai["question_id"], ai.get("ack"), ai.get("play")), ("next", "E1", None, None))
+        # 会話AIに言わせる E1 にも、録音で流す E1 と同じ見張りの秒・待つ上限（流れの制御は秒を付けるだけ）
+        self.assertEqual((ai.get("silence_s"), ai.get("hold_wait_s")), (rec.get("silence_s"), rec.get("hold_wait_s")))
+        self.assertIsNotNone(ai.get("silence_s"))
+        self.assertIsNotNone(ai.get("hold_wait_s"))
+
+
+class AheadUnaskedUndecidedTest(unittest.TestCase):
+    """分身 O（L15＝分身 N の書き置き (7-2)・2章の (9)）：先に言われた答えを伺う番（まだ流していない質問＝Flow._offer_ahead。日時の2択の C1 など）のあいだに、
+    読み直した判定（AHEAD_CHECKS）が1つも届かないまま次の発話が来て、判定がその発話を「決められない」と読んだ：お客様はまだその質問を聞いていない＝「わからない」の
+    答えにしない。報告の無いターンの1か所（Flow._undecided_report）は、会話AIが「入っていない」と選んだときと同じ報告（質問に戻る＝_return_note・_resume）を渡す＝
+    プログラムが質問を流す。F0（本書 9-5 の (6)：確かな読みが1つも無ければ、受け取らずにその場で確かめる）・11-04 日本時間20時27分「答えが無ければ質問を流す」。
+    ⛔ d8b0d355 まで、まだ聞いていない C1 を「わからない」で受け、かけ直しで締めた（rv179/I/probe/j13.py）"""
+
+    QS = (("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", ("はい", "いいえ")),
+          ("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", ("カード", "振込")))
+
+    def say(self, f, words, cond):
+        from flowctl import JUDGMENTS
+        from meaning_judge import Reading
+        f.on_callee(); f.on_heard(words)
+        for k in JUDGMENTS:
+            r = Reading(cond); r.end = "言っていない"; f.on_check(k, r)
+        return f.judged_turn(voiced=False)
+
+    def test_the_unasked_question_is_played_not_taken_as_unknown(self):
+        from flowctl import JUDGMENTS, LATER, UNDECIDED, Flow, Question
+        for play in (True, False):
+            f = Flow([Question(i, t, k, conditions=c) for i, t, k, c in self.QS], play_recordings=play)
+            f.use_checks(*JUDGMENTS)
+            first = self.say(f, "今日は夕方まで会議が続くんです。", LATER)
+            self.assertEqual((first["result"], first["question_id"], first.get("ahead_offer")), ("next", "C1", True), play)
+            self.assertFalse(f.items["C1"].played, play)   # C1 はまだ流していない（先に言われた答えを伺う番）
+            rep = self.say(f, "それ以降でお願いします。", UNDECIDED)
+            self.assertIsNone(f.end_reason, play)           # かけ直しで締めない
+            self.assertNotEqual(rep["result"], "end", play)
+            self.assertNotEqual(f.items["C1"].state, "dont_know", play)
+            self.assertEqual(f.current, "C1", play)
+            self.assertTrue(f.items["C1"].played, play)     # 質問（2択）を流した
+            asked = heard_words(rep) if play else rep.get("message") or ""
+            self.assertIn("平日と土日のどちらがよろしいでしょうか", asked, play)
+
+
+class NotAQuestionRestateThirdBackTest(unittest.TestCase):
+    """分身 O（L14＝分身 N の書き置き (7-1)）：問いでない言い直し（「それでは15日あたりでお考えということで承っておきますね。」）へ、その場で3回目に戻るときは、
+    3回目からの一言「確認の途中でしたので…が」がつながらない＝その場で戻らずに締めの前へ回す（伺い13＝✅ 2026-11-14 日本時間14時31分38秒「3回目は最後に回したほうが
+    よくないですか？」・束 n8 と同じ理由・同じ回数 TALK_ON_SPOT・同じ1か所＝戻る Flow._continue）。言い直した値は捨てない（本書 9-5 の 11-15 の見直し (12) の (3)）＝
+    締めの前の念のための確認で、その言い直しを1回（値を保ったまま）。問いの言い直し（「100万円でよろしいでしょうか？」）は 11-07 日本時間4時40分35秒の形のまま。
+    ⛔ 50d51fd0 まで、問いでない言い直しへは何回目も2回目の一言「それではもう一度確認させていただきますね。」＋同じ言い直し（11-01「全く同じ質問を2度したら、機械だと
+    思われてしまいませんか？」にも反した）"""
+
+    MEET = "お打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？"
+
+    def three_backs(self, q1, words, value, play=True):
+        """V1 の言い直しへ、別のお話2回（その場の回数）のあと、「もういいです。」に本心を伺う一言 D2 →「いえ、別に問題はないです。」で伺う前の位置へ戻る（3回目）。"""
+        from end_words import _reading
+        from flowctl import CALLBACK_IDS, Flow, Question, UNDECIDED
+        from meaning_judge import Reading
+        a = AwayEntryTest()
+
+        def say(f, words, reading, qid=None, cond=None, op="record_answer", **extra):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", reading)
+            if qid is None:
+                return f.judged_turn(voiced=False)
+            return f.apply(op, {"question_id": qid, **({"condition_id": cond} if op == "record_answer" else {}), **extra})
+
+        f = Flow([Question("Q0", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True), q1,
+                  Question("Q2", self.MEET, "choice", conditions=("オンライン", "訪問"))], play_recordings=play)
+        f.use_checks("judge")
+        say(f, "はい、予約しています。", Reading("はい", firm=True), "Q0", "はい")
+        first = say(f, words, Reading("答えた", firm=True), "V1", "答えた", value=value)
+        backs = []
+        for _ in range(2):
+            a.away(f, "confirm_field", result="no_answer")
+            backs.append(a.talk(f))
+        say(f, "もういいです。", _reading(UNDECIDED, UNDECIDED))
+        self.assertEqual(f.current, CALLBACK_IDS["concern"])
+        backs.append(say(f, "いえ、別に問題はないです。", Reading("問題は無い", firm=True), CALLBACK_IDS["concern"], "問題は無い"))
+        return f, first, backs, say
+
+    def test_the_third_back_to_a_restatement_goes_to_the_end_with_the_value(self):
+        from flowctl import Question
+        from meaning_judge import Reading
+        from phrases import BACK_TO_AGAIN
+        noted = "15日あたりでお考えということで承っておきますね。"
+        for play in (True, False):
+            f, first, (b1, b2, third), say = self.three_backs(
+                Question("V1", "ご訪問の日にちのご希望はございますでしょうか？", "date", conditions=("答えた",), required=True), "15日あたりですかね。", "15日", play)
+            self.assertTrue(first["say"].endswith(noted), play)
+            self.assertIn(BACK_TO_AGAIN, str(b2), play)   # 2回目は「それではもう一度確認させていただきますね。」＋言い直し（今のまま）
+            # 3回目：その場で言い直しへ戻らず、「-」にして次へ（言い直した値は保つ）
+            self.assertNotIn(noted, heard_words(third) + (third.get("message") or ""), play)
+            self.assertEqual((f.current, f.awaiting_confirm, f.items["V1"].state, f.items["V1"].value), ("Q2", None, "unresolved", "15日あたり"), play)
+            # 締めの前の念のための確認で、その言い直しを1回（値を保ったまま）
+            r = say(f, "オンラインでお願いします。", Reading("オンライン", firm=True), "Q2", "オンライン")
+            self.assertEqual((f.phase, f.current, f.awaiting_confirm), ("rechecking", "V1", "V1"), play)
+            self.assertTrue(r["say"].endswith("それでは" + noted), (play, r["say"]))
+            r = say(f, "はい、お願いします。", Reading("affirmed", firm=True), "V1", op="confirm_field", result="affirmed")
+            self.assertEqual((f.items["V1"].state, f.export()["V1"]), ("confirmed", "15日あたり"), play)
+
+    def test_a_question_restatement_keeps_the_third_back_line(self):
+        from flowctl import Question
+        from phrases import BACK_TO_MIDWAY
+        f, first, (b1, b2, third), _ = self.three_backs(
+            Question("V1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), required=True), "100万円で考えています。", "100万円")
+        self.assertEqual((f.current, f.awaiting_confirm), ("V1", "V1"))
+        self.assertIn(BACK_TO_MIDWAY + "100万円でよろしいでしょうか？", heard_words(third))   # 問いの言い直しは、3回目も「確認の途中でしたので…」＋言い直し
