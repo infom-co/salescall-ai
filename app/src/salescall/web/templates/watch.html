@@ -3,7 +3,7 @@
 {% block title %}見張り{% endblock %}
 {% block main %}
 <h1>見張り</h1>
-<p class="lead">回線と、休んでいる行・終えた電話の様子です。どれもシステムが決まりどおりに動かしています。色の付いた所は、続くようなら確かめてください。</p>
+<p class="lead">回線と、休んでいる行・終えた電話の様子です。どれもシステムが決まりどおりに動かしています。上に出ている項目は、続くようなら確かめてください（何もない項目は、下にまとめています）。</p>
 {# 項目は web/watch.WATCHES の1か所。画面は答える場所の事実を並べるだけ（決め直さない） #}
 {% set busy = found|selectattr(2)|list %}
 {% set calm = found|rejectattr(2)|list %}
@@ -37,7 +37,7 @@
   <h2>いま、ありません</h2>
   <div class="card calm-list">
     {% for key, w, got in calm %}
-    <details id="{{ key }}"><summary>{{ tag("なし", "ok") }} {{ w.title }}</summary><p class="muted">{{ w.meaning }}</p></details>
+    <details id="{{ key }}"><summary>{{ tag("なし") }} {{ w.title }}</summary><p class="muted">{{ w.meaning }}</p></details>
     {% endfor %}
   </div>
 </section>

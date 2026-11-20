@@ -397,6 +397,9 @@ class Web(_World):
             "SELECT line_id FROM salescall.lines WHERE name = '架空の画面試験の回線'"))["line_id"]
         self.assertEqual(self.post("A", f"/t/lines/{lid}/assign", {"form_token": tok, "client_id": str(self.b["client"])}).status_code, 404)
         self.assertIn("ok=1", self.post("A", f"/t/lines/{lid}/assign", {"form_token": tok, "client_id": str(self.a["client"])}).headers["location"])
+        page = self.get("A", "/t/lines").text                                  # 使用停止（元に戻せない）は、どの回線かを名前つきで見せてから（計画書 5-1）
+        self.assertIn("「架空の画面試験の回線」を使用停止にする", page)
+        self.assertIn('<p><b>回線「架空の画面試験の回線」</b>', page)
         self.assertIn("ok=0", self.post("B", f"/t/lines/{lid}/retire", {"form_token": self.token("B"), "reason": "乗っ取り"}).headers["location"])
         self.assertIn("ok=0", self.post("A", f"/t/lines/{lid}/retire", {"form_token": tok, "reason": ""}).headers["location"])
         self.assertIn("ok=1", self.post("A", f"/t/lines/{lid}/retire", {"form_token": tok, "reason": "試験の片付け"}).headers["location"])
@@ -653,6 +656,13 @@ class Web(_World):
                 page = self.get("A", path).text
                 crumbs = page[page.index('class="crumbs"'):page.index("</nav>", page.index('class="crumbs"'))]
                 self.assertIn("依頼者「依頼者X」", crumbs)
+
+    def test_nothing_is_never_colored(self):
+        """色の役割（parts.html の1か所）：0件・「なし」に色を付けない（緑は「済んだ・通った」だけ。何もないと見分けがつかなくなる）。"""
+        for who in ("A", "B"):
+            home = self.get(who, "/t").text
+            self.assertEqual(re.findall(r'<div class="stat (\w+)"><span class="label">[^<]*</span><span class="value">0</span>', home), [])
+        self.assertNotIn('<span class="tag ok">なし</span>', self.get("A", "/t/watch").text)
 
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
