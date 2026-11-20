@@ -2,9 +2,9 @@
 {% from "parts.html" import tag, flash, csrf %}
 {% set active = "stops" %}
 {% block title %}何で止まったか{% endblock %}
-{% block crumb %}止まっているもの{% endblock %}
+{% set crumbs = [(words.page("stops"), "/t/stops")] %}
+{% block crumb %}何で止まったか{% endblock %}
 {% block main %}
-{% if not client %}<p><a href="/t/stops">← 止まっているもの</a></p>{% endif %}
 <h1>{{ x.cause.label }}</h1>
 <p class="lead">{{ words.stop_scope(x.stop.scope) }}の範囲・{{ time(x.stop.at) }}から
   {% if x.resolved %}{{ tag("解けています", "ok") }}{% else %}{{ tag("止まっています", "stop") }}{% endif %}</p>

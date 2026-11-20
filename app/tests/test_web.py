@@ -666,6 +666,17 @@ class Web(_World):
                 self.assertIn(f'<a href="{href}" aria-current="page">{name}</a>', page)
         self.assertNotIn("見張り", self.get("A", "/t").text + self.get("A", "/t/watch").text)   # 前は「見張り」と「気をつけること」の2つの名前
 
+    def test_the_way_back_is_the_breadcrumb_only(self):
+        """戻り方はパンくずの1か所（全体の画面の下の画面も、親の画面へ戻れる）。ページごとの「← 戻る」は書かない
+        （取り込みの手順の中で1つ前の手順へ戻るリンクは別）。"""
+        import pathlib
+        tpl = pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/templates")
+        backs = [f.name for f in tpl.glob("*.html") if f.name not in ("import_map.html", "import_preview.html") and re.search(r">\s*← ", f.read_text(encoding="utf-8"))]
+        self.assertEqual(backs, [])
+        page = self.get("A", "/t/dnc/import").text
+        self.assertIn('<nav class="crumbs" aria-label="いまいる所">', page)
+        self.assertIn('<a href="/t/dnc">共通の発信禁止</a>', page)
+
     def test_every_empty_state_says_what_comes_next(self):
         """空のときの形（parts.empty）は、次にすること・これから何が起きるかを必ず書く（「登録はありません」だけで終えない）。"""
         import pathlib

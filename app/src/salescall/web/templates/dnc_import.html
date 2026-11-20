@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% from "parts.html" import flash, csrf, stat, file_pick %}
 {% block title %}発信禁止の一覧の取り込み{% endblock %}
+{% set crumbs = [("発信禁止", "/c/" ~ client.client_id ~ "/dnc")] if client else [(words.page("dnc"), "/t/dnc")] %}
+{% block crumb %}一覧を取り込む{% endblock %}
 {% block main %}
 {# 依頼者の台帳（client あり）と、契約者の共通の台帳（client なし）を、同じこの画面で取り込む（Intent.md 7-2）。行の結果は core の dnc_import の1か所 #}
 {% set back = ("/c/" ~ client.client_id ~ "/dnc") if client else "/t/dnc" %}
 {% set base = back ~ "/import" %}
 {% set place = ("依頼者「" ~ client.name ~ "」の発信禁止") if client else ("「" ~ ctx.tenant_name ~ "」の共通の発信禁止（すべての依頼者に効く）") %}
-<p><a href="{{ back }}">← {{ place }}</a></p>
 <h1>「かけないで」の一覧を取り込む</h1>
 <ol class="steps">
   <li {% if stage == "upload" %}aria-current="step"{% endif %}>ファイルを選ぶ</li>
