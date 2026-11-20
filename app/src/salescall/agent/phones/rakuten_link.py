@@ -6,6 +6,9 @@
 - 判断を持たない：かけてよいか・番号のせいか回線のせいかは、サーバーの1か所が決める。分からないときは「かけない側」
   （`in_call` は真・`start_call` は CallNotPlaced・`test_ring` は None）。
 - 声の形を変えるのは `audio.resample` の1か所。電話の音を聞き分けるのは `tones.Cadence` の1か所。
+- ⏳ **かける番号の形**：Rakuten Link には国内の形の数字（0 から始まる）を入れる。形を変えてよいのはサーバーの番号の正規化の1か所
+  （core/phone.py の national＝機械の見張り Q1）なので、サーバーから国内の形も渡してもらう（CL-2 へお願い 60）。届くまで、国際の形（頭に「＋」）で
+  渡された番号は画面の口が断る（CallNotPlaced＝かけない側）。
 - ⏳ 出来事の名前（ringing・busy・answered・ended）と、サーバーから届く声の形（`FROM_SERVER_RATE`）は CL-1 と決める
   （CL-3 の連絡帳 4-2 の7）。おわびの録音の届け方は CL-2 と決める（お願い 58 の (2)(b)）。
 """

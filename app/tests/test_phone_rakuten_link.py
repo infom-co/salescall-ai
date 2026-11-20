@@ -159,6 +159,14 @@ class TestRing(unittest.TestCase):
         self.assertIsNone(p.test_ring("+81300000009"))                      # 見分けられなければ決めつけない
 
 
+class Numbers(unittest.TestCase):
+    def test_only_the_domestic_digits_are_typed_and_nothing_is_reshaped_here(self):
+        from salescall.agent.phones.screen_uia import DOMESTIC
+        self.assertTrue(DOMESTIC.fullmatch("0300000001") and DOMESTIC.fullmatch("09000000001"))
+        for bad in ("+81300000001", "03-0000-0001", "300000001", ""):
+            self.assertIsNone(DOMESTIC.fullmatch(bad), bad)                    # 形を変えずに断る（形を変えるのは core/phone の1か所）
+
+
 class Apology(unittest.TestCase):
     def test_ask_wait_for_the_reply_then_bye_then_hang_up(self):
         p, clock = phone()
