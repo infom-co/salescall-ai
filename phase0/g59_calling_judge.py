@@ -272,15 +272,16 @@ BEFORE_READ = {TO_TARGET: _HOLDING, "それでは岡田にお繋ぎします。"
 
 
 def steps_before(before: str | None) -> list:
-    """行の「その前に相手が言ったこと」を、場面を組む1か所（g59_flow_check.scene）の手順 [(相手の言葉, 読み, 会話AIの操作)] にする（唯一の作り）。
-    読みは読みの字（足す読みがあれば項目ごとの答えに足した形）。後任の方へ切り替えた退職の言葉（DEPARTED_SAID）は、場面が後任の方の場面として先に流すので入れない。"""
+    """行の「その前に相手が言ったこと」を、場面を組む1か所（g59_flow_check.scene）の手順 [(相手の言葉, 読み, 会話AIの操作, 尋ねているかの読み)] にする（唯一の作り）。
+    読みは読みの字（足す読みがあれば項目ごとの答えに足した形）。尋ねているかの読みは、その言葉の正しい読み（asks_truths の1つ目。会話AIの答えの報告は、この読みを待って
+    決める＝flowctl.Flow._answer_judged。まとめ役 CL-1 の頼み rv178/X の5回目）。後任の方へ切り替えた退職の言葉（DEPARTED_SAID）は、場面が後任の方の場面として先に流すので入れない。"""
     from g59_flow_check import facts
     out = []
     for p in (before or "").split("／"):
         if not p or p == DEPARTED_SAID:
             continue
         code, op, *side = BEFORE_READ[p]
-        out.append((p, facts(code) | side[0] if side else code, ("report_party", {"party": op}) if isinstance(op, str) else op))
+        out.append((p, facts(code) | side[0] if side else code, ("report_party", {"party": op}) if isinstance(op, str) else op, asks_truths(p)[0]))
     return out
 
 

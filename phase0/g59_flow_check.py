@@ -21,13 +21,22 @@ K = {"同": "前と同じ方", "違": "前と違う方", "本": "ご本人", "�
 def facts(code):   # 例 "違本xx"＝(前と同じ方か, 誰か, 電話のやり取り＝x は何もない, 事情＝x は言っていない)
     return {SPEAKER: K[code[0]], WHO: K[code[1]], PHONE: K["無"] if code[2] == "x" else K[code[2]], ABOUT: K[code[3]]}
 
-def heard(f, text, code):
-    """相手の言葉 text を聞き、判定の読み code（読みの字か、項目ごとの答え＝判定の返事の形の dict）を本番と同じ入口（meaning_judge.read → Flow.on_check）で渡す。"""
+def heard(f, text, code, asks=None):
+    """相手の言葉 text を聞き、判定の読み code（読みの字か、項目ごとの答え＝判定の返事の形の dict）を本番と同じ入口（meaning_judge.read → Flow.on_check）で渡す。
+    asks＝同時に出る尋ねているかの問い合わせの読み（使う判定ごとの受け持ち＝flowctl.ASKS_CHECKS。None＝渡さない＝まだ届かない）。会話AIの答えの報告は、この読みを
+    待ってから決める（Flow._answer_judged。まとめ役 CL-1 の頼み rv178/X の5回目）。"""
     f.on_callee(); f.on_heard(text)
     if code:
         r = read(f.judge_context()[0], json.dumps(facts(code) if isinstance(code, str) else code, ensure_ascii=False))
         assert r is not None, (text, code)   # 読めない返事を作っていたら止める（⛔ 1回目は電話のやり取りに事情の字を入れ、判定が届かなかった）
         f.on_check("judge", r)
+    if asks is not None:
+        from flowctl import ASKS_CHECKS, JUDGMENTS
+        said = read(f.asks_context()[0], json.dumps({"choice": asks}, ensure_ascii=False))
+        assert said is not None, (text, asks)
+        for a, j in zip(ASKS_CHECKS, JUDGMENTS):
+            if j in f.checks_used:
+                f.on_check(a, said)
 
 def shown(r):
     return r.get("result"), [p.get("part", p.get("kind")) for p in r.get("play") or []], (r.get("say") or "")[:30]
@@ -35,6 +44,7 @@ def shown(r):
 def scene(steps, successor=False, checks=("judge",), business=None, sees_target=None, first=None):
     """お呼びする段の場面を、本番の流れの制御（Flow）に組む唯一の所（会話の試し run・G-68 の測り g68_returned が通る）。steps：[(相手の言葉, 読みの字,
     AIの報告 (op, args) か None)]。checks＝流れの制御が待つ確かめの名前（Flow.use_checks）。business＝業務（既定は b・フルネームのある行は b_full）。
+    手順に4つ目を書けば、その言葉の尋ねているかの読み（heard の asks）。
     sees_target＝お呼びする方の名前と読みを判定に見せるか（測りの --hide-names＝instruction.Business.judge_names の1か所）。
     first＝電話に出た方の第一声（本番の始まり＝繋がってから第一声を聞き、会話AIの「人」の報告のあとに名乗りと呼ぶ一言を流す Flow.on_connect の道で組む）。
     None は第一声を待たない古い形（名乗りの終わりが呼ぶ一言＝測りの表の行の場面）。2つの形で、判定に見せる質問とその前の言葉が同じこと（第一声は判定に渡らない）を
@@ -50,8 +60,8 @@ def scene(steps, successor=False, checks=("judge",), business=None, sees_target=
         heard(f, "岡田は先月退職いたしました。", "同受x籍")
         f.apply("request_callback", {"why": "departed"})
     out, ctx = [], None
-    for text, code, op in steps:
-        heard(f, text, code)
+    for text, code, op, *asks in steps:
+        heard(f, text, code, *asks)
         ctx = {"asked": f.asked_target is not None, "before": f.judge_context()[2], "successor": successor}   # 最後の言葉の場面（g59_tally の行と同じ形）
         if op:
             out.append(shown(f.apply(*op)))
