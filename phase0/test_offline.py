@@ -34542,6 +34542,95 @@ class RecallProposalWithdrawTest(unittest.TestCase):
                          ("end", "callback", None, False, None), self.heard(r))
 
 
+class OfferPriorWithdrawTest(unittest.TestCase):
+    """分身 P（CL-1 の頼み rv183/P の (1)＝n3・伺い40・OPEN-A27・J-4）：申し出の質問（Question.offered）そのものへの答えが、判定がもう読んでいる前の話の答え（受ける答え）と
+    食い違う断る答え（前の話で「送ってほしい」→ いま「やっぱり結構です。」）は、一度受けていただいた申し出の取り消し（✅ 2026-11-18 日本時間21時00分23秒 ユーザー「伺い40：
+    一度快諾しているのに、やっぱりと断られたら「何か、問題でもございましたか？」」）＝前の話と食い違う答えを決める1か所（Flow._compare の off_talk）で、逆の向きの確かめ
+    「それでは…ということでよろしいでしょうか？」をせずに、取り消しの道（Flow._withdraw_ask＝「はい、」＋D2「何か問題でもございましたでしょうか？」→ _withdraw_take）へ。
+    判定の文は変えない（前の話で受けたかに答える所は、判定の前の話の答えの1か所だけ）。⛔ 直す前は「はい、それではパンフレットをお送りして大丈夫だということでよろしいでしょうか？」"""
+    OFFER = "パンフレットをお送りしてもよろしいでしょうか？"
+    NEXT = "お支払いはカードと振込のどちらがよろしいでしょうか？"
+
+    def flow(self, required=True, offer=True):
+        from flowctl import JUDGMENTS, Question
+        from instruction import Business
+        do = {"はい": "パンフレットをお送りさせていただきます", "いいえ": "パンフレットの送付は控えさせていただきます"} if offer else {}
+        qs = [Question("Q1", self.OFFER, "yes_no", conditions=("はい", "いいえ"), required=required, do_words=do,
+                       meanings={"はい": "パンフレットをお送りしてよろしいということ", "いいえ": "パンフレットはお送りしなくてよろしいということ"},
+                       doubt_words={"はい": "パンフレットをお送りした方がいい", "いいえ": "パンフレットはお送りしない方がいい"}),
+              Question("Q2", self.NEXT, "choice", conditions=("カード", "振込"), required=True, topic="お支払いの方法")]
+        f = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料のご案内", questions=qs,
+                     purpose_line="資料のご案内でお電話いたしました。", purpose_noun="資料のご案内").flow(play_recordings=True)
+        f.use_checks(*JUDGMENTS)
+        return f
+
+    @staticmethod
+    def withdrawn(f, prior="はい"):
+        t = OtherCompanyClueSendWayTest()
+        r = t.rd("いいえ")
+        r.prior = prior
+        return t.turn(f, "やっぱり結構です。", r, "record_answer", question_id="Q1", condition_id="いいえ")
+
+    @staticmethod
+    def heard(r):
+        return OtherCompanyClueSendWayTest.heard(r)
+
+    def test_an_offer_taken_before_and_declined_now_asks_what_the_matter_was(self):
+        from flowctl import CALLBACK_IDS
+        from phrases import AI_ANSWER
+        for required in (True, False):
+            f = self.flow(required)
+            self.assertEqual(f.questions["Q1"].offered, "はい")
+            r = self.withdrawn(f)
+            self.assertEqual((self.heard(r), [p["id"] for p in r["play"]], f.current, f.end_reason),
+                             ("はい、" + AI_ANSWER, ["ai_answer"], CALLBACK_IDS["concern"], None), required)
+            self.assertEqual(f.withdraw["offer"], "Q1", required)
+
+    def test_no_matter_takes_the_decline(self):
+        from flowctl import CALLBACK_IDS
+        d2 = CALLBACK_IDS["concern"]
+        t = OtherCompanyClueSendWayTest()
+        for words, cond in (("いえ、特に。", "問題は無い"), ("もう結構ですので。", "断ろうとしている"), ("うーん、まあ。", "unknown")):
+            f = self.flow()
+            self.withdrawn(f)
+            r = t.turn(f, words, t.rd(cond), "record_answer", question_id=d2, condition_id=cond)
+            self.assertEqual((f.items["Q1"].state, f.items["Q1"].condition, f.current, f.end_reason), ("accepted", "いいえ", "Q2", None), (cond, self.heard(r)))
+            self.assertNotIn("よろしいでしょうか？パンフレット", self.heard(r))
+            self.assertTrue(self.heard(r).endswith(self.NEXT), (cond, self.heard(r)))
+
+    def test_a_matter_is_answered_and_a_second_decline_is_taken_at_once(self):
+        from flowctl import CALLBACK_IDS
+        d2 = CALLBACK_IDS["concern"]
+        t = OtherCompanyClueSendWayTest()
+        f = self.flow()
+        self.withdrawn(f)
+        r = t.turn(f, "説明が長くてよく分からないんですよ。", t.rd("問題を言った"), "record_answer", question_id=d2, condition_id="問題を言った",
+                   value="説明が長くて分からない")
+        self.assertEqual((r["result"], f.current, f.end_reason), ("callee_asked", "Q1", None))
+        line = "大変失礼いたしました。パンフレットには料金と内容を1枚にまとめております。"
+        grounded(f, line)
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": line})["result"], "own_answer")
+        r = self.withdrawn(f)   # また取り消された：D2 は伺わずに受ける（1通話1回）
+        self.assertNotIn("何か問題でも", self.heard(r))
+        self.assertEqual((f.items["Q1"].condition, f.current), ("いいえ", "Q2"), self.heard(r))
+
+    def test_the_withdraw_does_not_reach_other_contradictions(self):
+        # 前の話の答えが無い・受ける答えでない・申し出の質問でない（こちらがすることの言葉が無い）＝今のまま（断る答えの確かめ・前の話の向きの確かめ）
+        f = self.flow()
+        r = self.withdrawn(f, prior=None)
+        self.assertNotIn("何か問題でも", self.heard(r))
+        f = self.flow()
+        t = OtherCompanyClueSendWayTest()
+        rd = t.rd("はい")
+        rd.prior = "いいえ"
+        r = t.turn(f, "やっぱり送ってください。", rd, "record_answer", question_id="Q1", condition_id="はい")
+        self.assertEqual((r["result"], f.withdraw), ("confirm_required", None), self.heard(r))
+        f = self.flow(offer=False)
+        self.assertIsNone(f.questions["Q1"].offered)
+        r = self.withdrawn(f)
+        self.assertEqual((r["result"], f.withdraw), ("confirm_required", None), self.heard(r))
+
+
 class Review422Test(unittest.TestCase):
     """CL-2 の連絡帳 4-422 の (1)〜(3) と、分身 A が見つけた穴（rv78/A の notes の3章の1〜3）：
     (1) 申し伝えた印 told は、ご説明する段（_explaining）で、その点の記録の explained が false のときだけ書く（Flow._own_fallback の1か所）。⛔ 1回目は自分の言葉で

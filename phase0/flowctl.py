@@ -2288,6 +2288,13 @@ MISSED_WHY = "待つ長さの中に意味の判定の確かな読みが届かな
 #    答えと同じ言い方で確かめ、答えが無ければ（決められない・答えたくない など）質問から聞き直す
 #    ⇒ 同じ日の夜 ユーザー：言い方は「それでは…ということでよろしいでしょうか？」（矛盾や言い直しの答えを最終的に確かめる＝AFTER の settle）
 TALK_WHY = "会話になっていない返事"
+# 前の話と食い違う答えのうち、一度受けていただいた申し出の取り消し（確かめる理由の名前＝Flow._compare の off_talk の1か所が決め、答えの報告の入口 _op_record_answer が
+# 取り消しの道 Flow._withdraw_ask へ渡す）：申し出の質問（Question.offered）で、判定がもう読んでいる前の話の答え（meaning_judge.PRIOR）が受ける答え、いまの答えが断る答え
+# （前の話で「送ってほしい」→ いま「やっぱり結構です。」）。✅ 2026-11-18 日本時間21時00分23秒 ユーザー「伺い40：一度快諾しているのに、やっぱりと断られたら「何か、問題でも
+# ございましたか？」」は、10-31 の「矛盾した答えは「それでは…ということでよろしいでしょうか？」で最終的に確かめる」より細かい決まり＝先に当たる（CL-1 が決めた形＝n3。
+# 前の話で受けたかに答える所は判定の前の話の答えの1か所だけ＝判定の選べるもの「申し出を取り消した」を申し出の質問そのものには足さない）。⛔ 分身 P の n3 まで、
+# 「はい、それではパンフレットをお送りして大丈夫だということでよろしいでしょうか？」と前の話の向きで確かめた
+WITHDREW_TALK_WHY = f"{TALK_WHY}（前の話で受けていただいた申し出を、いま断った＝申し出の取り消し）"
 
 
 def off_talk(q: "Question", got: str | None, prior: str | None = None) -> bool:
@@ -9129,6 +9136,10 @@ class Flow:
         if decided:
             cond = it.condition = decided
         why, back = self._checks(q, cond, policy=not decided, words=said, decided=decided) if q.type in CHOICE_TYPES else (None, None)
+        if why == WITHDREW_TALK_WHY:
+            # 前の話で受けていただいた申し出の取り消し（_compare の off_talk の1か所が決めた）：逆の向きで確かめずに、取り消しの道（「はい、」＋本心を伺う一言 D2・1通話1回。
+            # もう伺っていれば、伺わずに取り消しを受ける＝_withdraw_ask）。必須かに関わらない（取り消しへの応じ方は質問の聞き返しの回数の決まりではない＝伺い40 の質問と同じ）
+            return self._withdraw_ask(qid)
         if why:
             # 必須でない項目は、聞き返さない決まり（6-11）に合わせて確かめず「-」（その場で1回だけ伺い直す質問＝Question.asks_once は除く）。言い切っていない答え
             # （HEDGE_WHY＝判定か言葉が言い切っていないと読んだ・向きは決まっている）は聞き返しではなく言い直しの確かめ＝必須の質問と同じく、言い切っていない答えの
@@ -9190,6 +9201,9 @@ class Flow:
             # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
             return HEDGE_WHY, reported
         if (off := Flow._judged_off_talk(q, check)) is not False:
+            if not confirming and Flow._withdrew_offer(q, check):
+                # 一度受けていただいた申し出の取り消し（前の話で受けた申し出の質問に、いま断る答え）：確かめずに取り消しの道へ（WITHDREW_TALK_WHY。伺い40）
+                return WITHDREW_TALK_WHY, off
             # 前の話と合わない返事：その読み（宣言した選択肢＝off_talk の決まり）を確かめる答えに（前に言ったことと逆の返事＝✅ ユーザー「(イ)」。
             # お客様が考えを変えた場合も、聞き違いの場合も、確かめへの返事で分かる）
             return f"{TALK_WHY}（意味の判定の読みが、その前に相手が言ったことから決まる答えと食い違う）", off
@@ -9213,6 +9227,13 @@ class Flow:
         質問だけで決まる（どの判定の読みに添えても同じもの）。判定の組が答えられなかったときは使わない（会話AIの報告と比べない＝会話AIは判定に加えない。
         ⛔ 2026-11-08 日本時間12時台まで、そのときだけ単独で受け（確かめの "prior"）、会話AIの報告と比べていた）。"""
         return next((p for k in JUDGMENTS if (p := getattr(check.get(k), "prior", None)) is not None), None)
+
+    @staticmethod
+    def _withdrew_offer(q: "Question", check: dict) -> bool:
+        """前の話と食い違う答え（off_talk）が、一度受けていただいた申し出の取り消しか（唯一の決まり＝_compare の off_talk の枝）：申し出の質問（Question.offered）で、
+        判定の読みに添えて届いた前の話の答え（_prior の1か所）が、その申し出を受ける答え（いまの答えは off_talk で前の話と違う＝受けない答え）。最初の答えだけ（言い直し
+        への返事は _compare の confirming で当てない）。伺い40（WITHDREW_TALK_WHY）。"""
+        return q.offered is not None and Flow._prior(check) == q.offered
 
     @staticmethod
     def _judged_off_talk(q: "Question", check: dict) -> str | bool:
@@ -16011,13 +16032,14 @@ class Flow:
             return False
         return not self._replied_now()
 
-    def _withdraw_ask(self) -> dict:
-        """受けていただいた申し出を取り消された（_withdraw_due）：本心を伺う一言 D2「何か問題でもございましたでしょうか？」（今ある1か所 _concern_ask・共通の一言の
+    def _withdraw_ask(self, offer: str | None = None) -> dict:
+        """受けていただいた申し出を取り消された（_withdraw_due＝申し出から始まった質問の途中の取り消し・offer＝前の話で受けていただいた申し出の質問そのものへの断る答え＝
+        _compare の WITHDREW_TALK_WHY。その質問の番号）：本心を伺う一言 D2「何か問題でもございましたでしょうか？」（今ある1か所 _concern_ask・共通の一言の
         録音 ai_answer。頭は「失礼いたしました。」でなく相づちの1か所 _ack_choice の「はい、」）を1通話1回伺う。この電話でもう D2 を伺っていれば、伺わずに取り消しを
         受ける（_withdraw_take）。D2 の引き金が取り消しだという印（self.withdraw）に、取り消された申し出と、取り消しの発話（番号・言葉・判定の読み）を持つ。
         ✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い40）：「一度快諾しているのに、やっぱりと断られたら「何か、問題でもございましたか？」」（言い回しは 11-08
         日本時間2時21分15秒「何か問題でもございましたでしょうか？（別の言い回しでもOK）」の録音のまま＝増やさない）"""
-        self.withdraw = {"offer": self._taken_offer(), "turn": self.callee_turns, "said": self.callee_said, "check": dict(self.check)}
+        self.withdraw = {"offer": offer or self._taken_offer(), "turn": self.callee_turns, "said": self.callee_said, "check": dict(self.check)}
         if self.concern_asked:
             return self._withdraw_take("")
         return self._concern_ask()
@@ -16033,6 +16055,7 @@ class Flow:
         - 申し出（N4・N6）の手順：段を申し出の段へ戻し、受けていただいた印・方法を消す（_handoff_step が「いいえ」として _handoff_end の declined）
         - 業務の申し出の質問から始まったほかのご希望の手順：手順と、その通話の事実 other_wish を外す
         - 申し出の受ける答えで伺う業務の質問（ask_if）：並びから外す
+        - 前の話で受けていただいた申し出の質問そのものへの断る答え（_compare の WITHDREW_TALK_WHY）：外すものは無く、その質問の答えを断る答えに決める（下の _retake）
         ✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い40）"""
         w, self.withdraw = self.withdraw, None
         # 取り消しを読んだ質問（時刻・方法・連絡先）はもう伺わない＝その言い直しの返事待ちも残さない（H3 の「いいえ」の道は、H3 を伺う前の位置へ戻る＝_brief_decided）
