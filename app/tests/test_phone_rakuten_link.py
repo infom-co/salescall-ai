@@ -110,6 +110,14 @@ class Placing(unittest.TestCase):
         with self.assertRaises(CallNotPlaced):
             p.start_call("+81300000001")
 
+    def test_a_line_in_a_call_does_not_place_another(self):
+        s = FakeScreen()
+        s.now = "in_call"
+        p, _ = phone(s)
+        with self.assertRaises(CallNotPlaced):
+            p.start_call("+81300000001")                                     # 1回線で同時に1本（計画書 8-3）
+        self.assertEqual(s.dialed, [])
+
     def test_an_unknown_screen_counts_as_in_a_call(self):
         s = FakeScreen()
         s.now = "unknown"
@@ -151,6 +159,19 @@ class TestRing(unittest.TestCase):
         p, clock = phone()
         clock.on_sleep.append(lambda t: p.sound.feed(tone(400, 0.1) if int(t * 10) % 10 < 5 else silence(0.1)))
         self.assertTrue(p.test_ring("+81300000009"))
+
+    def test_a_call_that_ends_without_any_sound_cannot_call_but_a_voice_is_not_judged(self):
+        """計画書 8-2：呼び出しの音もお知らせの声も無いまま終わった＝発信できない。何かの声が聞こえて終わったら、お知らせの声かも
+        しれないので決めつけない（お知らせの声の聞き分けは見本を録ってから）。"""
+        for sound, want in ((silence(0.1), False), (tone(300, 0.1, amp=6000), None)):
+            with self.subTest(want=want):
+                p, clock = phone()
+                def step(t, p=p, sound=sound):
+                    p.sound.feed(sound)
+                    if t > 3:
+                        p.screen.now = "idle"
+                clock.on_sleep.append(step)
+                self.assertIs(p.test_ring("+81300000009"), want)
 
     def test_not_placed_is_false_and_silence_is_unknown(self):
         p, _ = phone(FakeScreen(goes_to="idle"))

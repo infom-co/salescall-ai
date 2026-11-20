@@ -87,19 +87,26 @@ class RakutenLink:
         self.screen.hang_up()
 
     def test_ring(self, phone_e164: str) -> bool | None:
-        """テスト番号へかけ、呼び出しの音・話し中の音が聞こえたら真（回線から発信できた）。画面が「かけている」にならない＝偽。
-        期限のうちに見分けられなければ None。⏳ 電話網のお知らせの声（電源オフ・圏外）の見分けは R-6 で見本を録ってから。"""
+        """テスト番号へかけ、この回線から電話網へ発信できたかを答える（計画書 8-2・8-8。答えの意味は `link.phone.Phone.test_ring`）。
+        - True：呼び出しの音・話し中の音が聞こえた。
+        - False：画面が「かけている」にならない（アプリが発信できない）、または、音も声も何も聞こえないまま電話が終わった。
+        - None：何かの声は聞こえたが音ではなかったまま終わった（電源オフ・圏外のお知らせの声かもしれない＝それは「発信できた」なので、
+          聞き分けられないうちは「発信できない」と決めつけない）・期限まで見分けられなかった。
+        ⏳ お知らせの声（電源オフ・圏外）を聞き分けて True にするのは、見本を録ってから（R-6）。"""
         with self._lock:
             self._cadence = tones.Cadence(self.sound.rate)
             try:
                 self._place(phone_e164)
             except CallNotPlaced:
                 return False
-            end = self.clock() + ANSWER_BY - 3
+            started = self.clock()
+            end = started + ANSWER_BY - 3
             try:
                 while self.clock() < end:
                     if self._tone in ("ringback", "busy"):
                         return True
+                    if self._state() == "idle":                          # 音が出ないまま電話が終わった
+                        return None if any(t >= started for t in self._heard) else False
                     self.sleep(0.1)
                 return None
             finally:
@@ -143,6 +150,8 @@ class RakutenLink:
         """発信する。スマホと連携していない・画面が「かけている」にならない＝CallNotPlaced（お客様の電話は鳴っていない）。"""
         if self.screen.linked() is not True:
             raise CallNotPlaced("Rakuten Link がスマホと連携していない（または分からない）")
+        if self.in_call():                                               # 1回線で同時に1本（計画書 8-3）。話している電話を保留にしない
+            raise CallNotPlaced("この回線は通話の途中（または分からない）")
         self._tone = None
         try:
             self.screen.dial(phone_e164)
@@ -167,12 +176,15 @@ class RakutenLink:
         for frame in self._framer.push(audio.resample(pcm, self.sound.rate, audio.TO_SERVER_RATE)):
             self._send_audio(frame)
 
+    def _state(self) -> str:
+        try:
+            return self.screen.state()
+        except Exception:
+            return "unknown"
+
     def poll_state(self) -> None:
         """画面の状態を1回読み、移ったら出来事を知らせる（つながった answered・切れた ended）。"""
-        try:
-            state = self.screen.state()
-        except Exception:
-            state = "unknown"
+        state = self._state()
         if state != self._last_state:
             if state == "in_call":
                 self._send_event({"kind": "answered"})
