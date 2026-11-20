@@ -47772,3 +47772,28 @@ class MisgivingApprovalTest(unittest.TestCase):
             elif misgiving_fits(qmap[qid]):
                 self.assertIn(MISGIVING, v, k)
         self.assertGreater(seen, 0)
+
+
+class EndWordsMisgivingTest(unittest.TestCase):
+    """分身 Q（CL-1 の頼み rv183/Q の (3)＝分身 P の書き置き (6-5)）：電話を終える言葉の表の行（組 F＝end_words.answer_truths）のうち、項目「迷っている点を言ったか」（MISGIVING）を
+    読む質問（flowctl.misgiving_fits）の行にも、項目の正解を1行ずつ当てる（帳面 0-3 の (2)）。どの行も答えの正解に「迷っている」が無い＝項目の説明から「迷っていない」（行ごとの理由
+    misgiving_why）。項目を読まない質問の行には付けない。⛔ 直す前は付けていなかった（読んでいない＝None）"""
+
+    def test_each_row_reading_the_item_has_its_truth(self):
+        import end_words as E
+        from flowctl import HESITATING, MISGIVING, MISGIVING_OFF, misgiving_fits
+        truths = E.answer_truths()
+        seen = 0
+        for (qtext, words), v in truths.items():
+            if misgiving_fits(E.question(qtext)):
+                seen += 1
+                self.assertNotIn(HESITATING, v["accept"], (qtext, words))
+                self.assertEqual(v.get(MISGIVING), [MISGIVING_OFF], (qtext, words))
+                self.assertIn("迷っている", v.get("misgiving_why", ""), (qtext, words))
+            else:
+                self.assertNotIn(MISGIVING, v, (qtext, words))
+        self.assertEqual(seen, 20)
+        # 正しい読みの組み合わせに、項目の正解が入る（答えごと＝g53_meaning.misgiving_truths）
+        import g53_meaning as G
+        it = {"set": "F", "question": E.PAMPHLET, "text": "もういいです。"}
+        self.assertEqual(G.misgiving_truths(it, "いいえ"), (MISGIVING_OFF,))
