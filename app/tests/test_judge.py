@@ -628,7 +628,8 @@ class AfterDenial(unittest.TestCase):
         opening = NOW + timedelta(hours=14)
         # 間隔の待ち（門の pacing が、待つ時刻とともに答える理由）。ほかの理由では pacing は待つ時刻を持たない（いまかけられる）
         paced = {"same_contact_interval", "daily_attempts", "same_number_interval", "cross_client_interval_other_tenant",
-                 "other_client_promise", "number_promise_soon"}
+                 "other_client_promise", "number_promise_soon",
+                 "declined_wait"}   # 顧客獲得型でアポを断られたお客様の日数の待ち（0263）
         for reason, r in gate.REASONS.items():
             with self.subTest(reason):
                 pace = gate.Pacing(3, known, reason, False) if reason in paced else P_NONE
