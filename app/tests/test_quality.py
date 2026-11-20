@@ -296,8 +296,10 @@ class BusinessMetrics(Base):
         from tests.support import make_report
         w = self.second_row(s)
         self.verified_call(w, VerificationSummary(0, 0, 0), report=make_report(("voicemail",), end="voicemail"))
+        r = self.second_row(s)                                                     # 受付の方とだけ話した（お呼びした方は不在）：お客様と話したが、目的のお客様とは話せていない
+        self.verified_call(r, VerificationSummary(0, 0, 0), report=make_report(("reception",), not_reached="absent"))
         today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
-        self.assertEqual(self.tx(s, lambda tx: metrics.day(tx, today)), {"dialed": 3, "answered": 3, "talked": 2, "reached": 2})
+        self.assertEqual(self.tx(s, lambda tx: metrics.day(tx, today)), {"dialed": 4, "answered": 4, "talked": 3, "reached": 2})
         self.assertEqual(self.tx(s, lambda tx: metrics.day(tx, today, business_id=uuid.uuid4())),
                          {"dialed": 0, "answered": 0, "talked": 0, "reached": 0})
         self.assertEqual(self.tx(s, lambda tx: metrics.day(tx, today - timedelta(days=1)))["dialed"], 0)
@@ -308,7 +310,7 @@ class BusinessMetrics(Base):
                                                        promised=True))   # 間隔の歯止めは門の試験で見る
         self.verified_call(s, VerificationSummary(1, 0, 0), items=[("Q1", "confirmed", None)])
         later = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=until + timedelta(minutes=5)))
-        self.assertEqual((later["dialed"], later["redial"]["hits"]), (4, 1))   # 留守番電話の行を足したので4本
+        self.assertEqual((later["dialed"], later["redial"]["hits"]), (5, 1))   # 留守番電話の行・受付の方だけの行を足したので5本
 
 
 class Production(Base):
