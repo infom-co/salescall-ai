@@ -19,6 +19,8 @@
 - **第4便（作っている。2026-11-20〜）**：✅ 2026-11-20 ユーザー「はい」（通話・通信は CL-3＝分担の表を直した 5ef206f5）。作る順：
   - ✓ (1) CL-3 の 57：業務（と声の型）・期間ごとの指標を数える1か所 core/metrics。数え方は品質の段（quality_stage.metrics）と同じ1か所に寄せる（通話の範囲を受けて数える SQL を1つにし、品質の段もそれを読む）。指標：かけた通話・話せた通話・業務完了率（範囲に通話のある行のうち、行のいちばん新しい通話の結果が completed）・途中で切れた率（話せた通話のうち切れ方が normal でない）・平均通話時間・再発信率（行の2本目からの通話）・1件あたりの API 費用（利用量の台帳の attempt_id）・こちらの不具合の率（technical_error）・別の耳の食い違い・言ってはいけないこと・苦情。⏳ 必須項目の取得率・AI の言葉の抜け・声の途切れ・黙りは記録が無い＝CL-1 に検証の結果へ足してもらう頼み（連絡帳 4-447）。
   - (2) CL-3 の 58 の (2)（やり取りの足し send_sms・おわびの録音を PC に配る・回線ごとの使える／使えない）：CL-3 の形の案を待つ（PHONE.md 2-5〜2-7。CL-3「形の案は作ってから送ります」）。受け方の考え：回線の「使えない」は合図の lines から外す形にすれば、門・発信の出口は今の1か所（channel.lines）のまま。続いたときの知らせは見守り役の1か所に。(3) の部品の足しも、CL-3 が版を決めてから。
+  - ✓ (3) CL-3 の 42・43（e3fb5d13）。
+  - (4) CL-3 の 27・45：設定の定義に、契約者向けの説明（列 help）と選び肢の言葉（列 choice_words＝{値: 言葉}）を持たせる（表の作り 0268。説明の正本は定義の1か所・画面は出すだけ＝CL-3 の words.screen_help・SETTING_CHOICE_WORDS を外せる）。help は開発の根拠（日付・文書・担当・英字の名前）を含まない日本語だけ＝試験で見張る（英字・設定の名前・「Intent」「✅」などが無い・選ぶ設定は選び肢すべてに言葉がある）。作り方：全部の定義を書き出し（scratchpad の settings_dump.json）、1つずつ書く。
 - **第3便（済み）**：CL-1 の連絡帳 4-207〜4-215 と、CL-3 のお願い 54〜57 を受ける。作る順（済んだら ✓）：
   - (1) 写しの作り直し（共通の一言＝name_head_*・acquire_*・wrong_number_ask・omatase・wait_soon など／続く言葉＝target_reconfirm を外す・acquire_glad・pain_ask・listen_*・reception_purpose）と、要る名前の録音（name_needs：target_reconfirm を外す・役職の呼び方の名前の部分＝target_role 系・reception_purpose_role・mobile_owner→target_individual・顧客獲得型の行の続く言葉）・使えない番号（Y1・Y2・yes・but ほか）。
   - (2) 業務設定の欄：電話の型 call_type（confirm／acquire）・yes_asks・special・pains・meeting_time・アポのお断りのあと次の実施回まであける日数（初め30日）・accept_free。確かめは CL-1 の Business._check_call_type と同じ決まり（顧客獲得型は法人だけ・3つの欄が要る・最初の質問は日時・確認の電話には書かない）。
