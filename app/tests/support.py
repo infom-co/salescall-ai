@@ -10,13 +10,15 @@ import contextlib
 import itertools
 import os
 import json
+import threading
 import uuid
 from datetime import timedelta
 from unittest import mock
+from typing import Any
 from uuid import UUID
 
 from salescall.core import calling_hours, common_phrases, recordings, spoken_time
-from salescall.core.access import Access, Actor
+from salescall.core.access import Access, Actor, Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
 # 試験の判定に渡す、お客様の時間の設定（本番は gate.callee_settings が設定から読む。試験は値を自分で決めて渡す＝初めの値と同じ形：
@@ -177,13 +179,68 @@ def task_stage(tx, task_id) -> str:
     return health.stage_name(health.task_of(tx, task_id))
 
 
+# 試験の管理者・契約者のログイン（TestAccess が作る）。鍵の頭は、つなぐデータベース（試験の組が途中で別のデータベースに切り替える＝test_life。⛔ 2026-11-19 まで
+# 鍵にデータベースが無く、切り替えたあとも前のデータベースのログインを付け、データベースが「ログインした方の取引ではない」と断った）
+_PEOPLE: dict[tuple[Any, ...], UUID] = {}
+_PEOPLE_LOCK = threading.Lock()
+TEST_PASSWORD = "試験のパスワードです12345"
+
+
+class TestAccess(Access):
+    """試験の取引の入口（本番の Access と同じ。違いは1つ：管理者・契約者の「誰が」にログインが無ければ、試験のログインを作って付ける）。
+    管理者・契約者の取引は、データベースがログインで範囲を確かめる（salescall.check_scope。0251）。試験は Actor("試験の契約者", "operator")
+    を、いろいろな契約者で使うので、契約者ごとに、その名前の試験のログインを作る（管理者は1つ）。契約者を決めない取引（全体の取引）の契約者・
+    まだ無い契約者の契約者には付けない（データベースが断る＝本番と同じ）。"""
+
+    def _run(self, actor, tenant_id, client_id, work, **kw):   # noqa: ANN001
+        if actor.kind in ("admin", "operator") and actor.person_id is None:
+            pid = _test_person(self._conninfo, actor, tenant_id)
+            if pid is not None:
+                actor = Actor(actor.name, actor.kind, pid)
+        return super()._run(actor, tenant_id, client_id, work, **kw)
+
+
+def _test_person(conninfo: str, actor: Actor, tenant_id: UUID | None) -> UUID | None:
+    from salescall.core import people
+    key: tuple[Any, ...] = (conninfo, "admin", actor.name) if actor.kind == "admin" else (conninfo, "operator", actor.name, tenant_id)
+    with _PEOPLE_LOCK:
+        if key in _PEOPLE:
+            return _PEOPLE[key]
+        base = Access(conninfo)
+        boot = Actor("試験の用意", "system")
+        admin = base.in_system(boot, lambda tx: tx.one("SELECT person_id, tenant_id FROM salescall.people WHERE login_id = 'test-admin'"))
+        if admin is None:   # 最初の管理者（本番でサーバーを用意するときと同じ道）
+            tid, pid = base.in_system(boot, lambda tx: people.first_admin(tx, tenant_name="試験の管理者の契約者", name=ADMIN.name,
+                                                                           login_id="test-admin", password=TEST_PASSWORD))
+            admin = {"person_id": pid, "tenant_id": tid}
+            _PEOPLE[(conninfo, "admin", ADMIN.name)] = pid
+            if key in _PEOPLE:
+                return _PEOPLE[key]
+        by = Actor(ADMIN.name, "admin", admin["person_id"])
+        if actor.kind == "admin":
+            home = admin["tenant_id"]
+        elif tenant_id is None:
+            return None
+        else:
+            home = tenant_id
+        try:
+            pid = base.in_system(by, lambda tx: people.create(tx, tenant_id=home, kind=actor.kind, name=actor.name,
+                                                              login_id=f"test-{actor.kind}-{uuid.uuid4()}", password=TEST_PASSWORD))
+        except Rejected as e:
+            if e.sqlstate == "23503":   # まだ無い契約者：ログインを付けない（データベースが断る＝本番と同じ）
+                return None
+            raise
+        _PEOPLE[key] = pid
+        return pid
+
+
 def app_access() -> Access:
-    return Access(os.environ["SALESCALL_TEST_APP_DSN"])
+    return TestAccess(os.environ["SALESCALL_TEST_APP_DSN"])
 
 
 def owner_access() -> Access:
     """表の持ち主の役（行の制限を受けない）。データベースの仕掛けそのものを試すときだけ使う。"""
-    return Access(os.environ["SALESCALL_TEST_OWNER_DSN"])
+    return TestAccess(os.environ["SALESCALL_TEST_OWNER_DSN"])
 
 
 _NAMES_MADE: dict[tuple[UUID, str], int] = {}   # 依頼者・業務の名前に付けた番号（World._unique_name）
@@ -198,7 +255,7 @@ class World:
     def tenant(self, *, voices: tuple[str, ...] = VOICES) -> UUID:
         """架空の契約者。voices＝業務の録音を承認する声（業務の版を足すたびに）。その声の共通の一言（システムの組）もそろえる。"""
         tid = uuid.uuid4()
-        self.a.in_tenant(OPERATOR, tid, lambda tx: tx.execute(
+        self.a.in_system(ADMIN, lambda tx: tx.execute(   # 契約者を作るのは全体の取引の管理者（0251）
             "INSERT INTO salescall.tenants (tenant_id, name) VALUES (%s, %s)", (tid, "架空の契約者")))
         _TENANT_VOICES[tid] = voices
         self.approve_common(voices)
@@ -288,8 +345,8 @@ class World:
         biz = None if owner is None else owner["business"]
 
         def wanted(tx, v, unit, role=None, reading=None, tail=None):
-            return not only_missing or tx.one("SELECT salescall.current_name_set(NULL, %s, %s, %s, %s, %s) AS s",
-                                              (v, unit, role, reading, tail))["s"] is None
+            return not only_missing or tx.one("SELECT salescall.current_name_set(NULL, %s, %s, %s, %s, %s, %s) AS s",
+                                              (v, unit, role, reading, tail, common_phrases.NAME_TAILS.get(tail or "")))["s"] is None
 
         def work(tx):
             for v in voices:
@@ -305,7 +362,7 @@ class World:
                 for t in (recordings.NAME_TAILS if tails is None else tails):
                     if wanted(tx, v, "name_tail", tail=t):
                         recordings.approve(tx, recordings.add_name_tail(
-                            tx, voice_name=v, tail=t, part=P(t, f"架空の続く言葉（{t}）。", f"{audio}://{v}/{t}", "0" * 64),
+                            tx, voice_name=v, tail=t, part=P(t, common_phrases.NAME_TAILS[t], f"{audio}://{v}/{t}", "0" * 64),
                             business_id=biz))
         if owner is None:
             self.a.in_system(ADMIN, work)

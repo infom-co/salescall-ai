@@ -309,6 +309,25 @@ class Materials(SettleBase):
         self.tx(t, lambda tx: conversation_io.save_report(tx, bid, rep().to_json()))
         self.assertNotIn("offer_fact", self.tx(t, lambda tx: conversation_io.earlier(tx, t["task"]))["Q1"])   # 申し出を伺っていない
 
+    def test_earlier_answers_carry_the_whole_fact_as_written(self):
+        """CL-1 の連絡帳 4-195 の (d)：前の通話の答えに、その質問について、ご案内全体をほかの会社に頼んでいると言われて残りの業務の質問を伺わなかった事実
+        （会話の報告の elsewhere_whole）を、報告に書く形のまま（"whole_fact"＝`EndedOn.to_json`）。ほかの質問の事実は入れない。無ければ鍵ごと入れない。続きの
+        電話の始めに「前回お伺いした…」と伺わないため・同じ方なら残りの業務の質問を伺わないため（読み方は会話の側の flowctl.earlier_whole の1か所）。"""
+        import dataclasses
+        s = self.ready()
+        aid = self.answered(s)
+        self.write(s, aid, ItemValue("Q1", "accepted", "答えた", "答えた"))
+        whole = call_report.EndedOn(4, "全部ほかの会社にお願いしています。", "Q1", "答えた", ("Q2",))
+        self.tx(s, lambda tx: conversation_io.save_report(tx, aid, dataclasses.replace(rep(), whole=whole).to_json()))
+        placed = self.tx(s, lambda tx: tx.one("SELECT report FROM salescall.call_reports WHERE attempt_id = %s", (aid,)))["report"]["facts"]
+        got = self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))
+        self.assertEqual(got["Q1"]["whole_fact"], placed["elsewhere_whole"][0])   # 置いた報告の形のまま
+        t = self.ready()
+        bid = self.answered(t)
+        self.write(t, bid, ItemValue("Q1", "accepted", "答えた", "答えた"))
+        self.tx(t, lambda tx: conversation_io.save_report(tx, bid, rep().to_json()))
+        self.assertNotIn("whole_fact", self.tx(t, lambda tx: conversation_io.earlier(tx, t["task"]))["Q1"])   # その事実が無い
+
     def test_answers_the_new_person_did_not_carry_are_dropped_from_earlier_answers(self):
         """CL-1 の連絡帳 4-141 の (a)（✅ 2026-11-12 日本時間19時32分21秒 ユーザー「1はウ（候補(1)）」）：担当の方が替わった電話で、新しい方に前の担当の方からお話を
         聞いているかを伺った答え（事実 carried）のあと、次の電話の前の通話の答えからは、引き継がなかった（kept が偽）なら前の方の答えを全部・引き継いだ（kept が真）

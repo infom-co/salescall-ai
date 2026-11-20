@@ -192,6 +192,66 @@ def _blocked(tx: Tx, task_id: UUID, version_no: int) -> bool:
     return tx.one("SELECT salescall.release_blocked(%s, %s) AS b", (task_id, version_no))["b"]
 
 
+# 確定していない結果の、行ごとのいちばん新しい版の分け方（1か所。l＝salescall.latest_task_results。画面の一覧 `results_to_check` と数 `unconfirmed_counts`
+# が同じ式を読む＝CL-3 の 29 の (a)。⛔ 前は画面が同じ式を組み直していた）：
+# - 確かめ待ち（検証モードで、契約者の確かめを待つ）：システムが判定した版・判定できないでない・検証モードでかけた版・確定の印が無い・印を付けられる
+# - 決定待ち（取り消せない決定・あとの通話を待つ＝印を付けられない）・判定できない（判定し直しを待つ）
+_UNRELEASED = "NOT EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = l.task_id AND x.version_no = l.version_no)"
+_AWAITING_CHECK = ("l.kind::text = ANY(%(system_kinds)s) AND l.business_state::text <> 'unknown'"
+                   " AND salescall.version_in_verification(l.task_id, l.version_no) AND " + _UNRELEASED +
+                   " AND NOT salescall.release_blocked(l.task_id, l.version_no)")
+_BLOCKED = _UNRELEASED + " AND l.business_state::text <> 'unknown' AND salescall.release_blocked(l.task_id, l.version_no)"
+_UNKNOWN = _UNRELEASED + " AND l.business_state::text = 'unknown'"
+
+
+def results_to_check(tx: Tx, *, task_id: UUID | None = None, run_id: UUID | None = None) -> list[dict[str, Any]]:
+    """契約者の確かめを待っている結果（検証モード）：[{task_id, version_no, business_state, decided_at}]（判定した順）。task_id・run_id で絞れる。
+    確かめは `approve_result`（この結果でよい）・`correct_result`（直す）。"""
+    return tx.all("SELECT l.task_id, l.version_no, l.business_state::text AS business_state, l.decided_at FROM salescall.latest_task_results l"
+                  " JOIN salescall.tasks t ON t.task_id = l.task_id"
+                  " WHERE " + _AWAITING_CHECK + " AND (%(task)s::uuid IS NULL OR l.task_id = %(task)s::uuid)"
+                  "   AND (%(run)s::uuid IS NULL OR t.run_id = %(run)s::uuid) ORDER BY l.decided_at, l.task_id",
+                  {"system_kinds": list(measure.SYSTEM_KINDS), "task": task_id, "run": run_id})
+
+
+def unconfirmed_counts(tx: Tx, *, business_id: UUID | None = None) -> dict[str, int]:
+    """確定していない結果の数（業務で絞れる。None＝依頼者のすべての業務）：awaiting_check（確かめ待ち）・blocked（決定待ち）・unknown（判定できない）。
+    3つは重ならない（`results_to_check` と同じ式）。"""
+    return tx.one("SELECT count(*) FILTER (WHERE " + _AWAITING_CHECK + ") AS awaiting_check,"
+                  "       count(*) FILTER (WHERE " + _BLOCKED + ") AS blocked, count(*) FILTER (WHERE " + _UNKNOWN + ") AS unknown"
+                  " FROM salescall.latest_task_results l JOIN salescall.tasks t ON t.task_id = l.task_id"
+                  " WHERE %(biz)s::uuid IS NULL OR t.run_id IN (SELECT run_id FROM salescall.runs WHERE business_id = %(biz)s::uuid)",
+                  {"system_kinds": list(measure.SYSTEM_KINDS), "biz": business_id})
+
+
+def correctable(tx: Tx, task_id: UUID) -> int | None:
+    """その行の結果を、契約者が直せるか（直せる版の番号か None。1か所＝直す `correct_result` と同じ確かめ `_correctable`。CL-3 の 29 の (c)）：
+    いちばん新しい版が、システムが判定した版で、確定の印を付けられる版。"""
+    r = results.latest(tx, task_id)
+    if r is None:
+        return None
+    try:
+        _correctable(tx, task_id, r["version_no"])
+    except (LookupError, ValueError):
+        return None
+    return r["version_no"]
+
+
+def _correctable(tx: Tx, task_id: UUID, version_no: int) -> dict[str, Any]:
+    """直してよい版か（1か所。`correct_result`・`correctable`）：システムが判定した版（決まりは measure の1か所）で、確定の印を付けられる版。
+    直せなければ LookupError・ValueError（何も書かない）。直してよければ、その版を返す。"""
+    v = tx.one("SELECT kind::text AS kind, attempt_id, business_state::text AS business_state, complaint, detail, snapshot"
+               " FROM salescall.task_results WHERE task_id = %s AND version_no = %s", (task_id, version_no))
+    if v is None or v["kind"] not in measure.SYSTEM_KINDS:
+        raise LookupError(f"直すのは、システムが判定した結果の版です：{task_id} の版 {version_no}")
+    if _blocked(tx, task_id, version_no):
+        # 確定の印を付けられない版（取り消せない決定がまだ決まっていない・あとの通話の結果がある・その通話の新しい版がある）は、直して
+        # 確定しない（保留を、結果を直す道で越えない＝承認・差し戻しで答える。古い画面の版を直して、新しい結果を上書きしない＝0161）
+        raise ValueError(f"その版は直して確定できません（取り消せない決定がまだ決まっていない・あとの通話の結果がある・その通話の新しい版が"
+                         f"ある）：{task_id} の版 {version_no}")
+    return v
+
+
 def approve_result(tx: Tx, task_id: UUID, version_no: int) -> None:
     """契約者の承認：契約者が、その結果の版を確かめて「送ってよい」にする。システムが判定した版なら、判定どおりが正解。確定の印を付け
     られない版（`_blocked`）は断る（ValueError）。"""
@@ -214,15 +274,7 @@ def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_stat
     ⛔ 2026-11-16 の4回目の見直しまで：契約者の版はどの通話の直しかを持たず（データベースが版の番号の並びから推し量り、前の通話の直しを、あとの
     通話の結果として読みえた）、行の次の動きも変えなかった（「断られた」に直しても、そのお客様へかけ続けた）。"""
     from salescall.core import judge, settle   # 締めの部品がこの部品を読むので、ここで読む（読み合いにしない）
-    v = tx.one("SELECT kind::text AS kind, attempt_id, business_state::text AS business_state, complaint, detail, snapshot"
-               " FROM salescall.task_results WHERE task_id = %s AND version_no = %s", (task_id, checked_version))
-    if v is None or v["kind"] not in measure.SYSTEM_KINDS:   # システムが判定した版（決まりは measure の1か所）
-        raise LookupError(f"直すのは、システムが判定した結果の版です：{task_id} の版 {checked_version}")
-    if _blocked(tx, task_id, checked_version):
-        # 確定の印を付けられない版（取り消せない決定がまだ決まっていない・あとの通話の結果がある・その通話の新しい版がある）は、直して
-        # 確定しない（保留を、結果を直す道で越えない＝承認・差し戻しで答える。古い画面の版を直して、新しい結果を上書きしない＝0161）
-        raise ValueError(f"その版は直して確定できません（取り消せない決定がまだ決まっていない・あとの通話の結果がある・その通話の新しい版が"
-                         f"ある）：{task_id} の版 {checked_version}")
+    v = _correctable(tx, task_id, checked_version)   # 直してよい版か（`correctable` と同じ1か所）
     judge.corrected(business_state, complaint, detail, base_state=v["business_state"], base_detail=v["detail"])   # 直しの形を先に確かめる（何も書かない）
     # 違っていた項目（質問の番号）は、直しの元として版に残す（その答えは使わず、次の電話で伺い直す＝conversation_io._dropped_by_correction。正解の測りにも）
     version_no = settle.follow_correction(tx, v["attempt_id"], {"business_state": business_state, "complaint": complaint,

@@ -78,7 +78,7 @@ class Ledger(unittest.TestCase):
         for sql in ("UPDATE salescall.notification_events SET summary = 'y' WHERE event_key = %s",
                     "DELETE FROM salescall.notification_events WHERE event_key = %s"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
-                own.in_system(OPERATOR, lambda tx: tx.execute(sql, (key,)))
+                own.in_system(ADMIN, lambda tx: tx.execute(sql, (key,)))
 
 
 class Emitters(unittest.TestCase):

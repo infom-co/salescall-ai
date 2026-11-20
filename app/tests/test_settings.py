@@ -77,10 +77,48 @@ class Shapes(unittest.TestCase):
                            # その日はかけない・間隔の形（0215・0216）と、幅の約束の1日の回数は1以上
                            ("gate.same_number_gap", "never"), ("gate.same_number_gap", {"hours": 0}),
                            ("gate.same_number_gap", {"days": 1, "hours": 1}), ("gate.same_number_gap", 3600),
-                           ("callback.window_daily_max", 0), ("callback.window_daily_max", "3")]:
+                           ("callback.window_daily_max", 0), ("callback.window_daily_max", "3"),
+                           # チャットワークの部屋（0253）：数字だけの文字か null
+                           ("notify.admin_chatwork_room", 12345), ("notify.admin_chatwork_room", "rid12345"),
+                           ("notify.admin_chatwork_room", ""), ("notify.admin_sms_to", "09012345678")]:
             with self.subTest(key=key, value=value), self.assertRaises(Rejected):
                 sys_tx(lambda tx: settings.set_system_value(tx, key, value, status="provisional",
                                                             rationale="試験", review_when="試験"))
+
+    def test_notice_destinations_are_a_number_a_room_or_none_and_chatwork_is_a_channel(self):
+        """知らせの送り先（0253。CL-3 の 11）：番号はそろえた番号、部屋は数字だけの文字、どちらも まだ無い（null）でもよい。送り方の記録に
+        「chatwork」を書ける（0252。CL-3 の 10）。"""
+        for key, value in (("notify.admin_sms_to", "+819012345678"), ("notify.admin_chatwork_room", "123456789"),
+                           ("notify.admin_chatwork_room", None), ("notify.admin_sms_to", None)):
+            with self.subTest(key=key, value=value):
+                sys_tx(lambda tx: settings.set_system_value(tx, key, value, status="provisional", rationale="試験", review_when="試験"))
+        got = sys_tx(lambda tx: tx.one("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint"
+                                       " WHERE conname = 'notification_deliveries_channel_check'"))["d"]
+        self.assertIn("chatwork", got)
+
+    def test_notice_send_hours_are_per_tenant_and_tries_are_at_least_one(self):
+        """知らせを送ってよい時間（0253。CL-3 の 52）：初めの値は毎日8〜22時（祝日も同じ。✅ 2026-11-19 管理者＝決まった値）・契約者ごとに
+        変えられる（契約者の値が勝つ）・依頼者や業務では決められない。送ってみる回数は1より少なくできない（0 は、どの知らせも送れない。枠 notify.max_tries_floor の内側に収める）。"""
+        every_day = {d: [["08:00", "22:00"]] for d in ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")}
+        self.assertEqual(sys_tx(lambda tx: settings.initial_value(tx, "notify.send_hours")), every_day)
+        self.assertNotIn("notify.send_hours", {r["key"] for r in sys_tx(settings.provisional)})
+        w = World()
+        t, other = w.tenant(), w.tenant()
+        mine = {**every_day, "sat": [], "sun": [], "holiday": [], "mon": [["09:00", "18:00"]]}
+        w.a.in_tenant(OPERATOR, t, lambda tx: settings.set_value(
+            tx, "notify.send_hours", mine, scope="tenant", status="decided", rationale="試験", review_when="試験", tenant_id=t))
+        read = lambda tenant: w.a.in_tenant(SYSTEM, tenant, lambda tx: settings.resolve(
+            tx, "notify.send_hours", tenant_id=tenant, client_id=None, business_id=None))
+        self.assertEqual((read(t), read(other)), (mine, every_day))
+        c = w.client(t)
+        with self.assertRaises(Rejected):   # 依頼者では決められない（いちばん細かいのは契約者）
+            put(w, t, c, "notify.send_hours", mine)
+        for key in ("notify.max_tries_sms", "notify.max_tries_chatwork"):
+            w.a.in_tenant(OPERATOR, t, lambda tx: settings.set_value(
+                tx, key, 0, scope="tenant", status="decided", rationale="試験", review_when="試験", tenant_id=t))
+            got = w.a.in_tenant(SYSTEM, t, lambda tx: settings.resolve_detail(tx, key, tenant_id=t, client_id=None, business_id=None))
+            with self.subTest(key=key):   # 枠の内側に収める（画面には「枠で止まった」＝bounded_by）
+                self.assertEqual((got["value"], got["bounded_by"]), (1, "notify.max_tries_floor"))
 
     def test_a_phone_is_the_normalized_number_or_none(self):
         """テスト番号（0133・0134）：そろえた番号（E.164）か、まだ無い（null）。契約者ごとに入れる。"""
@@ -131,12 +169,13 @@ class SystemValuesByAdmin(unittest.TestCase):
 
     def test_only_admin(self):
         a = World().a
-        for actor in (OPERATOR, SYSTEM):
+        for actor, why in ((OPERATOR, "scope_person"),   # 契約者は、全体の取引を開くこともできない（0251）
+                           (SYSTEM, "system_values_by_admin")):
             with self.subTest(actor=actor.kind), self.assertRaises(Rejected) as e:
                 a.in_system(actor, lambda tx: settings.set_system_value(tx, "gate.denied_retry_wait", 300,
                                                                       status="provisional", rationale="試験",
                                                                       review_when="試験"))
-            self.assertEqual(e.exception.constraint, "system_values_by_admin")
+            self.assertEqual(e.exception.constraint, why)
         from decimal import Decimal
         from salescall.core import usage
         with self.assertRaises(Rejected):

@@ -154,6 +154,16 @@ def verify_pending(ctx: Context) -> None:
     ctx.part(ctx.cfg.verifier).run_pending(ctx.access, ACTOR, tenant_id=ctx.tenant_id)
 
 
+def notices(ctx: Context) -> None:
+    """契約者あての知らせを送る（CL-3 の部品。送る順・文・送り直し・記録は部品の中の1か所。CL-3 の 4）。"""
+    ctx.part(ctx.cfg.notice_sender).deliver(ctx.access, ACTOR, ctx.tenant_id)
+
+
+def admin_notices(ctx: Context) -> None:
+    """管理者あての知らせを送る（全体の取引で。部品は契約者あてと同じ）。"""
+    ctx.part(ctx.cfg.notice_sender).deliver(ctx.access, ACTOR, None)
+
+
 def verify_watch(ctx: Context) -> None:
     """通話後の検証が止まっている通話に気づく（検証の部品の有無に関係なく動く＝検証の仕事とは別の仕事。CL-1 へ修正依頼）。"""
     _each(ctx, "通話後の検証の見張り", _clients(ctx),
@@ -352,6 +362,9 @@ JOBS: tuple[Job, ...] = (
     Job("system_lasting_stops", 300, "system", 600, system_lasting_stops),
     Job("whole_backup_watch", 3600, "system", 600, whole_backup_watch),
     Job("pc_watch", 60, "tenant", 300, pc_watch),
+    # 知らせを送る（CL-3 の部品。1分ごと＝緊急の知らせを遅らせない。送り先を待つので、ほかの担当の部品の流れの組で回す）
+    Job("notices", 60, "tenant", 300, notices, wanted=lambda cfg: cfg.notice_sender is not None, parts=True),
+    Job("admin_notices", 60, "system", 300, admin_notices, wanted=lambda cfg: cfg.notice_sender is not None, parts=True),
     Job("verify_watch", 600, "tenant", 300, verify_watch),
 )
 

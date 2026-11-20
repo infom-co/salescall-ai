@@ -271,6 +271,20 @@ class NotAsked(unittest.TestCase):
                                    "outcome": None}])
         self.assertNotIn("not_agreed", run().detail)
 
+    def test_callee_questions_are_returned(self):
+        """お客様からのご質問（事実 callee_question。CL-3 の連絡帳 4-1c の 51）：判定の中身で依頼者へ返す（言われた言葉・業務の情報で答えたか・
+        AI の答えた文）。目的のお客様だと確かめられなかった通話の方のご質問は返さない（伺った事実の1か所 `_asked`）。"""
+        from salescall.core.call_report import CalleeQuestion, OwnWords, Said
+        r = replace(report(), callee_questions=(CalleeQuestion(True, Said(3, "料金はいくらですか？"), OwnWords(answer="月3千円です。")),
+                                                CalleeQuestion(False, Said(5, "工事は要りますか？"))))
+        self.assertEqual(run(rep=r).detail["callee_questions"],
+                         [{"said": "料金はいくらですか？", "answered": True, "answer": "月3千円です。"},
+                          {"said": "工事は要りますか？", "answered": False, "answer": None}])
+        self.assertNotIn("callee_questions", run().detail)
+        unsure = judge(JudgeInput(TALKED, r, TAKEN, RULES, callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False,
+                                  ask_if={}, target_unconfirmed=True))
+        self.assertNotIn("callee_questions", unsure.detail)
+
 
 class CutTable(unittest.TestCase):
     """7-1c（2026-10-14 ユーザー承認）を、2026-10-30 の管理者の指摘と決定の形に書き替えた：「声が届かないお客様が黙って切った通話を、

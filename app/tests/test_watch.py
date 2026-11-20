@@ -322,7 +322,7 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         for sql in ("UPDATE salescall.stop_checks SET ok = true WHERE stop_event_id = %s",
                     "DELETE FROM salescall.stop_checks WHERE stop_event_id = %s"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
-                own.in_system(OPERATOR, lambda tx: tx.execute(sql, (sid,)))
+                own.in_system(ADMIN, lambda tx: tx.execute(sql, (sid,)))
 
     def test_ear_errors_never_stop_calling_but_tell_the_administrator(self):
         """別の耳（通話後の検証）につながらなくても、発信は止めない（2026-10-17：止めるのはお客様に影響が出るときだけ。

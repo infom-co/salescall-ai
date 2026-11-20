@@ -15,7 +15,7 @@ from salescall.core.access import Access, Actor, Tx
 from salescall.core.gate import Claim
 from salescall.link.basics import load   # 部品の作り方は link.basics の1か所（PC の部品と同じ）
 
-__all__ = ["CallControl", "CallRunner", "Prober", "Verifier", "VersionChecker", "WriteFailed", "load"]
+__all__ = ["CallControl", "CallRunner", "NoticeSender", "Prober", "Verifier", "VersionChecker", "WriteFailed", "load"]
 
 
 class WriteFailed(Exception):
@@ -124,6 +124,19 @@ class Prober(Protocol):
     """停止を解く確かめの部品（会話AI＝CL-1・回線＝電話接続）。確かめた結果（うまくいったか・根拠の短い文）を返す。"""
 
     def probe(self, stop: dict[str, Any]) -> tuple[bool, str]: ...
+
+
+class NoticeSender(Protocol):
+    """契約者・管理者への知らせを送る部品（CL-3 の output/notices。2章 Q23 の送る側）。見守り役は、決まった間隔で、契約者ごとに1回と、管理者あてに
+    1回呼ぶだけ（CL-3 の連絡帳 4-1 の 4・4-1c の 52）。どの知らせを送るか（まだ届いていない知らせを1件ずつ＝`notices.deliver_event`・送る時刻が
+    来た、まとめる知らせを1通で＝`notices.deliver_bundle`）・送る順・文・送り直し・回数・記録・同時に1つだけ・送り先と送ってよい時間（設定
+    notify.*。読むのは output/notices.py の1か所＝checks/rules.py の SETTING_READERS）は、すべて部品の中の1か所。見守り役は設定を読まず、
+    回数も渡さない。送れなくても止めない（例外は、その回の仕事の失敗として記録し、次の回にまた呼ぶ）。"""
+
+    def deliver(self, access: Access, actor: Actor, tenant_id: UUID | None) -> Any:
+        """actor＝見守り役（ほかの部品と同じ1つの名前）。tenant_id＝その契約者あての知らせ（契約者の取引で）・None＝管理者あての知らせ（全体の
+        取引で）。"""
+        ...
 
 
 class VersionChecker(Protocol):

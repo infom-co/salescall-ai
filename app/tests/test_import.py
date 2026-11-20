@@ -19,7 +19,7 @@ from salescall.core import business_settings, conversation_io, customer_contacts
 from salescall.core.access import Rejected
 from salescall.core.import_files import read
 from salescall.core.phone import normalize
-from tests.support import OPERATOR, SYSTEM, World, ensure_rules, fictional_jp_fixed, owner_access
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, ensure_rules, fictional_jp_fixed, owner_access
 from tests.test_import_files import xlsx
 
 MAP = {"phone": "電話番号", "client_ref": "管理番号", "name": "会社名"}
@@ -301,7 +301,7 @@ class DatabaseGuards(Base):
                     "DELETE FROM salescall.import_rows WHERE import_id = %s",
                     "UPDATE salescall.imports SET file_name = 'x' WHERE import_id = %s"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
-                owner_access().in_system(OPERATOR, lambda tx: tx.execute(sql, (r["import_id"],)))
+                owner_access().in_system(ADMIN, lambda tx: tx.execute(sql, (r["import_id"],)))
 
     def test_other_clients_cannot_see_import_records(self):
         self.register(csv_file([("A", "1", fictional_jp_fixed())]))

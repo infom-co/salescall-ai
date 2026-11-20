@@ -27,7 +27,8 @@ class NameTaken(Refused):
 
 # 名前が同じかを守るデータベースの一意の約束（0248。比べるのは表記をそろえた形＝salescall.compare_form）→ 断りの文（言い換えはここだけ）
 _SAME_NAME = {"clients_same_name": "同じ名前の依頼者が、もうあります（全角と半角・空白の違いは同じ名前です）。別の名前にしてください",
-              "businesses_same_name": "この依頼者に、同じ名前の業務が、もうあります（全角と半角・空白の違いは同じ名前です）。別の名前にしてください"}
+              "businesses_same_name": "この依頼者に、同じ名前の業務が、もうあります（全角と半角・空白の違いは同じ名前です）。別の名前にしてください",
+              "client_groups_same_name": "同じ名前のグループが、もうあります（全角と半角・空白の違いは同じ名前です）。別の名前にしてください"}
 
 
 def _name(name: str) -> str:
@@ -83,7 +84,66 @@ def set_client_active(tx: Tx, active: bool, *, reason: str) -> None:
         tx.one("SELECT salescall.release_claims_in_scope('client', %s, %s, NULL)", (c["t"], c["c"]))
 
 
+# ═════════ 依頼者のグループ（契約者の取引で。画面の並べ方だけ＝分離・権限には使わない。0255・CL-3 の 15） ═════════
+def groups(tx: Tx) -> list[dict[str, Any]]:
+    """その契約者の依頼者のグループ（並び順）と、入っている依頼者：[{group_id, name, position, clients: [依頼者]}]。1つの依頼者が複数のグループに
+    入れる。どのグループにも入っていない依頼者は、画面が「グループなし」に並べる（ここでは返さない）。"""
+    rows = tx.all("WITH now_in AS (SELECT DISTINCT ON (x.group_id, x.client_id) x.group_id, x.client_id, x.member"
+                  "                FROM salescall.client_group_changes x ORDER BY x.group_id, x.client_id, x.seq DESC)"
+                  " SELECT g.group_id, g.name, g.position, coalesce(array_agg(m.client_id ORDER BY c.created_at, c.client_id)"
+                  "       FILTER (WHERE m.member), '{}') AS clients"
+                  " FROM salescall.client_groups g LEFT JOIN now_in m ON m.group_id = g.group_id"
+                  " LEFT JOIN salescall.clients c ON c.client_id = m.client_id WHERE g.removed_at IS NULL"
+                  " GROUP BY g.group_id, g.name, g.position ORDER BY g.position, g.name, g.group_id")
+    return [dict(r, clients=list(r["clients"])) for r in rows]
+
+
+def create_group(tx: Tx, name: str) -> UUID:
+    """グループを作る（いちばん後ろに並べる。管理者か契約者だけ＝データベースが守る。同じ名前は NameTaken）。"""
+    return _named(tx, "INSERT INTO salescall.client_groups (tenant_id, name, position)"
+                      " SELECT salescall.cur_tenant(), %s, coalesce(max(position), 0) + 1 FROM salescall.client_groups WHERE removed_at IS NULL"
+                      " RETURNING group_id",
+                  (_name(name),))["group_id"]
+
+
+def rename_group(tx: Tx, group_id: UUID, name: str) -> None:
+    _one(_named(tx, "UPDATE salescall.client_groups SET name = %s WHERE group_id = %s AND removed_at IS NULL RETURNING group_id",
+                (_name(name), group_id)),
+         "グループ", group_id)
+
+
+def move_group(tx: Tx, group_id: UUID, position: int) -> None:
+    """グループの並び順を変える（1 からの位置。ほかのグループは、詰めてずらす）。"""
+    ids = [r["group_id"] for r in tx.all("SELECT group_id FROM salescall.client_groups WHERE removed_at IS NULL ORDER BY position, name, group_id")]
+    if group_id not in ids:
+        raise LookupError(f"そのグループは無い（または、取引の範囲の外）：{group_id}")
+    ids.remove(group_id)
+    ids.insert(max(0, min(position - 1, len(ids))), group_id)
+    for n, g in enumerate(ids, start=1):
+        tx.execute("UPDATE salescall.client_groups SET position = %s WHERE group_id = %s AND position <> %s", (n, g, n))
+
+
+def remove_group(tx: Tx, group_id: UUID) -> None:
+    """グループをやめる（消さずに、やめた時刻を残す。入っていた依頼者は、そのまま＝依頼者のデータには触れない。同じ名前のグループを、また作れる）。"""
+    _one(tx.one("UPDATE salescall.client_groups SET removed_at = now() WHERE group_id = %s AND removed_at IS NULL RETURNING group_id",
+                (group_id,)), "グループ", group_id)
+
+
+def set_group_member(tx: Tx, group_id: UUID, client_id: UUID, member: bool) -> None:
+    """依頼者をグループに入れる・外す（足していく記録。いまの組は、いちばん新しい記録＝`groups`）。やめたグループには入れられない。"""
+    if tx.one("SELECT 1 FROM salescall.client_groups WHERE group_id = %s AND removed_at IS NULL", (group_id,)) is None:
+        raise LookupError(f"そのグループは無い（または、やめた・取引の範囲の外）：{group_id}")
+    tx.execute("INSERT INTO salescall.client_group_changes (tenant_id, group_id, client_id, member, set_by)"
+               " VALUES (salescall.cur_tenant(), %s, %s, %s, salescall.cur_actor())", (group_id, client_id, member))
+
+
 # ═════════ 業務・実施回（依頼者の取引で） ═════════
+def businesses(tx: Tx) -> list[dict[str, Any]]:
+    """その依頼者の業務の一覧（依頼者の下の業務のタブ＝CL-3 の 15）：[{business_id, name, created_at}]（作った順）。"""
+    return tx.all("SELECT business_id, name, created_at FROM salescall.businesses ORDER BY created_at, business_id")
+
+
+
 def create_business(tx: Tx, name: str) -> UUID:
     """取引の依頼者に、業務を作る（版は、業務設定を置いて作る＝business_settings.save_version・取込）。"""
     return _named(tx, "INSERT INTO salescall.businesses (tenant_id, client_id, name)"

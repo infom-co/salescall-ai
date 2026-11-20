@@ -89,6 +89,26 @@ class HumanApproval(Helpers):
         with self.assertRaises(LookupError):
             self.tx(s, lambda tx: approval.uncleared_in_run(tx, uuid4()))
 
+    def test_results_to_check_and_correctable_are_read_from_one_place(self):
+        """契約者の確かめを待つ結果の一覧と数（approval.results_to_check・unconfirmed_counts）・直せるか（approval.correctable）は、どれも1か所
+        （CL-3 の 29 の (a)(c)）：検証モードで判定した版は確かめ待ちで、直せる。この結果でよいとすれば確かめ待ちから外れる。直した版（契約者の版）は、
+        もう直す相手でない。"""
+        s = self.fresh(stage_cap=100)
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 2, None, evidence="試験"), OPERATOR)
+        self.human(s)
+        self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
+        self.verified_call(s, VerificationSummary(2, 0, 0), items=TAKEN)
+        waiting = lambda: [(r["task_id"], r["version_no"]) for r in self.tx(s, lambda tx: approval.results_to_check(tx, run_id=s["run"]))]   # noqa: E731
+        counts = lambda: self.tx(s, lambda tx: approval.unconfirmed_counts(tx, business_id=s["business"]))   # noqa: E731
+        self.assertEqual(waiting(), [(s["task"], 1)])
+        self.assertEqual(counts(), {"awaiting_check": 1, "blocked": 0, "unknown": 0})
+        self.assertEqual(self.tx(s, lambda tx: approval.correctable(tx, s["task"])), 1)
+        fixed = self.tx(s, lambda tx: approval.correct_result(tx, s["task"], checked_version=1, business_state="incomplete", wrong_items=["Q1"],
+                                                              complaint=False, snapshot={"理由": "試験"}), OPERATOR)
+        self.assertEqual((waiting(), counts()["awaiting_check"]), ([], 0))
+        self.assertIsNone(self.tx(s, lambda tx: approval.correctable(tx, s["task"])))     # 契約者の版（直した版）は直す相手でない
+        self.assertGreater(fixed, 1)
+
     def test_results_are_released_only_by_the_operator(self):
         s = self.fresh(stage_cap=100)
         self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 2, None, evidence="試験"), OPERATOR)

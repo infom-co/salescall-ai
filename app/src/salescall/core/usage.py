@@ -237,8 +237,13 @@ def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> None:
     day = tx.today()
     if state == UNKNOWN:
         # 報酬の決まりが無いのは設定の抜け（お客様には影響しない）：止めずに注意を知らせる（2026-10-16 ユーザー）
+        # 業務ごとの決まり（0256）：今月かけたのに決まりの無い業務があれば、その業務の名前を出す（報酬が足りずに数えられ、赤字を見誤るので判断しない）
+        missing = [r["name"] for r in tx.all("SELECT name FROM salescall.businesses WHERE business_id = ANY(%s) ORDER BY name",
+                                             (list(m["businesses_without_terms"]),))]
+        which = f"業務「{'」「'.join(missing)}」の" if missing else ""
         notify.emit(tx, "setting_missing", key=f"reward_terms_missing:{client_id}:{day}",
-                    summary=f"報酬の決まりが設定されていません（赤字かを判断できません。{figures}）", refs={"client_id": client_id})
+                    summary=f"{which}報酬の決まりが設定されていません（赤字かを判断できません。{figures}）",
+                    refs={"client_id": client_id, "business_ids": [str(b) for b in m["businesses_without_terms"]]})
         return None
     if state == DEFICIT:
         _deficit_step(tx, tenant_id, client_id)

@@ -75,7 +75,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-18.2+time-{spoken_time.VERSION}"   # 2026-11-18.2（7回目の見直し）：前の通話の答えで止めた「ここで終える」事実（ended_on の turn が無い）は、止めた答えがこの通話の担当の方の答え（判定の材料）にあるときだけ、伺わなかった質問を対象外に数える（_ended_skipped の1か所）
+JUDGE_VERSION = f"judge-2026-11-19.1+time-{spoken_time.VERSION}"   # 2026-11-19.1（CL-3 の連絡帳 4-1c の 51・CL-1 の連絡帳 4-193〜4-201）：判定の中身に、お客様からのご質問（callee_questions。伺った事実の1か所 `_asked` を通ったものだけ）・ご案内全体をほかの会社にと言われた事実（elsewhere_whole。伺わなかった質問は ended_on と同じ1か所で対象外）・決め手（elsewhere_point）・申し出の条件の recall。こちらの不具合で終えた通話の、繋がらなかった理由の無いものは「取れていない」（(8)）
+# 前の版：   # 2026-11-18.2（7回目の見直し）：前の通話の答えで止めた「ここで終える」事実（ended_on の turn が無い）は、止めた答えがこの通話の担当の方の答え（判定の材料）にあるときだけ、伺わなかった質問を対象外に数える（_ended_skipped の1か所）
 # 前の版：   # 2026-11-18.1（6回目の見直し・DESIGN.md 15-2 の853）：目的のお客様だと確かめられなかった通話の、こちらがかけ直す申し出（callback）も判定に使わない（offered＝_asked の1か所）・手短にの事実 brief で伺わなかったと書かれた質問でも、必須の質問は「伺っていない（対象外）」に数えない（必須の項目不足のまま）
 # 前の版：   # 2026-11-16.2（4回目の見直し (B)・DESIGN.md 7-1e）：目的のお客様だと確かめられなかった通話で伺った業務の事実（範囲外の求め・ご納得いただけなかった点・最終目的のお断り・伺っていない質問・ほかのご希望・申し出・引き継ぎ・手短に）を、判定にも依頼者へも使わない（_asked の1か所＝答えを使わない conversation_io._in_force と同じ決まり）
 # 前の版：   # 2026-11-16.1（CL-1 の連絡帳 4-173 の (3)・伺い31）：手短になら聞くと言われ、必須でも最終目的でもない質問を伺わなかった（会話の報告の事実 brief の skipped）を「伺っていない（対象外）」に数え（ended_on の skipped と同じ1か所＝CallReport.not_asked_by_talk）、その答え（brief）を判定の中身で依頼者へ返す
@@ -632,6 +633,15 @@ def _promise_offer(inp: JudgeInput) -> dict[str, Any] | None:
     return _callback(cb, when)
 
 
+def row_complaint(complaint: bool, not_reached: str | None) -> bool:
+    """その通話の苦情（怒っていた）が、依頼者のお客様の苦情か（1か所。苦情で行を終える＝next_action.decide_after_call・締めの処理の `_ends_row`、その方個人の
+    答えにする＝next_action.former_answer が読む）：お客様から伺った番号で別の方（番号違い）に繋がった通話（繋がらなかった理由 wrong_alternate）の苦情は、
+    依頼者のお客様の苦情ではない（その番号は番号違いとして止め、行は番号を伺い直して続ける）。苦情の印と知らせは、どの通話でも残す（判定の complaint のまま）。
+    ✅ 2026-11-16 ユーザー「行を終えるのは、怒った方がいまもお呼びする方のときだけ」。⛔ 2026-11-19 まで（CL-1 の連絡帳 4-205 の ⚠️）：番号違いの方の苦情でも、
+    依頼者のお客様の行を終え、番号を伺い直す電話がかからなかった。"""
+    return complaint and not_reached != "wrong_alternate"
+
+
 def _unknown(inp: JudgeInput, complaint: bool, detail: dict[str, Any], cause: str, error: str) -> Judgement:
     """判定できない（1か所）。会話の報告に約束の申し出があれば、中身に残す（`_promise_offer`）。断られたかは分かっているか
     （refusal_known＝`REFUSAL_KNOWN` の1か所）も残す（データベースの salescall.refusal_undecided が読む）。"""
@@ -682,16 +692,17 @@ def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item], report: "CallRep
 
 
 def _ended_skipped(report: "CallReport", items: dict[str, Item]) -> tuple[str, ...]:
-    """ここで電話を終える答えで伺わなかった質問（事実 ended_on の skipped。1か所＝`not_asked`・手短にの差し引きが読む）。前の通話の答えで止めた
+    """会話の側が、ある質問の答えで残りの業務の質問を伺わなかった質問（1か所＝`not_asked`・手短にの差し引きが読む）：ここで電話を終える答え（事実 ended_on）と、
+    ご案内全体をほかの会社に頼んでいると言われた答え（事実 elsewhere_whole。同じ形＝CL-1 の連絡帳 4-193 の (a)）の skipped。前の通話の答えで止めた
     （turn が無い）ときは、止めた答えが、この通話の判定の材料の答え（その通話の担当の方の答え＝conversation_io._in_force の1か所。前の担当の方・
     引き継ぎを確かめる前の答えは入らない）にあるときだけ（⛔ 2026-11-18 の7回目の見直しまで：新しい担当の方への電話でも、前の担当の方の「ここで終える」
     答えで伺わなかった質問を対象外に数え、新しい担当の方と一度も話さないまま「完了」になりえた）。"""
-    e = report.ended_on
-    if e is None:
-        return ()
-    if e.turn is None and (e.question not in items or items[e.question].state not in ANSWERED):
-        return ()
-    return e.skipped
+    out: list[str] = []
+    for e in (report.ended_on, report.whole):
+        if e is None or (e.turn is None and (e.question not in items or items[e.question].state not in ANSWERED)):
+            continue
+        out.extend(q for q in e.skipped if q not in out)
+    return tuple(out)
 
 
 def _asked(inp: JudgeInput) -> CallReport | None:
@@ -743,12 +754,25 @@ def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, 
                if (rows := [{"question": o.question, "agreed": o.agreed, "way": o.way, "means": o.means, "via": o.via, "contact": o.contact,
                              "outcome": o.outcome, "terms": o.terms, "topic": o.topic, "added": o.added, "said": o.evidence.said}
                             for o in offers if o.kind == kind])},
-            **({"offer_terms": [{"question": t.question, "terms": t.terms, "topic": t.topic, "added": t.added, "said": t.evidence.said}
-                                for t in terms]} if terms else {}),
+            # recall＝こちらがかけ直す申し出の役目の名前（業務の申し出の質問なら None＝question がその番号。CL-1 の連絡帳 4-201）
+            **({"offer_terms": [{"question": t.question, "recall": t.recall, "terms": t.terms, "topic": t.topic, "added": t.added,
+                                 "said": t.evidence.said} for t in terms]} if terms else {}),
             **({"carried": [_carried_detail(inp, c) for c in carried]} if carried else {}),
+            # お客様からのご質問（事実 callee_question。計画書 11-3「お答えできなかったお客様からのご質問は必ず載せる」・CL-3 の 51）：said＝お言葉・
+            # answered＝業務の情報で答えた true／答えを持っていなかった false／答えに添えられた質問 None・answer＝会話AIが応えた文か None。伺った事実の
+            # 1か所 `_asked` を通ったものだけ（目的のお客様だと確かめられなかった通話の方の言葉は、依頼者へ渡さない）
+            **({"callee_questions": [{"said": q.evidence.said, "answered": q.answered, "answer": q.own.answer} for q in questions]}
+               if (questions := asked.callee_questions if asked is not None else ()) else {}),
             # 手短になら聞くと言われ、かけ直さずに続けた答えと伺わなかった質問（事実 brief。CL-1 の連絡帳 4-173 の (3)。伺わなかった質問は not_asked にも入る）
             **({"brief": {"answer": brief.answer, "skipped": list(brief.skipped), "said": brief.evidence.said}}
-               if (brief := asked.brief if asked is not None else None) is not None else {})}
+               if (brief := asked.brief if asked is not None else None) is not None else {}),
+            # ご案内全体をほかの会社に頼んでいると言われ、残りの業務の質問を伺わなかった（事実 elsewhere_whole。CL-1 の連絡帳 4-193 の (a)。伺わなかった質問は
+            # not_asked にも入る＝`_ended_skipped` の1か所）
+            **({"elsewhere_whole": {"question": whole.question, "answer": whole.answer, "skipped": list(whole.skipped), "said": whole.said}}
+               if (whole := asked.whole if asked is not None else None) is not None else {}),
+            # ほかの会社をお選びになった決め手（事実 elsewhere_point。CL-1 の連絡帳 4-195 の (b)）
+            **({"elsewhere_point": [{"question": c.question, "point": c.point, "said": c.evidence.said} for c in points]}
+               if (points := asked.choice_points if asked is not None else ()) else {})}
 
 
 def _carried_detail(inp: JudgeInput, c: call_report.Carried) -> dict[str, Any]:
@@ -858,6 +882,10 @@ def _business(inp: JudgeInput) -> Judgement:
         # again＝あとでまたかけてよいと言われたか（取り次げなかったときだけ。読むのは call_report の1か所。確かめ直しで目的の
         #   お客様だと確かめられなかった通話は、聞いていないので False）。約束の電話で当日の幅の中でかけ直すかを、次の動きが決める
         nr, again = unreached_today(inp)
+        if nr is None and inp.facts.end_state == "technical_error":
+            # こちらの不具合で終えた通話（会話AIの不具合・お呼びする段の4回目の「声が聞き取れない」など）は、会話の側が繋がらなかった理由を書かない
+            # （CL-1 の連絡帳 4-197 の (d)）：途中で切れた通話として、答えの段で切れた通話と同じ (10)（取れていない＝`cut_off` でお詫びとともにかけ直す）
+            return done("incomplete", missing=missing, policy_key="incomplete")
         if nr is None:
             return unknown("not_reached_reason_missing", "目的のお客様に繋がらなかった理由がありません")
         key = "not_reached_not_transferred" if inp.target_unconfirmed else _unreached_key(r)

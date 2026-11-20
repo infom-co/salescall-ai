@@ -295,7 +295,7 @@ def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
 # 前の通話で取れた答えの項目のうち、値のあるときだけ渡すもの（`earlier`。state・value・condition は無くても渡す）
 # 前の通話の答えで、値が無ければ入れない項目（入れないこと自体が意味を持つ＝言い切っていた・その質問の事実が無い・繋いだ事実が無い。会話の側の
 # flowctl.earlier_fact は無い鍵と null を同じに読むが、渡す形をそろえる）
-_EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact", "who", "offer_fact")
+_EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact", "who", "offer_fact", "whole_fact")
 
 
 def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None, took_by: dict[str, UUID] | None = None) -> dict[str, dict[str, Any]]:
@@ -318,6 +318,9 @@ def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None, took_by: dict[
     - "offer_fact"：同じ通話の報告の、業務の申し出の事実 handoff・close_offer のうち、その質問（ご承認の質問）の最後の1つを、報告に書く形のまま
       （`Offer.to_json`。種類は入れない）。無ければ入れない。申し出で伺った連絡先を、続きの電話で重ねて伺わないため（読み方は会話の側の
       flowctl.earlier_records の1か所。CL-2 の連絡帳 4-370 の (4)・CL-1 の連絡帳 4-138 の (4)）。
+    - "whole_fact"：同じ通話の報告の、ご案内全体をほかの会社に頼んでいると言われて残りの業務の質問を伺わなかった事実 elsewhere_whole が、その質問のもの
+      なら、報告に書く形のまま（`EndedOn.to_json`）。無ければ入れない。続きの電話の始めに、ほかのご希望・ご納得いただけなかった点を「前回お伺いした…」と
+      伺わないため・同じ方なら残りの業務の質問を伺わないため（読み方は会話の側の flowctl.earlier_whole の1か所。CL-1 の連絡帳 4-195 の (d)）。
     **担当の方が替わった電話で、前の担当の方の答えを使わないことにした答えは入れない**（CL-1 の連絡帳 4-141 の (a)＝✅ 2026-11-12 日本時間19時32分21秒
     ユーザー「1はウ（候補(1)）」）・**ほかの担当の方の答えは入れない**（✅ 2026-11-16 ユーザー「担当の方ごとに持つ（お勧め）」）：決まりは `_in_force` の1か所。
     外さないと、その電話が途中で切れたとき、次の電話で新しい方に前の方の答えのまま伺う（「前回お伺いした件でご納得いただけなかった点は…」）。
@@ -338,7 +341,8 @@ def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None, took_by: dict[
                 "hedged": judge.hedged_words(r["state"], r["hedged"]),
                 "wish_fact": h.wish.to_json() if h.wish is not None else None,
                 "point_fact": h.point.to_json() if h.point is not None else None,
-                "who": h.who, "offer_fact": h.offer.to_json() if h.offer is not None else None}
+                "who": h.who, "offer_fact": h.offer.to_json() if h.offer is not None else None,
+                "whole_fact": h.whole.to_json() if h.whole is not None else None}
         out[q] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
         if took_by is not None:
             took_by[q] = r["attempt_id"]
@@ -364,6 +368,7 @@ class _Held:
     wish: call_report.OtherWish | None = None
     point: call_report.NotAgreed | None = None
     offer: call_report.Offer | None = None
+    whole: call_report.EndedOn | None = None   # ご案内全体をほかの会社にと言われた事実（elsewhere_whole。その質問のものだけ）
     # その期の方の答えか：その期の通話で取った・その期の担当の方が引き継ぎを確かめた（通話の事実 carried の kept）答えは真。新しい期が前の期から
     # 引き継いだばかりの答えは偽（会話へは前の通話の答えとして渡す＝引き継ぎを確かめる一言を伺うため。判定の材料 `answers` には入れない）
     own: bool = True
@@ -379,7 +384,7 @@ def _in_force(tx: Tx, task_id: UUID, *, call: UUID | None = None, including: boo
     - 通話（その通話の担当の期＝attempts.person_since の答えに入れる）：その通話で引き継ぎを確かめた答え（通話の事実 carried）で使わないことにした答え
       （`_dropped_by_carried`＝引き継がなければ、それより前の答え全部・引き継いだら dropped の質問）を外し、残った答えをその方の答えにし（引き継いだ）、
       その通話の答えを入れ、その期の答えごとに、
-      その通話のその質問の事実（ほかのご希望・ご納得いただけなかった点・業務の申し出）を最後のものにする。目的のお客様だと確かめられなかった通話
+      その通話のその質問の事実（ほかのご希望・ご納得いただけなかった点・業務の申し出・ご案内全体をほかの会社にと言われた事実）を最後のものにする。目的のお客様だと確かめられなかった通話
       （データベースの salescall.call_unconfirmed の1か所）は、何も入れず何も外さない（別の方の答え・確かめていない答えを使わない）。
     call＝その通話の期の答えを、その通話より前の通話（including が真なら、その通話まで）だけをたどって返す（その通話を始めたときに会話へ渡す答え＝
     `earlier`・その通話の判定の材料＝`answers`。あとで締め直しても、もとの判定と同じ答え）。無ければ、いまの期（salescall.task_person_since）の、いままでの
@@ -426,7 +431,8 @@ def _in_force(tx: Tx, task_id: UUID, *, call: UUID | None = None, including: boo
             for q, h in state.items():
                 state[q] = replace(h, wish=next((x for x in reversed(report.other_wishes) if x.question == q), h.wish),
                                    point=next((x for x in reversed(report.not_agreed) if x.question == q), h.point),
-                                   offer=next((x for x in reversed(report.offers) if x.question == q), h.offer))
+                                   offer=next((x for x in reversed(report.offers) if x.question == q), h.offer),
+                                   whole=report.whole if report.whole is not None and report.whole.question == q else h.whole)
     return held.get(period, {})
 
 
@@ -475,7 +481,21 @@ def handlings(tx: Tx, version_id: UUID, question_id: str) -> dict[tuple[str, str
 
 
 # 会話の処理が読む設定（持ち主 CL-1 の会話の決まり。値を持つのは設定の表の1か所。範囲は、その通話の業務）
-CALL_SETTING_PREFIXES = ("call.", "conversation.")
+def call_dates(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
+    """その通話の会話へ渡す日と時刻（1か所。会話の側の Flow(earliest_day=…, today=…, now=…, call_days=…) にそのまま渡す形＝CL-1 の連絡帳 4-71 の (c)・4-192 の
+    (d) の (2)）：最短の日と電話の日（業務設定の `business_settings.day_of_call`）・その電話をかけた時刻（予約した時刻の日本時間＝`calling_hours.local`）・その業務が
+    電話をかけられる日（`gate.call_days`＝かけてよい時間帯と祝日の暦の1か所）。暦の範囲の外は `calendar.CalendarOutOfRange`（その電話は始めない）。"""
+    from salescall.core import calling_hours, gate   # 門が会話の入口より上の部品を読むので、ここで読む（読み合いにしない）
+    a = tx.one("SELECT a.version_id, a.claimed_at, t.tenant_id, t.client_id, r.business_id FROM salescall.attempts a"
+               " JOIN salescall.tasks t ON t.task_id = a.task_id JOIN salescall.runs r ON r.run_id = t.run_id WHERE a.attempt_id = %s",
+               (attempt_id,))
+    if a is None:
+        raise AttemptNotFound(attempt_id)
+    return {**business_settings.day_of_call(tx, a["version_id"], a["claimed_at"]), "now": calling_hours.local(a["claimed_at"]),
+            "call_days": gate.call_days(tx, a["claimed_at"], tenant_id=a["tenant_id"], client_id=a["client_id"], business_id=a["business_id"])}
+
+
+CALL_SETTING_PREFIXES = ("call.", "conversation.", "callee.")   # callee.＝お客様の営業時間・歯止め時間（会話の側の instruction.CALL_SETTINGS。CL-1 の連絡帳 4-199）
 
 
 def call_setting(tx: Tx, attempt_id: UUID, key: str) -> Any:

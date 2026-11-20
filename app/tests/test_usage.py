@@ -140,7 +140,7 @@ class PricesPerContractor(Priced):
 class Budget(Priced):
     def ample(self, s):
         """赤字で止まらないよう、十分な月額の報酬を入れる（1日の上限だけを確かめる）。"""
-        self.tx(s, lambda tx: reward.set_terms(tx, reward.Terms(monthly_yen=Decimal(10 ** 12), deficit_caution="normal"),
+        self.tx(s, lambda tx: reward.set_terms(tx, s["business"], reward.Terms(monthly_yen=Decimal(10 ** 12), deficit_caution="normal"),
                                                valid_from=tx.one("SELECT now() - interval '40 days' AS t")["t"],
                                                note="試験"), OPERATOR)
 
@@ -195,7 +195,7 @@ class CostRatio(Priced):
     2026-10-22 深夜 ユーザー：「止めない。知らせるだけでいい」）。"""
     def terms(self, s, *, days_ago=1, gap=None, caution="normal", **yen):
         return self.tx(s, lambda tx: reward.set_terms(
-            tx, reward.Terms(**{k: Decimal(v) for k, v in yen.items()}, hourly_gap_seconds=gap,
+            tx, s["business"], reward.Terms(**{k: Decimal(v) for k, v in yen.items()}, hourly_gap_seconds=gap,
                              deficit_caution=caution),
             valid_from=tx.one("SELECT now() - %s * interval '1 day' AS t", (days_ago,))["t"], note="試験"), OPERATOR)
 
@@ -218,6 +218,34 @@ class CostRatio(Priced):
     def client_stops(self, s):
         return [r["cause"] for r in self.tx(s, lambda tx: stops.open_stops(tx, tenant_id=s["tenant"], client_id=s["client"],
                                                                           business_id=None))]
+
+    def test_reward_terms_are_per_business_and_a_business_called_without_terms_is_not_judged(self):
+        """報酬の決まりは業務ごと（0256。✅ 2026-11-18 管理者「報酬の決まりは『業務』ごと」・CL-3 の 16）：かけた1本の単価は、その電話の業務の決まり。
+        今月の数は依頼者ごとに合わせる。今月かけたのに決まりの無い業務があれば、赤字を判断しない（報酬が足りずに数えられるため）で、その業務の
+        名前を出して知らせる。"""
+        s = self.ready()
+        self.terms(s, per_dial_yen=10, hourly_yen=1, gap=100)          # 時給の「電話と電話の間」も、その業務の決まり
+        b2, v2 = self.w.business_with_version(s["tenant"], s["client"])
+        r2 = self.w.run(s["tenant"], s["client"], b2, v2)
+        s2 = dict(s, business=b2, version=v2, run=r2, task=self.w.task(s["tenant"], s["client"], r2, s["contact"]))
+        self.call(s)
+        m = self.month(s)
+        self.assertEqual((m["breakdown"]["dial"]["yen"], m["has_terms"], m["businesses_without_terms"]), (Decimal(10), True, []))
+        aid = self.w.insert_claim(s2, version=v2)                       # 決まりの無い業務でかけた
+        for st in ("dialing", "ringing", "no_answer"):
+            self.w.move(s2, aid, st)
+        m = self.month(s)
+        self.assertEqual((m["breakdown"]["dial"]["yen"], m["has_terms"], m["businesses_without_terms"]), (Decimal(10), False, [b2]))
+        spans = self.tx(s, lambda tx: tx.one("SELECT sum(extract(epoch FROM ended_at - claimed_at)) AS v FROM salescall.attempts"
+                                             " WHERE ended_at IS NOT NULL")["v"])
+        self.assertEqual(m["breakdown"]["hourly"]["seconds"] - Decimal(spans), Decimal(100))   # 間は、決まりのある業務の電話だけ
+        self.spend(s, 1)
+        names = self.tx(s, lambda tx: [r["summary"] for r in tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE event_key LIKE %s", (f"reward_terms_missing:{s['client']}:%",))])
+        self.assertTrue(names and "架空の業務2" in names[-1], names)
+        self.terms(s2, per_dial_yen=7)
+        m = self.month(s)
+        self.assertEqual((m["breakdown"]["dial"]["yen"], m["has_terms"]), (Decimal(17), True))   # 業務ごとの単価で合わせる
 
     def test_the_cost_is_split_into_measured_and_estimated_by_the_same_count(self):
         """今月の費用の、実測と推定の内訳（reward.month の cost_by_kind。計画書 5-2・CL-3 の 23）：合計と同じ1つの問い合わせで数えるので、
