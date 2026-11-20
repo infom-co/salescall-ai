@@ -810,6 +810,18 @@ def ladder_topic_head(topic: str, body: str) -> str:
     """2択の文 body（頭のつなぎの言葉を外した文）の頭に、聞くこと topic の言葉を入れる唯一の場所（flowctl.ladder_opening）。"""
     noun = LADDER_TOPIC_TAIL.sub("", (topic or "").strip())
     return f"{noun}は{body.removeprefix(LADDER_HALF_HEAD)}" if noun else body
+
+
+# 日時の2択の片方だけを合わないと言われ、合わないと言わなかったほうで大丈夫そうなとき（flowctl.Flow._ladder_neither のエ）の、次の段の2択の頭：「それでは（避けなかった方）でしたら」
+# ＋次の2択の文（午前と午後の頭の「お時間は」は外す＝ladder_topic_head と同じ）。値の入る文＝会話AIの声。✅ 2026-11-20 日本時間16時25分52秒 ユーザー「伺い94：はもう一方で大丈夫そう
+# なら、エでいいし、もう一方では不安そうならウでしょ」（お見せしたエの文「承知しました。それでは火曜日でしたら午前と午後のどちらがよろしいでしょうか？」・頭の「承知しました。」は
+# 相づちの録音）
+LADDER_KEPT_HEAD = "それでは{kept}でしたら"
+
+
+def ladder_kept_head(kept: str, body: str) -> str:
+    """2択の文 body（頭のつなぎの言葉を外した文）の頭に「それでは（避けなかった方）でしたら」を入れる唯一の場所（flowctl.Flow._ladder_kept）。"""
+    return LADDER_KEPT_HEAD.format(kept=kept) + body.removeprefix(LADDER_HALF_HEAD)
 CALLBACK_ASK_RESUMED = {"not_agreed": "前回お伺いした件で" + CALLBACK_ASK["not_agreed"]}
 # ほかのご希望でご連絡の方法までは伺えて、その連絡先を伺う前に切れた電話の続き（前の通話の答えの "wish_means"＝flowctl.resumed_step）。✅ 2026-11-04 日本時間19時26分
 # ユーザー：「前回、選択いただいたLINEでのご連絡の件でLINEの連絡先を伺う前に切れてしまいましたので、恐れ入りますがLINEのIDをお伺いするか、SMSかメールからご招待する

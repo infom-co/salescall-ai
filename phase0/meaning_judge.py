@@ -23,7 +23,7 @@ import json
 
 from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
-                     restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices)
+                     restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices, LADDER_OTHER, LADDER_SIDE_TAIL, ladder_other_choices, ladder_sides)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -763,7 +763,7 @@ def used_sure(confs: dict | None, cond: str, away: bool = False) -> float | None
     if not confs:
         return None
     vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)
-            and (k != ABSENT_WHY or away)]
+            and (k != ABSENT_WHY or away) and (k != LADDER_OTHER or str(cond).endswith(LADDER_SIDE_TAIL))]
     return min(vals) if vals and all(isinstance(c, (int, float)) for c in vals) else None
 
 
@@ -823,8 +823,11 @@ def answer_items(q, asked: str | None = None) -> dict:
     # こちらがかけた電話番号が違うと伝えたか（WRONG）の番号違いの説明は、かけた番号がお呼びした方ご本人の電話か（判定に見せる質問の own_phone＝flowctl.Flow.for_judge の
     # 1か所）で替える（表 SIDE_ITEMS の既定は会社・お店の電話。ほかの項目・質問の文は変えない。分身 AC＝まとめ役 CL-1 の頼み rv140/AC の (1)）
     own = {WRONG: wrong_choices(False, True)} if getattr(q, "own_phone", False) else {}
+    # 日時の2択を伺っている質問（片方だけ合わないお返事の選べるもの＝flowctl.ladder_sides があるとき）だけ、合わないと言わなかったほうで大丈夫そうか（LADDER_OTHER。伺い94＝
+    # ✅ 2026-11-20 日本時間16時25分52秒。読みを組み合わせるのは flowctl.ladder_other_ok の1か所）。ほかの質問の文・返事の形は変わらない
+    ladder = {LADDER_OTHER: ladder_other_choices(False, True)} if ladder_sides(q) and asked is None else {}
     return (side_items(False) | purpose | own | ({PROMPT_REPLY: prompt_reply_choices(False, q.prompted)} if getattr(q, "prompted", "") and not asks_wrong(q.prompted) else {})
-            | ({AWAY: away_choices(False, True)} if away_fits(q, bool(asked)) else {}))
+            | ({AWAY: away_choices(False, True)} if away_fits(q, bool(asked)) else {}) | ladder)
 
 
 def items_text(q, asked: str | None = None) -> str:
@@ -1302,6 +1305,8 @@ JEV_ITEMS = {END: "お客様の言葉は、この電話を終える言葉に当�
              # 黙ったあとの一言を流したときだけ（flowctl.PROMPT_REPLY・prompt_replied）
              PROMPT_REPLY: "お客様の言葉は、こちらの声かけ（お客様が黙っていたので言った一言）へのお返事だけですか？（気になる点は無い・分かった、と言った"
                            "だけで、質問への答えも、ほかのお話・気がかりも言っていないか。答えとは別に読みます。" + NOW_ONLY + "）"}
+# 日時の2択の片方だけ合わないお返事のときだけ使う（flowctl.LADDER_OTHER・ladder_other_ok＝伺い94）
+JEV_ITEMS[LADDER_OTHER] = ("お客様が、並べた2つのうち片方だけを合わないと言ったなら、合わないと言わなかったほうで大丈夫そうですか？（答えとは別に読みます。" + NOW_ONLY + "）")
 JEV_ITEMS[AWAY] = ("お客様の言葉は、質問の答えの話ですか、それとも答えの話ではない別のお話ですか？（答えとは別に読みます。" + NOW_ONLY
                    + "。境目は選べるものの説明＝flowctl.away_choices の1か所）")   # ✅ 2026-11-13 日本時間22時17分01秒「9は…」（flowctl.AWAY）
 # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。flowctl.ELSEWHERE・said_elsewhere）
