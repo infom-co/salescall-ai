@@ -3457,6 +3457,27 @@ class DialFixAfterCalls(SettleBase):
         self.assertEqual((rounds(None), rounds(suzuki)), (0, 1))               # 田中様の約束の回には、鈴木様への電話を数えない
         self.assertTrue(self.tx(s, lambda tx: next_action._missed(tx, s["task"], w)))   # 田中様へは、まだかけていない
 
+    def test_a_dropped_promise_brought_back_still_counts_the_calls_to_the_same_person_before_it_was_dropped(self):
+        """やめていた約束を戻したとき、その約束の担当の方（田中様）に、やめる前に同じ回でかけた電話は、戻した回の本数に数えたまま（回の数えは約束の始め
+        から＝計画書 7-1 (31)「約束を戻す」。数えないと、その回の上限より多くかける）。やめていたあいだの、ほかの期の方（鈴木様）への電話は数えない
+        （担当の期の比べ＝core/attempts.in_promise_count の1か所）。"""
+        s = self.ready()
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        self.put_client(s, "gate.max_dials_per_contact_per_day", 20)
+        self.person_fix(s, "target_name", "田中", "たなか", same=True)
+        self.promise_window(s)                                                  # 田中様との幅の約束（いまの回の中）
+        w = self.tx(s, lambda tx: next_action.window_of(next_action.current(tx, s["task"])))
+        time.sleep(1.1)
+        self.settle(s, self.call(s, report=rep(("reception",), not_reached="absent")))   # 田中様への電話（約束の回の中・不在）
+        rounds = lambda period: self.tx(s, lambda tx: next_action._round_calls(tx, s["task"], w, period))   # noqa: E731
+        self.assertEqual(rounds(None), 1)
+        self.person_fix(s, "target_name", "鈴木", "すずき", keep=False, same=False)
+        suzuki = self.tx(s, lambda tx: next_action.person_now(tx, s["task"]))
+        time.sleep(1.1)
+        self.settle(s, self.call(s, report=rep(("reception",), not_reached="absent")))   # 鈴木様への電話
+        self.back_to_first(s, "name")
+        self.assertEqual((rounds(None), rounds(suzuki)), (1, 1))               # 田中様の回には田中様への1本だけ（戻す前の電話も数える）
+
     def kept_promise(self, s, way):
         """田中様との幅の約束を「違う」・「約束も守る」で直す（番号の直し＝前の番号 O に約束が残る・名前などの直し＝会社の番号に約束が残る・
         mobile＝田中様が言った携帯 M への約束を、名前などの直しで残す）。新しい担当の方（鈴木様）へかける番号を返す。"""
@@ -4397,10 +4418,12 @@ class SameDayAndSuccessor(SettleBase):
                       back_today=None if again is None else again)
         return rep(("reception",), callback=cb, not_reached="absent")
 
-    def departed(self, policy, *, after_successor=False, parties=("reception",), not_reached="departed"):
+    def departed(self, policy, *, after_successor=False, parties=("reception",), not_reached="departed", to_role=False):
         from salescall.core.call_report import Departed, Said
         d = Departed(policy, ("ai",), after_successor, Said(1, "岡田は退職いたしました。"))
-        return replace(rep(parties, not_reached=not_reached), departures=(d,))
+        # to_role：後任の方もいらっしゃらず、その役職の方へ切り替えた（会話の側は、在籍していないの記録と、役職の方へ切り替えた記録の2つを残す。CL-1 の連絡帳 4-213）
+        role = (Departed(policy, ("ai",), True, Said(3, "後任もおりません。"), to_role=True),) if to_role else ()
+        return replace(rep(parties, not_reached=not_reached), departures=(d, *role))
 
     def test_absent_is_called_again_the_same_day_only_when_allowed(self):
         """不在で戻る時刻が分からない：「後でかけてよい」と言われたときだけ、同じ日に「不在」の方針の間隔（試験の業務は1時間おき）で。
@@ -4511,6 +4534,59 @@ class SameDayAndSuccessor(SettleBase):
                 got = self.settle(s, self.call(s, report=report))
                 self.assertEqual((got["state"], got["decision"].kind, got["decision"].end_reason),
                                  ("not_reached", "end", "not_reached_departed"))
+
+    def test_departed_with_no_successor_calls_the_role_from_then_on(self):
+        """後任の方もいらっしゃらず、その役職の方へ切り替えた（事実 departed の to_role。✅ 2026-11-20 ユーザー「伺い69：エで後任もいないときは、該当の役職の方」＝
+        CL-1 の連絡帳 4-213 の (ア)(イ)）：行を終えず（役職の方へ切り替えた記録は、行を終える記録に数えない）、これからの電話は、はじめから役職の方をお呼びする
+        （予約証の印 role_call。後任の方の印 successor とは両方立てない）。印は行が終わるまで引き継ぐ（役職の方が席を外していても）。役職の方も
+        いらっしゃらない（役職の方の電話で、また在籍していない＝to_role の無い successor の記録）なら行を終える。"""
+        s = self.ready()
+        got = self.settle(s, self.call(s, report=self.departed("successor", to_role=True)))
+        d = got["decision"]
+        self.assertEqual((got["state"], d.kind, d.target.role_call, d.target.successor), ("not_reached", "call", True, False))
+        self.assertGreaterEqual(d.at, self.tomorrow(s))
+        plan = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((plan["role_call"], plan["successor"]), (True, False))
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：その時刻が来た",
+                                                       promised=True, role_call=True))   # 間隔の歯止めは門の試験で見る
+        c = self.claim(s)
+        self.assertEqual((type(c).__name__, getattr(c, "reason", None), c.role_call, c.successor), ("Claim", None, True, False))
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        got = self.settle(s, self.call(s, report=self.absent()))     # 役職の方が席を外していた
+        self.assertEqual((got["state"], got["decision"].target.role_call, got["decision"].target.successor), ("not_reached", True, False))
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：その時刻が来た",
+                                                       promised=True, role_call=True))
+        got = self.settle(s, self.call(s, report=self.departed("successor", after_successor=True)))   # 役職の方もいらっしゃらない
+        self.assertEqual((got["state"], got["decision"].kind, got["decision"].end_reason), ("not_reached", "end", "not_reached_departed"))
+
+    def test_a_successor_call_with_no_successor_switches_to_the_role(self):
+        """後任の方をお呼びする電話（印 successor）で、後任の方もいらっしゃらず、その役職の方へ切り替えた（会話の側の記録は1つ＝successor・to_role が真）：
+        これからの電話は役職の方の口に替わり、後任の方の印は外す（両方は立てない＝0261 の守り。CL-1 の連絡帳 4-213 の (イ)）。"""
+        from salescall.core.call_report import Departed, Said
+        s = self.ready()
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：後任の方をお呼びする",
+                                                       promised=True, successor=True))
+        role = Departed("successor", ("ai",), True, Said(2, "後任もいないんですよ。"), to_role=True)
+        got = self.settle(s, self.call(s, report=replace(rep(("reception",), not_reached="departed"), departures=(role,))))
+        d = got["decision"]
+        self.assertEqual((got["state"], d.kind, d.target.role_call, d.target.successor), ("not_reached", "call", True, False))
+
+    def test_a_polite_close_for_another_day_is_not_called_again_that_day(self):
+        """顧客獲得型の日を改めるお礼の締め（締めた理由 yes_used_up・no_pain。CL-1 の連絡帳 4-208・4-211）：取れていない電話の方針（試験の業務は1時間おき）でも、
+        同じ日にはかけ直さない（next_action.not_today の1か所）。ほかの締め（done）は今どおり方針の間隔で。"""
+        for end, tomorrow in (("yes_used_up", True), ("no_pain", True), ("done", False)):
+            with self.subTest(end=end):
+                s = self.ready()
+                now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+                got = self.settle(s, self.call(s, report=support.make_report(("target",), end=end)))
+                d = got["decision"]
+                self.assertEqual((got["state"], d.kind), ("incomplete", "call"))
+                if tomorrow:
+                    self.assertGreaterEqual(d.at, self.tomorrow(s))
+                else:
+                    self.assertLess(d.at, now + timedelta(hours=1, minutes=5))
 
     def test_who_unclear_ends_the_row_and_returns_the_blanks_to_fill(self):
         """お名前だけではどの方か分からなかった（繋がらなかった理由 who_unclear。CL-1 の連絡帳 4-65 の (e)(g)。✅ 2026-11-02 日本時間1時22分・
@@ -5479,7 +5555,7 @@ class CallbackWindow(SettleBase):
         業務ごとに変えられる（2026-10-23 ユーザー：理由と決め方の表に「OK」。契約者が設定で変えられる）。"""
         s = self.ready()
         cs = self.tx(s, lambda tx: gate.callee_settings(tx, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
-        self.assertEqual(cs.until_rules, (("other_party", "now"), ("unavailable", "after"), ("preparing", "slot_after")))
+        self.assertEqual(cs.until_rules, (("other_party", "now"), ("unavailable", "after"), ("preparing", "slot_after"), ("available_until", "now")))
         rows = self.tx(s, lambda tx: tx.all("SELECT key, choices FROM salescall.setting_definitions WHERE key LIKE 'callback.until\\_%%'"))
         self.assertEqual({r["key"]: tuple(r["choices"]) for r in rows},
                          {key: calling_hours.UNTIL_RULES for key in calling_hours.UNTIL_SETTINGS.values()})
@@ -6547,6 +6623,21 @@ class DatabaseGuards(Base):
         with self.assertRaises(Rejected) as e:
             self.tx(s, lambda tx: tx.execute(sql, (s["task"],)))
         self.assertEqual(e.exception.constraint, "task_next_actions_successor_calls")
+
+    def test_the_role_call_mark_is_only_on_a_call_and_not_with_the_successor_mark(self):
+        """役職の方をお呼びする印は、かける予定にだけ付き、後任の方の印とは両方立たない（0261）。"""
+        s = self.ready()
+        sql = ("INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, end_reason, cause,"
+               " promised, contact_id, purpose, successor, role_call)"
+               " SELECT tenant_id, client_id, task_id, seq + 1, %s, CASE WHEN %s = 'call' THEN now() END,"
+               "        CASE WHEN %s = 'end' THEN 'not_reached_departed' END, cause,"
+               "        CASE WHEN %s = 'call' THEN false END, CASE WHEN %s = 'call' THEN contact_id END, CASE WHEN %s = 'call' THEN 'normal' END,"
+               "        %s, true FROM salescall.current_next_actions WHERE task_id = %s")
+        for kind, successor in (("end", False), ("call", True)):
+            with self.subTest(kind=kind, successor=successor), self.assertRaises(Rejected) as e:
+                self.tx(s, lambda tx: tx.execute(sql, (kind,) * 6 + (successor, s["task"])))
+            self.assertEqual(e.exception.constraint, "task_next_actions_role_calls")
+        self.tx(s, lambda tx: tx.execute(sql, ("call",) * 6 + (False, s["task"])))
 
     def test_the_said_edges_belong_to_a_daily_window(self):
         """お客様が口にした端の印（window_said。深夜早朝の歯止めの外でも切らない端）は、1日の中の幅にだけ、始まり・終わりの2つで持てる
