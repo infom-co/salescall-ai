@@ -8,7 +8,7 @@
     py probe_audio.py
 
 前の準備：Virtual Audio Cable の Line 1・Line 2 があり、Rakuten Link の出力＝Line 1・入力＝Line 2 にしてある。
-電話をかける相手は、自分たちの携帯だけ。結果は同じフォルダの phone_probe_result.json（番号・お客様の情報は入れない）と、
+電話をかける相手は、管理者の手元の電話かご家族の電話だけ（管理者の携帯は発信の元なので受けられない）。結果は同じフォルダの phone_probe_result.json（番号・お客様の情報は入れない）と、
 録った声の wav（管理者の声。送らなくてよい）。
 """
 
@@ -112,9 +112,9 @@ def ask(text: str) -> str:
 
 
 def r2(sd, line1: int) -> dict:
-    """お客様の声（相手の携帯の声）が、Line 1 から途切れずに録れるか。"""
-    ask("【R-2】Rakuten Link から、自分の携帯へ電話をかけてください。携帯で出て、つながったら Enter を押してください。")
-    print("これから20秒、録ります。携帯に向かって、1から順に数をゆっくり数えてください。")
+    """お客様の声（相手の携帯の声）が、Line 1 から途切れずに録れるか。管理者の携帯は発信の元なので、受けるのは別の電話（ご家族など）。"""
+    ask("【R-2】Rakuten Link から、受ける方の電話へかけてください（管理者の携帯ではなく、ご家族の携帯など）。受ける方が出たら Enter を押してください。")
+    print("これから20秒、録ります。受ける方に、1から順に数をゆっくり数えてもらいます（前もって伝えておいてください）。")
     pcm = record(sd, line1, 20.0)
     fs = frames(pcm)
     loud = [rms(f) for f in fs]
@@ -133,19 +133,25 @@ def r2(sd, line1: int) -> dict:
     return {"voiced_s": round(voiced, 1), "dropouts": gaps, "peak_rms": round(max(loud or [0]), 1), "wav": save("r2_line1.wav", pcm), "pass": ok}
 
 
-def r3(sd, line2: int) -> dict:
-    """Line 2 へ流した音が、相手の携帯で聞こえるか（AI の声の代わりの短い音）。"""
-    ask("【R-3】電話はつないだままです。携帯を耳に当てて、Enter を押してください。短い音を3回流します。")
+def r3(sd, line1: int, line2: int) -> dict:
+    """Line 2 へ流した音が、相手の携帯で聞こえるか（AI の声の代わりの短い音）。確かめのあいだ、管理者は通話の声を聞けないので、
+    受けた方の返事（「聞こえた」など）を5秒録って残す（あとで再生して聞く）。"""
+    ask("【R-3】電話はつないだままです。Enter で、短い音を3回流します。受けた方には、音が3回聞こえたら「聞こえた」と言ってもらいます。")
     play(sd, line2, b"".join(beep(1000, 0.3) + silence(0.5) for _ in range(3)))
-    a = ask("携帯で、短い音が3回はっきり聞こえましたか？（y＝はい／n＝いいえ）")
+    print("受けた方の返事を5秒録ります。")
+    reply = record(sd, line1, 5.0)
+    name = save("r3_reply.wav", reply)
+    spoke = sum(1 for f in frames(reply) if rms(f) > 300) * 0.02
+    print(f"返事の声：{spoke:.1f}秒。{name} を再生して、受けた方が何と答えたかを聞いてください（音を出すのはパソコンのふだんのスピーカー）。")
+    a = ask("受けた方は「聞こえた」と答えていましたか？（y＝はい／n＝いいえ／s＝分からない）")
     ok = a.startswith("y")
-    print("⇒ 合格" if ok else "⇒ 不合格")
-    return {"heard": ok, "pass": ok}
+    print("⇒ 合格" if ok else "⇒ 不合格" if a.startswith("n") else "⇒ 分からない")
+    return {"heard": ok, "answer": a[:1], "reply_voiced_s": round(spoke, 1), "wav": name, "pass": ok}
 
 
 def r4(sd, line1: int, line2: int) -> dict:
     """Line 2 へ流した音が、Line 1（録る側）へ戻ってこないか（エコー）。"""
-    ask("【R-4】電話はつないだままです。携帯は話さず、静かな所に置くか消音にしてください。用意ができたら Enter を押してください。")
+    ask("【R-4】電話はつないだままです。受ける方には、黙っていてもらいます（前もって伝えておいてください）。Enter を押すと、音を流しながら録ります。")
     beeps = b"".join(beep(1000, 0.4) + silence(0.6) for _ in range(5))
     got: dict[str, bytes] = {}
     t = threading.Thread(target=lambda: got.update(pcm=record(sd, line1, len(beeps) / 2 / RATE + 1.0)))
@@ -172,7 +178,7 @@ def main() -> None:
         sys.exit("Virtual Audio Cable の Line 1・Line 2 が見つかりません。コントロールパネルで線の数が2本かを確かめてください。")
     result = {"at": datetime.now().isoformat(timespec="seconds"), "python": platform.python_version(), "windows": platform.platform(),
               "devices": {"line1_in": sd.query_devices(line1_in)["name"], "line2_out": sd.query_devices(line2_out)["name"]}}
-    for key, run in (("R-2", lambda: r2(sd, line1_in)), ("R-3", lambda: r3(sd, line2_out)), ("R-4", lambda: r4(sd, line1_in, line2_out))):
+    for key, run in (("R-2", lambda: r2(sd, line1_in)), ("R-3", lambda: r3(sd, line1_in, line2_out)), ("R-4", lambda: r4(sd, line1_in, line2_out))):
         try:
             result[key] = run()
         except Exception as e:   # 1つ落ちても、ほかの確かめと記録は続ける
