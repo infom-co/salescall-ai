@@ -43,7 +43,6 @@
     <div class="muted hint" style="margin-top:6px">今月の報酬 {{ yen(per_client|sum(attribute="revenue")) }}{% if deficits %}・赤字のお知らせ中の依頼者 {{ deficits|length }}（承認待ちで確かめます）{% endif %}</div>
   </a>
 </div>
-</div>
 
 <h2>依頼者ごと</h2>
 {% if per_client %}

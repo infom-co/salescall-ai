@@ -716,6 +716,46 @@ class Web(_World):
             self.assertEqual(re.findall(r'<div class="stat (\w+)"><span class="label">[^<]*</span><span class="value">0</span>', home), [])
         self.assertNotIn('<span class="tag ok">なし</span>', self.get("A", "/t/watch").text)
 
+    def test_every_page_has_balanced_tags(self):
+        """どの画面も、タグの開きと閉じが合っている（閉じタグの書き過ぎで、表が本文の枠の外へはみ出していた＝2026-11-20 のホーム）。
+        開いている順と違う閉じタグ・余る閉じタグがあれば落ちる。"""
+        from html.parser import HTMLParser
+        void = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+        class Check(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.stack, self.bad = [], []
+
+            def handle_starttag(self, tag, attrs):
+                if tag not in void:
+                    self.stack.append(tag)
+
+            def handle_startendtag(self, tag, attrs):
+                pass
+
+            def handle_endtag(self, tag):
+                if tag in void:
+                    return
+                if not self.stack or self.stack[-1] != tag:
+                    self.bad.append((tag, list(self.stack[-3:])))
+                    if tag in self.stack:   # 合うところまで戻して続ける（ひとつの書き間違いで、あとを全部落とさない）
+                        while self.stack and self.stack.pop() != tag:
+                            pass
+                    return
+                self.stack.pop()
+
+        paths = ("/t", "/t/inbox", "/t/stops", "/t/watch", "/t/notices", "/t/costs", "/t/lines", "/t/dnc", "/t/settings", "/t/account",
+                 f"/c/{self.a['client']}", f"/c/{self.a['client']}/b/{self.a['business']}", self._row_url(),
+                 f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}",
+                 f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/results", f"/c/{self.a['client']}/destinations")
+        for path in paths:
+            with self.subTest(path=path):
+                c = Check()
+                c.feed(self.get("A", path).text)
+                self.assertEqual(c.bad, [])
+                self.assertEqual(c.stack, [])
+
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",
