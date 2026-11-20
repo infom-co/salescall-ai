@@ -33,6 +33,7 @@ from phrases import NOT_ASKED_AGAIN, RECORDED, STANDARD_PARTS, THINKING_PROMPT, 
 from phrases import NAME_HEAD_IDS, NAME_HEADS, NAME_PART_TAILS
 from phrases import ASKED_PROMPT_IDS, CONCERN_PROMPT_IDS, QUIET_LINES, THINKING_PROMPT_IDS, WAIT, WAIT_ASK_PLAIN_ID
 from phrases import OMATASE, ROLE_PARTS, SUCCESSOR_IF_PART, WAIT_SOON, WRONG_NUMBER_ASK, ladder_kept_head, ladder_topic_head, question_body
+from phrases import DECLINE_RECEIPT
 from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
@@ -6228,7 +6229,8 @@ class Flow:
         self.answers: dict[str, str] = dict(answers or {})
         if clash := sorted(set(self.answers) & RESERVED_PART_NAMES):
             raise ValueError(f"想定問答の問いの名前 {clash} は、名乗りなどの録音の部分の名前と同じです（使えない名前＝RESERVED_PART_NAMES）")
-        self.answered: dict[str, int] = {}  # 答えた回数（部分ごと。同じ答えは2回まで）
+        self.answered: dict[str, int] = {}  # 想定問答の答えを流した相手の発話の番号（部分ごと。同じ言葉に同じ答えを2回流さない＝尋ねられるたびの回数では切らない）
+        self.ways_again: tuple[int, str] | None = None   # 方法を並べて伺い直した (発話の番号, 質問)（_list_ways_again の1か所が付け、相づち _ack_choice が読む）
         # 相手の申し出への応じ方（業務設定。✅ 2026-10-22 ユーザー：代わりの方・伝言・在籍していない は業務ごとに選べる。Flow._not_available）
         self.policies = {**{k: v[0] for k, v in POLICIES.items()}, "follow_up": False, **(policies or {})}
         self.message_text = (target or {}).get("message") or (opening or {}).get("message")  # 伝言の文（伝言を残す業務。依頼主の単位の録音）
@@ -8779,6 +8781,10 @@ class Flow:
             # 郵送のどちらがよろしいでしょうか？」。申し伝える一言の頭と同じ受けの言葉）。ご案内の方法の申し出への「はい、お願いします。」のあとは今までどおり「はい、」
             # （下の W1 の1か所。11-06 日本時間9時05分17秒にご承認の形のまま）
             return "shouchi"
+        if result == "next" and self.ways_again == (self.callee_turns, reply.get("question_id")):
+            # 方法を言わずに受けていただいた答えに、方法を並べて1回伺い直す（_list_ways_again の1か所＝ご案内の方法の申し出 W1・LINE の伺い方 C11）：伺い直しの「はい、」
+            # ＋「それでは…のどちらがよろしいでしょうか？」（10-14・✅ 2026-11-06 日本時間9時05分17秒の (3)。束 n5＝OPEN-A13・H8）
+            return "hai"
         if result == "next" and reply.get("question_id") == CALLBACK_IDS["other_wish"]:
             return "hai"  # 「どれも要らない」のあと、ほかのご希望を伺う：「はい、」＋「それでは（選択肢）のほかにご希望はございますでしょうか？」（Flow._wish_step）
         if result == "next" and any(w is not None and w["stage"] == "detail" and w["outcome"] is None and reply.get("question_id") == w["detail"]
@@ -8824,6 +8830,10 @@ class Flow:
             return "shitsurei"
         # 返事の頭に流す決まった一言（Flow._advance）の相づちは、その一言の決まり：聞き取れないまま先へ進むとき・締めの前の念のための確認の前でも同じ
         # （CL-1 の 11-03 のご判断の (7)。⛔ 見直しで見つけた：下の2つが先にあり、「はい、LINEでのご連絡のご希望を…」・「申し訳ございません、そのご希望を…」）
+        if result == "end" and reply.get("decline_receipt") == "head":
+            # お断りを受ける一言「承知いたしました。」を、ほかの決まった言葉より先に流す締め（_receipt_first）：頭は「はい、」（締めの録音の頭と同じ。申し伝える一言の
+            # 「承知しました。」を重ねない）
+            return "hai"
         if reply.get("wish_told") and result in ("next", "end", "recheck") and self._unheard_now():
             # 聞き取れないまま、方法・連絡先を伺い終えて申し伝える：「はい、」（聞き取れたように「承知しました。」と受けない＝まとめ役の (K2)）
             return "hai"
@@ -11148,16 +11158,20 @@ class Flow:
     def _answer(self, part: str) -> dict:
         """相手の質問に、想定問答の答え（業務設定。Intent.md 5-3 (2)。依頼主の単位の録音）で答える（唯一の場所。呼んでいる段でも、答えの段でも）。
         AIは問いの名前を選ぶだけ。録音で流す通話は録音、AIが話す通話はその文のとおりに言わせる。答えたあとは、いまの位置へ戻る（_continue：
-        呼んでいる段なら、その方にまだ2回呼んでいなければもう一度お呼びする・答えの段ならいまの質問）。同じ答えは1通話に2回まで。
+        呼んでいる段なら、その方にまだ2回呼んでいなければもう一度お呼びする・答えの段ならいまの質問）。同じ答えも、尋ねられるたびに流す（回数では切らない。
+        お断りしようとしているかは判定の読みで見分ける＝ご承認の手順の N1・N2 の「断ろうとしている」）。✅ 2026-11-02 日本時間6時21分33秒 ユーザー「…本当に
+        分からないだけなら、回数制限をしたら、せっかくとれる契約をみすみす逃すことになりますよ。」⛔ 3cd6ec5c まで「同じ答えは1通話に2回まで」で3回目を断り、
+        会話AIは受け皿に回っていた（束 n1＝OPEN-A23）。
         想定問答に無い問いは、AIが業務の情報の範囲で自分の言葉で答える（_own_answer）。
         ⛔ G-57 tc18：AIは「この番号はどちらでお知りになりましたか？」に答えず（3本中2本）、自分の言葉で答えた回は、目的の人の名前をAIの声で言った"""
         name = part[len(ANSWER_PREFIX):]
         text = self.answers.get(name)
         if text is None:
             return self._reject(f"「{name}」の答えはありません（{self._answer_choices()}）。")
-        self.answered[part] = self.answered.get(part, 0) + 1
-        if self.answered[part] > 2:
-            return self._reject("同じ答えを、もう2回流しました（同じ答えを何度も流しません）。何も言わずに、相手が話すのを待ちます。")
+        if self.answered.get(part) == self.callee_turns:
+            # 同じ言葉に同じ答えを2回流さない（自分の言葉の答えの「同じ言葉に2回答えません」と同じ。尋ねられるたびの回数では切らない）
+            return self._reject("この言葉には、この答えをもう流しました（同じ言葉に同じ答えを2回流しません）。何も言わずに、相手が話すのを待ちます。")
+        self.answered[part] = self.callee_turns
         self._note("answered", part=part)
         self._point_said("answer")
         if self._explaining() or self._asked_now() is not None:
@@ -18282,8 +18296,7 @@ class Flow:
                 # ended_on）にはならない。⛔ 66eb3d76 まで {} を読み、turn を null にしえた（CL-2 の連絡帳 4-407）
                 ev = self._evidence(wid) or self._words_now()
                 w["which"], w["before_ways"] = True, {"turn": ev.get("turn"), "said": fact_said(ev.get("said")), "value": it.value}
-                self._new_item(callback_question("other_wish", of=q, which=True))
-                self._insert_after(wid, wid)
+                self._list_ways_again(callback_question("other_wish", of=q, which=True))
                 return
         means = next((k for k in WISH_MEANS if wish_label(k) == cond), None)
         # wish_state＝W1 の答えの状態（業務の質問の答えの state と同じ名前。「-」のまま終えた W1 を次の電話で伺い直すか＝earlier_wish_open が読む）
@@ -18425,8 +18438,7 @@ class Flow:
         if cond == WAY_UNSAID and not w.get("how_again"):
             w["how_again"] = True
             # ほかの方法を伺ったあと（_line_other_ways）なら、取れなかった方法を外した言い方で（「それではLINEのIDとメールのどちらが…」）
-            self._new_item(callback_question("line_how", nth=1, without=w.get("without")))
-            self._insert_after(hid, hid)
+            self._list_ways_again(callback_question("line_how", nth=1, without=w.get("without")))
             return
         self._contact_end(w, None)
 
@@ -18758,6 +18770,16 @@ class Flow:
         （after＝その質問）は、同じ位置に（並びに2つ入れない）。書き方は inserted の1か所。"""
         self.order = inserted(self.order, after, qid)
 
+    def _list_ways_again(self, q: "Question") -> None:
+        """方法を言わずに受けていただいた答え（WAY_UNSAID＝「はい、お願いします。」「はい、それで大丈夫です。」）に、方法を並べて1回伺い直す唯一の場所（ほかのご希望・
+        ご案内の方法の申し出 W1＝_wish_step・LINE の伺い方 C11＝_line_how）：並べて伺う形の質問 q を同じ位置で伺い、伺い直した印（ways_again＝(発話の番号, 質問)）を
+        付ける。頭の相づちは、伺い直しの「はい、」（10-14 の相づちの決まり＝相づちの1か所 _ack_choice がこの印を読む。ほかのご希望を方法を言わずに言われた W1 は、
+        お客様の望みを受ける「承知しました。」＝伺い27 ア のまま）。⛔ 3cd6ec5c まで、C11 の伺い直しは次の質問の順番の相づち（「かしこまりました。それではLINEのIDと…」）で、
+        W1 の申し出への伺い直しの「はい、」と割れていた（束 n5＝OPEN-A13・H8）"""
+        self._new_item(q)
+        self._insert_after(q.id, q.id)
+        self.ways_again = (self.callee_turns, q.id)
+
     @property
     def in_answer_stage(self) -> bool:
         """答えの段か（お呼びする段でない）＝かけ直しの質問の一言を答えの段の一言にするかの唯一の決まり（callback_question の answering。かけ直しの質問を作る所＝
@@ -19030,7 +19052,8 @@ class Flow:
             return r
         # 締めの前の念のための確認の頭のお詫び（聞き取れなかった質問）は、確認を作る所（_advance_to）がもう確認の前に置いた＝一言はその前に流す（「承知しました。そのご
         # 希望を担当の者に申し伝えます。」＋「申し訳ございません、」＋「お声が聞き取れませんでしたので…」。⛔ 2e5986f5 まで、ここでもお詫びを足していた＝置く所が3か所）
-        out = self._led(plays, "", r) | ({"point_open": opened[0]} if opened else {"wish_told": True} if wish
+        # お断りのすぐあとの締めなら、お断りを受ける一言「承知いたしました。」を、ここで足す言葉より先に（_receipt_first の1か所）
+        out = self._led(*self._receipt_first(plays, r)) | ({"point_open": opened[0]} if opened else {"wish_told": True} if wish
                                          else {"anytime_told": True} if anytime
                                          else {"told": True} if told else {})
         if (m := self._asked_next) is not None and m[0] is r:
@@ -19566,14 +19589,46 @@ class Flow:
                              if not self._unheard_now() and (reason == "goal_refused" or (reason in THANKS_ENDS and self._turned_down_now() and not received))
                              else (CLOSING, "closing") if reason in THANKS_ENDS else (CLOSE_DECLINED, "closing_declined"))
         self._end(reason)
+        # お断りを受ける一言で始まる締め（印 decline_receipt）：締めの前に決まった言葉を流すなら、受ける一言をいちばん先に出す（_receipt_first の1か所）
+        mark = {"decline_receipt": "close"} if rid == "closing_after_decline" else {}
         if self.play_recordings and not spoken:
             item = {"kind": "opening", "part": rid, "text": text} if part else {"kind": "closing", "id": rid, "text": text}
-            return self._led(lines, prefix, {"result": "end", "play": [item], "message": f"{played_note(text, '締めの言葉')}何も言わずに終えます。"})
+            return self._led(*self._receipt_first(lines, {"result": "end", "play": [item], **mark,
+                                                          "message": f"{played_note(text, '締めの言葉')}何も言わずに終えます。"}, prefix))
         # 言い方のとおりに言わせる（足しも削りもしない。約束の言葉も足さない＝G-22：断られたときの締めに、AIが6本中5本で「また改めてご連絡
         # いたします」と約束を足した）。⛔ 2026-10-24 の見直し（調べ役）：前は「約束もしません」と書いていた＝保留で待ちきったときの言い方の
         # 「あらためてかけ直させていただきます」と食い違い、AIがその部分を削るおそれがあった
-        return self._led(lines, prefix, {"result": "end", "say": text,
-                                         "message": f"{say_note(text)}言い終えたら、電話を終えます（「またお電話します」のような約束の言葉も足しません）。"})
+        return self._led(*self._receipt_first(lines, {"result": "end", "say": text, **mark,
+                                                      "message": f"{say_note(text)}言い終えたら、電話を終えます（「またお電話します」のような約束の言葉も足しません）。"},
+                                              prefix))
+
+    def _receipt_first(self, plays: list[dict], r: dict, note: str = "") -> tuple[list[dict], str, dict]:
+        """お断りを受ける一言「承知いたしました。」（phrases.DECLINE_RECEIPT）を、返事のいちばん先に置く唯一の場所（締めを作る _close の言い切り・次へ進む返事 _advance の
+        業務の一言などを、締めの前に足す所が呼ぶ。戻り値は _led に渡す (plays, note, r)）：お断り・目的から遠ざかる向きの答えのすぐあとの締め（_close が
+        CLOSING_AFTER_DECLINE を選んだ返事＝印 decline_receipt）の前に、ほかの決まった言葉（業務の「答えのあとに伝える一言」・申し伝える一言・こちらがすることの言い切り など）を
+        流すなら、受ける一言を共通の一言の録音 decline_receipt としてその前に出し、締めはお礼の締め CLOSING にする（「はい、承知いたしました。また何かございましたら…。
+        お忙しいところ…」）。足す言葉が無ければ今のまま（1つの録音 closing_after_decline）。受ける一言がもう返事の頭にある（印が head＝_close が自分の言い切りの前に
+        置いた）なら、今度の言葉はその一言のあと。頭の相づちは「はい、」（_ack_choice）。
+        ✅ 2026-11-02 日本時間6時33分 ユーザー「…だと唐突なので、こちら「はい、承知いたしました。お忙しいところ…」の方がいいんじゃないでしょうか？」（受ける一言は
+        お断りのすぐあと）。⛔ 3cd6ec5c まで、業務の一言を締めの録音の前に足し「はい、また何かございましたらお気軽にご相談ください。承知いたしました。お忙しいところ…」
+        （束 n4＝OPEN-A12・H5）"""
+        mark = r.get("decline_receipt")
+        if not plays or mark is None:
+            return plays, note, r
+        receipt = line_play("decline_receipt", DECLINE_RECEIPT)
+        if mark == "close":
+            if r.get("play"):
+                r["play"] = [({"kind": "closing", "id": "closing", "text": CLOSING} if p.get("id") == "closing_after_decline" else p) for p in r["play"]]
+            if r.get("say") == CLOSING_AFTER_DECLINE:
+                r["say"] = CLOSING
+            r["message"] = r["message"].replace(f"「{CLOSING_AFTER_DECLINE}」", f"「{CLOSING}」")
+            r["decline_receipt"] = "head"
+            return [receipt, *plays], note, r
+        # 受ける一言は、前の言葉と一緒に返事の頭にある：そこから外して、今度の言葉の頭に置く（会話AIへの知らせの文も、その言葉の所から外す）
+        if (r.get("play") or [{}])[0].get("id") == "decline_receipt":
+            r["play"] = r["play"][1:]
+        r["message"] = r["message"].replace(f"「{DECLINE_RECEIPT}", "「", 1)
+        return [receipt, *plays], note, r
 
     def _lead(self, kind: str) -> str:
         """受けの言葉（lead_ins が無効なら空）。種類ごとに順番に回す。"""

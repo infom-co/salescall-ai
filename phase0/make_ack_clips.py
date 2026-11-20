@@ -176,6 +176,10 @@ HOW_OF[CALL_AGAIN_TAKEN] = "own_fallback"
 HOW["closing_after_decline"] = ("電話の最後に、お客様のお断りを丁寧に受け止めてから、お時間をいただいたことへの感謝を伝えるように、前向きに、心を込めて、"
                                 "落ち着いた調子で。言葉の途中で区切らずに、なめらかに、ひと続きで")
 MAX_S["closing_after_decline"] = 9.0
+# お断りを受ける一言だけ（phrases.DECLINE_RECEIPT「承知いたしました。」）：締めの前に業務の一言などを流す返事で、いちばん先に流す（flowctl.Flow._receipt_first。
+# 分身 N の束 n4＝OPEN-A12）。お断りを丁寧に受け止める読み方（締めの録音の頭と同じ調子）。長さの上限は「申し訳ございません、」の重い形と同じ
+HOW["decline_receipt"] = "電話で、お客様のお断りを丁寧に受け止めるように、落ち着いた調子で、心を込めて、短く"
+MAX_S["decline_receipt"] = 1.8
 # 業務で「引き止める」を選んだときの一言（業務が書く文＝依頼主の単位の busy。script_table）：読み方は質問と同じ。業務の文は質問より長くなりうる
 # （例：phrases.BUSY_ASK は42字＝見込み 6.6秒）ので、長さの上限だけ別にする（業務が書く伝言・留守番電話の伝言と同じ考え）
 HOW["busy"] = HOW["question"]
