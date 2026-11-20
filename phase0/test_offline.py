@@ -33,64 +33,26 @@ CL2_PENDING = frozenset({
                          # 深める一言に入れる困りごとの言葉・困りごとが続く形の句を会話AIが書く道具の引数（replay_opening の trouble・kept。伺い29＝✅ 2026-11-16
                          # 日本時間0時42分38秒・12時48分22秒 ユーザー。CL-2 への知らせはまとめ役）
                          "trouble", "kept",
-                         # 通話の事実 offer_terms の、どの申し出か（こちらがかけ直す申し出の役目の名前＝flowctl.RECALL_ROLES。業務の申し出の質問なら null。question は業務の
-                         # 質問の番号か null＝Flow._business_of。CL-1.md 4-199 の約束・まとめ役 CL-1 の頼み rv129/AA の (1)。CL-2 への知らせは分身 AA の書き置き＝rv129/AA/notes.md）
-                         "recall",
-                         # こちらからおかけする営業の電話（顧客獲得型）の1つ目（分身 K1。✅ 2026-11-20 日本時間0時09分49秒・0時32分21秒・0時38分10秒・2時18分01秒 ユーザー。
-                         # CL-2 への知らせは分身 K1 の書き置き＝rv174/K1/notes.md。名前はどれも仮）：Yes の質問の番号 Y1・会話AIが中身を書く部分の名前（中と日本語）・
-                         # 通話の事実 refusal_said（断り文句）・締めた理由 yes_used_up（材料が尽きて日を改める）・共通の一言の録音（受け止め3つ・「手短に」への一言）・
-                         # 名前の録音の台帳の続く言葉 yes_received（「〇〇様ももう大丈夫でしたよね。」）
-                         "Y1", "yes", "Yesの質問の中身", "refusal_said", "yes_used_up",
-                         "yes_received_refused", "yes_received_again", "yes_received_busy", "yes_brief", "yes_received",
-                         # 分身 M（✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い72：エ」「伺い74：ア…」「伺い76：ウ」。CL-2 への知らせは分身 M の書き置き＝rv175/M/notes.md）：
-                         # 共通の一言の録音（番号違いかを伺う一言 wrong_number_ask・待っていただいたお話への返事の頭 omatase・待つことへの迷いに添える一言 wait_soon）
-                         "wrong_number_ask", "omatase", "wait_soon",
-                         # 後任の方もいらっしゃらないときに、その役職の方をお呼びする名乗りの部分（phrases.ROLE_PARTS＝名前の録音の台帳の役職の呼び方＋今ある続く言葉。伺い69）
-                         "target_role", "target_role_confirm", "target_role_unavailable", "target_role_transfer",
-                         # 役職の方へ切り替えた印（通話の事実 departed の to_role＝行を終えない）と、次の電話ではじめから役職の方をお呼びする予約証の口（role_call）。名前は仮
-                         # （CL-1 の続きの頼み (2)。CL-2 への知らせは分身 M の書き置き＝rv175/M/notes.md）
-                         "to_role", "role_call",
-                         # 顧客獲得型の2つ目（分身 K2。CL-2 への知らせは分身 K2 の書き置き＝rv174/K2/notes.md。名前はどれも仮）：本題の段の悩みの伺いの番号 Y2・会話AIが「ただ」に
-                         # 続ける中身を書く部分の名前（中と日本語）・締めた理由 no_pain（悩みがどれも無い＝日を改める）・共通の一言の録音（あっでしたよね・とあるサービス・
-                         # 「聞かせてください」のお名前の入らない所・そうですよね・9-9 の (7) の文・お名前の分からない方への「御社」の形）・名前の録音の台帳の続く言葉
-                         # （本題の段のお名前の入る文・受付の方へ伝える用件の一文）
-                         "Y2", "but", "ただに続ける中身", "no_pain",
-                         "acquire_glad_lead", "case_lead", "listen_sure", "but_lead", "but_safe",
-                         "pain_ask_company", "listen_why_company", "listen_reason_company", "listen_ask_company",
-                         "acquire_glad", "pain_ask", "listen_why", "listen_reason", "listen_ask", "reception_purpose",
-                         # お名前の前の言葉「恐れ入りますが」を名前の録音の前に流す共通の一言の録音（phrases.NAME_HEAD_IDS＝flowctl.name_plays。CL-2 の連絡帳 4-443 の
-                         # ご相談への答え「前者でよいと思います」＝分身 L。CL-2 への知らせは分身 L の書き置き＝rv175/L/notes.md）
-                         "name_head_osoreirimasuga",
-                         # 顧客獲得型の本題の段のお名前の入る文の頭（「じゃあ」「ただですね」「理由はですね」「そういった意味で」）も同じ形の共通の一言の録音（分身 K2 の続き。
-                         # CL-2 への知らせは分身 K2 の書き置き＝rv174/K2/notes.md）
-                         "name_head_jaa", "name_head_tadadesune", "name_head_riyuuhadesune", "name_head_souittaimide",
-                         # 伺い56〜68 のお答え（✅ 2026-11-20 日本時間4時44分42秒 ユーザー。分身 N。CL-2 への知らせは分身 N の書き置き＝rv175/N/notes.md。名前はどれも仮）：
-                         # 「〇時まで」の理由を伺い直した一言に「はい」＝それまでは出られる（UNTIL_LABEL の available_until＝伺い63）
-                         "available_until",
-                         # 言い直して確かめた時刻の24時間の値（通話の事実 clock24＝Flow.clock24_facts。伺い68 ア・CL-1.md 4-199 の鍵の名前と形のご相談）
-                         "clock24",
-                         # 携帯電話の持ち主の確かめの名乗りの部分（instruction.Target.mobile_owner＝名前の部分＋続く言葉 target_individual の録音。伺い65 イ）
-                         "mobile_owner",
-                         # 空いている予定（伺い60・62）：業務設定の欄「依頼者が受けられる日時の空き」accept_free（instruction.CL2_SCHEDULE_FIELDS）と、電話ごとの暦から受ける
-                         # 「電話をかけられる日時の空き」call_free（flowctl.Flow の引数）。お客様リストの分かっている連絡先と出どころ listed_contacts（伺い66＝Flow の引数）
-                         "accept_free", "call_free", "listed_contacts",
-                         # 分身 P（CL-2 への知らせは分身 P の書き置き＝rv175/P/notes.md。名前はどれも仮）：伺い66 の値の入らない SMS の一言の共通の一言の録音・後任の方の形の受付の方への
-                         # 一文の共通の一言の録音・役職の方へ切り替えたあとの受付の方への一文の名乗りの部分（名前の録音の台帳の役職の呼び方＋続く言葉 reception_purpose）
-                         "listed_mobile_dialed", "successor_reception_purpose", "reception_purpose_role",
-                         # 顧客獲得型の3つ目（分身 U1。CL-2 への知らせは分身 U1 の書き置き＝rv176/U1/notes.md。名前はどれも仮）：受付の方への一文の「お役に立つお話」の形（名前の録音の台帳の
+                         # 顧客獲得型の3つ目（分身 U1。CL-2 への知らせは CL-1.md 4-217＝rv176/U1/notes.md。名前はどれも仮）：受付の方への一文の「お役に立つお話」の形（名前の録音の台帳の
                          # 続く言葉・役職の方の部分・後任の方の共通の一言の録音＝伺い87）・訪問しない業務の「聞かせてください」の一続きと本題のお断りの文の共通の一言の録音（伺い91）・悩みの
-                         # お答えへの受けの相づちの録音（伺い90）・悩みがどれも無いときの E4 の句を会話AIが書く部分の名前（中と日本語＝伺い89）
+                         # お答えへの受けの相づちの録音（伺い90）。悩みがどれも無いときの E4 の句を会話AIが書く部分の名前は CL2_PENDING_ANSWER_RESERVED
                          "reception_purpose_useful", "reception_purpose_useful_role", "successor_reception_purpose_useful",
-                         "listen_sure_remote", "but_safe_remote", "soudattan", "naniyori", "ahead", "今後の心配の句"})
+                         "listen_sure_remote", "but_safe_remote", "soudattan", "naniyori"})
 # CL-2 の読み手がまだ受けない値（CL2_PENDING の値の版）：{(通話の事実の種類, 欄): (CL-2 の call_report の組の名前, まだ入っていない値)}。FlowWatch は、読み手に通す前に、
 # その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
 # CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
-CL2_PENDING_VALUES = {
-    # 顧客獲得型の Yes の質問の段で材料も会話AIの中身も尽きて日を改めた締め（flowctl.END_REASONS の yes_used_up＝分身 K1。CL-2 への知らせは rv174/K1/notes.md）
-    ("end", "reason"): ("END_REASONS", frozenset({"yes_used_up", "no_pain"})),   # no_pain＝本題の段で悩みがどれも無く日を改めた締め（分身 K2）
-    # 「〇時まで」の理由を伺い直した一言（phrases.UNTIL_ASK）に「はい」＝それまでは出られる（伺い63 ア＝分身 N。CL-2 への知らせは rv175/N/notes.md）
-    ("callback", "until_why"): ("UNTIL_WHYS", frozenset({"available_until"})),
-}
+CL2_PENDING_VALUES: dict = {}
+# 会話AIが中身を書く部分の名前（flowctl.PART_LABEL の中の名前と日本語の名前）のうち、CL-2 の ANSWER_RESERVED（AI が選ぶ録音の部分の名前＝想定問答の問いの名前に使えない
+# 名前）にまだ無いもの。CL-2 は yes・but を RESERVED_IDS には入れたが、ANSWER_RESERVED には入れていない（2026-11-20 の第3便＝15c02cea）＝想定問答の問いに
+# この名前を付けた業務を CL-2 は通し、会話の側は会話の始めに断る（Flow の ValueError）。CL-2 に足していただくよう頼んだ（CL-1.md 4-220）。CL-2 の ANSWER_RESERVED に
+# 入ったら落ちる＝ここから外す（比べる試験 TargetTest の test_names_match_cl2_business_settings）。顧客獲得型の1つ目（Yes の質問の中身＝分身 K1・4-208）・2つ目（「ただ」に
+# 続ける中身＝分身 K2・4-211）・3つ目（悩みがどれも無いときの E4 の句＝分身 U1・4-217）
+CL2_PENDING_ANSWER_RESERVED: frozenset[str] = frozenset({"yes", "Yesの質問の中身", "but", "ただに続ける中身", "ahead", "今後の心配の句"})
+# （2026-11-20 日本時間21時台に外した：CL-2 の第3便が main に入った＝15c02cea・CL-2 の連絡帳 4-445＝CL-1.md 4-219・4-220：CL2_PENDING の recall・顧客獲得型の1つ目と2つ目の
+# 名前（Y1・Y2・refusal_said・yes_used_up・no_pain・共通の一言の録音と名前の録音の台帳の続く言葉）・分身 M の共通の一言の録音3つ（wrong_number_ask・omatase・wait_soon）と
+# 役職の方の名乗りの部分4つと to_role・role_call・名前の前の言葉の録音5つ（name_head_*）・分身 N の available_until・clock24・mobile_owner・空いている予定と連絡先
+# （accept_free・call_free・listed_contacts）・分身 P の listed_mobile_dialed・successor_reception_purpose・reception_purpose_role／CL2_PENDING_VALUES の締めた理由
+# yes_used_up・no_pain と until_why の available_until／CL2_RETIRED の target_reconfirm）
 # （2026-11-20 に外した：CL-2 の枝が main に入った＝546303a6・CL-2 の連絡帳 4-443・4-444＝CL-1.md 4-209：CL2_PENDING の callee.・mobile_confirm・target_transfer・whole_fact・
 # elsewhere_point・elsewhere_whole・E5・apologies_delivered・共通の一言の録音10個（日時の2択の段の7つ・callback_elsewhere_point・successor_transfer・
 # taihen_shitsurei）／CL2_PENDING_VALUES の (party, by) の judge／CL2_RETIRED の20個＝CL-2 の部品から外れた）
@@ -98,10 +60,7 @@ CL2_PENDING_VALUES = {
 # 連絡帳 4-426 の (1)・CL-1.md 4-190）
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す。2026-11-18 に「どうなさいますか？」の
 # dounasaimasu が外れた＝CL-1.md 4-109）
-CL2_RETIRED: frozenset[str] = frozenset({
-                                         # 名前の録音の台帳の続く言葉（CL-2 の写し NAME_TAILS）：はっきりしない返事への聞き返し（伺い50 イで流さなくなった。CL-2 の連絡帳 4-443 の
-                                         # (c)「外してよいです。あなたが NAME_FORMS から外せば、私が道具で写しを作り直すと NAME_TAILS から外れます」＝分身 L）
-                                         "target_reconfirm"})
+CL2_RETIRED: frozenset[str] = frozenset()
 # 共通の一言の録音の文を替えて、CL-2 が名前と文の写し（common_phrases.TEXTS）を作り直すまで、文だけを比べない名前（CL-2 の 4-403 の (1)）。
 # CL-2 の文がそろったら落ちる＝外す
 CL2_TEXT_PENDING: frozenset[str] = frozenset()
@@ -15883,7 +15842,10 @@ class TargetTest(unittest.TestCase):
             return {x.value for x in ast.walk(node) if isinstance(x, ast.Constant) and isinstance(x.value, str)} | \
                    {consts[x.id] for x in ast.walk(node) if isinstance(x, ast.Name) and x.id in consts} | tails
         theirs = names("ANSWER_RESERVED")
-        self.assertEqual((sorted(without_cl2_pending(self, set(RESERVED_PART_NAMES), theirs) - theirs), sorted(theirs - set(RESERVED_PART_NAMES))), ([], []))
+        # 会話AIが中身を書く部分の名前で CL-2 の ANSWER_RESERVED にまだ無いもの（CL2_PENDING_ANSWER_RESERVED）は引いて比べ、CL-2 に入ったら落ちる＝外す
+        self.assertEqual(sorted(CL2_PENDING_ANSWER_RESERVED & theirs), [], "CL-2 の ANSWER_RESERVED に入った名前は、CL2_PENDING_ANSWER_RESERVED から外す")
+        mine = without_cl2_pending(self, set(RESERVED_PART_NAMES), theirs) - CL2_PENDING_ANSWER_RESERVED
+        self.assertEqual((sorted(mine - theirs), sorted(theirs - set(RESERVED_PART_NAMES))), ([], []))
         self.assertEqual(consts.get("ANSWER_PART_PREFIX"), ANSWER_PREFIX)
         # 業務が書いたときだけ部分になるもの（「AIですか？」の答え・引き止めの一言・留守番電話の伝言・伝言の文）も、全部書いた業務で比べる
         b = dataclasses.replace(self.business(), voicemail_message="（伝言）", message="（伝言の文）", ai_answer="（答え）", busy_ask="（引き止め）")
