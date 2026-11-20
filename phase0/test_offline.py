@@ -13436,12 +13436,16 @@ class EndWordsTest(unittest.TestCase):
             (self.NEXT, "続ける"),
             ("はい、それではお支払いはカードとさせていただきますね？", "続ける"),
             ("はい、それではご予約はされているということで承っておいて大丈夫でしょうか？", "続ける"),
-            (self.R1, "続ける"), (self.R1, "続ける"),
+            # 「そういうお電話はちょっと……。」「結構です。」（ご予約）：最初の質問を流したあとは本題＝ご遠慮の一言より先に本心を伺う一言 D2（✅ 2026-11-08 日本時間3時48分03秒
+            # 「(ア)既定は「最初の質問を流したあと」」。⛔ 分身 S2 の 223f5b58 まで、表の場面に最初の質問を流した印が無く、序盤のご遠慮の一言 R1 を出していた＝S2AskedSceneTest）
+            (S2AskedSceneTest.D2, "続ける"), (S2AskedSceneTest.D2, "続ける"),
             # 答えを断る言葉が強い（不快な様子だが電話は続けてよい）：答えたくない（✕）で次へ・頭はお詫び（分身 AG＝HolesAGTest の (3)）
             ("失礼いたしました。" + self.NEXT.removeprefix("承知しました。"), "続ける"),
             # 「怒っている・苦情」と「通話・営業を断った」の境目の両側（伺い81・分身 K2＝AngryBoundaryTest）：断りの勢いの言葉は断られたときの締め・はっきり怒っている
-            # 言葉は苦情の締め（どちらも今の確認の電話の型の応じ方のまま）
+            # 言葉は苦情の締め（どちらも今の確認の電話の型の応じ方のまま）。分身 S2 で足した「もう切りますね。」（この電話を終えたい＝分身 U2 の書き置きの 8 の (2) の案）も
+            # 表の場面（本心を伺う一言の前）では断ったと同じ締め
             (self.REFUSED, "締め（callee_refused_call）・もうかけない"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"),
+            (self.REFUSED, "締め（callee_refused_call）・もうかけない"),
             ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ"),
             ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ")]
         self.assertEqual(len(want), len(ANSWER))
@@ -16918,13 +16922,15 @@ class G53EndTest(unittest.TestCase):
     def test_end_act_is_what_the_flow_does(self):
         from end_words import ANSWER, HEDGED, answer_flow, question
         from flowctl import END_ANGRY, END_HURRY, END_REFUSED
-        from g53_meaning import END_ACTS, END_ASK, END_TOPIC, end_act, end_step
+        from g53_meaning import END_ACTS, END_ASK, END_CONCERN, END_TOPIC, end_act, end_step
         for row in ANSWER:
             qtext, words, ends, answers, _, _ = row
             _, heard, marks = answer_flow(row)
             act = end_act(question(qtext), answers[0].removesuffix(HEDGED), ends[0])
             if act == END_ASK:
                 self.assertEqual(heard, EndWordsTest.R1, words)
+            elif act == END_CONCERN:   # 本題（最初の質問を流したあと）の電話を終える言葉か決まらない言葉＝本心を伺う一言 D2（分身 S2 の S2AskedSceneTest）
+                self.assertEqual(heard, S2AskedSceneTest.D2, words)
             elif act == END_TOPIC:
                 self.assertTrue(heard.startswith("はい、") and heard.endswith("ということでしょうか？"), (words, heard))
             elif act == END_ACTS[END_HURRY]:
@@ -16954,7 +16960,9 @@ class G53EndTest(unittest.TestCase):
         self.assertEqual(miss(it, "いいえ", END_REFUSED), "⛔違う理由で締める・伺う")
         self.assertEqual(miss(F["もういいです。"], "いいえ", END_NONE), "⛔伺わずに続ける")
         self.assertIsNone(miss(F["もういいです。"], "いいえ", UNDECIDED))
+        # 正解が締める読み・伺う読みの境目（決められない・通話・営業を断った＝rv176/S2 の3回目の読み直し）でも、伺いの読みの外れは「違う伺い」（締めないと数えない）
         self.assertEqual(miss(F["そういうお電話はちょっと……。"], "はい", UNDECIDED), "違う伺い")
+        self.assertIsNone(miss(F["そういうお電話はちょっと……。"], UNDECIDED, END_REFUSED))
         plain = {"set": "B", "maker": "3.8 Flash", "qid": "G8", "text": "（付け直していない答え）", "truth": "はい"}
         self.assertIsNone(miss(plain, "はい", END_NONE))
         self.assertEqual(miss(plain, "はい", END_HURRY), "⛔電話を終える言葉ではないのに締める・急ぎを伺う")
@@ -29678,20 +29686,30 @@ class MeasureReviewTest(unittest.TestCase):
     def test_review_and_end_rows_carry_selectable_names_and_their_reasons(self):
         # F5（11-15）：組 R（review_words）・組 F（end_words）の正解は、その行で判定が選べる名前だけ（R7 の「affirmed」「denied」は選べない名前だった）。
         # わからない・決められないを正解に含む行は理由の正解（reason）を持ち、組 F の行は問い・別のお話の正解も持つ（g53_labels.json の行と同じ欄・同じ決め方）
+        # 正解の名前は、判定に見せる質問（行の場面の質問＝judge_inputs の1か所）の選べるもので見る：日時の2択の段は、並べた2つごとの名前（「（避けた方）だけ合わない」）と
+        # 項目「合わないと言わなかったほうで大丈夫そうか」を、そこにだけ持つ（伺い94＝分身 U2）。場面を組めない行は質問の表の質問で見る。⛔ rv176/S2 まで、質問の表
+        # （review_words.questions＝2択を並べる前の質問）で見ていた＝2択ごとの名前を正解にした行を見られなかった（分身 U2 の書き置き rv176/U2/notes.md の 8 の (1)）
         import g53_meaning as G
         import meaning_judge as M
-        from flowctl import AWAY, QUERY, QUERY_NO, UNDECIDED, WHY
+        from flowctl import AWAY, END, LADDER_OTHER, QUERY, QUERY_NO, UNDECIDED, WHY, ladder_side_name
         from review_words import questions as review_questions
         qmap = G.question_map() | review_questions()
+        seen = set()
         for it in G.set_r() + G.set_f():
-            q, label = qmap[it["qid"]], G._label(it)
-            names = {c for _, _, c in M.options(q, it.get("asked"))}
+            q, label, asked = qmap[it["qid"]], G._label(it), it.get("asked")
+            try:
+                q, asked, _ = G.judge_inputs(it, q)
+            except G.NoScene:
+                pass
+            names = {c for _, _, c in M.options(q, asked)}
             names |= {"unknown", UNDECIDED} if names & {"unknown", UNDECIDED} else set()
             self.assertLessEqual(set(label["accept"]), names, (it["qid"], it["text"]))
-            items = M.answer_items(q, it.get("asked"))
-            for lkey, ikey in ((QUERY, QUERY), (AWAY, AWAY), ("reason", WHY)):
+            seen |= set(label["accept"])
+            items = M.answer_items(q, asked)
+            for lkey, ikey in ((QUERY, QUERY), (AWAY, AWAY), ("reason", WHY), (LADDER_OTHER, LADDER_OTHER), ("end", END)):
                 if lkey in label:
                     self.assertLessEqual(set(label[lkey]), set(items.get(ikey, {})), (it["qid"], it["text"], lkey))
+        self.assertIn(ladder_side_name("金曜日"), seen)   # 2択ごとの名前を正解に持つ行も見ている
         f_row = next(it for it in G.set_f() if it["text"] == "いま時間がないので結構です。")
         self.assertIsNotNone(G.why_accept(f_row))
         self.assertEqual(G.query_truths(f_row), (QUERY_NO,))
@@ -40484,7 +40502,10 @@ class RereadRowsTest(unittest.TestCase):
              "待っていただく一言のあと（答えを言ったあと、こちらの声が出ていない）": ("R1", "お支払いはカードと振込のどちらがよろしいでしょうか？",
                                                                    "少々お待ちいただいてもよろしいでしょうか？"),
              "顧客獲得型の悩みの伺い（Y2）": ("Y2", "御社はこういうお悩みはございませんですか？", ""),
-             "顧客獲得型の本心を伺う一言（D2）": ("D2", "何か問題でもございましたでしょうか？", "")}
+             "顧客獲得型の本心を伺う一言（D2）": ("D2", "何か問題でもございましたでしょうか？", ""),
+             # 分身 S2：時刻の2択（伺い94 のエは最後の段で言い直しの確かめ）・確認の電話の本心を伺う一言（念押しはご遠慮の一言・はっきりした断りは締める）
+             "日時の2択の段（火曜日・午後と答えたあとの時刻の2択）": ("C1", "2時と4時ではどちらがよろしいでしょうか？", ""),
+             "確認の電話の本心を伺う一言（D2）": ("D2", "何か問題でもございましたでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -42450,10 +42471,10 @@ class AngryBoundaryTest(unittest.TestCase):
         from end_words import ANSWER, CALLING, SIDE, answer_truths
         from flowctl import END_ANGRY, END_NONE, END_PRESSED, END_REFUSED
         ends = {r[1]: r[2] for r in ANSWER} | {r[1]: r[2] for r in CALLING}
-        # ⏳ 「しつこいですね。いらないって…」は伺い93 のお答え待ち＝境目の印（断った・言っていないのどちらも正解。2026-11-20 CL-1 の頼み rv176/S の続き (1)）。
-        #    並びの頭は断った（今の確認の電話の型の締め＝test_confirm_type_hears_the_same_close_as_each_side_of_today）
+        # 「しつこいですね。いらないって…」は伺い93＝ア（✅ 2026-11-20 日本時間16時13分06秒のお答え・16時13分55秒「他も書いてることばかりだろ！」）＝CL-1 の 17時台の (B3)：
+        #    ふつうの場面では「この電話を終えたい・念を押して断った」だけ（⛔ 分身 S2 まで、お答え待ちの境目の印＝断った・言っていないのどちらも正解だった）
         # 答えの段の断りの勢いの言葉は「この電話を終えたい・念を押して断った」（はっきり今後の電話を断ったと分けた＝分身 U2）。お呼びする段は今のまま
-        want = {"しつこいですね。いらないって言ってるでしょう。": (END_PRESSED, END_NONE), "何度も言ってるでしょう、もう結構ですって。": (END_PRESSED,),
+        want = {"しつこいですね。いらないって言ってるでしょう。": (END_PRESSED,), "何度も言ってるでしょう、もう結構ですって。": (END_PRESSED,),
                 "いい加減にしてください！": (END_ANGRY,), "上の者を出してください。": (END_ANGRY,),
                 "しつこいですね。営業のお電話はお繋ぎできないと言ってるでしょう。": (END_REFUSED,), "いい加減にしてください、失礼ですよ。": (END_ANGRY,)}
         self.assertEqual({w: ends.get(w) for w in want}, want)
@@ -44035,7 +44056,7 @@ class U2LadderOneSideTest(unittest.TestCase):
     """伺い94（✅ 2026-11-20 日本時間16時13分55秒「他も書いてることばかりだろ！」＝書いてあることで決まる・16時25分52秒「伺い94：はもう一方で大丈夫そうなら、エでいいし、
     もう一方では不安そうならウでしょ」）：日時の2択の片方だけを避けられたら（「金曜日はちょっと…。」）、判定が、どちらを避けたか（答えの選べるもの「（避けた方）だけ合わない」）と、
     もう一方で大丈夫そうか（答えとは別の項目 LADDER_OTHER）を読む。判定の組がそろって「大丈夫そう」＝エ（避けなかった方を答えとして受け取り、次の段の2択へ。頭は
-    「それでは（避けなかった方）でしたら」。最後の段は今の言い直しの確かめ）／ほか（不安そう・分からない・割れた・届かない）＝ウ（避けた方だけを外し、避けなかった方と次の空いている
+    「それでは（避けなかった方）でしたら」。最後の段は今の言い直しの確かめ）／ほか（不安そう・大丈夫とは言っていない・割れた・届かない）＝ウ（避けた方だけを外し、避けなかった方と次の空いている
     予定で2択）。時刻・午前と午後・平日と土日の2択も、2つとも合わないときの今の1か所（Flow._ladder_neither）。場面は DateTimePairsTest と同じ（電話の日 2026-11-19 木曜日 10時・
     11-23 は祝日）。"""
     d = DateTimePairsTest()
@@ -44666,6 +44687,501 @@ class U1ReceptionHurryTest(unittest.TestCase):
         g.use_checks("judge")
         r = _u1_turn(g, "申し訳ございません、今ちょっとバタバタしておりまして。", EndJudgedTest.R(UNDECIDED, END_HURRY))
         self.assertEqual(heard_words(r), self.H1)
+
+
+# ── 分身 S2（CL-1 の頼み rv176/S2）：測りの準備の続き。分身 U2 で判定に送る文が変わった所（答えの段の「電話を終える言葉か」の「この電話を終えたい・念を押して断った」・
+# 日時の2択の段の「（避けた方）だけ合わない」と項目「合わないと言わなかったほうで大丈夫そうか」）を数える1か所に入れ、CL-1 が 9-3 の案に当てて決めた説明の文の境目4つを
+# 今の1か所に直した（✅ 2026-11-20 日本時間16時13分55秒「他も書いてることばかりだろ！」＝書いてあることで決まる。決めの中身は帳面 1 の (1) の分身 S の行の 17時台の段）
+class S2MeasurePrepTest(unittest.TestCase):
+    """(1) (違う) 選ぶ質問の言い直しの決まりの文は、選べるものの名前「違う」で書く（値を伺う質問は「違う値を言われた」のまま。同じものを2つの名前で呼ばない）
+    (2) (2択) 日時の2択の段の答えの選べるもの（答えた・どちらも合わない・（避けた方）だけ合わない）の説明は、名前のくり返しではなく意味で書き、3つの境目を同じ1か所で読める
+    (3) (別のお話か) 質問のあとにこちらが言った一言へのお返事も答えの話（一言を流したときだけの文）
+    (4) (誰か) 取り次げない・お繋ぎできないと言った方は受付・取次ぎの方（番号違いではないかと言った方は足さない＝境目のまま）
+    (5)(6) 測りの数えの1か所（g53_meaning の場面・読み・動きの名前）が、新しい読みと動き（片方だけ合わないのウ・エ・確認の電話の本心を伺う一言のあとのご遠慮の一言）を数える"""
+
+    def test_1_denied_rule_names_the_shown_choice(self):
+        from flowctl import CONFIRM_LABEL, Question
+        from meaning_judge import CHOICE_DENIED, RULES, options, prompt_parts, rules
+        pay = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        asked = "念のためお支払いはカードでよろしいでしょうか？"
+        self.assertIn(CHOICE_DENIED[0], [n for n, _, _ in options(pay, asked)])
+        head = prompt_parts(pay, "違います。", asked)[0]
+        line = next(x for x in head.split("\n") if x.startswith("- 言い直しを打ち消す返事"))
+        self.assertIn(f"「{CHOICE_DENIED[0]}」）", line)
+        self.assertNotIn(CONFIRM_LABEL["corrected"], head)
+        # 値を伺う質問の言い直し：選べるものの名前は「違う値を言われた」のまま
+        budget = Question("Q2", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",))
+        vasked = "念のためご予算は5万円でよろしいでしょうか？"
+        self.assertIn(CONFIRM_LABEL["corrected"], [n for n, _, _ in options(budget, vasked)])
+        self.assertIn(f"「{CONFIRM_LABEL['corrected']}」）", prompt_parts(budget, "違います。", vasked)[0])
+        # 言い直していない最初の答えの文は前と同じ
+        self.assertEqual(rules(pay), RULES)
+        self.assertTrue(prompt_parts(pay, "カードで。")[0].startswith(RULES))
+
+    def test_2_ladder_answers_are_written_by_meaning(self):
+        import g53_meaning as g
+        from flowctl import LADDER_NEITHER, LADDER_OTHER, LADDER_SIDE_TAIL, VALUE_CHOICE, Question, ladder_sides
+        from meaning_judge import answer_items, options
+        from review_words import LADDER_SCENE, answer_words, questions
+        it = next(r for r in answer_words() if r.get("scene") == LADDER_SCENE)
+        q = g.judge_inputs(it, questions()["C1"])[0]
+        desc = {c: d for _, d, c in options(q)}
+        sides = ladder_sides(q)
+        self.assertEqual(len(sides), 2)
+        names = (VALUE_CHOICE, LADDER_NEITHER, *sides)
+        for c in names:
+            self.assertFalse(desc[c].endswith("と答えた"), (c, desc[c]))   # 名前のくり返しではなく意味
+            self.assertFalse(desc[c].startswith("「"), (c, desc[c]))      # 判断のモデルにも、この説明をそのまま渡す（jev_criteria）
+        self.assertIn("並べた2つの外", desc[VALUE_CHOICE])
+        self.assertIn("とだけ言った", desc[LADDER_NEITHER])
+        for s in sides:
+            self.assertIn(f"「{s.removesuffix(LADDER_SIDE_TAIL)}」", desc[s])   # どちらを避けたかが説明でも分かる
+        # 境目は1か所：もう一方をはっきり選んだか（答えた ⇔ 片方だけ合わない）は、片方だけ合わないの説明だけ（答えたの説明・もう一方で大丈夫そうかの項目は書かない＝名前で指す）
+        other = answer_items(q)[LADDER_OTHER]
+        for d in (desc[VALUE_CHOICE], desc[LADDER_NEITHER], *other.values()):
+            self.assertNotIn("はっきり選", d)
+        for s in sides:
+            self.assertIn("はっきり選", desc[s])
+        # 説明どうしで14字以上同じ言い回しを置かない（帳面 0-3 の (a)）
+        N = 14
+        mine = [desc[VALUE_CHOICE], desc[LADDER_NEITHER], desc[sides[0]]]
+        for i, a in enumerate(mine):
+            for b in mine[i + 1:] + list(other.values()):
+                self.assertEqual([a[k:k + N] for k in range(len(a) - N + 1) if a[k:k + N] in b], [], (a, b))
+        # 2択を伺っていない値の質問の「答えた」は今のまま
+        v = Question("Q9", "ご訪問の日にちはいつがよろしいでしょうか？", "date", conditions=(VALUE_CHOICE,))
+        self.assertEqual({c: d for _, d, c in options(v)}[VALUE_CHOICE], f"「{VALUE_CHOICE}」と答えた")
+
+    def test_3_reply_to_our_line_after_the_question_is_answer_talk(self):
+        import g53_meaning as g
+        from flowctl import AWAY, AWAY_NO, AWAY_YES, away_choices
+        from meaning_judge import PROMPTED, answer_items
+        from review_words import WAIT_SCENE, WRONG_ASK_SCENE, answer_words, questions
+        qs = questions()
+        for scene in (WAIT_SCENE, WRONG_ASK_SCENE):
+            it = next(r for r in answer_words() if r.get("scene") == scene)
+            q = g.judge_inputs(it, qs[it["qid"]])[0]
+            self.assertTrue(getattr(q, "prompted", ""))
+            c = answer_items(q)[AWAY]
+            self.assertIn(f"「{PROMPTED}」へのお返事", c[AWAY_NO])
+            self.assertNotIn(PROMPTED, c[AWAY_YES])
+        # 一言を流していない質問の文は前と同じ
+        plain = answer_items(qs["R1"])[AWAY]
+        self.assertEqual(plain, away_choices(False, True))
+        self.assertNotIn(PROMPTED, plain[AWAY_NO])
+
+    def test_4_reception_also_says_they_cannot_put_us_through(self):
+        from flowctl import WHO, WHO_RECEPTION, target_facets
+        for asked in (False, True):
+            for seeks in (False, True):
+                who = next(f for f in target_facets(asked, seeks) if f.key == WHO)
+                d = who.choices[WHO_RECEPTION]
+                self.assertIn("取り次げない・お繋ぎできない", d, (asked, seeks))
+                self.assertNotIn("番号", d)   # 番号違いではないかと言った方は足さない（携帯電話の番号ならご本人でありうる＝境目のまま）
+
+    @staticmethod
+    def ladder_row(text, accept, other):
+        from flowctl import AWAY, AWAY_NO, LADDER_OTHER, QUERY, QUERY_NO
+        from review_words import LADDER_SCENE
+        return {"set": "R", "qid": "C1", "text": text, "asked": None, "scene": LADDER_SCENE,
+                "label": {"accept": list(accept), "why": "", AWAY: [AWAY_NO], QUERY: [QUERY_NO], LADDER_OTHER: list(other)}}
+
+    def test_5_count_reads_the_other_side_of_the_pair(self):
+        # 伺い94（✅ 2026-11-20 日本時間16時25分52秒）：正しい読みの組み合わせ（label_readings）にも、もう一方で大丈夫そうか（LADDER_OTHER）を入れる＝エ（避けなかった方で次の2択）と
+        # ウ（避けた方だけを外した2つ）を、正解の動きとしても、読みの動きとしても分けて数える。⛔ 直す前は正解の動きに項目が無く、どの行もウと数えていた
+        import g53_meaning as g
+        from flowctl import LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK as OK, LADDER_OTHER_UNSURE as U, VALUE_CHOICE, ladder_side_name
+        from review_words import questions
+        from review_words import LADDER_CLOCK_SCENE
+        q = questions()["C1"]
+        fri, tue = ladder_side_name("金曜日"), ladder_side_name("火曜日")
+        unsure = self.ladder_row("金曜日はちょっと…。", [fri], [U])
+        ok = self.ladder_row("金曜日はちょっと…。火曜日は空いてますけど。", [fri], [OK])
+        # 動きの名前は、お客様に聞こえる次の2択まで（どちらを避けたと読んだかで替わる）
+        self.assertEqual(g.step_wants(unsure, q, False), {f"{g.LADDER_ONE_ACT}：火曜日と水曜日ではどちらがよろしいでしょうか？"})
+        self.assertEqual(g.step_wants(ok, q, False), {f"{g.LADDER_KEPT_ACT}：それでは火曜日でしたら午前と午後のどちらがよろしいでしょうか？"})
+
+        def rec(it, choice, other):
+            return {**it, "j": choice, "j言い切り": True, f"j{g.SIDE_SUFFIX[LADDER_OTHER]}": other}
+        self.assertIsNone(g.flow_miss(rec(ok, fri, OK), q, "j"))
+        self.assertIsNotNone(g.flow_miss(rec(ok, fri, U), q, "j"))
+        self.assertIsNotNone(g.flow_miss(rec(unsure, fri, OK), q, "j"))
+        self.assertIsNotNone(g.flow_miss(rec(unsure, tue, U), q, "j"))   # 避けた方の読み違え（火曜日を外す）
+        self.assertIsNotNone(g.flow_miss(rec(ok, tue, OK), q, "j"))      # 避けなかった方の読み違え（金曜日で次の2択）
+        # 答えた（2択の次の段へ）・どちらも合わない（別の2つ）とも違う動き
+        acts = {g.step_act(rec(ok, c, LADDER_OTHER_NOT), q, "j") for c in (VALUE_CHOICE, LADDER_NEITHER)}
+        self.assertEqual(len(acts | g.step_wants(unsure, q, False) | g.step_wants(ok, q, False)), 4)
+        # 時刻の2択（最後の段）のエは、避けなかった時刻で今の言い直しの確かめ＝どの時刻で確かめるかまで数える
+        clock = {**self.ladder_row("2時はちょっと…。4時なら空いてるかな。", [ladder_side_name("2時")], [OK]), "scene": LADDER_CLOCK_SCENE}
+        self.assertEqual(g.step_wants(clock, q, False), {"念のため確かめる：答えた（火曜日の午後4時）"})
+        self.assertIsNotNone(g.flow_miss(rec(clock, ladder_side_name("4時"), OK), q, "j"))
+
+    def test_6_confirm_d2_scene_counts_the_refusal_line(self):
+        # 確認の電話の本心を伺う一言 D2 のあと（✅ 2026-11-08 日本時間2時21分15秒・分身 U2）：念を押した・この電話を終えたい＝ご遠慮の一言 R1／はっきり今後の電話を断った＝その場で
+        # 締めてもうかけない（原則14）。測りの数えの場面の印の1か所（review_words.NEW_SCENES・g53_meaning._new_scene）で組み、2つの読みを違う動きと数える。⛔ 直す前は、D2 の場面は
+        # 顧客獲得型だけ（どちらの読みも続ける）＝ご遠慮の一言の動きを数える場面が無かった
+        import g53_meaning as g
+        from flowctl import END_PRESSED, END_REFUSED, QUERY, QUERY_NO
+        from review_words import CONFIRM_CONCERN_SCENE, NEW_SCENES, questions
+        self.assertIn(CONFIRM_CONCERN_SCENE, NEW_SCENES)
+        q = questions()["D2"]
+
+        def row(text, end):
+            return {"set": "R", "qid": "D2", "text": text, "asked": None, "scene": CONFIRM_CONCERN_SCENE,
+                    "label": {"accept": ["断ろうとしている"], "why": "", "end": [end], QUERY: [QUERY_NO]}}
+        pressed, firm = row("もういいって言ってるでしょう。", END_PRESSED), row("もうかけてこないでください。", END_REFUSED)
+        self.assertEqual(g.judge_inputs(pressed, q)[0].text, "何か問題でもございましたでしょうか？")
+        self.assertEqual(g.step_wants(pressed, q, True), {g.END_ASK})
+        self.assertEqual(g.step_wants(firm, q, True), {g.END_ACTS[END_REFUSED]})
+
+        def rec(it, end):
+            return {**it, "j": "断ろうとしている", "j言い切り": True, "j終わり": end}
+        self.assertIsNone(g.flow_miss(rec(pressed, END_PRESSED), q, "j"))
+        self.assertIsNotNone(g.flow_miss(rec(pressed, END_REFUSED), q, "j"))
+        self.assertIsNotNone(g.flow_miss(rec(firm, END_PRESSED), q, "j"))
+        self.assertIsNone(g.flow_miss(rec(firm, END_REFUSED), q, "j"))
+
+
+class S2ReaderBorderTest(unittest.TestCase):
+    """分身 S2 の続き（CL-1 の頼み (2)）：答えを伏せた読み手2人（rv176/S2/readers）が2人とも2つ以上に読み、2人とも説明の境目が分かりにくいと書いたのに、ご判断・お答えで正解が
+    決まっている言葉は、判定の説明の文の境目の1か所を直す（お客様に聞こえる言葉・流れの制御の動きは変えない）。お呼びする段の文は、怒っているの境目（どちらの段も同じ1か所）のほかは変えない。"""
+
+    def test_1_one_side_with_a_tentative_other_is_one_side(self):
+        # ✅ 2026-11-20 日本時間16時25分52秒「伺い94：はもう一方で大丈夫そうなら、エでいいし、もう一方では不安そうならウでしょ」：片方だけを避け、もう一方なら空いている・大丈夫と
+        # 言っただけ（「火曜日は空いてますけど」「火曜日なら」「4時なら空いてるかな」）・もう一方も不安そう（「火曜日もどうかなあ」）は、どれも片方だけ合わない（エ・ウは項目が決める）。
+        # ⛔ 直す前は、読み手2人とも「答えた」「どちらも合わない」とも読んだ（束 n の #8〜#10・#12）
+        from flowctl import LADDER_NEITHER, LADDER_SIDE_TAIL, VALUE_CHOICE, Question, ladder_choice_desc
+        q = Question("C1", "金曜日と火曜日ではどちらがよろしいでしょうか？", "datetime", conditions=(VALUE_CHOICE, LADDER_NEITHER, "金曜日" + LADDER_SIDE_TAIL, "火曜日" + LADDER_SIDE_TAIL))
+        d = ladder_choice_desc(q, "金曜日" + LADDER_SIDE_TAIL)
+        for words in ("空いている・大丈夫と言っただけ", "不安そう", "何も言っていない", f"「{LADDER_NEITHER}」", "はっきり選"):
+            self.assertIn(words, d)
+        for c in (VALUE_CHOICE, LADDER_NEITHER):
+            self.assertNotIn("不安そう", ladder_choice_desc(q, c))
+
+    def test_2_answer_stage_refusals_of_the_offer(self):
+        # ✅ 2026-11-01 日本時間20時11分「1.「いま時間がないので結構です」（折り返しの申し出への返事）：言っていないし、急いでいる」（表の正解＝急いでいる・11-01 日本時間23時59分
+        # 「(a) OK」）・「2.「かけてこないでください」（折り返しの申し出への返事）：…担当者からの折り返しを拒否しただけ」・「3.「そういった案内はお断りします」（説明会の質問への返事）：
+        # 2.と同じ」。⛔ 直す前は、読み手2人とも、申し出たお電話の断りを「通話・営業を断った」（このあとの電話）とも、同じ種類のご案内の断りを営業の電話の断りとも読んだ（束 e の #2・#3・
+        # #30・#32）。境目は答えの段の「言っていない」の説明の1か所（お呼びする段の文は変えない）
+        from flowctl import END_HURRY, END_NONE, end_choices
+        ans, call = end_choices(False)[END_NONE], end_choices(True)[END_NONE]
+        for words in ("このあとの電話を断る言い方でも", "同じ種類のご案内", f"「{END_HURRY}」"):
+            self.assertIn(words, ans)
+            self.assertNotIn(words, call)
+
+    def test_3_hurry_reason_to_hang_up(self):
+        # 表の正解（✅ 2026-11-01 日本時間23時59分「(a) OK」）「ごめんなさい、今から出かけるので切りますね。」＝急いでいる：急ぎ・用事を理由に、この電話を切る・終えると言ったのは急いでいる
+        # （理由を言わずに終えたいとだけ言ったのは「この電話を終えたい・念を押して断った」のまま）。⛔ 直す前は、読み手2人とも「この電話を終えたい・念を押して断った」とも読んだ（束 e の #7）
+        from flowctl import END_HURRY, end_choices
+        ans, call = end_choices(False)[END_HURRY], end_choices(True)[END_HURRY]
+        for words in ("用事", "切る・終える"):
+            self.assertIn(words, ans)
+            self.assertNotIn(words, call)
+
+    def test_4_pressed_refusal_of_the_offer(self):
+        # ✅ 2026-11-20 日本時間16時13分06秒のお答え（伺い93＝ア）：申し出への断りを念を押して・強い勢いで言ったのは「断った」（答えの段では「この電話を終えたい・念を押して断った」）。
+        # ⛔ 直す前は、読み手2人とも「言っていない」（申し出を要らないと言っただけ）とも読んだ（束 e の #12）。境目は「この電話を終えたい・念を押して断った」の説明の1か所
+        from flowctl import END_NONE, END_PRESSED, end_choices
+        c = end_choices(False)
+        self.assertIn("申し出を断る言葉でも", c[END_PRESSED])
+        self.assertNotIn("念押し", c[END_NONE])
+
+    def test_5_angry_command_or_forceful_refusal(self):
+        # ✅ 2026-11-20 日本時間2時18分01秒「伺い81：…OK」（伺いの文の、はっきり怒っている例「いい加減にしてください！」）：断りの中身を言わずに強い言葉でやめるように言いつけたのは
+        # 怒っている・断りの中身を強い勢いで言ったのは断った側。⛔ 直す前は、読み手2人とも「この電話を終えたい・念を押して断った」とも読んだ（束 e の #15）。境目は angry_not の1か所
+        from flowctl import angry_not
+        for calling in (False, True):
+            self.assertIn("断りの中身", angry_not(calling))
+            self.assertIn("命じた", angry_not(calling))
+
+    def test_6_short_ambiguous_word_is_not_refusing_a_fact(self):
+        # 10-17 ユーザー「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」：事実を伺う質問への、受け入れとも断りとも取れる短い言葉だけ（「結構です。」
+        # 「いいです。」「大丈夫です。」）は、答えたくないにしない（表の正解＝決められない）。⛔ 直す前は、読み手2人とも「答えたくない」とも読んだ（束 e の #11・#18・#19・#21・#22）。
+        # 控える・差し控える（11-01 日本時間3時45分）は今のまま
+        from meaning_judge import REFUSED_FACT
+        self.assertIn("断りの意味とも取れる短い言葉", REFUSED_FACT)   # 分身 S2 の仕上げで「受け入れとも断りとも」を事実を伺う質問の言い方に直した（S2ReReadBorderTest の test_4）
+        self.assertIn("控える", REFUSED_FACT)
+
+
+class S2DecidedProposalTest(unittest.TestCase):
+    """分身 S2 の続きの続き（CL-1 の決め＝書き置き 13-6 の案 (1)・(2)・(5) を入れる）：判定の説明の文・選べるものの名前の1か所ずつを直す（お客様に聞こえる言葉・流れの制御の動きは
+    変えない。お呼びする段の文は変えない＝3つとも答えの段だけの文）。"""
+
+    def test_1_thanks_after_the_answer_is_not_pressed(self):
+        # CL-1 の決め（案 (1)）：答えのあとのお礼の締めくくりだけ（いまの質問への答えにお礼を添えて話を終えた）は「この電話を終えたい・念を押して断った」ではない（いまの質問への
+        # 答えで読む・電話を終える言葉は「言っていない」）。理由＝10-17 ユーザー「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」・本書 1-3（取り消せない
+        # 印は、言葉から1つに決まるときだけ）・ほかのご希望 W1 への「無い」はお礼の締めで、断りの印は付けない（11-03 の W1 の段）。⛔ 直す前は、読み手2人とも、ほかのご希望への
+        # 「もう大丈夫です。」「もう結構です、ありがとうございます／ました。」を「この電話を終えたい・念を押して断った」とも読んだ（rv176/S2 の束 e の #38〜#40）。境目はこの説明の1か所
+        from flowctl import END_NONE, END_PRESSED, end_choices
+        pressed = end_choices(False)[END_PRESSED]
+        for words in ("お礼を添えて", f"「{END_NONE}」"):
+            self.assertIn(words, pressed)
+        self.assertNotIn(END_PRESSED, end_choices(True))   # お呼びする段には無い（文は変わらない）
+
+    def test_2_unsure_name_matches_its_description(self):
+        # CL-1 の決め（案 (2)）：選べるもの「不安そう・分からない」の名前を、説明の幅（大丈夫かは言っていない も含む）に合わせて「不安そう・大丈夫とは言っていない」にする（お言葉の
+        # 「不安そう」は残す＝✅ 2026-11-20 日本時間16時25分52秒「もう一方では不安そうならウ」。名前が1つの事実を指すように＝11-01 日本時間6時05分「初めて読む人が分かる言葉で」）。
+        # ⛔ 直す前は、読み手2人とも、名前が「不安そう」を思わせるのに説明は「何も言っていない」も含む、と書いた（rv176/S2 の束 n の #7・#11）。流れの制御の動き（エは「大丈夫そう」が
+        # そろったときだけ）は変えない
+        from flowctl import LADDER_OTHER_OK, LADDER_OTHER_UNSURE, ladder_other_choices, ladder_other_ok
+        from types import SimpleNamespace
+        self.assertEqual(LADDER_OTHER_UNSURE, "不安そう・大丈夫とは言っていない")
+        c = ladder_other_choices(False, True)
+        self.assertIn(LADDER_OTHER_UNSURE, c)
+        self.assertNotIn("不安そう・分からない", c)
+        self.assertIn("大丈夫かは言っていない", c[LADDER_OTHER_UNSURE])
+        r = lambda v: SimpleNamespace(ladder_other=v)
+        self.assertTrue(ladder_other_ok([r(LADDER_OTHER_OK), r(LADDER_OTHER_OK)]))
+        self.assertFalse(ladder_other_ok([r(LADDER_OTHER_OK), r(LADDER_OTHER_UNSURE)]))
+
+    def test_3_refusing_the_call_is_not_refusing_the_fact(self):
+        # CL-1 の決め（案 (5)）：事実を伺う質問の「答えたくない」は、この質問への答えを控える・断ると言ったときだけ。電話そのもの・このあとの電話を断った言葉はこちらではない（電話を
+        # 終える言葉の項目が読む）。理由＝10-13 のユーザー指摘「断りは3つに分ける：発信の拒否＝発信禁止／用件への断り＝断られた／質問だけの拒否＝その項目だけ「✕」」。正解は分身 S の
+        # 束 a1 の決めのまま。⛔ 直す前は、読み手2人とも「もう電話しないでもらえますか。」「そういうお電話はちょっと……。」を「答えたくない」とも読んだ（rv176/S2 の束 e の #6・#10）
+        from flowctl import END_HEADING
+        from meaning_judge import REFUSED_FACT, SYSTEM_DESC
+        for words in ("この質問への答えを控える・断る", "電話そのもの", "このあとの電話", f"「{END_HEADING}」"):
+            self.assertIn(words, REFUSED_FACT)
+        self.assertNotIn("答えることを控える・断る", REFUSED_FACT)
+        self.assertNotIn("このあとの電話", SYSTEM_DESC["refused"])   # ふつうの質問の文は変えない
+
+
+class S2ReReadBorderTest(unittest.TestCase):
+    """分身 S2 の仕上げ（CL-1 の頼み (3)）：読み直しの束（rv176/S2/readers の r1・r2）で、答えを伏せた読み手2人がそろって説明の境目が分かりにくいと書いた所のうち、お答え・ご判断で
+    正解が決まっている言葉だけ、判定の説明の文の1か所ずつを直す（お客様に聞こえる言葉・流れの制御の動きは変えない。お呼びする段の文は、怒っているの境目のほかは変えない）。"""
+
+    def test_1_refusing_the_offered_call_without_saying_which_calls(self):
+        # ✅ 2026-11-01 日本時間20時11分「2.「かけてこないでください」（折り返しの申し出への返事）：…担当者からの折り返しを拒否しただけ」・「3.「そういった案内はお断りします」
+        # （説明会の質問への返事）：2.と同じ」＝言っていない。⛔ 直す前は、読み手2人とも「申し出たお電話だけか、このあとの電話全部か」「同じ種類のご案内か、営業の電話全体か」が
+        # 言葉から決まらないと書き、「通話・営業を断った」とも読んだ（束 r1 の #2・#3・#23・#24）。境目は答えの段の「言っていない」の説明の1か所
+        from flowctl import END_NONE, end_choices
+        ans, call = end_choices(False)[END_NONE], end_choices(True)[END_NONE]
+        for words in ("言い分けていなければ", "言い分けていなくても", "このあとの電話を断る言い方でも"):
+            self.assertIn(words, ans)
+        self.assertNotIn("言い分け", call)
+
+    def test_2_no_time_to_decline_the_offer_is_hurry(self):
+        # ✅ 2026-11-01 日本時間20時11分「1.「いま時間がないので結構です」（折り返しの申し出への返事）：言っていないし、急いでいる」・表の正解＝急いでいる（11-01 日本時間23時59分
+        # 「(a) OK」）。⛔ 直す前は「言っていない」の説明が急いでいるへ送るのに、急いでいるの説明には申し出を断った場面が無かった（束 r1 の #1・#22＝読み手2人とも書いた）
+        from flowctl import END_HURRY, end_choices
+        self.assertIn("前の質問の申し出を断ったのも", end_choices(False)[END_HURRY])
+        self.assertNotIn("申し出", end_choices(True)[END_HURRY])
+
+    def test_3_unfinished_or_unclear_refusal_is_undecided(self):
+        # 表の正解（✅ 2026-11-01 日本時間23時59分「(a) OK」）「そういうお電話はちょっと……。」＝決められない（電話を断っていそうだが言い切っていない）・✅ 11-01 日本時間20時56分・
+        # 22時31分「もういいです」＝いまの話の向きを先に伺う（決められない）・10-17 ユーザー「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」。
+        # ⛔ 直す前は、読み手2人とも「通話・営業を断った」「この電話を終えたい・念を押して断った」と読んだ（束 r1 の #8・#9＝取り消せない発信禁止の印の側）。境目は答えの段の
+        # 「決められない」の説明の1か所（お呼びする段の文は変えない。「念を押」は怒っている・念押しの説明だけ＝AngryBoundaryTest）
+        from flowctl import UNDECIDED, end_choices
+        ans, call = end_choices(False)[UNDECIDED], end_choices(True)[UNDECIDED]
+        for words in ("言い切らずに濁しただけ", "事実を伺う質問に", "もう、と添えて", "はっきり言ったなら"):
+            self.assertIn(words, ans)
+            self.assertNotIn(words, call)
+        self.assertNotIn("念を押", ans)
+
+    def test_4_short_word_to_a_fact_question_has_no_acceptance(self):
+        # 10-17 ユーザー「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」：事実を伺う質問には「受け入れ」に当たる答えが無い。⛔ 直す前は「受け入れとも
+        # 断りとも取れる短い言葉」と書き、読み手2人とも、事実を伺う質問への短い言葉に当たるか分かりにくいと書いた（束 r1 の #10・#17・#18・#20・#21）
+        from meaning_judge import REFUSED_FACT
+        self.assertIn("どれかの答えの意味とも、断りの意味とも取れる短い言葉", REFUSED_FACT)
+        self.assertNotIn("受け入れとも断りとも", REFUSED_FACT)
+
+    def test_5_undecided_answer_covers_fact_questions(self):
+        # 10-17 ユーザー（上と同じ）・表の正解（取込の言葉）「大丈夫です。」＝している・決められない。⛔ 直す前は「決められない」の「受け入れにも断りにも取れる」が申し出への返事の
+        # 言い方で、読み手2人とも、事実を伺う質問への言葉に当たるか分かりにくいと書いた（束 r1 の #16・#19）
+        from flowctl import UNDECIDED
+        from meaning_judge import KIND_DESC
+        self.assertIn("事実を伺う質問への言葉なら、どれかの答えの意味とも、断りの意味とも取れる", KIND_DESC[UNDECIDED])
+
+    def test_6_ladder_side_choose_or_neither_must_be_said_clearly(self):
+        # ✅ 2026-11-20 日本時間16時25分52秒「伺い94：はもう一方で大丈夫そうなら、エでいいし、もう一方では不安そうならウでしょ」：もう一方を条件のように挙げただけ・そちらも不安そう
+        # は片方だけ合わない。⛔ 直す前は、読み手2人とも「どちらも合わない」「答えた」とも読み、はっきり選んだ・合わないと言ったの線が分かりにくいと書いた（束 r1 の #34・#35）
+        from flowctl import LADDER_NEITHER, LADDER_SIDE_TAIL, VALUE_CHOICE, Question, ladder_choice_desc
+        q = Question("C1", "金曜日と火曜日ではどちらがよろしいでしょうか？", "datetime", conditions=(VALUE_CHOICE, LADDER_NEITHER, "金曜日" + LADDER_SIDE_TAIL, "火曜日" + LADDER_SIDE_TAIL))
+        d = ladder_choice_desc(q, "金曜日" + LADDER_SIDE_TAIL)
+        for words in ("そちらなら、と挙げただけ", "はっきり選んで頼んだ", "もう一方も合わないと、はっきり言った"):
+            self.assertIn(words, d)
+
+    def test_7_ladder_other_ok_even_with_a_little_hesitation(self):
+        # ✅ 2026-11-20 日本時間16時25分52秒「伺い94：はもう一方で大丈夫そうなら、エでいいし…」：「大丈夫そう」＝そちらなら空いていそう・大丈夫そうと言った（少しためらう言い方が
+        # 付いても）。⛔ 直す前は、読み手2人とも、ためらいの付いた言い方が「大丈夫そう」か「不安そう・大丈夫とは言っていない」か分かりにくいと書いた（束 r1 の #37）
+        from flowctl import LADDER_OTHER_OK, LADDER_OTHER_UNSURE, ladder_other_choices
+        c = ladder_other_choices(False, True)
+        self.assertIn("少しためらう言い方が付いていても", c[LADDER_OTHER_OK])
+        self.assertNotIn("ためら", c[LADDER_OTHER_UNSURE])
+
+    def test_8_angry_command_wins_and_annoyance_is_not_rudeness(self):
+        # ✅ 2026-11-20 日本時間2時18分01秒「伺い81：…OK」（「しつこい」は締めずに続ける・はっきり怒っている例「いい加減にしてください！」）。⛔ 直す前は、読み手2人とも、続く・重なる
+        # ことへのとがめが「無礼だと責めた」か、不満と命令が1つの言葉にそろうときどちらか、が分かりにくいと書いた（束 r2 の #3・#4）。境目は angry_not の1か所（どちらの段も）
+        from flowctl import angry_not
+        for calling in (False, True):
+            t = angry_not(calling)
+            self.assertIn("うんざりした言い方でとがめたのも", t)
+            self.assertIn("嫌がった不満と一緒に言っても", t)
+
+
+
+class S2AskedSceneTest(unittest.TestCase):
+    """分身 S2（CL-1 の頼み）：答えの段の測りと電話を終える言葉の表の場面は、本番と同じく、業務の最初の質問を名乗りの録音で流した所（流した印 Item.played＝Flow._opening_reply）
+    から組む。本題か（Flow._main_talk＝✅ 2026-11-08 日本時間3時48分03秒「(ア)既定は「最初の質問を流したあと」」）は流した印で決まる＝最初の質問へのお返事は本題（電話を終える言葉か
+    決まらないときは、ご遠慮の一言ではなく本心を伺う一言 D2「失礼いたしました。何か問題でもございましたでしょうか？」）。⛔ 分身 S2 の 223f5b58 まで、場面は質問を並べた流れの制御だけで
+    組み、最初の質問を流した印が無かった＝本番と違って序盤の一言（ご遠慮の一言）を正解の動きにしていた。場面を組むのは1か所（g53_meaning.asked_flow）"""
+
+    D2 = "失礼いたしました。何か問題でもございましたでしょうか？"
+
+    def test_1_measure_scene_has_the_first_question_played(self):
+        import g53_meaning as g
+        it = next(x for x in g.set_f() if x["text"] == "そういうお電話はちょっと……。")
+        q = g.question_map()[it["qid"]]
+        f, qid = g.flow_scene(it, q)
+        self.assertTrue(f.items[qid].played)
+        self.assertTrue(f._main_talk())
+
+    def test_2_table_scene_asks_the_concern_first(self):
+        from end_words import ANSWER, answer_flow
+        row = next(r for r in ANSWER if r[1] == "そういうお電話はちょっと……。")
+        f, said, marks = answer_flow(row)
+        self.assertTrue(f.items["Q1"].played)
+        self.assertEqual(said, self.D2)
+        self.assertEqual(marks, "続ける")
+
+    def test_3_one_place_builds_the_asked_scene(self):
+        # 表の場面（end_words.answer_flow）と測りの場面（g53_meaning._flow_scene の既定の枝）は同じ1か所（g53_meaning.asked_flow）で組む
+        import inspect
+        import end_words
+        import g53_meaning as g
+        self.assertIn("asked_flow(", inspect.getsource(end_words.answer_flow))
+        self.assertIn("asked_flow(", inspect.getsource(g._flow_scene))
+        from flowctl import Question
+        q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        f = g.asked_flow([q, g.SCENE_NEXT])
+        self.assertEqual((f.current, f.items["Q1"].played), ("Q1", True))
+        self.assertEqual(f._heard_purpose(), "ご予約の確認でお電話いたしました。")   # 用件の一文は行の質問の業務の用件（S2ScenePurposeTest）
+
+    def test_4_concern_ask_is_an_end_step_in_the_count(self):
+        # 本題の電話を終える言葉か決まらないときの本心を伺う一言（D2＝Flow._refusal_confirm → _concern_ask）は、数えの1か所で電話を終える読みによる動き（ご遠慮の一言と同じ側）。
+        # ⛔ 場面に流した印が無かった間は、ご遠慮の一言（END_ASK）だけが出ていた＝D2 を電話を終える読みの動きと数える名前が無かった（読みが続ける・締めるに外れたときの種類を取り違える）
+        import g53_meaning as g
+        from flowctl import END_NONE, UNDECIDED
+        self.assertTrue(g.end_step(g.END_CONCERN))
+        F = {it["text"]: it for it in g.set_f()}
+        qm = g.question_map()
+
+        def miss(it, ans, end):
+            it = dict(it, j=ans, j終わり=end, j言い切り=True)
+            return g.flow_miss(it, qm[it["qid"]], "j")
+        it = F["そういうお電話はちょっと……。"]
+        self.assertIn(g.END_CONCERN, g.step_wants(it, qm[it["qid"]], True))
+        self.assertIsNone(miss(it, UNDECIDED, UNDECIDED))
+        self.assertEqual(miss(it, "はい", UNDECIDED), "違う伺い")
+        self.assertEqual(miss(F["結構です。"], "はい", UNDECIDED), "違う伺い")   # 正解の伺い（D2）と違う伺い（いまの話の向き）＝伺ったのは正しい側（要らない伺いではない）
+        self.assertEqual(miss(F["もういいです。"], "いいえ", END_NONE), "⛔伺わずに続ける")
+
+    def test_5_every_built_scene_has_a_played_business_question(self):
+        # 場面の印の場面（日時の2択の段・番号違いを伺う一言のあと・待っていただく一言のあと）とご承認のお知らせの最終の確かめの場面も、同じ1か所（asked_flow）から組む＝お客様の
+        # 言葉を聞く前に、業務の質問を流した印がある（本題）。⛔ 分身 S2 の 5fde3454 まで、この4つの場面は質問を並べた流れの制御だけで組んでいた（正解の動き・判定に送る文は
+        # 変わらない＝確かめた。電話を終える言葉か決まらない読みの動きだけが本番と違った）
+        import g53_meaning as g
+        from review_words import LADDER_CLOCK_SCENE, LADDER_SCENE, WAIT_SCENE, WRONG_ASK_SCENE, answer_words, questions
+        qm = g.question_map() | questions()
+        seen = set()
+        for it in answer_words():
+            if it.get("scene") in (LADDER_SCENE, LADDER_CLOCK_SCENE, WAIT_SCENE, WRONG_ASK_SCENE) and it["scene"] not in seen:
+                seen.add(it["scene"])
+                f, qid = g.flow_scene(it, qm[it["qid"]])
+                self.assertTrue(f._main_talk(), it["scene"])
+        self.assertEqual(len(seen), 4)
+        it = next(x for x in g.set_r() if x.get("set") == "D" and not x.get("scene") and (q := qm.get(x["qid"])) is not None and q.approval and q.announce)   # ご承認のお知らせ R7 の最終の確かめ
+        f, qid = g.flow_scene(it, qm[it["qid"]])
+        self.assertTrue(f._main_talk())
+
+
+class S2ScenePurposeTest(unittest.TestCase):
+    """分身 S2（CL-1 の決め：測りの場面に名乗りの用件を見せる。帳面 0-3・1 の (1) の F1＝判定に送る問い合わせは行の場面の本番の流れの制御が判定に渡すもの
+    Flow.judge_context から作る・本番は用件を見せている・本書 9-5 の伺い48 ア-2 の ⏳「用件の一文を場面に置く欄を測りの道具に足す」）：測りの場面を組む1か所
+    （g53_meaning.asked_flow）が、行の質問の業務の用件の一文を、本番と同じ入口（業務設定の用件の一文 purpose_line → 名乗りの録音の用件 → Flow._heard_purpose）で入れる。
+    用件は、行の質問が属する試しの業務があればその用件（g14_listen.business＝Q1・Q2・Q3・Q5）・無ければ、行の質問ごとの用件の表（g53_meaning.SCENE_PURPOSES の1か所＝
+    質問の文 → 用件の名詞。用件の一文は「（名詞）でお電話いたしました。」＝試しの業務の用件の一文と同じ形・質問の文に無い事実は足さない）。"""
+
+    def test_1_purpose_comes_from_the_rows_question(self):
+        import g53_meaning as g
+        qm = g.question_map()
+        self.assertEqual(g.asked_flow([qm["G16"], g.SCENE_NEXT])._heard_purpose(), "光回線サービスのアオバ光のご案内でお電話いたしました。")
+        self.assertEqual(g.asked_flow([qm["Q2"], g.SCENE_NEXT])._heard_purpose(), "ご予約の確認でお電話いたしました。")   # 試しの業務の用件
+        self.assertEqual(g.scene_purpose(qm["G8"]), "分譲マンションのアオバレジデンスのご案内")
+
+    def test_4_purpose_is_the_business_not_the_question(self):
+        # CL-1 の頼み（束 p の読み手 A の声）：用件は業務の用件（サービス・商品の名前のあるご案内）で、質問はその一部（⛔ 079429d5 まで、用件を質問の事柄そのものから作った＝
+        # 「ご契約の状況の確認でお電話いたしました。」など＝用件と質問が同じ事柄になり、「ご案内全体」と「いまの質問のことだけ」の境目が無くなった）。業務ごとに1つの用件（表は
+        # SCENE_BUSINESSES の1か所）・どの質問も1つの業務に属する
+        import g53_meaning as g
+        from review_words import questions
+        seen = {}
+        for name, (noun, texts) in g.SCENE_BUSINESSES.items():
+            self.assertIn("アオバ", noun, name)   # 試しのサービス・商品の名前
+            for t in texts:
+                self.assertNotIn(t, seen, (t, name, seen.get(t)))
+                seen[t] = name
+        self.assertGreaterEqual(len(g.SCENE_BUSINESSES), 4)
+        qm = g.question_map() | questions()
+        for k in ("G3", "G23", "G19"):
+            self.assertEqual(g.scene_purpose(qm[k]), g.scene_purpose(qm["G16"]))   # 同じ業務（回線のご案内）の質問は同じ用件
+        # 場面が自分で付けた番号 Q1 の別の質問（ご承認の場面の「資料は…」）は、試しの業務の質問ではない＝表の業務の用件
+        from flowctl import Question
+        self.assertEqual(g.scene_purpose(Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))), g.scene_purpose(qm["G2"]))
+
+    def test_2_every_scene_question_has_a_purpose(self):
+        import g53_meaning as g
+        from review_words import questions
+        for q in list(g.question_map().values()) + list(questions().values()):
+            if q.id.startswith(("N", "W1")) or q.id in ("H2", "C1", "Y2", "D2"):   # システムの質問（場面の業務の質問の用件で組む）・顧客獲得型の場面（業務の用件がある）
+                continue
+            self.assertTrue(g.scene_purpose(q), q.id)
+
+    def test_3_judge_sees_the_purpose_in_every_built_scene(self):
+        # 既定の場面・黙ったあとの一言の場面・ほかのご希望の場面・ご承認いただけなかったときの場面・繋いだあとの場面も、判定に見せる質問に用件（heard_purpose）がある
+        import g53_meaning as g
+        from review_words import answer_words, questions
+        qm = g.question_map() | questions()
+        rows = g.set_f() + g.set_n() + g.set_h() + g.set_r() + answer_words()
+        want = {"F": None, "N1": None, "HEAR": None, "W1": None}
+        for it in rows:
+            key = it.get("set") if it.get("set") in want else ("scene:" + it["scene"] if it.get("scene") else None)
+            if key is None or key in ("scene:顧客獲得型の悩みの伺い（Y2）", "scene:顧客獲得型の本心を伺う一言（D2）") or (key in want and want[key] is not None):
+                continue
+            q = qm.get(it["qid"])
+            try:
+                shown = g.judge_inputs(it, q)[0]
+            except g.NoScene:
+                continue
+            want[key] = getattr(shown, "heard_purpose", "")
+            self.assertTrue(want[key], (key, it["text"]))
+        self.assertTrue(all(want[k] for k in ("F", "N1", "HEAR", "W1")), want)
+
+
+class S2ElsewhereLabelsTest(unittest.TestCase):
+    """分身 S2（束 p2 の読み直し）：正解の表の項目「ほかの会社に頼んでいる・使っていると言ったか」の正解は、今の選べるものの名前だけ（✅ 2026-11-19 日本時間15時10分27秒
+    「伺い48：ア-2」で「ご案内全体」と「いまの質問のことだけ」に分けた）。⛔ 分身 S2 の 1e0c79b5 まで、20行が分ける前の名前「ほかの会社に頼んでいる・使っている」を正解に持っていた
+    ＝判定がどちらを選んでも正解の名前と合わなかった（書き置き 18-3）。"""
+
+    def test_labels_use_the_current_names(self):
+        import g53_meaning as g
+        from flowctl import elsewhere_choices
+        names = set(elsewhere_choices(False))
+        rows = [g.g73_scene(it) for it in json.load(open("results/G-53d1base_20261107_020602.json", encoding="utf-8"))["items"]]
+        rows += g.set_f() + g.set_n() + g.set_h() + g.set_r()
+        bad = sorted({(it["set"], it["qid"], it["text"]) for it in rows if not set(g.elsewhere_truths(it)) <= names})
+        self.assertEqual(bad, [])
+
+    def test_decided_rows(self):
+        # 束 p2 の読み手2人がそろって「ご案内全体」と読んだ・今の説明の文の決まりが当たる行（回線のご案内の業務の用件。書き置き 20）
+        import g53_meaning as g
+        from flowctl import ELSEWHERE_ALL, ELSEWHERE_NO, UNDECIDED
+        labels = json.load(open("g53_labels.json", encoding="utf-8"))["labels"]
+        self.assertEqual(labels["B|G3|他社さんと契約しています|"]["elsewhere"], [ELSEWHERE_ALL])
+        self.assertEqual(labels["N2|N2|ほかの会社さんの方が安いので、そちらにします|"]["elsewhere"], [ELSEWHERE_ALL])
+        self.assertEqual(sorted(labels["C|G3|お付き合いはいろいろありますけど|"]["elsewhere"]), sorted([ELSEWHERE_ALL, ELSEWHERE_NO, UNDECIDED]))
+        self.assertEqual(sorted(labels["B|G23|光回線を契約しています|"]["elsewhere"]), sorted([ELSEWHERE_NO, UNDECIDED]))   # 今のまま（言っていない＝測りで数える行）
 
 
 class VLadderFarDaysTest(unittest.TestCase):

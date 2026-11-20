@@ -119,6 +119,11 @@ def end_accept(it: dict) -> list[str]:
 # 念を押した・この電話を終えたい（END_PRESSED）は、本心を伺う一言 D2 のお返事のときだけ道が替わる（ご遠慮の一言＝flowctl.Flow._retreat_way）。表の場面（D2 の前）では断ったと同じ
 END_ACTS = {END_REFUSED: "締める（もうかけない）", END_PRESSED: "締める（もうかけない）", END_HURRY: "急いでいる方への伺い", END_ANGRY: "締める（人に引き継ぐ）"}
 END_TOPIC, END_ASK = "いまの話の向きを伺う", "ご遠慮を伺う"
+# 本題（Flow._main_talk）で電話を終える言葉か決まらないときの、ご遠慮の一言より先の本心を伺う一言（D2＝Flow._refusal_confirm → _concern_ask。✅ 2026-11-08 日本時間2時21分15秒・
+# 3時48分03秒「(ア)既定は「最初の質問を流したあと」」）。ご遠慮の一言と同じ「電話を終える読みによる伺い」の側（end_step・flow_miss）。取り消しへの D2（Flow._withdraw_ask）・顧客獲得型の
+# 本題の D2（Flow._main_again）は答えの読みによる伺いのまま（TROUBLE_ACT）。⛔ 分身 S2 の 223f5b58 まで、測りの場面に最初の質問を流した印が無く、この動きが出なかった（名前も無かった）
+END_CONCERN = "本心を伺う（本題で電話を終える言葉か決まらない）"
+END_ASKS = (END_TOPIC, END_ASK, END_CONCERN)   # 電話を終える読みによる伺い（締めない側）
 
 
 def end_act(q: Question, got, end) -> str | None:
@@ -136,7 +141,7 @@ def end_step(act: str) -> bool:
     """流れの制御がすること act が、電話を終える読みによる動き（締める・急いでいる方への伺い・いまの話の向きを伺う・ご遠慮を伺う）か（添えた質問に先に答えて
     からの動きも同じ）。"""
     act = act.removeprefix(QUESTION_FIRST)
-    return act in (END_TOPIC, END_ASK) or act in END_ACTS.values() or act.startswith("締める（")
+    return act in END_ASKS or act in END_ACTS.values() or act.startswith("締める（")
 
 
 def step_act(it: dict, q: Question, key: str) -> str | None:
@@ -710,6 +715,14 @@ def prompt_truths(it: dict) -> tuple:
     return tuple((got or {}).get(PROMPT_REPLY) or (None,))
 
 
+def ladder_other_truths(it: dict) -> tuple:
+    """正解の表の行の、合わないと言わなかったほうで大丈夫そうか（flowctl.LADDER_OTHER＝日時の2択の段の質問だけの項目・伺い94）の正解（中の名前の並び）。付けていない行は読んでいない
+    （None＝その項目を読まない質問と同じ。prompt_truths と同じ形）。⛔ rv176/S2 まで、正しい読みの組み合わせ（label_readings）にこの項目が無く、片方だけ合わない正解の動きを
+    いつもウ（避けた方だけを外した2つ）と数えていた＝エ（避けなかった方で次の2択）の行の外れを見分けられなかった（試験 S2MeasurePrepTest）"""
+    got = _label(it)
+    return tuple((got or {}).get(LADDER_OTHER) or (None,))
+
+
 def elsewhere_truths(it: dict) -> tuple:
     """正解の表の行の、ほかの会社に頼んでいる・使っていると言ったか（flowctl.ELSEWHERE）の正解（中の名前の並び）。✅ 2026-11-15 日本時間21時55分35秒 ユーザー
     （伺い25）で足した項目。付けていない行は「言っていない」（⚠️ 一括で付けた既定＝帳面 0-3 の (2) の外。ほかの会社のことを言いうる行は候補の一覧にして、答えを伏せた
@@ -731,14 +744,90 @@ CONNECTED_SCENES = {"繋いだあと・会社の電話": {"name": "岡田", "rea
                     "繋いだあと・ご本人の電話": {"kind": "個人", "name": "岡田", "reading": "おかだ"}}
 
 
-def _connected_scene(q: Question, scene: str) -> Flow:
-    """お呼びした方に繋ぎ、名乗り・用件のあと質問 q を伺った所までの本番の流れの制御（業務設定の入口 instruction.Business.flow と、繋ぐ1か所 Flow._connect）。"""
+FIRST_WORDS = "はい、テスト商事でございます。"   # 場面の電話に出た方の第一声（判定には渡らない）
+
+
+# 測りの場面の業務と、その用件の名詞（唯一の表＝試しの業務の名前 → (用件の名詞, 属する質問の文)。用件の一文は「（名詞）でお電話いたしました。」＝試しの業務 g22_opening.BUSINESS・
+# g14_listen.business の用件の一文と同じ形）。行の質問を、その質問が属しうる試しの業務ごとにまとめ、業務ごとに1つ、サービス・商品の名前のある用件（試しの名前）を置く＝本番の用件は
+# 業務のいくつもの質問をまとめたご案内で、質問はその一部（CL-1 の頼み・束 p の読み手 A の声）。行の質問と食い違う事実は足さない。行の質問が属する試しの業務
+# （g14_listen.business＝Q1・Q2・Q3・Q5）があれば、その業務の用件（scene_purpose）。CL-1 の決め（2026-11-20 日本時間20時10分ごろの知らせ）：測りの場面に名乗りの用件を見せる
+# （帳面 0-3・1 の (1) の F1＝判定に送る問い合わせは行の場面の本番の流れの制御が判定に渡すものから作る・本番は用件を見せている・本書 9-5 の伺い48 ア-2 の ⏳）。
+# ⛔ 079429d5 まで、用件を質問の事柄そのものから作った（「ご契約の状況の確認でお電話いたしました。」など）＝用件にサービス・商品の名前が無く、用件と質問が同じ事柄になり、
+# ほかの会社に頼んでいるかの「ご案内全体」と「いまの質問のことだけ」の境目が無くなった（束 p の読み手 A が26行中21行をどちらとも取れると読んだ）
+SCENE_BUSINESSES = {
+    "お店のご予約": ("レストランアオバ亭のご予約の確認", (
+        "ご予約はされていますでしょうか？", "ご来店は初めてでしょうか？", "当日はお車でお越しになりますでしょうか？", "駐車場はご利用になりますでしょうか？",
+        "ご予約の日時に変更はございませんでしょうか？", "予約日は決まっていますか？", "お部屋は禁煙と喫煙のどちらをご希望でしょうか？",
+        "お席はカウンターとテーブルのどちらがよろしいでしょうか？", "当日のキャンセルはございませんか？", "お子様もご一緒でしょうか？",
+        "ご希望の日時をお聞かせいただけますでしょうか？", "何名様でのご来店でしょうか？", "お電話番号をお伺いしてもよろしいでしょうか？",
+        "ご来店のご希望日はいつでしょうか？", "キャンセルについてご了承いただけますでしょうか？")),
+    "回線のご案内": ("光回線サービスのアオバ光のご案内", (
+        "資料はお手元に届いていますでしょうか？", "現在ほかの業者様とのご契約はございますでしょうか？", "担当者からまたお電話を差し上げてもよろしいでしょうか？",
+        "今月中のご導入をお考えでしょうか？", "お支払いはカードと振込のどちらがよろしいでしょうか？", "ご連絡はお電話とメールのどちらがよろしいでしょうか？",
+        "ご希望のプランはスタンダードとプレミアムのどちらでしょうか？", "お使いの回線は光回線とモバイル回線のどちらでしょうか？", "ご不明な点はございませんでしょうか？",
+        "お急ぎではございませんか？", "ご予算はおいくらくらいでしょうか？", "ご住所をお伺いしてもよろしいでしょうか？",
+        "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？", "その後ご予算はおいくらほどかお決まりになりましたでしょうか？",
+        "お支払いの方はカードと振込のどちらにされますか？", "カードになさいますかそれともお振込の方がよろしいでしょうか？")),
+    "複合機のご案内": ("複合機のアオバプリントのご案内", (
+        "複合機は現在リースでご利用でしょうか？", "ご訪問は平日と土日のどちらがよろしいでしょうか？", "お打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？",
+        "従業員数は10名未満と10名から50名と50名以上のどれにあたりますでしょうか？", "お見積もりは郵送とメールのどちらでお送りすればよろしいでしょうか？",
+        "ご担当者様は本日ご在席でしょうか？", "担当者がご訪問させていただいてもよろしいでしょうか？", "ご訪問の日にちはいつがよろしいでしょうか？",
+        "その後ご担当者様のお名前かお分かりになりましたでしょうか？")),
+    "説明会・パンフレットのご案内": ("分譲マンションのアオバレジデンスのご案内", (
+        "パンフレットをお送りしてもよろしいでしょうか？", "説明会にはご参加いただけますでしょうか？", "前回のご案内はご覧いただけましたでしょうか？")),
+}
+SCENE_PURPOSES = {t: noun for noun, texts in SCENE_BUSINESSES.values() for t in texts}   # 質問の文 → 用件の名詞（SCENE_BUSINESSES から作る）
+TRIAL_BUSINESS_IDS = ("Q1", "Q2", "Q3", "Q5")   # 試しの業務の質問（g14_listen.business＝業務の用件がある）
+
+
+def scene_purpose(q: Question) -> str:
+    """測りの場面の業務の用件の名詞（唯一の決まり）：行の質問 q が属する試しの業務があれば、その用件（g14_listen.business）・無ければ表 SCENE_PURPOSES（質問の文）。
+    表に無い質問（試験が自分で作った質問）は、場面の業務（g22_opening.BUSINESS）そのものの用件（用件なしにはしない）。測りの行の質問がどれも表にあることは試験
+    S2ScenePurposeTest.test_2 が確かめる。"""
+    if q.id in TRIAL_BUSINESS_IDS:
+        from g14_listen import business
+        b = business(q.id, with_meanings=False)
+        if q.text == b.questions[0].text:   # 番号と文の両方で（場面が自分で付けた番号 Q1 の別の質問＝ご承認の場面の「資料は…」・表の場面の質問は、試しの業務の質問ではない）
+            return b.purpose
+    if q.text in SCENE_PURPOSES:
+        return SCENE_PURPOSES[q.text]
+    from g22_opening import BUSINESS
+    return BUSINESS.purpose
+
+
+def scene_business(about: Question, qs: list[Question], **kw):
+    """測りの場面の業務設定（唯一の作り＝asked_flow・繋いだあとの場面 _connected_scene）：試しの業務 g22_opening.BUSINESS の名乗りで、質問を qs に・用件を行の質問 about の
+    用件（scene_purpose）に替えたもの。用件は業務設定の入口と同じ欄（purpose・purpose_line）に入れる＝名乗りの録音の用件の一文 → 判定に見せる用件（Flow._heard_purpose）。"""
     import dataclasses
     from g22_opening import BUSINESS
+    noun = scene_purpose(about)
+    return dataclasses.replace(BUSINESS, questions=list(qs), purpose=noun, purpose_line=f"{noun}でお電話いたしました。", purpose_noun="", **kw)
+
+
+def asked_flow(qs: list[Question], about: Question | None = None, **kw) -> Flow:
+    """業務の最初の質問（qs の先頭）を、本番と同じ始まり方で流した所までの流れの制御（唯一の場所＝答えの段の測りの場面 _flow_scene の既定の枝・黙ったあとの一言などの場面の頭
+    _played_flow・場面の印の場面（日時の2択の段 _ladder_scene・番号違いを伺う一言のあと _wrong_ask_scene・待っていただく一言のあと _wait_scene・確認の電話の本心を伺う一言
+    _confirm_concern_scene）・ご承認のお知らせの最終の確かめ _final_scene・ご承認いただけなかったときの手順 _approval_scene・ほかのご希望の場面・電話を終える言葉の表の場面
+    end_words.answer_flow）：お呼びする方の無い業務（scene_business＝用件は行の質問 about の用件。既定は qs の先頭）で、電話が繋がる → 第一声 → 人の報告 → 名乗りの録音
+    （用件の一文と最初の質問まで＝Flow._opening_reply が流した印 Item.played を付ける）→ 流し終えた知らせ on_played。判定の待ち方（use_checks）は呼ぶ所が決める。kw＝業務設定の
+    ほかの欄（想定問答 answers など）。
+    ⛔ 分身 S2 の 223f5b58 まで、ここを質問を並べた流れの制御だけで組み、最初の質問を流した印が無かった＝本番と違って序盤の扱い（本題か Flow._main_talk が偽＝電話を終える
+    言葉か決まらないときにご遠慮の一言）を正解の動きにしていた（✅ 2026-11-08 日本時間3時48分03秒「(ア)既定は「最初の質問を流したあと」」＝本題は最初の質問を流したあと）。
+    ⛔ 1a0f69a1 まで用件の一文を入れていなかった＝判定に見せる用件が本番と違った（ほかの会社に頼んでいるかの項目の説明に入る）"""
+    f = scene_business(about or qs[0], qs, target=None, **kw).flow(play_recordings=True)
+    f.on_connect(); f.on_callee(); f.on_heard(FIRST_WORDS)
+    r = f.apply("report_party", {"party": "person"})
+    r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+    f.on_played([p["text"] for p in (r or {}).get("play") or []])
+    return f
+
+
+def _connected_scene(q: Question, scene: str) -> Flow:
+    """お呼びした方に繋ぎ、名乗り・用件のあと質問 q を伺った所までの本番の流れの制御（業務設定の入口 instruction.Business.flow と、繋ぐ1か所 Flow._connect）。"""
     from instruction import Target
     if scene not in CONNECTED_SCENES:
         raise NoScene(f"場面の印が無い（{scene}）")
-    f = dataclasses.replace(BUSINESS, target=Target(**CONNECTED_SCENES[scene]), questions=[q, SCENE_NEXT]).flow(recorded=True, play_recordings=True)
+    f = scene_business(q, [q, SCENE_NEXT], target=Target(**CONNECTED_SCENES[scene])).flow(recorded=True, play_recordings=True)
     f.use_checks("judge")
     f._connect({"judge"})
     return f
@@ -774,9 +863,9 @@ def _approval_scene(step: str) -> Flow:
     """ご承認いただけなかったときの手順（N1〜N3）の場面＝試しの言葉を作った場面（g73_system_words の APPROVAL_SAID・EXPLAINED）と同じ台本。"""
     from flowctl import CALLBACK_IDS
     from g73_system_words import APPROVAL_SAID, EXPLAINED
-    f = Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
-              Question("Q2", "以上の内容でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, ask_if=("Q1", ("いいえ", "unknown"))),
-              SCENE_NEXT], play_recordings=True, answers={"料金": EXPLAINED})
+    f = asked_flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
+                    Question("Q2", "以上の内容でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, ask_if=("Q1", ("いいえ", "unknown"))),
+                    SCENE_NEXT], answers=[("料金", EXPLAINED)])
     _say(f, APPROVAL_SAID[0], "record_answer", question_id="Q1", condition_id="いいえ")
     _say(f, APPROVAL_SAID[1], "record_answer", question_id="Q2", condition_id="いいえ")
     if step != "not_agreed":
@@ -801,7 +890,7 @@ SCENE_PRE_SAID = "はい、しています。"
 
 def _played_flow(q: Question) -> Flow:
     """q を、前の質問（SCENE_PRE）のお返事への返事で流した所までの本番の流れの制御（黙ったあとの一言・伺い直しの形の場面の頭）。"""
-    f = Flow([SCENE_PRE, q, SCENE_NEXT], play_recordings=True)
+    f = asked_flow([SCENE_PRE, q, SCENE_NEXT], about=q)
     f.use_checks("judge")
     _scene_turn(f, SCENE_PRE_SAID, "はい", "record_answer", question_id=SCENE_PRE.id, condition_id="はい")
     return f
@@ -863,7 +952,7 @@ def _ladder_scene(q: Question) -> Flow:
     平日と土日の2択で伺い、「平日」と答えていただいて、曜日の2択を伺った所まで（伺うのは Flow._ladder_set・_ladder_take の1か所）。"""
     import datetime as dt
     from flowctl import AHEAD_CHECKS, LATER, VALUE_CHOICE
-    f = Flow([SCENE_PRE, SCENE_NEXT], play_recordings=True)
+    f = asked_flow([SCENE_PRE, SCENE_NEXT])
     f.use_checks("judge")
     y, m, d, h = LADDER_TODAY
     f.today, f.now = dt.date(y, m, d), dt.datetime(y, m, d, h, 0)
@@ -880,12 +969,29 @@ def _ladder_scene(q: Question) -> Flow:
     return f
 
 
+SCENE_TUESDAY = "火曜日で。"
+SCENE_AFTERNOON = "午後がいいですね。"
+
+
+def _ladder_clock_scene(q: Question) -> Flow:
+    """日時の2択の段の時刻の2択（review_words.LADDER_CLOCK_SCENE）：曜日の2択（_ladder_scene）に「火曜日で。」・午前と午後の2択に「午後がいいですね。」と答えていただき、時刻の2択
+    （「2時と4時ではどちらがよろしいでしょうか？」）を伺った所まで（試験 U2LadderOneSideTest.at_clock と同じ手順）。片方だけ合わないのエは、最後の段なので避けなかった時刻で今の
+    言い直しの確かめ（分身 U2）＝曜日の2択のエ（次の2択）と違う動き（分身 S2）"""
+    from flowctl import VALUE_CHOICE, ladder_sides
+    f = _ladder_scene(q)
+    for words, value in ((SCENE_TUESDAY, "火曜日"), (SCENE_AFTERNOON, "午後")):
+        _scene_say(f, words, _scene_read(VALUE_CHOICE), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value=value)
+    if f.current != q.id or len(ladder_sides(f.questions[q.id])) != 2 or "時と" not in f.questions[q.id].text:
+        raise NoScene("日時の2択の段の時刻の2択を伺わない")
+    return f
+
+
 def _wrong_ask_scene(q: Question) -> Flow:
     """番号違いを伺う一言のあと（review_words.WRONG_ASK_SCENE）：目的のお客様のいない業務の最初の質問 q に「うちはそういう会社じゃないですよ。…」と言われ、判定の組の1つだけが
     番号違いと読み（割れた）、こちらが「大変失礼いたしました。番号を間違えてお掛けしてしまいましたでしょうか？」（Flow._ask_again の wrong）を流し終えた所まで。"""
     from flowctl import ABOUT_WRONG, JUDGMENTS, WRONG, WRONG_NOT_SAID
     from phrases import WRONG_NUMBER_ASK
-    f = Flow([q, SCENE_NEXT], play_recordings=True)
+    f = asked_flow([q, SCENE_NEXT])
     f.use_checks(*JUDGMENTS)
     f.on_callee(); f.on_heard(SCENE_WRONG)
     for k, wrong in zip(JUDGMENTS, (ABOUT_WRONG, WRONG_NOT_SAID)):
@@ -903,7 +1009,7 @@ def _wait_scene(q: Question) -> Flow:
     """待っていただく一言のあと（review_words.WAIT_SCENE）：質問 q に答えていただき（「振込でお願いします。」＝判定の読み「振込」）、会話AIが声も報告も出さないので、
     こちらの声が出ていない場面の一言（「はい、」のあと「少々お待ちいただいてもよろしいでしょうか？」＝flowctl.QUIET_STEPS の ours・Flow.on_silence(ours=True)）を流し終えた所まで。"""
     from flowctl import waiting_line
-    f = Flow([q, SCENE_NEXT], play_recordings=True)
+    f = asked_flow([q, SCENE_NEXT])
     f.use_checks("judge")
     f.on_callee(); f.on_heard(SCENE_PAID)   # 会話AIは声も報告も出さない（判定の読みだけ）
     f.on_check("judge", _scene_read("振込" if "振込" in q.conditions else q.conditions[0]))
@@ -991,11 +1097,32 @@ def _concern_scene(q: Question) -> Flow:
     return f
 
 
+SCENE_RESERVED = "はい、予約しています。"
+SCENE_ENOUGH = "もういいです。"
+
+
+def _confirm_concern_scene(q: Question) -> Flow:
+    """確認の電話の本心を伺う一言（review_words.CONFIRM_CONCERN_SCENE＝D2）：ご予約の質問に「はい、予約しています。」と答えていただき、パンフレットの申し出に「もういいです。」（判定の
+    読み＝決められない・電話を終える言葉か決められない）と言われ、本心を伺う一言 q（「失礼いたしました。何か問題でもございましたでしょうか？」）を流した所まで（試験
+    ConcernStillEndingTest.asked と同じ手順）。ここでの「この電話を終えたい・念を押して断った」はご遠慮の一言・「通話・営業を断った」はその場で締めてもうかけない（分身 U2＝
+    Flow._retreat_way・尺度の表の concern_refusal）＝測りの数えで2つを違う動きと数える場面（分身 S2）"""
+    from end_words import PAMPHLET, YES_NO, question
+    qs = [Question("Q0", "ご予約はされていますでしょうか？", "yes_no", conditions=YES_NO, asks_fact=True), question(PAMPHLET, qid="Q1"),
+          Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=YES_NO)]
+    f = asked_flow(qs)
+    f.use_checks("judge")
+    _scene_say(f, SCENE_RESERVED, _scene_read("はい"), "record_answer", question_id="Q0", condition_id="はい")
+    _scene_say(f, SCENE_ENOUGH, _scene_read(UNDECIDED, UNDECIDED))
+    if f.current != q.id:
+        raise NoScene(f"本心を伺う一言を流さない（{f.current}）")
+    return f
+
+
 def _new_scene(it: dict, q: Question) -> Flow:
     """試しの言葉の表の場面の印（review_words.NEW_SCENES）の場面を組む唯一の入口（_flow_scene）。"""
-    from review_words import CONCERN_SCENE, LADDER_SCENE, PAIN_SCENE, WAIT_SCENE, WRONG_ASK_SCENE
-    build = {LADDER_SCENE: _ladder_scene, WRONG_ASK_SCENE: _wrong_ask_scene, WAIT_SCENE: _wait_scene, PAIN_SCENE: _pain_scene,
-             CONCERN_SCENE: _concern_scene}.get(it["scene"])
+    from review_words import CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, LADDER_SCENE, PAIN_SCENE, WAIT_SCENE, WRONG_ASK_SCENE
+    build = {LADDER_SCENE: _ladder_scene, LADDER_CLOCK_SCENE: _ladder_clock_scene, WRONG_ASK_SCENE: _wrong_ask_scene, WAIT_SCENE: _wait_scene,
+             PAIN_SCENE: _pain_scene, CONCERN_SCENE: _concern_scene, CONFIRM_CONCERN_SCENE: _confirm_concern_scene}.get(it["scene"])
     if build is None:
         raise NoScene(f"場面の印の場面を組む作りが無い（{it['scene']}）")
     return build(q)
@@ -1042,7 +1169,7 @@ def _final_scene(q: Question, asked: str | None) -> Flow:
     from flowctl import accepted_line
     if asked is not None and asked == accepted_line(q, heard=False)[1] and asked != accepted_line(q)[1]:
         raise NoScene("聞き取れなかったお知らせの締めの前の確かめ（R7）")
-    f = Flow([q, SCENE_NEXT], play_recordings=True)
+    f = asked_flow([q, SCENE_NEXT])
     f.use_checks("judge")
     _scene_turn(f, "なるほど。", UNDECIDED, "record_answer", question_id=q.id, condition_id="unknown", **{AWAY: AWAY_NO})
     if f.awaiting_confirm != q.id:
@@ -1079,7 +1206,7 @@ def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
         if it.get("qid") not in scenes:
             raise NoScene(f"ほかのご希望の場面が無い（{it.get('qid')}）")
         of, w, said = scenes[it["qid"]]
-        f = Flow([of, SCENE_NEXT], play_recordings=True)
+        f = asked_flow([of, SCENE_NEXT])
         f.use_checks("judge")
         firm = of.id == "G17"   # 組 G17 は「どちらも要らない」と言い切った・組 E1 は言い切らずに断った（試しの場面の作り＝g73_system_words.WISH_SCENES）
         r = Reading(NONE if of.id == "G17" else "いいえ", firm)
@@ -1096,7 +1223,7 @@ def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
     elif prompted_row(it):
         f = _played_flow(q)
     else:
-        f = _connected_scene(q, it["scene"]) if it.get("scene") else Flow([q, SCENE_NEXT], play_recordings=True)
+        f = _connected_scene(q, it["scene"]) if it.get("scene") else asked_flow([q, SCENE_NEXT])
         if it.get("scene") and (s == "D" or it.get("asked")):
             raise NoScene("繋いだあとの場面の言い直しは組まない")
         if s == "D" or it.get("asked"):   # 言い直しへの返事の行は、どの組でも同じ1か所で言い直しの場面に組む（見直し (13) の D9：組 E の言い直しのある行）
@@ -1307,10 +1434,15 @@ def _flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None)
             return QUESTION_FIRST + flow_name(f, qid, f.after_answer[1], it)
         return ASKED_ACTS.get(kind or "", OTHER_ACT + f"callee_asked|{kind}")
     if res == "ask_back" and rep.get("ask_reason") == "ladder":
-        return (LADDER_KEPT_ACT if rep.get("kept") else LADDER_ONE_ACT if rep.get("one_side") else LADDER_NEITHER_ACT if rep.get("neither")
-                else LADDER_NEXT_ACT)
+        # 片方だけ合わないお返事（伺い94）のウ・エは、どちらを避けたと読んだかで、お客様に聞こえる次の2択が替わる＝次の2択の文を名前に入れる（どちらを避けたかの読み違えも外れと
+        # 数える。⛔ rv176/S2 まで名前だけ＝「金曜日だけ合わない」を「火曜日だけ合わない」と読み違えても同じ動きと数えた）。2つとも合わない・次の2択は読みで文が替わらない
+        if rep.get("kept") or rep.get("one_side"):
+            return f"{LADDER_KEPT_ACT if rep.get('kept') else LADDER_ONE_ACT}：{f.questions[qid].text}"
+        return LADDER_NEITHER_ACT if rep.get("neither") else LADDER_NEXT_ACT
     for head, act in (*PLAY_ACTS, ("wait_soon", WAIT_SOON_ACT), ("case_lead", CASE_ACT), ("pain", PAIN_NEXT_ACT)):
         if any(p.startswith(head) for p in plays):
+            if act == TROUBLE_ACT and f.withdraw is None and f.main is None:
+                return END_CONCERN   # 本題で電話を終える言葉か決まらないときの D2（取り消し・顧客獲得型の本題の D2 ではない＝END_CONCERN の注）
             return THANKED + act if act == WAIT_ACT[LATER] and any(p.startswith("offer_thanks") for p in plays) else act
     if res == "hesitate":
         return HESITATE_ACT[True]
@@ -1337,6 +1469,10 @@ def _flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None)
             return MAYBE_ACT + str(cond)
         if asked is not None and not same:
             return DENIED   # 言い直しへの返事で答えが替わり、替わった答えで確かめ直す
+        if item.ladder is not None and item.value:
+            # 日時の2択の段で決まった値の言い直し（最後の段の片方だけ合わないのエ＝避けなかった時刻・答えた＝会話AIの値）：どの値で確かめるかを名前に入れる（どちらを避けたかの
+            # 読み違えで、違う時刻を言い直す＝外れと数える。分身 S2）
+            return f"念のため確かめる：{cond}（{item.value}）"
         return f"念のため確かめる：{cond}"
     if item.state in ("accepted", "confirmed", "refused", "dont_know"):
         if same:
@@ -1385,7 +1521,7 @@ def flow_act(it: dict, q: Question, got, firm, prior=None, away=None) -> str | N
 def label_readings(it: dict, q: Question, has_end: bool) -> list:
     """正解の表の行 it から、正しい読みの組み合わせを全部作る（唯一の作り＝正解の動き step_wants）：答え（accept）× 言い切り（境目 either なら両方・
     ほかは「曖昧」の印 hedged の逆）× こちらへ尋ねた問いか（query_truths）× 別のお話か（away_truths）× 電話を終える言葉か（has_end なら end_accept・
-    無ければ読んでいない）× こちらがかけた電話番号が違うと伝えたか（wrong_truths）× 声かけへのお返事だけか（prompt_truths）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
+    無ければ読んでいない）× こちらがかけた電話番号が違うと伝えたか（wrong_truths）× 声かけへのお返事だけか（prompt_truths）× 合わないと言わなかったほうで大丈夫そうか（ladder_other_truths）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
     正解 talk False の行は、その答えと食い違う前の話の答え＝flowctl.off_talk の1か所。ほかは前の話から決まる答えは無い）。聞こえ方は hear_truth。"""
     from flowctl import why_choices
     out = []
@@ -1405,12 +1541,13 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
                                 for p in priors or (None,):
                                     for wn in wrong_truths(it):
                                         for pr in prompt_truths(it):
-                                            r = Reading(a, firm)
-                                            for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it)), (WRONG, wn),
-                                                         (PROMPT_REPLY, pr)):
-                                                setattr(r, k, v)
-                                            r.prior = p
-                                            out.append(r)
+                                            for lo in ladder_other_truths(it):
+                                                r = Reading(a, firm)
+                                                for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it)), (WRONG, wn),
+                                                             (PROMPT_REPLY, pr), (LADDER_OTHER, lo)):
+                                                    setattr(r, k, v)
+                                                r.prior = p
+                                                out.append(r)
     return out
 
 
@@ -1437,11 +1574,13 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     if APOLOGY + act in want:
         return "お詫びが落ちた（不快な様子の言葉に、受けの言葉で応えた・動きは正しい）"
     ends = {w for w in want if end_step(w)}
-    closes = {w for w in ends if w.removeprefix(QUESTION_FIRST) not in (END_TOPIC, END_ASK)}
+    closes = {w for w in ends if w.removeprefix(QUESTION_FIRST) not in END_ASKS}
     if end_step(act):
-        if act.removeprefix(QUESTION_FIRST) not in (END_TOPIC, END_ASK):
+        if act.removeprefix(QUESTION_FIRST) not in END_ASKS:
             return "⛔違う理由で締める・伺う" if closes else "⛔電話を終える言葉ではないのに締める・急ぎを伺う"
-        if closes:
+        # 正解が締める読みと伺う読みの境目（「そういうお電話はちょっと……。」＝決められない・通話・営業を断った＝rv176/S2 の3回目の読み直しで CL-1 が決めた）なら、伺ったのは
+        # 正解の伺いの側の違い＝「違う伺い」（⛔ 分身 S2 の aa4e230d まで、正解に締める読みが1つでもあれば、伺いの読みを「締めない」と数えていた＝境目の行で外れの種類を取り違える）
+        if closes and not ends - closes:
             return "⛔電話を終える言葉なのに締めない"
         return "違う伺い" if ends else "要らない伺い"
     want -= ends
