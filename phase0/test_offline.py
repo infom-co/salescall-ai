@@ -45106,9 +45106,29 @@ class S2ScenePurposeTest(unittest.TestCase):
     def test_1_purpose_comes_from_the_rows_question(self):
         import g53_meaning as g
         qm = g.question_map()
-        self.assertEqual(g.asked_flow([qm["G16"], g.SCENE_NEXT])._heard_purpose(), "お支払い方法の確認でお電話いたしました。")
+        self.assertEqual(g.asked_flow([qm["G16"], g.SCENE_NEXT])._heard_purpose(), "光回線サービスのアオバ光のご案内でお電話いたしました。")
         self.assertEqual(g.asked_flow([qm["Q2"], g.SCENE_NEXT])._heard_purpose(), "ご予約の確認でお電話いたしました。")   # 試しの業務の用件
-        self.assertEqual(g.scene_purpose(qm["G8"]), "パンフレットのご案内")
+        self.assertEqual(g.scene_purpose(qm["G8"]), "分譲マンションのアオバレジデンスのご案内")
+
+    def test_4_purpose_is_the_business_not_the_question(self):
+        # CL-1 の頼み（束 p の読み手 A の声）：用件は業務の用件（サービス・商品の名前のあるご案内）で、質問はその一部（⛔ 079429d5 まで、用件を質問の事柄そのものから作った＝
+        # 「ご契約の状況の確認でお電話いたしました。」など＝用件と質問が同じ事柄になり、「ご案内全体」と「いまの質問のことだけ」の境目が無くなった）。業務ごとに1つの用件（表は
+        # SCENE_BUSINESSES の1か所）・どの質問も1つの業務に属する
+        import g53_meaning as g
+        from review_words import questions
+        seen = {}
+        for name, (noun, texts) in g.SCENE_BUSINESSES.items():
+            self.assertIn("アオバ", noun, name)   # 試しのサービス・商品の名前
+            for t in texts:
+                self.assertNotIn(t, seen, (t, name, seen.get(t)))
+                seen[t] = name
+        self.assertGreaterEqual(len(g.SCENE_BUSINESSES), 4)
+        qm = g.question_map() | questions()
+        for k in ("G3", "G23", "G19"):
+            self.assertEqual(g.scene_purpose(qm[k]), g.scene_purpose(qm["G16"]))   # 同じ業務（回線のご案内）の質問は同じ用件
+        # 場面が自分で付けた番号 Q1 の別の質問（ご承認の場面の「資料は…」）は、試しの業務の質問ではない＝表の業務の用件
+        from flowctl import Question
+        self.assertEqual(g.scene_purpose(Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))), g.scene_purpose(qm["G2"]))
 
     def test_2_every_scene_question_has_a_purpose(self):
         import g53_meaning as g
