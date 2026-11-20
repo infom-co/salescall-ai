@@ -1118,11 +1118,106 @@ def _confirm_concern_scene(q: Question) -> Flow:
     return f
 
 
+SCENE_ASKED = "そういえば御社って駐車場ありましたっけ？"
+SCENE_OUR_ANSWER = "店舗の前に駐車場がございます。"   # 会話AIの答えの文（頭の受けの「はい、」は流れの制御の相づち＝お客様に聞こえるのは「はい、店舗の前に駐車場がございます。」）
+
+
+def _answered_scene(q: Question) -> Flow:
+    """尋ねられて答えたあと（review_words.ANSWERED_SCENE）：ご承認のお知らせ q を流したあと、お客様にご質問（「そういえば御社って駐車場ありましたっけ？」＝判定の読み「決められない」・
+    こちらへ尋ねた問いがある）をいただき、会話AIが答えた（相づちの「はい、」と「店舗の前に駐車場がございます。」＝中身の判定を通った答え・Flow.on_grounded → replay_opening の own）所まで。
+    このあとのお返事は、こちらの答えを「質問のあとにこちらが言った一言」として判定に見せる（見直し (13) の持ち場 C の C2＝試験 test_c2_a_reply_only_to_our_answer_is_not_taken_as_consent
+    と同じ手順。分身 S3）"""
+    from grounding import GROUNDED, Verdict
+    f = asked_flow([q, SCENE_NEXT])
+    f.use_checks("judge")
+    _scene_say(f, SCENE_ASKED, _scene_read(UNDECIDED, **{QUERY: QUERY_YES}))
+    v = Verdict(GROUNDED, "")
+    v.by, v.touch = "g53_meaning", ""
+    f.on_grounded(SCENE_OUR_ANSWER, v)
+    r = f.apply("replay_opening", {"part": "own", "answer": SCENE_OUR_ANSWER})
+    if r.get("say") != SCENE_OUR_ANSWER:
+        raise NoScene("尋ねられたことに答えない")
+    return f
+
+
+SCENE_HEDGED_YES = "うーん、送ってもらおうかな…。"
+SCENE_ASK_BACK = "送ってもらったほうがいいですかね？"
+SCENE_ASKED_BACK = "そうですね、お読みになられるとより理解が深まるかと思います。"
+
+
+def _offer_final_scene(q: Question) -> Flow:
+    """申し出の最終の確かめ（review_words.OFFER_FINAL_SCENE）：申し出 q に言い切らずに「はい」に寄った答え（「うーん、送ってもらおうかな…。」）→ 言い直し（「それでは…させていただきますね？」）
+    → こちらの考えを尋ねられ（「送ってもらったほうがいいですかね？」＝判定の読み「決められない」・こちらへ尋ねた問いがある）、会話AIが答え → 相づちだけ（「そうなんですね。」）→ 最終の確かめ
+    （「はい、それでは…させていただきましょうか？」＝Flow._final_check の final_do）を伺った所まで（試験 HedgedSalesTest の「送ってもらったほうがいいですかね？」の (2) と同じ手順。分身 S3）"""
+    from grounding import NO_FACT, Verdict
+    f = asked_flow([q, SCENE_NEXT])
+    f.use_checks("judge")
+    f.on_callee(); f.on_heard(SCENE_HEDGED_YES); f.on_check("judge", Reading(q.conditions[0], firm=False))
+    if f.apply("record_answer", {"question_id": q.id, "condition_id": q.conditions[0]}).get("result") != "confirm_required":
+        raise NoScene("言い切っていない答えを言い直さない")
+    f.on_callee(); f.on_heard(SCENE_ASK_BACK); f.on_check("judge", _scene_read(UNDECIDED, **{QUERY: QUERY_YES}))
+    f.apply("confirm_field", {"question_id": q.id, "result": "affirmed"})
+    v = Verdict(NO_FACT, "")
+    v.by, v.touch = "g53_meaning", ""
+    f.on_grounded(SCENE_ASKED_BACK, v)
+    f.apply("replay_opening", {"part": "own", "answer": SCENE_ASKED_BACK})
+    f.on_callee(); f.on_heard(SCENE_NOD)
+    r = f.apply("replay_opening", {"part": "resume"})
+    if r.get("after") != "final_do" or f.awaiting_confirm != q.id:
+        raise NoScene("申し出の最終の確かめを伺わない")
+    return f
+
+
+SCENE_HURRY = "すみません、今ちょっと急いでいるんですけど。"
+SCENE_YES_PLEASE = "はい、お願いします。"
+
+
+def _withdraw_time_scene(q: Question) -> Flow:
+    """受けていただいたかけ直しの申し出のあとの時刻の伺い（review_words.WITHDRAW_TIME_SCENE）：最初の質問に「すみません、今ちょっと急いでいるんですけど。」（判定の読み＝急いでいる）と
+    言われ、かけ直しの申し出 H1（「それではまた改めてお掛けしてもよろしいでしょうか？」）に「はい、お願いします。」をいただき、かけ直しの時刻（日時の2択の段の最初の2択）を伺った所まで
+    （伺うのは Flow._offer_taken_time の1か所。電話の日と時刻は日時の2択の段の場面と同じ LADDER_TODAY）。ここで判定の選べるものに「申し出を取り消した」が出る（Flow._taken_offer。
+    伺い40＝帳面 1 の (1) の分身 A の段。分身 S3）"""
+    import datetime as dt
+    from flowctl import AHEAD_CHECKS, END_HURRY
+    f = asked_flow([SCENE_PRE, SCENE_NEXT])
+    f.use_checks("judge")
+    y, m, d, h = LADDER_TODAY
+    f.today, f.now = dt.date(y, m, d), dt.datetime(y, m, d, h, 0)
+    f.call_days = tuple(f.today + dt.timedelta(days=i) for i in range(1, 12) if f.today + dt.timedelta(days=i) != dt.date(*LADDER_HOLIDAY))
+    _scene_say(f, SCENE_HURRY, _scene_read(UNDECIDED, END_HURRY))
+    offer = f.current
+    r = _scene_say(f, SCENE_YES_PLEASE, _scene_read("はい"), "record_answer", question_id=offer, condition_id="はい")
+    if r and r.get("ahead_offer"):
+        f.ahead_context()   # 申し出を受けたお返事に時刻・日は無い（判定が読み直す＝決められない）
+        for k in AHEAD_CHECKS:
+            if k.split("@")[0] in f.checks_used:
+                f.on_check(k, UNDECIDED, f.callee_turns)
+        f.apply("replay_opening", {"part": "resume"})
+    if f.current != q.id or f._taken_offer() != offer:
+        raise NoScene("受けていただいたかけ直しの申し出のあとの時刻を伺わない")
+    return f
+
+
+def _withdraw_send_scene(q: Question) -> Flow:
+    """受けていただいた申し出のあとの業務の質問（review_words.WITHDRAW_SEND_SCENE）：申し出の質問（q.ask_if の質問＝パンフレットの申し出）に「はい、お願いします。」をいただき、その答えで
+    伺う業務の質問 q（送付先）を伺った所まで（Flow._taken_offer＝判定の選べるものに「申し出を取り消した」。分身 S3）"""
+    from review_words import questions as review_questions
+    offer = review_questions()[q.ask_if[0]]
+    f = asked_flow([offer, q, SCENE_NEXT])
+    f.use_checks("judge")
+    _scene_say(f, SCENE_YES_PLEASE, _scene_read(offer.conditions[0]), "record_answer", question_id=offer.id, condition_id=offer.conditions[0])
+    if f.current != q.id or f._taken_offer() != offer.id:
+        raise NoScene("受けていただいた申し出のあとの質問を伺わない")
+    return f
+
+
 def _new_scene(it: dict, q: Question) -> Flow:
     """試しの言葉の表の場面の印（review_words.NEW_SCENES）の場面を組む唯一の入口（_flow_scene）。"""
-    from review_words import CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, LADDER_SCENE, PAIN_SCENE, WAIT_SCENE, WRONG_ASK_SCENE
+    from review_words import (ANSWERED_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, LADDER_SCENE, OFFER_FINAL_SCENE, PAIN_SCENE, WAIT_SCENE,
+                              WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WRONG_ASK_SCENE)
     build = {LADDER_SCENE: _ladder_scene, LADDER_CLOCK_SCENE: _ladder_clock_scene, WRONG_ASK_SCENE: _wrong_ask_scene, WAIT_SCENE: _wait_scene,
-             PAIN_SCENE: _pain_scene, CONCERN_SCENE: _concern_scene, CONFIRM_CONCERN_SCENE: _confirm_concern_scene}.get(it["scene"])
+             PAIN_SCENE: _pain_scene, CONCERN_SCENE: _concern_scene, CONFIRM_CONCERN_SCENE: _confirm_concern_scene, ANSWERED_SCENE: _answered_scene,
+             OFFER_FINAL_SCENE: _offer_final_scene, WITHDRAW_TIME_SCENE: _withdraw_time_scene, WITHDRAW_SEND_SCENE: _withdraw_send_scene}.get(it["scene"])
     if build is None:
         raise NoScene(f"場面の印の場面を組む作りが無い（{it['scene']}）")
     return build(q)

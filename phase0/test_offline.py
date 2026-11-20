@@ -38344,12 +38344,13 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
         from review_words import answer_words, questions
         qs = questions()
         rows = [it for it in answer_words() if g53_meaning.prompted_row(it)]
-        self.assertEqual(len(rows), 2)
+        # ご承認のお知らせのあとの2行と、分身 S3 が足した「もしもし？」のあとの4行（支払いの質問＝伺い49 の候補）
+        self.assertEqual(sorted(it["qid"] for it in rows), ["R1"] * 4 + ["R7"] * 2)
         for it in rows:
             shown, asked, before = g53_meaning.judge_inputs(it, qs[it["qid"]])
             self.assertIn(shown.prompted, QUIET_LINES, it["text"])   # 判定は、お客様の言葉が黙ったあとの一言へのお返事かを分かって読む
             f, qid, rep, _ = g53_meaning.flow_reply(it, qs[it["qid"]], None)
-            self.assertEqual(qid, "R7")
+            self.assertEqual(qid, it["qid"])
 
     def test_the_review_forms_are_composed_by_the_flow(self):
         # 見直し (12) の形の質問：その後の形（R3・R4）・「ところで」の形（R5）・選択肢を並べた形（R6）・ご承認のお知らせ（R7）を、本番の流れの制御がその形で
@@ -39197,12 +39198,15 @@ class WaitOrLaterWordsTest(unittest.TestCase):
 
     def test_the_words_are_in_the_table_with_answers_from_the_words_and_the_descriptions(self):
         from flowctl import CALL_LATER, KEEP_ON, WAIT_NOW
-        from review_words import TO_READERS, answer_words
-        got = {it["text"]: it["label"]["accept"] for it in answer_words() if it["qid"] == "H2"}
+        from review_words import PREP3_ROWS, TO_READERS, answer_words
+        prep3 = [it for it in PREP3_ROWS if it["qid"] == "H2"]   # 分身 S3 が帳面 1 の (1) の分身 AG の段の候補で足した「別のお話か」の2行
+        got = {it["text"]: it["label"]["accept"] for it in answer_words() if it["qid"] == "H2" and it not in prep3}
         self.assertEqual(got, {"あ、もう大丈夫です。どうぞ続けてください。": [KEEP_ON], "いえ、今ちょうど終わりましたので、お話どうぞ。": [KEEP_ON],
                                "大丈夫ですよ、そのまま話してください。": [KEEP_ON], "あ、さっきの件ですけど、うちはカードでお願いします。": [KEEP_ON],
                                "じゃあ、少しだけ待っていてもらえますか。": [WAIT_NOW], "今ちょっと無理なので、また後でかけてください。": [CALL_LATER]})
-        self.assertIn("うーん、どうしようかな。", [w["text"] for w in TO_READERS if w["qid"] == "H2"])
+        # 「うーん、どうしようかな。」は、読み手へ回していた行（TO_READERS）から、帳面の候補の正解（答えの話・決められない）で表へ移した（同じ言葉を2か所に持たない＝分身 S3）
+        self.assertNotIn("うーん、どうしようかな。", [w["text"] for w in TO_READERS if w["qid"] == "H2"])
+        self.assertIn("うーん、どうしようかな。", [it["text"] for it in prep3])
 
     def test_the_scene_is_the_production_wait_or_later_ask(self):
         import g53_meaning as g
@@ -39214,7 +39218,8 @@ class WaitOrLaterWordsTest(unittest.TestCase):
         for it in rows:
             shown, asked, before = g.judge_inputs(it, qs["H2"])
             self.assertEqual((shown.id, shown.text, asked), ("H2", h2.text, None), it["text"])
-            self.assertIsNone(g.flow_miss({**it, "j": it["label"]["accept"][0], "j言い切り": True}, qs["H2"], "j"), it["text"])
+            # 読みは正解の1つ目（答えとは別の項目＝分身 S3 の「別のお話か」の行も）
+            self.assertIsNone(g.flow_miss(RereadRowsTest.reading(None, it), qs["H2"], "j"), it["text"])
         keep = next(it for it in rows if it["label"]["accept"] == [KEEP_ON])
         wait = next(it for it in rows if it["label"]["accept"] == [WAIT_NOW])
         self.assertNotEqual(g.flow_wants(keep, qs["H2"]), g.flow_wants(wait, qs["H2"]))   # 待たずに続けるのを待つと読めば外れ
@@ -40505,7 +40510,14 @@ class RereadRowsTest(unittest.TestCase):
              "顧客獲得型の本心を伺う一言（D2）": ("D2", "何か問題でもございましたでしょうか？", ""),
              # 分身 S2：時刻の2択（伺い94 のエは最後の段で言い直しの確かめ）・確認の電話の本心を伺う一言（念押しはご遠慮の一言・はっきりした断りは締める）
              "日時の2択の段（火曜日・午後と答えたあとの時刻の2択）": ("C1", "2時と4時ではどちらがよろしいでしょうか？", ""),
-             "確認の電話の本心を伺う一言（D2）": ("D2", "何か問題でもございましたでしょうか？", "")}
+             "確認の電話の本心を伺う一言（D2）": ("D2", "何か問題でもございましたでしょうか？", ""),
+             # 分身 S3：尋ねられて答えたあと（こちらの答えを「質問のあとにこちらが言った一言」として見せる＝C2）・申し出の最終の確かめ（判定は最終の確かめの文へのお返事として読む）
+             "尋ねられて答えたあと（ご承認のお知らせのあとのご質問に答えた）": ("R7", "当日のキャンセルは前日までにご連絡いただく必要がございますのでご了承ください。",
+                                                       "店舗の前に駐車場がございます。"),
+             "申し出の最終の確かめ（迷っている方に尋ねられて答えたあと）": ("R9", "パンフレットをお送りしてもよろしいでしょうか？", ""),
+             # 分身 S3：受けていただいた申し出から始まった質問（判定の選べるものに「申し出を取り消した」が出る＝伺い40）
+             "受けていただいたかけ直しの申し出のあとの時刻の伺い（急いでいる方の H1 に「はい」）": ("C1", "それでは平日と土日のどちらがよろしいでしょうか？", ""),
+             "受けていただいた申し出のあとの業務の質問（パンフレットの送付先）": ("R10", "送付先のメールアドレスをお伺いしてもよろしいでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -40522,12 +40534,12 @@ class RereadRowsTest(unittest.TestCase):
     def test_1_new_scenes_are_built_by_the_one_count(self):
         import g53_meaning as g
         from flowctl import AWAY, AWAY_NO, PROMPT_REPLY, PROMPT_REPLY_YES, VALUE_CHOICE, WRONG, WRONG_NOT_SAID
-        from review_words import NEW_SCENE_ROWS, NEW_SCENES, answer_words, questions
+        from review_words import NEW_SCENE_ROWS, NEW_SCENES, PREP3_ROWS, answer_words, questions
         qs = questions()
         rows = [it for it in answer_words() if it.get("scene") in NEW_SCENES]
         self.assertEqual({it["scene"] for it in rows}, set(NEW_SCENES))
         self.assertEqual(set(self.SHOWN), set(NEW_SCENES))
-        self.assertEqual(rows, [it for it in NEW_SCENE_ROWS if it.get("scene") in NEW_SCENES])
+        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS) if it.get("scene") in NEW_SCENES])   # PREP3_ROWS＝分身 S3 が足した行
         for it in rows:
             with self.subTest(text=it["text"], scene=it["scene"]):
                 q = qs[it["qid"]]
@@ -45567,3 +45579,116 @@ class VLadderKnownTest(unittest.TestCase):
         g, _ = self.d.first()
         r = U2LadderOneSideTest.side(g, "土日はちょっと…。", "土日", (U, U))
         self.assertEqual(self.d.heard(r), "かしこまりました。それでは" + self.d.pair("金曜日", "火曜日"))
+
+
+class S3MeasurePrepTest(unittest.TestCase):
+    """分身 S3（まとめ役 CL-1 の頼み rv178/S3）：測りの前に0円で済ませる残りのうち、帳面 1 の (1) の ⏳ に言葉と正解の候補が書いてある試しの言葉を、試しの言葉の表
+    （review_words）に足し、測りの数えの1か所（g53_meaning の場面・読み・動きの名前）が本番の流れの制御で組んだ場面で数える。
+    (1) 待っていただく一言のあと（伺い76・帳面 1 の (1) の 11-19 日本時間21時台の (c)・23時台の「もう一度言ってほしい」）
+    (2) 待つかかけ直すかの伺い H2 の「別のお話か」（同じ (b)。H2 の「うーん、どうしようかな。」は読み手へ回していた行を、帳面の候補の正解で表に入れる＝同じ言葉を2か所に持たない）
+    (3) 伺ったあと黙られて「もしもし？」を流したあとのお返事（本書 9-4 の伺い49 の段の候補の4つ）
+    (4) 尋ねられて答えたあとのお返事（見直し (13) の持ち場 C の C2・伺い76 の「お答え」への「もう一度言ってほしい」）＝場面の印を足して本番の流れの制御で組む
+    (5) 申し出の最終の確かめへのお返事の「別のお話か」（分身 N の行）＝場面の印を足して本番の流れの制御で組む
+    (6) 受けていただいた申し出から始まった質問の途中の取り消し（伺い40＝分身 A の行。時刻の伺いと送付先）＝場面の印を足して本番の流れの制御で組む"""
+    OURS = "店舗の前に駐車場がございます。"   # 会話AIの答えの文（お客様には相づちの「はい、」のあとに聞こえる）
+    ASKED = "そういえば御社って駐車場ありましたっけ？"
+    WAIT_LINE = "少々お待ちいただいてもよろしいでしょうか？"
+    FINAL = "それではパンフレットをお送りさせていただきましょうか？"
+
+    @staticmethod
+    def rows():
+        from review_words import ANSWERED_SCENE, OFFER_FINAL_SCENE, WAIT_SCENE, answer_words
+        out = {}
+        for it in answer_words():
+            out.setdefault((it["qid"], it.get("scene"), it["text"]), it)
+        return out, ANSWERED_SCENE, OFFER_FINAL_SCENE, WAIT_SCENE
+
+    TIME_ASK = "それでは平日と土日のどちらがよろしいでしょうか？"
+
+    def wanted(self):
+        """(質問の番号, 場面の印, 言葉) ⇒ (答えの正解, 項目の正解, 判定に見せるもの, 外れた読み)。判定に見せるもの＝(見せる質問の番号, 質問のあとにこちらが言った一言,
+        言い直し・最終の確かめの文)。外れた読み＝流れの制御の動きが正解と違う読み（数えの1か所で外れと数える）。"""
+        from flowctl import (AWAY, AWAY_NO, AWAY_YES, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, REPEAT, UNDECIDED)
+        from flowctl import LADDER_OTHER, LADDER_OTHER_NOT
+        from meaning_judge import WITHDREW
+        from review_words import WITHDRAW_SEND_SCENE as send, WITHDRAW_TIME_SCENE as time
+        _, answered, final, wait = self.rows()
+        moshi = "もしもし？"
+        withdrawn = ([WITHDREW], {AWAY: [AWAY_NO], LADDER_OTHER: [LADDER_OTHER_NOT]}, ("C1", "", None), {"answer": UNDECIDED})
+        return {
+            ("C1", time, "あ、やっぱりかけ直していただかなくて結構です。"): withdrawn,
+            ("C1", time, "やっぱりいいです。"): withdrawn,
+            ("C1", time, "すみません、やっぱりやめておきます。"): withdrawn,
+            ("C1", time, "時間はちょっと分からないです。"): (["unknown"], {AWAY: [AWAY_NO], LADDER_OTHER: [LADDER_OTHER_NOT]}, ("C1", "", None),
+                                                    {"answer": WITHDREW}),
+            ("R10", send, "あ、やっぱりパンフレットはいいです。"): ([WITHDREW], {AWAY: [AWAY_NO]}, ("R10", "", None), {"answer": UNDECIDED}),
+            ("R1", wait, "はい、大丈夫ですよ。"): ([UNDECIDED], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_YES]}, ("R1", self.WAIT_LINE, None),
+                                              {PROMPT_REPLY: PROMPT_REPLY_WAVER}),
+            ("R1", wait, "どうぞ。"): ([UNDECIDED], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_YES]}, ("R1", self.WAIT_LINE, None),
+                                    {PROMPT_REPLY: PROMPT_REPLY_WAVER}),
+            ("R1", wait, "はい、大丈夫です。あ、それとお支払いはカードで。"): (["カード"], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R1", self.WAIT_LINE, None),
+                                                              {PROMPT_REPLY: PROMPT_REPLY_YES}),
+            ("R1", wait, "すみません、ちょっと聞こえなかったんですけど。"): ([REPEAT], {PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R1", self.WAIT_LINE, None),
+                                                            {"answer": UNDECIDED}),
+            ("H2", None, "そういえば、うちは月曜が定休日なんですよ。"): ([UNDECIDED], {AWAY: [AWAY_YES]}, ("H2", "", None), {AWAY: AWAY_NO}),
+            ("H2", None, "うーん、どうしようかな。"): ([UNDECIDED], {AWAY: [AWAY_NO]}, ("H2", "", None), {AWAY: AWAY_YES}),
+            ("R1", None, "はい"): ([UNDECIDED], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_YES]}, ("R1", moshi, None),
+                                {"answer": "カード", PROMPT_REPLY: PROMPT_REPLY_NO}),
+            ("R1", None, "もしもし"): ([UNDECIDED], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_YES]}, ("R1", moshi, None),
+                                   {"answer": "カード", PROMPT_REPLY: PROMPT_REPLY_NO}),
+            ("R1", None, "聞こえてます"): ([UNDECIDED], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_YES]}, ("R1", moshi, None),
+                                     {"answer": "カード", PROMPT_REPLY: PROMPT_REPLY_NO}),
+            ("R1", None, "あ、すみません、カードで"): (["カード"], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R1", moshi, None),
+                                            {"answer": UNDECIDED, PROMPT_REPLY: PROMPT_REPLY_YES}),
+            ("R7", answered, "はい、分かりました。"): (["はい", UNDECIDED], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_YES]}, ("R7", self.OURS, None),
+                                                 {"answer": "はい", PROMPT_REPLY: PROMPT_REPLY_NO}),
+            ("R7", answered, "分かりました。キャンセルの件も大丈夫です。"): (["はい"], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R7", self.OURS, None),
+                                                          {PROMPT_REPLY: PROMPT_REPLY_YES}),
+            ("R7", answered, "え、何ておっしゃいました？"): ([REPEAT], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R7", self.OURS, None),
+                                                 {PROMPT_REPLY: PROMPT_REPLY_YES}),   # お返事だけと読むと、答えを言い直さずに最終の確かめ
+            ("R9", final, "そういえば来週は祝日なんですよ。"): ([UNDECIDED], {AWAY: [AWAY_YES]}, ("R9", "", self.FINAL), {AWAY: AWAY_NO}),
+            ("R9", final, "うーん、どうしようかな。"): ([UNDECIDED], {AWAY: [AWAY_NO]}, ("R9", "", self.FINAL), {AWAY: AWAY_YES}),
+        }
+
+    def test_1_rows_are_in_the_table_with_the_written_truths(self):
+        rows, *_ = self.rows()
+        for key, (accept, items, _, _) in self.wanted().items():
+            with self.subTest(key=key):
+                self.assertIn(key, rows)
+                lab = rows[key]["label"]
+                self.assertEqual(lab["accept"], accept)
+                for k, v in items.items():
+                    self.assertEqual(lab.get(k), v, k)
+
+    def test_2_rows_are_built_in_the_production_scene(self):
+        import g53_meaning as g
+        from review_words import questions
+        rows, answered, _, _ = self.rows()
+        qs = questions()
+        for key, (_, _, (qid, prompted, asked), _) in self.wanted().items():
+            with self.subTest(key=key):
+                it = rows[key]
+                shown, got_asked, before = g.judge_inputs(it, qs[it["qid"]])
+                self.assertEqual((shown.id, getattr(shown, "prompted", "") or "", got_asked), (qid, prompted, asked))
+                if key[1] == answered:
+                    self.assertEqual(before, self.ASKED)   # 判定は、お客様のご質問とこちらの答えのあとのお返事として読む
+
+    def test_3_right_and_wrong_readings_move_differently(self):
+        import g53_meaning as g
+        from review_words import questions
+        rows, *_ = self.rows()
+        qs = questions()
+        for key, (_, _, _, wrong) in self.wanted().items():
+            with self.subTest(key=key):
+                it = rows[key]
+                q = qs[it["qid"]]
+                wants = g.step_wants(it, q, False)
+                self.assertFalse(any(w.startswith((g.SCENE_MISSING, g.OTHER_ACT)) for w in wants), wants)
+                self.assertIsNone(g.flow_miss(RereadRowsTest.reading(None, it), q, "j"))
+                self.assertIsNotNone(g.flow_miss(RereadRowsTest.reading(None, it, **wrong), q, "j"), wrong)
+
+    def test_4_one_place_for_each_word(self):
+        # 読み手へ回す行（正解を付けない）と、正解を付けた行に、同じ質問の同じ言葉を2つ持たない
+        from review_words import TO_READERS, answer_words
+        counted = {(it["qid"], it["text"]) for it in answer_words()}
+        self.assertEqual([it for it in TO_READERS if (it["qid"], it["text"]) in counted], [])
