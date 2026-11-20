@@ -34,7 +34,9 @@
 | 宛先の欄 | Edit・名前「名前または番号を入力」（Id は `mat-chip-list-input-<数>`＝数が変わりうるので名前で見分ける） | 宛先の番号を入れる |
 | 送信 | Button・Id `message_send_btn` | 送る |
 | 本文の欄 | Text・名前「メッセージを入力」（宛先を入れると出る。入力欄の形では出ないので、押してから貼り付ける） | 本文を入れる |
-| 入った宛先 | List・名前「Contact selection」の中の ListItem | 宛先が入ったかの確かめ |
+| 宛先の候補 | ListItem・Id `auto_option_<数>`（連絡先に登録された番号を入れたときだけ出る） | 押すと宛先になる（ちょうど1つのときだけ押す） |
+| 入った宛先 | 名前「Contact selection」（宛先が無いときは Group・入ると List）の中の ListItem | 宛先が入ったかの確かめ |
+| 連絡先に登録 | Button・Id `message_contact_info_save_contact_btn` | **押さない**（登録されていない番号は「連絡先に登録」しないと宛先にならない＝2026-11-20 管理者。プログラムはスマホの連絡先を書き換えない） |
 | ショートメールで送られる知らせ | Hyperlink・Id `message_sms_learn_more_btn`（宛先が Rakuten Link を使っていない番号のとき出る見込み） | 使わない（ショートメールになる印） |
 | やり取りの一覧 | Group・Id `chat-list-container` の中の MenuItem | 使わない（相手のお名前・文面が入るので、読み取りの道具は写さない） |
 

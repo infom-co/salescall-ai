@@ -39,6 +39,10 @@ LINK_LOST = re.compile(r"接続されていません|接続が切れ|オフラ�
 DOMESTIC = re.compile(r"0\d{9,10}")   # 入れてよい番号の形（国内の数字だけ）。形を変えるのはサーバーの番号の正規化の1か所（core/phone.py の national）
 
 
+class NotRegistered(Exception):
+    """ショートメールの宛先が、Rakuten Link の連絡先に登録されていない（送っていない。知らせはチャットワークへ回し、登録を頼む）。"""
+
+
 class UiaScreen:
     """Windows の UI Automation（pywinauto の uia）で Rakuten Link を操作する。"""
 
@@ -260,27 +264,32 @@ class UiaScreen:
         if box is None:
             raise RuntimeError("宛先の欄が見つからない")
         self._paste(box, number)
-        # 番号を入れると、その下に候補（この番号へ送る・連絡先）が出る。候補を押して宛先にする（Enter だけでは宛先にならなかった＝2026-11-20）。
-        # 候補は mat-option の部品の見込み。見つからなければ Enter
-        option = None
-        for _ in range(20):
-            option = self._first_with_id(main, r"^mat-option-\d+$")
-            if option is not None:
+        # 番号を入れると、連絡先に登録された番号なら、その下に候補（auto_option_<数>）が出る。それを押すと宛先になる
+        # （2026-11-20 管理者が教えてくれ、候補を読んで確かめた）。登録されていない番号は「連絡先に登録」を押さないと宛先にならないが、
+        # プログラムはスマホの連絡先を書き換えない＝送らずに NotRegistered（知らせの送り先は、契約者が前もって連絡先に登録しておく）。
+        # 候補がちょうど1つのときだけ押す（2つ以上なら、違う方へ送らないよう送らない）
+        options: list[Any] = []
+        for _ in range(30):
+            options = self._all_with_id(main, r"^auto_option_\d+$")
+            if options:
+                time.sleep(0.3)   # 候補が出そろうのを少し待つ
+                options = self._all_with_id(main, r"^auto_option_\d+$")
                 break
             time.sleep(0.1)
-        if option is not None:
-            try:
-                option.click_input()
-            except Exception:
-                option.invoke()
-        else:
-            box.type_keys("{ENTER}")
+        if not options:
+            raise NotRegistered("この番号は Rakuten Link の連絡先に登録されていない（候補が出なかった）")
+        if len(options) > 1:
+            raise RuntimeError(f"候補が{len(options)}つ出た（違う方へ送らないよう、送らない）")
+        try:
+            options[0].click_input()
+        except Exception:
+            options[0].invoke()
         for _ in range(30):
             if self._has_recipient(main):
                 break
             time.sleep(0.1)
         else:
-            raise RuntimeError("宛先が入らなかった" + ("（候補を押しても）" if option is not None else "（候補が出なかった）"))
+            raise RuntimeError("候補を押しても、宛先が入らなかった")
         body = self._part(main, "body")
         if body is None:
             raise RuntimeError("本文の欄が見つからない")
@@ -292,12 +301,9 @@ class UiaScreen:
         self._press(send)
 
     @staticmethod
-    def _first_with_id(win: Any, pattern: str) -> Any | None:
+    def _all_with_id(win: Any, pattern: str) -> list[Any]:
         rx = re.compile(pattern)
-        for c in win.descendants():
-            if rx.match(c.element_info.automation_id or ""):
-                return c
-        return None
+        return [c for c in win.descendants() if rx.match(c.element_info.automation_id or "")]
 
     @staticmethod
     def _has_recipient(main: Any) -> bool:
