@@ -40,7 +40,9 @@ def counts(tx: Tx, window: str, params: tuple[Any, ...]) -> dict[str, Any]:
     - ear_hits・ear_total＝通話後の検証で別の耳と食い違った項目・確かめた項目／forbidden＝言ってはいけないことを言った数
     - rows＝範囲に通話のある行／completed＝そのうち、行の範囲の中のいちばん新しい判定が「完了」の行
     - cut＝話せた通話のうち、記録した切れ方が「断った」「途中で切れた」（決まっていない切れ方は数えない）／talk_seconds＝話せた通話の、応答してから終わるまでの秒の合計（応答した時刻は状態の履歴 attempt_state_history）
-    - redials＝かけた通話のうち、その行の2本目からのもの／yen・unpriced＝範囲の通話の利用量の金額の合計・単価の無い記録の数"""
+    - redials＝かけた通話のうち、その行の2本目からのもの／yen・unpriced＝範囲の通話の利用量の金額の合計・単価の無い記録の数
+    - voice_counted＝会話AIの声の数のある通話（通話後の検証が数えたもの）／voice_（種類）_checked・voice_（種類）_found＝その種類の確かめたターン・見つかったターンの合計
+      （種類は attempts.VOICE_KINDS。CL-1 の連絡帳 4-221）"""
     row = tx.one(
         f"WITH a AS ({window}),{_JUDGED}"
         " answered AS (SELECT a.attempt_id, a.ended_at, a.disconnect, a.talked, a.reached_target, (SELECT min(h.at) FROM salescall.attempt_state_history h"
@@ -64,7 +66,10 @@ def counts(tx: Tx, window: str, params: tuple[Any, ...]) -> dict[str, Any]:
         f"        (SELECT count(*) FROM a WHERE {attempts.DIALED} AND NOT salescall.is_active(state) AND EXISTS ("
         f"           SELECT 1 FROM salescall.attempts b WHERE b.task_id = a.task_id AND b.claimed_at < a.claimed_at AND {attempts.dialed('b')})) AS redials,"
         "        (SELECT coalesce(sum(u.amount_yen), 0) FROM salescall.usage_entries u JOIN a USING (attempt_id)) AS yen,"
-        "        (SELECT count(*) FROM salescall.usage_entries u JOIN a USING (attempt_id) WHERE u.amount_yen IS NULL) AS unpriced",
+        "        (SELECT count(*) FROM salescall.usage_entries u JOIN a USING (attempt_id) WHERE u.amount_yen IS NULL) AS unpriced,"
+        "        (SELECT count(DISTINCT x.attempt_id) FROM salescall.verification_voice x JOIN a USING (attempt_id)) AS voice_counted"
+        + "".join(f", (SELECT coalesce(sum(x.{n}), 0) FROM salescall.verification_voice x JOIN a USING (attempt_id) WHERE x.kind = '{k}') AS voice_{k}_{n}"
+                  for k in attempts.VOICE_KINDS for n in ("checked", "found")),
         params)
     return dict(row)
 
@@ -125,4 +130,7 @@ def business(tx: Tx, business_id: UUID, *, since: datetime, until: datetime, voi
             "yen_per_call": None if not c["dialed"] else float(c["yen"]) / c["dialed"], "unpriced": c["unpriced"],
             "technical_error": _rate(c["technical"], c["dialed"]),    # 音声の問題・こちらの不具合の率
             "ear_disagreement": _rate(c["ear_hits"], c["ear_total"]), "forbidden_speech": c["forbidden"],
-            "complaint": _rate(c["complaint"], c["talked"])}
+            "complaint": _rate(c["complaint"], c["talked"]),
+            # 会話AIの声の率（黙り・声の途切れ・言葉の抜け・同じ文の2回・英語。見つかったターン÷確かめたターン）。範囲に数えた通話が無ければ None＝まだ数えていない
+            # （0 と言わない＝原則10。CL-1 の連絡帳 4-221）
+            "ai_voice": {k: None if not c["voice_counted"] else _rate(c[f"voice_{k}_found"], c[f"voice_{k}_checked"]) for k in attempts.VOICE_KINDS}}

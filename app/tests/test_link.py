@@ -61,18 +61,21 @@ class FakePhone:
         self.calls, self.busy, self.fail, self.hung, self.apologies, self.played = [], busy, fail, 0, 0, []
         self.send_audio = self.send_event = None
         self.ring, self.rings = None, []   # テスト番号の答え（True・False・None）と、試した番号
+        self.nationals = []                # 届いた番号の国内の形（かけた番号・試した番号の順）
 
     def in_call(self):
         return self.busy
 
-    def test_ring(self, phone):
+    def test_ring(self, phone, *, national):
         self.rings.append(phone)
+        self.nationals.append(national)
         return self.ring
 
-    def start_call(self, phone, voice_type=None):
+    def start_call(self, phone, voice_type=None, *, national):
         if self.fail:
             raise self.fail
         self.calls.append(phone)
+        self.nationals.append(national)
         self.voice_type = voice_type
 
     def hang_up(self):
@@ -260,6 +263,7 @@ class Connect(LinkBase):
         driver.start_call("+81300000000")
         driver.hang_up()
         self.assertEqual((phone.calls, phone.hung), (["+81300000000"], 1))
+        self.assertEqual(phone.nationals, ["0300000000"])   # 国内の形はサーバーの番号の正規化の1か所が添える（CL-3 の連絡帳 60）
         phone.fail = CallNotPlaced("試験：アプリが番号を受け付けない")
         with self.assertRaises(CallNotPlaced) as e:
             driver.start_call("+81300000001")
@@ -369,9 +373,10 @@ class CallingState(LinkBase):
             with self.assertRaises(CallWithheld):
                 driver.test_ring("+81300000009")
         self.assertEqual(len(phone.rings), 3)
+        self.assertEqual(set(phone.nationals), {"0300000009"})
         phone.ring = True
         slow = phone.test_ring
-        phone.test_ring = lambda number: (time.sleep(0.6), slow(number))[1]   # 鳴らしているあいだに、答えの期限を過ぎた
+        phone.test_ring = lambda number, national: (time.sleep(0.6), slow(number, national=national))[1]   # 鳴らしているあいだに、答えの期限を過ぎた
         with mock.patch.object(protocol, "ANSWER_BY", 0.3):                     # 届く前にサーバーが待つのをやめた答え＝試さなかった
             with self.assertRaises(CallWithheld):                             # （見直し22 の 8：外しても落ちる試験が無かった）
                 driver.test_ring("+81300000009")
@@ -384,7 +389,7 @@ class CallingState(LinkBase):
         gone = self.hub.driver(s["line"], Attached(s["tenant"], uuid.uuid4(), 0))   # つながっていない
         with self.assertRaises(CallWithheld):
             gone.test_ring("+81300000009")
-        self.assertEqual(protocol.VERSION, 6)
+        self.assertGreaterEqual(protocol.VERSION, 6)
 
     def test_an_old_answer_does_not_unmark_a_new_call(self):
         """「通話中ではない」の答えは、聞いたときの印にだけ効く（聞いているあいだに、かけ直していれば外さない）。"""
@@ -399,6 +404,25 @@ class CallingState(LinkBase):
         session.call_began(line_id)
         session.call_over(line_id)                                             # 切った・おわびして切った：印を問わず外す
         self.assertFalse(session.open_calls)
+
+    def test_the_pc_dials_the_national_form_the_server_made_and_withholds_without_it(self):
+        """PC の電話の部品へは、かける番号の国内の形も渡る（電話のアプリの番号の欄は国内の形しか受けない。CL-3 の連絡帳 60）。国内の形を作るのはサーバーの
+        番号の正規化の1か所（core/phone）で、PC の部品は番号の形を変えない（見張り Q1）。国内の形の無い頼み（前の版のサーバー）は、かけようとしない・試さない
+        （withheld＝どの数にも入れない）。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        session = self.hub.sessions[got.pc_id]
+        for op in ("start_call", "test_ring"):
+            with self.subTest(op=op):
+                answer = self.hub.ask(session, "request", op=op, line=s["line"], phone="+81300000000")
+                self.assertEqual((answer.get("ok"), answer.get("error")), (False, "withheld"))
+        self.assertEqual((phone.calls, phone.rings), ([], []))
+        driver.start_call("+81300000001")
+        self.assertEqual((phone.calls, phone.nationals), (["+81300000001"], ["0300000001"]))
+        self.assertEqual(protocol.VERSION, 7)   # 国内の形を渡す形の版（前の版の PC の部品は、つなぐと更新を求められる）
 
 
 class Refusals(LinkBase):
@@ -522,9 +546,9 @@ class LostConnection(LinkBase):
         release = threading.Event()
 
         class SlowPhone(FakePhone):
-            def start_call(self, phone, voice_type=None):
+            def start_call(self, phone, voice_type=None, *, national):
                 release.wait(10)
-                super().start_call(phone)
+                super().start_call(phone, national=national)
         phone = SlowPhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
         driver = self.hub.driver(s["line"], self.attached(s, got))
@@ -591,7 +615,7 @@ class LostConnection(LinkBase):
         order = []
 
         class SlowPhone(FakePhone):
-            def start_call(self, phone, voice_type=None):
+            def start_call(self, phone, voice_type=None, *, national):
                 time.sleep(1.0)
                 order.append("かけた")
 
@@ -618,7 +642,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
 
         class SlowPhone(FakePhone):
-            def start_call(self, phone, voice_type=None):
+            def start_call(self, phone, voice_type=None, *, national):
                 time.sleep(1.0)
                 self.calls.append(phone)
         phone = SlowPhone()
@@ -785,7 +809,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
 
         class Refusing(FakePhone):
-            def start_call(self, phone, voice_type=None):
+            def start_call(self, phone, voice_type=None, *, national):
                 time.sleep(0.5)
                 raise CallNotPlaced("試験：アプリが受け付けない")
         phone = Refusing()

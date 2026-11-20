@@ -291,6 +291,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "apology_orders": {"INSERT": frozenset({_CORE + "apology.py"})},          # お詫びの電話の案（システムが作る。10-1-2）
     "apology_approvals": {"INSERT": frozenset({_CORE + "apology.py"})},       # お詫びの電話の承認（管理者か契約者だけ）
     "forbidden_findings": {"INSERT": frozenset({_CORE + "attempts.py"})},     # 言ってしまったこと（検証を済ませる1か所）
+    "verification_voice": {"INSERT": frozenset({_CORE + "attempts.py"})},     # 会話AIの声の数（検証を済ませる1か所。0274）
     "apology_outcomes": {"INSERT": frozenset({_CORE + "settle.py"})},         # お詫びの電話の結果（締めの処理だけ）
     "more_call_approvals": {"INSERT": frozenset({_CORE + "approval.py"})},    # 「さらにかける」の承認（管理者か契約者だけ。0245）
     "solution_text_names": {"INSERT": frozenset({_CORE + "client_solutions.py"})},   # 解決策の文ごとの名前の答え（文ごとに1回。0246）

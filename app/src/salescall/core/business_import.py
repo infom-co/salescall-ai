@@ -124,6 +124,9 @@ BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class
                # CL-1 の連絡帳 4-207・4-208・4-211。✅ 2026-11-20 ユーザー「伺い78：…ア」）：電話の型（書かなければ確認の電話）・Yes の質問の材料（「／」か改行で
                # 区切る・伺う順）・特別感の条件・悩みと事例（組ごとの欄・PAINS_MAX まで）・お時間
                "電話の型": "call_type", "Yes の質問の材料": "yes_asks", "特別感の条件": "special", "お時間": "meeting_time",
+               # 顧客獲得型の受付の方への言葉（「大切なお話」か「お役に立つお話」。書かなければ「大切なお話」）・アポで訪問するか（はい／いいえ。書かなければ はい）。
+               # 業務設定の reception_talk・meeting_visit（CL-1 の連絡帳 4-217）
+               "受付の方への言葉": "reception_talk", "アポで訪問する": "meeting_visit",
                **{f"悩み{i}": f"pain{i}" for i in range(1, business_settings.PAINS_MAX + 1)},
                **{f"悩み{i}の事例": f"case{i}" for i in range(1, business_settings.PAINS_MAX + 1)}}
 LABELS: dict[str, dict[str, str]] = {
@@ -155,6 +158,8 @@ LABELS: dict[str, dict[str, str]] = {
     "weekday": {f"{w}{x}": k for w, k in zip("月火水木金土日", ("mon", "tue", "wed", "thu", "fri", "sat", "sun")) for x in ("", "曜日")},
     "goal_mode": {"どれか1つで果たせる": "any", "全部が要る": "all"},
     "call_type": {"確認の電話": "confirm", "顧客獲得型": "acquire"},
+    "reception_talk": {words: key for key, words in business_settings.RECEPTION_TALKS.items()},   # 言葉の正本は業務設定の1か所
+    "meeting_visit": {"はい": True, "いいえ": False},
     "required": {"はい": True, "○": True, "いいえ": False, "": False},
 }
 # かけ直しのシートで、システムが決める結果（業務では変えない＝business_rules.SYSTEM_POLICIES）。前のひな形にはこの行があったので、
@@ -511,6 +516,11 @@ def _acquire(basic: dict[str, str | None], problems: list[str]) -> dict[str, Any
     for k in ("special", "meeting_time"):
         if basic.get(k):
             out[k] = basic[k]
+    for k, where in (("reception_talk", "受付の方への言葉"), ("meeting_visit", "アポで訪問する")):
+        if basic.get(k):
+            got = _label(k, basic[k], f"シート「基本」の{where}", problems)
+            if got is not None:
+                out[k] = got
     pains = [[basic.get(f"pain{i}") or "", basic.get(f"case{i}") or ""] for i in range(1, business_settings.PAINS_MAX + 1)
              if basic.get(f"pain{i}") or basic.get(f"case{i}")]
     if pains:

@@ -20,9 +20,12 @@ PC → サーバー：
 サーバー → PC：
   welcome {tenant, pc, lines}                      通った（lines＝その契約者の、使っている回線だけ）
   refuse {why, relogin, update}                    断った（relogin＝ログインし直す・update＝更新が要る）。サーバーは切る
-  request {id, op: in_call|start_call|hang_up|apologize|test_ring, line, phone?, voice?}   apologize＝おわびの録音を流して切る（サーバーの
+  request {id, op: in_call|start_call|hang_up|apologize|test_ring, line, phone?, national?, voice?}   apologize＝おわびの録音を流して切る（サーバーの
                                                    側の誤りで通話を続けられないとき・その電話に甚大な問題があるとき。お客様を無言で放置しない）。
                                                    voice＝start_call の通話で話す声の型（門が決めたもの。おわびの録音も、この声の型で流す）。
+                                                   phone＝かける番号（E.164）・national＝同じ番号の国内の形（start_call・test_ring。作るのは
+                                                   サーバーの番号の正規化の1か所＝core/phone。PC の部品は番号の形を変えない。無ければかけない
+                                                   ＝error withheld。CL-3 の連絡帳 60）。
                                                    test_ring＝テスト番号（phone）へかけ、鳴ったら出る前に切る（答えの value：true＝回線から発信
                                                    できた＝呼び出しの音・話し中の音・電源オフや圏外のお知らせの声が返った・false＝回線から発信
                                                    できない＝アプリが発信できない・呼び出しもお知らせも無いまま終わった・null＝見分けられない。
@@ -47,10 +50,11 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-VERSION = 6                  # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected。
+VERSION = 7                  # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected。
                              # 4＝number_rejected をやめ not_placed の1つに（だれのせいかは証拠で決める＝0129）・期限切れは withheld。
                              # 5＝テスト番号に鳴るか試す test_ring＝0134。6＝test_ring の答えの意味：true＝回線から発信できた（話し中・
-                             # 電源オフ・圏外のお知らせも）・null＝見分けられない・試さなかったときは error withheld＝0141・0143）
+                             # 電源オフ・圏外のお知らせも）・null＝見分けられない・試さなかったときは error withheld＝0141・0143）。
+                             # 7＝start_call・test_ring に番号の国内の形 national（無ければ PC はかけない＝withheld。CL-3 の連絡帳 60）
 BEAT_EVERY = 15              # 動いている合図の間隔（秒）
 REPLY_WAIT = 20              # 頼んだことの答えを待つ長さ（秒。過ぎたら「分からない」＝かけない側）
 APOLOGY_WAIT = 60            # 「おわびして切って」の答えを待つ長さ（秒）。おわびは2つの録音とお客様の返事の待ちで REPLY_WAIT を超えうる。

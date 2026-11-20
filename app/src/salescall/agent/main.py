@@ -310,17 +310,19 @@ class Agent:
     async def _do(self, phone: Phone, msg: dict[str, Any], got: float) -> dict[str, Any] | None:
         """頼まれたことをする（got＝頼みが届いた時刻）。None＝答えない（かけているあいだにつながりが切れ、自分でおわびして切った）。"""
         op, loop = msg["op"], asyncio.get_running_loop()
+        # かける番号の国内の形（サーバーの番号の正規化の1か所が添える。PC の部品は番号の形を変えない＝見張り Q1。無ければかけない＝withheld。CL-3 の連絡帳 60）
+        national = msg.get("national") if isinstance(msg.get("national"), str) and msg.get("national") else None
         if op == "in_call":   # 緊急停止の印があれば「通話中」（かけない側）
             return {"ok": True, "value": emergency.engaged() is not None or await loop.run_in_executor(None, _busy, phone)}
         if op == "start_call":
             if emergency.engaged() is not None:   # かける直前にもう一度見る（印があれば、かけない）
                 return {"ok": False, "error": "withheld"}
-            if time.monotonic() - got > p.ANSWER_BY:   # 前の頼みを待つうちに、答えの期限を過ぎた：かけようとしない（番号も回線も
-                return {"ok": False, "error": "withheld"}   # 試していない＝どの数にも入れない）
+            if time.monotonic() - got > p.ANSWER_BY or national is None:   # 前の頼みを待つうちに、答えの期限を過ぎた・国内の形が無い：かけようとしない
+                return {"ok": False, "error": "withheld"}   # （番号も回線も試していない＝どの数にも入れない）
             generation = self.generation
             try:
                 voice = msg.get("voice") if isinstance(msg.get("voice"), str) else None   # この通話の声の型（おわびの録音も、この声）
-                await loop.run_in_executor(None, lambda: phone.start_call(str(msg.get("phone")), voice_type=voice))
+                await loop.run_in_executor(None, lambda: phone.start_call(str(msg.get("phone")), voice_type=voice, national=national))
                 out: dict[str, Any] = {"ok": True}
             except CallNotPlaced:    # かけようとして、かけられなかった（だれのせいかは、サーバーが同じ回線の前後の電話で決める）
                 return {"ok": False, "error": "not_placed"}
@@ -333,11 +335,11 @@ class Agent:
                 return None if self.generation != generation else {"ok": False, "error": "failed"}
             return out
         if op == "test_ring":   # テスト番号へ鳴るか試す（緊急停止の印がある・話している途中・答えの期限を過ぎたら試さない＝withheld。0143）
-            if (emergency.engaged() is not None or time.monotonic() - got > p.ANSWER_BY
+            if (emergency.engaged() is not None or time.monotonic() - got > p.ANSWER_BY or national is None
                     or await loop.run_in_executor(None, _busy, phone)):
                 return {"ok": False, "error": "withheld"}
             try:
-                rang = await loop.run_in_executor(None, lambda: phone.test_ring(str(msg.get("phone"))))
+                rang = await loop.run_in_executor(None, lambda: phone.test_ring(str(msg.get("phone")), national=national))
             except Exception:  # noqa: BLE001 電話の部品の誤り：見分けられない
                 rang = None
             if time.monotonic() - got > p.ANSWER_BY:   # 答えの期限を過ぎた：サーバーはもう待っていない（答えは届かない＝試さなかった扱い）

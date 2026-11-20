@@ -298,6 +298,11 @@ class ForbiddenFinding:
     said: str                 # AI が実際に言ったこと（AI の発話だけ。お客様の発話は入れない）
 
 
+# 会話AIの声の数の種類（通話後の検証が、会話AIの声のターンを分けて数える。CL-1 の連絡帳 4-221・データベースの守り 0274。計画書 9-8 の「音声の問題・エラーの率」）：
+# silent＝黙り（声が出なかった・決めた秒数のうちに終わらなかった）／cut_off＝声の途切れ／words_missing＝言葉の抜け／too_long＝同じ文の2回／wrong_language＝英語
+VOICE_KINDS = ("silent", "cut_off", "words_missing", "too_long", "wrong_language")
+
+
 @dataclass(frozen=True)
 class VerificationSummary:
     """通話後の検証の結果の数（品質の段の指標になる。DESIGN.md 10-1）。"""
@@ -306,12 +311,22 @@ class VerificationSummary:
     forbidden_speech: int     # 言ってはいけないこと（2つの耳で確かめたもの）の数
     findings: tuple[ForbiddenFinding, ...] = ()   # その中身（数と同じだけ。お詫びの電話の文面を作るのに使う）
     recording_missing: bool = False  # 録音が届かないまま待つ時間を過ぎ、確かめずに済ませた（`finish_without_recording` だけが付ける）
+    # 会話AIの声の数（{種類: (確かめたターンの数, 見つかったターンの数)}。種類は `VOICE_KINDS` のすべて）。None＝数えていない（検証の部品が数えるようになる前・
+    # 録音なしで済ませた確かめ）＝指標は「まだ数えていない」（0 と言わない＝原則10。CL-1 の連絡帳 4-221）
+    ai_voice: dict[str, tuple[int, int]] | None = None
 
     def __post_init__(self) -> None:
         if len(self.findings) != self.forbidden_speech:
             raise ValueError("言ってはいけないことの数と、その中身（findings）の数が合いません")
-        if self.recording_missing and (self.items_checked or self.items_disagreed or self.forbidden_speech):
+        if self.recording_missing and (self.items_checked or self.items_disagreed or self.forbidden_speech or self.ai_voice is not None):
             raise ValueError("録音なしで済ませた確かめは、確かめた数を持ちません")
+        if self.ai_voice is not None:
+            if set(self.ai_voice) != set(VOICE_KINDS):
+                raise ValueError(f"会話AIの声の数は、{'・'.join(VOICE_KINDS)} のすべてを渡します")
+            for kind, pair in self.ai_voice.items():
+                if (not isinstance(pair, tuple) or len(pair) != 2 or not all(isinstance(n, int) and not isinstance(n, bool) for n in pair)
+                        or not 0 <= pair[1] <= pair[0]):
+                    raise ValueError(f"会話AIの声の数（{kind}）は、(確かめたターンの数, 見つかったターンの数) で、見つかった数は確かめた数まで です")
 
 
 def record_verification(tx: Tx, attempt_id: UUID, *, summary: VerificationSummary) -> None:
@@ -334,6 +349,10 @@ def record_verification(tx: Tx, attempt_id: UUID, *, summary: VerificationSummar
         " forbidden_speech, recording_missing) SELECT tenant_id, client_id, attempt_id, %s, %s, %s, %s FROM salescall.attempts"
         " WHERE attempt_id = %s",
         (summary.items_checked, summary.items_disagreed, summary.forbidden_speech, summary.recording_missing, attempt_id))
+    for kind, (checked, found) in (summary.ai_voice or {}).items():
+        tx.execute("INSERT INTO salescall.verification_voice (tenant_id, client_id, attempt_id, kind, checked, found)"
+                   " SELECT tenant_id, client_id, attempt_id, %s, %s, %s FROM salescall.attempts WHERE attempt_id = %s",
+                   (kind, checked, found, attempt_id))
     if summary.findings:
         version = tx.one("SELECT version_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["version_id"]
         known = business_rules.load(tx, version).forbidden
