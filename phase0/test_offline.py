@@ -43241,10 +43241,11 @@ class LadderFreeTest(unittest.TestCase):
         f, _ = self.d.first()
         self.d.answer(f, "平日でお願いします。", "平日")
         r = self.neither(f)
-        # 金曜日・火曜日を外した次の近い平日2つ（祝日の月曜日は並べない・6日先を越えてよい）
-        self.assertEqual((r["result"], self.d.heard(r)), ("ask_back", "承知しました。それでは" + self.d.pair("水曜日", "木曜日")))
+        # 金曜日・火曜日を外した次の近い平日2つ（祝日の月曜日は並べない・6日先を越えてよい）。7日より先の日（11-26）があるので、2つとも週と日の言葉を付ける
+        # （分身 V＝VLadderFarDaysTest。⛔ 090edbfa まで「水曜日と木曜日」「金曜日と月曜日」＝お客様はいちばん近いその曜日と受け取る）
+        self.assertEqual((r["result"], self.d.heard(r)), ("ask_back", "承知しました。それでは" + self.d.pair("来週の水曜日", "来週の木曜日")))
         r = self.neither(f)
-        self.assertTrue(self.d.heard(r).endswith(self.d.pair("金曜日", "月曜日")), self.d.heard(r))   # 次の週（11-27 金・11-30 月）
+        self.assertTrue(self.d.heard(r).endswith(self.d.pair("来週の金曜日", "30日の月曜日")), self.d.heard(r))   # 次の週（11-27 金）・それより先（11-30 月）
         r = self.d.answer(f, "月曜日で。", "月曜日")
         self.assertTrue(self.d.heard(r).endswith(self.d.HALF), self.d.heard(r))
         r = self.d.answer(f, "午後がいいですね。", "午後")
@@ -43743,7 +43744,8 @@ class PLadderPointTest(unittest.TestCase):
     def test_neither_still_lists_two_others(self):
         f = self.asked()
         r = LadderFreeTest().neither(f, "火曜日も金曜日もちょっと難しいですね。")
-        self.assertEqual(heard_words(r), "承知しました。それでは" + DateTimePairsTest.pair("水曜日", "木曜日"))
+        # 11-26 は電話の日（木曜日）の7日先＝2つとも週と日の言葉を付ける（分身 V＝VLadderFarDaysTest。⛔ 090edbfa まで「水曜日と木曜日」）
+        self.assertEqual(heard_words(r), "承知しました。それでは" + DateTimePairsTest.pair("来週の水曜日", "来週の木曜日"))
 
 
 class PBriefWordsTest(unittest.TestCase):
@@ -44655,3 +44657,224 @@ class U1ReceptionHurryTest(unittest.TestCase):
         g.use_checks("judge")
         r = _u1_turn(g, "申し訳ございません、今ちょっとバタバタしておりまして。", EndJudgedTest.R(UNDECIDED, END_HURRY))
         self.assertEqual(heard_words(r), self.H1)
+
+
+class VLadderFarDaysTest(unittest.TestCase):
+    """日時の2択で、電話の日から7日より先の日を並べるとき（分身 V。CL-1 が書いてあることに当てて決めた＝11-19 日本時間14時18分13秒「○曜日と○曜日ではどちらが
+    よろしいでしょうか？」・11-03 のご承認の日の言い方の1か所 flowctl.day_words（同じ週＝今週の〇曜日・次の週＝来週の〇曜日・それより先は同じ月なら〇日・違う月なら
+    〇月〇日。週は月曜日から）・10-24 の言い直し・本書 1-3＝取り消せない害）：
+    (1) 並べる2つがどちらも電話の日の1〜6日先なら、今のまま曜日だけ（曜日だけで、いちばん近いその日に1つに決まる）
+    (2) どちらかが7日以上先なら、2つとも day_words と同じ週と日の言葉を付ける（次の週＝「来週の〇曜日」・それより先＝「〇日の〇曜日」・違う月＝「〇月〇日の〇曜日」。片方だけに
+        付けない）。週と日の言葉を決めるのは day_words と同じ1か所（flowctl.week_or_date）・候補の言い方は ladder_label の1か所（質問の文・判定の選べるもの「（避けた方）だけ
+        合わない」・言い直し・通話の事実の値）
+    (3) 日時の2択の段のお答えの日の言葉（曜日だけ・日付）は、まずいま並べた2つ（段の候補の1か所 ladder_step）に当てる。当たらなければ今の読み（_ladder_date）
+    ⛔ 090edbfa まで、2つとも合わないを2回言われたあとの「金曜日と月曜日では…」（11-27・11-30）に、お客様はいちばん近い金曜日・月曜日（11-20・11-23）と受け取り、読む所も
+    「月曜日で。」を 11-23（祝日）と読んだ（分身 U2 の書き置き 9 の (1)）。場面は DateTimePairsTest と同じ（電話の日 2026-11-19 木曜日 10時・11-23 は祝日）。"""
+    d = DateTimePairsTest()
+    L = LadderFreeTest()
+
+    def weekday(self, days=None):
+        """平日を選ばれ、曜日の2択（「金曜日と火曜日ではどちらがよろしいでしょうか？」）を伺ったところ（days＝電話をかけられる日を替えるとき）。"""
+        f, _ = self.d.first()
+        if days is not None:
+            f.call_days = days
+        r = self.d.answer(f, "平日でお願いします。", "平日")
+        self.assertTrue(self.d.heard(r).endswith(self.d.pair("金曜日", "火曜日")), self.d.heard(r))   # (1) 1〜6日先だけの2択は今のまま
+        return f
+
+    def far(self, days=None):
+        """2つとも合わないを2回言われたあとの2択（11-27・11-30）を伺ったところ。"""
+        f = self.weekday(days)
+        self.L.neither(f)
+        self.L.neither(f)
+        return f
+
+    @staticmethod
+    def month_days():
+        import datetime as dt
+        today = dt.date(2026, 11, 19)
+        return tuple(today + dt.timedelta(days=i) for i in range(1, 21) if today + dt.timedelta(days=i) != dt.date(2026, 11, 23))
+
+    def test_far_pairs_say_the_week_or_the_date(self):
+        from flowctl import ladder_side_name, ladder_sides
+        f = self.weekday()
+        r = self.L.neither(f)   # 11-25（6日先）・11-26（7日先＝今日と同じ曜日）
+        self.assertEqual(self.d.heard(r), "承知しました。それでは" + self.d.pair("来週の水曜日", "来週の木曜日"))
+        r = self.L.neither(f)   # 11-27（次の週）・11-30（それより先・同じ月）
+        self.assertEqual(self.d.heard(r), "かしこまりました。それでは" + self.d.pair("来週の金曜日", "30日の月曜日"))
+        # 判定に見せる質問の文・片方だけ合わないの選べるもの（同じ言い方の1か所）
+        q = f.judge_context()[0]
+        self.assertTrue(q.text.endswith(self.d.pair("来週の金曜日", "30日の月曜日")), q.text)
+        self.assertEqual(ladder_sides(q), (ladder_side_name("来週の金曜日"), ladder_side_name("30日の月曜日")))
+
+    def test_the_answer_reads_the_listed_day(self):
+        import datetime as dt
+        from flowctl import CALLBACK_IDS
+        c1 = CALLBACK_IDS["time"]
+        for words, value, date, day in (("月曜日で。", "月曜日", dt.date(2026, 11, 30), "30日の月曜日"),
+                                        ("金曜日でお願いします。", "金曜日", dt.date(2026, 11, 27), "来週の金曜日"),
+                                        ("来週の金曜日で。", "来週の金曜日", dt.date(2026, 11, 27), "来週の金曜日"),
+                                        ("30日でお願いします。", "30日", dt.date(2026, 11, 30), "30日の月曜日"),
+                                        ("30日の月曜日で。", "30日の月曜日", dt.date(2026, 11, 30), "30日の月曜日")):
+            f = self.far()
+            r = self.d.answer(f, words, value)
+            it = f.items[c1]
+            self.assertEqual((it.ladder.get("date"), it.ladder.get("day")), (date, day), words)
+            self.assertEqual(self.d.asked(r), self.d.HALF, words)
+        # 7日より先の日を並べた2択で決まった日の言葉は、並べた言い方（言い直し・通話の事実の値も同じ1か所）。並べた2つに当たらないお答えだけ、今の読み
+        # （「火曜日」＝いちばん近い火曜日・「来週の月曜日」＝お客様が週を言った）
+        for words, value, date in (("火曜日で。", "火曜日", dt.date(2026, 11, 24)), ("来週の月曜日で。", "来週の月曜日", dt.date(2026, 11, 23))):
+            f = self.far()
+            self.d.answer(f, words, value)
+            self.assertEqual(f.items[c1].ladder.get("date"), date, words)
+
+    def test_the_same_weekday_a_week_ahead(self):
+        import datetime as dt
+        from flowctl import CALLBACK_IDS
+        f = self.weekday()
+        r = self.L.neither(f)   # 11-26＝電話の日（木曜日）の7日先：読む所は今日と同じ曜日だけの言葉を「来週の木曜日」と読む＝並べる言い方も同じ
+        self.assertTrue(self.d.heard(r).endswith(self.d.pair("来週の水曜日", "来週の木曜日")), self.d.heard(r))
+        r = self.d.answer(f, "木曜日で。", "木曜日")
+        self.assertEqual((f.items[CALLBACK_IDS["time"]].ladder.get("date"), f.items[CALLBACK_IDS["time"]].ladder.get("day")),
+                         (dt.date(2026, 11, 26), "来週の木曜日"))
+        self.assertEqual(self.d.asked(r), self.d.HALF)
+
+    def test_across_the_month(self):
+        import datetime as dt
+        from flowctl import CALLBACK_IDS
+        c1 = CALLBACK_IDS["time"]
+        f = self.far(self.month_days())
+        r = self.L.neither(f)   # 12-01・12-02（違う月）
+        self.assertTrue(self.d.heard(r).endswith("それでは" + self.d.pair("12月1日の火曜日", "12月2日の水曜日")), self.d.heard(r))
+        for words, value in (("1日で。", "1日"), ("火曜日で。", "火曜日"), ("12月1日で。", "12月1日")):
+            g = self.far(self.month_days())
+            self.L.neither(g)
+            self.d.answer(g, words, value)
+            self.assertEqual((g.items[c1].ladder.get("date"), g.items[c1].ladder.get("day")), (dt.date(2026, 12, 1), "12月1日の火曜日"), words)
+
+    def test_one_side_uses_the_same_words(self):
+        # 片方だけ合わない（伺い94）も同じ言い方の1か所：ウ＝避けた方だけを外した2つ・エ＝「それでは（避けなかった方）でしたら」
+        import datetime as dt
+        from flowctl import CALLBACK_IDS, LADDER_OTHER_OK as OK, LADDER_OTHER_UNSURE as U
+        side = U2LadderOneSideTest.side
+        f = self.far(self.month_days())
+        r = side(f, "30日はちょっと…。", "30日の月曜日", (U, U))
+        self.assertTrue(self.d.heard(r).endswith("それでは" + self.d.pair("来週の金曜日", "12月1日の火曜日")), self.d.heard(r))
+        g = self.far(self.month_days())
+        r = side(g, "金曜日はちょっと…。月曜日なら空いてます。", "来週の金曜日", (OK, OK))
+        self.assertTrue(self.d.heard(r).endswith("それでは30日の月曜日でしたら午前と午後のどちらがよろしいでしょうか？"), self.d.heard(r))
+        self.assertEqual(g.items[CALLBACK_IDS["time"]].ladder.get("date"), dt.date(2026, 11, 30))
+
+    def test_restated_with_the_listed_words(self):
+        # 決まった日の言い直し・通話の事実の値（ladder_value）・24時間の値の日（clock24）が同じ日
+        import datetime as dt
+        from flowctl import CALLBACK_IDS, clock24
+        c1 = CALLBACK_IDS["time"]
+        f = self.far()
+        self.d.answer(f, "月曜日で。", "月曜日")
+        self.d.answer(f, "午後がいいですね。", "午後")
+        r = self.d.answer(f, "4時で。", "4時")
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertTrue(self.d.heard(r).endswith("30日の月曜日の16時、午後4時でよろしいでしょうか？"), self.d.heard(r))
+        self.assertEqual(f.items[c1].value, "30日の月曜日の午後4時")
+        self.assertEqual(clock24(f.items[c1].value, dt.date(2026, 11, 19)), {"date": "2026-11-30", "times": ["16:00"]})
+
+    def test_a_single_far_day_is_restated_with_its_week(self):
+        # 候補が1つだけの段（伺わずに入れる＝_ladder_set）も同じ言い方：避けた金曜日（11-20）と同じ「金曜日」で 11-27 を言い直さない
+        import datetime as dt
+        from flowctl import CALLBACK_IDS, JUDGMENTS, LATER
+        t = CallbackTimeAheadTest()
+        f = self.d.dated(t.flow())
+        f.call_free = (("2026-11-20", "13:00", "17:00"), ("2026-11-24", "13:00", "17:00"), ("2026-11-27", "13:00", "17:00"))
+        f.on_callee(); f.on_heard("あとでかけ直してもらえますか。")
+        for k in JUDGMENTS:
+            f.on_check(k, t.rd(LATER))
+        f.on_decided()
+        f.apply("request_callback", {"why": "later"})
+        r = CallbackTimeAheadTest.time_asked(f)
+        self.assertTrue(self.d.heard(r).endswith(self.d.pair("金曜日", "火曜日")), self.d.heard(r))
+        self.L.neither(f)
+        self.assertEqual(f.items[CALLBACK_IDS["time"]].ladder.get("date"), dt.date(2026, 11, 27))
+        r = self.d.answer(f, "4時で。", "4時")
+        self.assertTrue(self.d.heard(r).endswith("来週の金曜日の16時、午後4時でよろしいでしょうか？"), self.d.heard(r))
+
+    def test_the_date_wins_over_the_weekday(self):
+        # 値の文字に日付と曜日の両方があれば日付（ladder_label の「27日の金曜日」を、24時間の値・夜中の日付も同じ日に読む）
+        import datetime as dt
+        from flowctl import clock24, ladder_read, night_dated
+        today = dt.date(2026, 11, 19)
+        self.assertEqual(clock24("27日の金曜日の午後4時", today), {"date": "2026-11-27", "times": ["16:00"]})
+        self.assertEqual(clock24("12月1日の火曜日の午後4時", today), {"date": "2026-12-01", "times": ["16:00"]})
+        self.assertEqual(night_dated("30日の月曜日の夜1時", today), "12月1日の午前1時")
+        self.assertEqual(ladder_read("27日の金曜日で", {}, today)["date"], dt.date(2026, 11, 27))
+        # 並べた2つに当てる読み（ladder_read の pair）：曜日だけ・日付は並べた日・並べた日に無ければ今の読み
+        pair = (dt.date(2026, 11, 27), dt.date(2026, 11, 30))
+        s = ladder_read("月曜日で。", {"kind": "平日"}, today, pair)
+        self.assertEqual((s["date"], s["day"]), (dt.date(2026, 11, 30), "30日の月曜日"))
+        self.assertEqual(ladder_read("火曜日で。", {"kind": "平日"}, today, pair)["date"], dt.date(2026, 11, 24))
+
+    def test_week_words_are_the_day_words_place(self):
+        # 週と日の言葉は day_words と同じ1か所（week_or_date）：2択の言い方（(2) の形）と最短の日の言い方が、同じ日に同じ週・日の言葉を言う
+        import datetime as dt
+        from flowctl import WEEKDAY_WORDS, day_words, ladder_label, week_or_date
+        for today in (dt.date(2026, 11, 16) + dt.timedelta(days=i) for i in range(7)):
+            for n in range(3, 30):
+                d = today + dt.timedelta(days=n)
+                w = week_or_date(d, today)
+                label = ladder_label("day", d, {}, (d, today + dt.timedelta(days=7)), today)
+                self.assertEqual(label, f"{w}の{WEEKDAY_WORDS[d.weekday()]}曜日", (today, d))
+                words = day_words(d, today)
+                self.assertTrue(words in (f"{w}以降", f"{w}の{WEEKDAY_WORDS[d.weekday()]}曜日以降") or (w, d.weekday(), words) == ("来週", 0, "来週以降"),
+                                (today, d, w, words))
+        # 1〜6日先だけの2択は曜日だけ（電話の日が分からなければ、今のまま曜日だけ）
+        today = dt.date(2026, 11, 19)
+        self.assertEqual(ladder_label("day", dt.date(2026, 11, 20), {}, (dt.date(2026, 11, 20), dt.date(2026, 11, 24)), today), "金曜日")
+        self.assertEqual(ladder_label("day", dt.date(2026, 11, 27), {}), "金曜日")
+
+    @staticmethod
+    def cl2_spoken_time():
+        """CL-2 の時刻の読み（app/src/salescall/core/spoken_time.py）を読み込む（FlowWatch._load_reader と同じ形。読み込んだ部品は sys.modules から外す）。無ければ None。"""
+        import importlib
+        import pathlib
+        import sys
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src"
+        if not (src / "salescall" / "core" / "spoken_time.py").is_file():
+            return None
+        saved_path, saved_mods = list(sys.path), {k: v for k, v in sys.modules.items() if k == "salescall" or k.startswith("salescall.")}
+        sys.path.insert(0, str(src))
+        try:
+            return importlib.import_module("salescall.core.spoken_time")
+        finally:
+            sys.path[:] = saved_path
+            for k in [k for k in sys.modules if k == "salescall" or k.startswith("salescall.")]:
+                del sys.modules[k]
+            sys.modules.update(saved_mods)
+
+    def test_cl2_reads_the_same_day(self):
+        # 通話の事実の値（ladder_value の「来週の金曜日の午後4時」「27日の金曜日の午後4時」「12月1日の火曜日の午後4時」）を、CL-2 の時刻の読み（spoken_time.read）が、
+        # こちらの日（並べた候補・24時間の値 clock24 の日）と同じ日に読むか。CL-2 の部品（app/）が無い所では飛ばす。
+        # CL-2 がまだ同じ日に読まない形（いまは確かめが要る言葉＝CONFIRM）：日曜日の電話の「来週の〇曜日」・「今週の日曜日」「来週の日曜日」（CL-2 の読みは、週の始まり（月曜・日曜）で日が
+        # 変わるので確かめる。こちらの今週・来週は day_words と同じ月曜日から＝CL-2 へ知らせた＝rv176/V/notes.md）。CL-2 が読むようになったら落ちる＝外す
+        import datetime as dt
+        from flowctl import clock24, ladder_label, ladder_value
+        st = self.cl2_spoken_time()
+        if st is None:
+            self.skipTest("CL-2 の時刻の読み（app/）がまだ無い")
+        jst = dt.timezone(dt.timedelta(hours=9))
+        periods = {"朝": (0, 36000), "午前": (0, 43200), "午後": (46800, 86400), "夕方": (57600, 64800), "夜": (64800, 72000), "晩": (64800, 72000)}
+        pending = []
+        for today in (*(dt.date(2026, 11, 16) + dt.timedelta(days=i) for i in range(14)), *(dt.date(2026, 12, 21) + dt.timedelta(days=i) for i in range(11))):
+            now = dt.datetime(today.year, today.month, today.day, 10, 0, tzinfo=jst)
+            for n in range(1, 25):
+                d = today + dt.timedelta(days=n)
+                for pair in ((d, today + dt.timedelta(days=7)), (d,)):
+                    label = ladder_label("day", d, {}, pair, today)
+                    value = ladder_value({"day": label, "date": d, "half": "午後", "clock": "4時"})
+                    got = st.read(value, now, business_hours=(9 * 3600, 19 * 3600), limit=(7 * 3600, 22 * 3600), slot=1800, until=None, periods=periods)
+                    self.assertEqual(clock24(value, today), {"date": d.isoformat(), "times": ["16:00"]}, value)
+                    if label.startswith(("今週", "来週")) and 6 in (today.weekday(), d.weekday()):
+                        pending.append(value)
+                        self.assertEqual(got.kind, st.CONFIRM, (today, value))
+                        continue
+                    self.assertEqual((got.kind, got.start), (st.AT, dt.datetime(d.year, d.month, d.day, 16, 0, tzinfo=jst)), (today, value))
+        self.assertTrue(pending)
