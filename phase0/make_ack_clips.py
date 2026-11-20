@@ -344,7 +344,7 @@ HOW["recap"] = ("電話で、前回のお電話でお話しした内容を、お
                 "言葉の途中で区切らずに、なめらかに、ひと続きで")
 MAX_S["recap"] = MAX_S["question_long"]
 MAX_S["moshimoshi"] = 1.5
-# 重ねての申し出へのお礼（phrases.OFFER_THANKS_AGAIN。⏳ 言い方は伺い中＝2026-11-12）：読み方はお礼と同じ。文が長い（51字＝見込み 8.3秒）ので、上限だけ別
+# 重ねての申し出へのお礼（phrases.OFFER_THANKS_AGAIN。言い方は 2026-11-12 のお勧めの形。伺い5 は ✅ 2026-11-13 日本時間20時06分19秒「伺い5はイ」・伺い7 は 22時17分01秒「伺い7はイ」で閉じた＝phrases の説明）：読み方はお礼と同じ。文が長い（51字＝見込み 8.3秒）ので、上限だけ別
 HOW["offer_thanks_again"] = HOW["offer_thanks"]
 MAX_S["offer_thanks_again"] = 9.0
 # 2回目の好意の折り返しの申し出を受ける一言（phrases.OFFER_ACCEPTED＝✅ 2026-11-13 日本時間20時06分19秒「伺い5はイ」）：読み方はお礼と同じ

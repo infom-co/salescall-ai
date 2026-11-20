@@ -41312,6 +41312,36 @@ class WaitLineReplyTest(unittest.TestCase):
         f.on_check("judge", self.rd(reading, prompt, end))
         return q
 
+    def test_the_answer_said_with_hurry_is_taken(self):
+        # 分身 N（束 n11＝分身 B の書き置き (10-1)）：電話を終える言葉（急いでいる）と一緒に言われた答え・待っていただく一言のあとの「待てない」の前のお話の答えは、
+        # 受け取る（本書 9-3「取得済みのことを重ねて聞かない」）。急いでいる方への応じ方（伺い直さずに、かけ直しを伺う一言）は今のまま。受け取る所は答えの報告の
+        # 入口の1か所（電話を終える言葉を先に当てる道の前）。⛔ 3cd6ec5c まで、答えの報告を差し戻し（「Q1 は、いまの質問ではありません。」）・同じ発話の答えは
+        # 受け取らず、ご予約は空のまま（次の電話でまた伺う）
+        from flowctl import CALLBACK_IDS, END_HURRY, PROMPT_REPLY_NO, UNDECIDED
+        from phrases import CALLBACK_ASK
+        for play in (True, False):
+            # (a) 待っていただく一言のあとの「いや、待てないです。急いでるので。」→ かけ直しを伺う → 前のお話「いえ、まだです。」の答えの報告
+            f = self.waited(play)
+            self.replied(f, "いや、待てないです。急いでるので。", UNDECIDED, PROMPT_REPLY_NO, END_HURRY)
+            r = f.on_silence(ours=True)
+            self.assertEqual(f.current, CALLBACK_IDS["hurry"], play)
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+            self.assertNotEqual(r["result"], "rejected", (play, r.get("message")))
+            self.assertEqual((f.items["Q1"].state, f.items["Q1"].condition, f.current), ("accepted", "いいえ", CALLBACK_IDS["hurry"]), play)
+            self.assertEqual(heard_words(r), "", play)   # お客様には何も重ねない（かけ直しの伺いは流した）
+            # (b) 待っていただく一言の無い電話：「いえ、まだです。急いでるので。」（同じ発話の答えと急いでいる）
+            from g22_opening import BUSINESS
+            g = BUSINESS.flow(play_recordings=play)
+            g.use_checks("judge")
+            g.on_connect(); g.on_callee(); g.on_heard("はい、山田です。")
+            g.apply("report_party", {"party": "person"})
+            g.on_callee(); g.on_heard("いえ、まだです。急いでるので。")
+            g.on_check("judge", self.rd("いいえ", PROMPT_REPLY_NO, END_HURRY))
+            g.on_decided()
+            r = g.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+            self.assertEqual((g.items["Q1"].state, g.items["Q1"].condition, g.current), ("accepted", "いいえ", CALLBACK_IDS["hurry"]), play)
+            self.assertIn(CALLBACK_ASK["hurry_again"], heard_words(r) + r.get("message", ""), play)   # 急いでいる方への応じ方は今のまま
+
     def test_the_judge_is_told_the_wait_line(self):
         from flowctl import PROMPT_REPLY, PROMPT_REPLY_YES, UNDECIDED, hearing_check, waiting_line
         from meaning_judge import WAIT_NOTE, answer_items, prompt, prompted_note

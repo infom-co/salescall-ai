@@ -8206,7 +8206,13 @@ class Flow:
             run, run_args, reply = judged
             answered = bool(self._received_now())
         elif name != "request_end" and (due := self._end_due_now()) is not None:
+            self._answer_with_end(name, args)   # 急いでいる言葉と一緒に言われた答えは、終える道の前に受け取る（束 n11）
             reply = self._op_request_end({"reason": due, "judged": True})   # 会話AIの報告より、判定の「電話を終える言葉」を先に当てる（_end_judged）
+        elif self._answer_with_end(name, args, late=True):
+            # 電話を終える言葉（急いでいる）をもう当てた発話（報告の無いターンでかけ直しを伺った）への、遅れて届いた答えの報告：受け取って、かけ直しの伺いはそのまま
+            said = (self.heard_said or "").strip()[:30]
+            reply = {"result": "noted", "silent": True, "again": True,
+                     "message": f"受け付けました（「{said}」の答え。お急ぎのお話を伺う前の言葉）。何も言わずに、{self._now()}"}
         elif name != "request_end" and self._wrong_due():
             # 答えの段で、判定の組がそろって番号違いと読んだ：会話AIがどの操作で報告しても締める（会話AIの終わりの報告は _end_judged が同じ1か所で当てる＝分身 AC）
             reply = self._wrong_party("agreed", by="judge")
@@ -12439,7 +12445,8 @@ class Flow:
         ユーザー「(4) H7」・4時40分35秒「たびたび失礼いたしました。はおかしいですね：「確認の途中でしたのでもう一度お伺いさせていただきますが、ご予約は～」」。
         ⛔ それまでは何回戻っても1回目と同じ文）。戻る所で呼び、流した回数を数える（_continue）。
         asks＝戻った先が、続けて1本にできる問い（質問・言い直し）か：問いでない一言（ご案内の申し出・振り返りの一言）と、名前の録音を組んで流すお呼びするお願い
-        には、文を終えない一言（3回目からの形）をつながない（その手前の一言のまま。⏳ 問いでない一言へ3回目に戻るときの言い方は伺う）。
+        には、文を終えない一言（3回目からの形）をつながない（その手前の一言のまま。問いでない一言へ3回目に戻るときは、その場で戻らずに締めの前へ回す＝戻る1か所 _continue。
+        伺い13 と同じ理由で CL-1 が決めた形＝束 n8）。
         お呼びする段は電話口の方ごとに数える（同じ方にお呼びする一言は2回まで＝_calls_to_speaker）：⛔ 3時台に入れた形は段の全体で数えていたので、取り次がれた
         新しい方に、初めて聞く「それではもう一度確認させていただきますね。」を流しうる形だった
         plain＝お話に応えたあとではない戻り（尋ねられて答えたあと・お話に沿った受け答えで待ったあとの相づちだけのお返事＝_continue の final・soft）も、同じ所への
@@ -15083,6 +15090,31 @@ class Flow:
         if offer != "callback":
             return why
         return self.callback_why or self._recall_why(self._recall_pending()) or why
+
+    def _answer_with_end(self, name: str, args: dict, late: bool = False) -> bool:
+        """電話を終える言葉（急いでいる）と一緒に言われた答え・待っていただく一言のあとの「待てない」（急いでいる）の前のお話（answer_held）の答えを受け取る唯一の場所
+        （答えの報告の入口 _apply_one が、電話を終える言葉を先に当てる道の前と、その道をもう当てた発話への遅れた報告で呼ぶ）。受け取ったら真。受け取るのは：いまの発話の
+        判定の「電話を終える言葉か」が急いでいる（END_HURRY）で、会話AIの答えの報告（record_answer）が、その発話か、待っていただく一言の前のお話の、判定の組がそろって
+        読んだ答えと同じ選択肢（選ぶ・はい／いいえの質問＝言い直して確かめない型。会話AIは判定に加えない）・その質問はまだ答えを受け取っていない。急いでいる方への
+        応じ方（伺い直さずに、かけ直しを伺う一言）は今のまま（受け取っても同じ）。本書 9-3「取得済みのことを重ねて聞かない」を当てた（CL-1 が決めた形＝分身 B の
+        書き置き (10-1)・束 n11）。⛔ 3cd6ec5c まで、答えの報告を差し戻し（いまの質問ではない）・同じ発話の答えは受け取らず、次の電話でまた伺った。
+        late＝その道をもう当てた発話への遅れた報告：急いでいる方への応じ方でいまの質問から離れたとき（報告の質問がいまの質問ではない）だけ。いまの質問への報告は今の道
+        （急いでいる読みでも、こちらがかけ直す申し出の「はい」などは、今の受け方で時刻を伺う＝Review13RecallTest の (B1)）"""
+        if name != "record_answer" or not self.judging or self.awaiting_confirm is not None or self._end_now() != END_HURRY:
+            return False
+        qid, cond = args.get("question_id"), args.get("condition_id")
+        q, it = self.questions.get(qid), self.items.get(qid)
+        if q is None or it is None or it.state in GOT or q.type not in CHOICE_TYPES or cond not in q.conditions or (late and qid == self.current):
+            return False
+        h = self.answer_held
+        story = h is not None and h["qid"] == qid and h["turn"] == self.callee_turns - 1
+        if Flow._meaning_of(h["check"] if story else self.check) != cond:
+            return False
+        it.condition, it.value = cond, args.get("value")
+        it.set("accepted", "電話を終える言葉（急いでいる）と一緒に言われた答え" + ("（待っていただく一言の前のお話）" if story else "") + "：判定の読みで受け取る")
+        if story:
+            self.answer_held = None
+        return True
 
     def _end_due_now(self) -> str | None:
         """会話AIの報告より先に当てる、判定が読んだ電話を終える言葉（終わりの理由）：あとから届いた判定の読み（end_due）か、いまの発話の言葉が
