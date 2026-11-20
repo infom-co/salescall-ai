@@ -23,7 +23,8 @@ SCREEN: dict[str, dict[str, str]] = {
     "hang_up": {"title": "通話を終了", "control_type": "Button"},                     # 通話を終了
     # ショートメール（R-9。2026-11-20 に読んだ＝docs/phone_probe/rakuten_link_screen.md）
     "message_tab": {"title": "メッセージ", "control_type": "Button"},                # 「メッセージ」のタブ
-    "new_message": {"auto_id": "create_new_btn", "control_type": "Button"},         # 新しいメッセージ
+    "new_message": {"auto_id": "create_new_btn", "control_type": "Button"},         # 新しいメッセージ（＋）
+    "new_message_item": {"auto_id": "new_message_btn", "control_type": "Button"},   # ＋のポップアップの「メッセージ」（「グループ」は new_group_message_btn）
     "to_box": {"auto_id_re": r"^mat-chip-list-input-\d+$", "control_type": "Edit"},  # 宛先の欄（Id の数は変わりうる）
     "to_chips": {"title": "Contact selection", "control_type": "List"},            # 入った宛先の一覧
     "sms_note": {"auto_id": "message_sms_learn_more_btn", "control_type": "Hyperlink"},   # ショートメールで送られる知らせ
@@ -233,10 +234,17 @@ class UiaScreen:
             self._press(part)
             time.sleep(0.5)
         # 「＋」（新しいメッセージ）を押すと「メッセージ」「グループ」のメニューが出るので、メニューの中の「メッセージ」を選ぶ
-        # （左の「メッセージ」のタブと同じ名前なので、＋を押したあとに新しく出た部品だけから選ぶ。2026-11-20 管理者が教えてくれた）
+        # （部品の名前 new_message_btn で選ぶ＝左のタブと取り違えない。2026-11-20 管理者が教えてくれ、ポップアップを読んで確かめた）
         # ポップアップの項目は、そのまま押す形（Invoke）では反応しなかった（2026-11-20）。マウスで押す → そのまま押す → Enter の順に試し、
         # 宛先の欄が出たかで確かめる
-        choice = self._menu_choice(main, "メッセージ")
+        choice = None
+        for _ in range(20):
+            choice = self._part(main, "new_message_item")
+            if choice is not None:
+                break
+            time.sleep(0.1)
+        if choice is None:
+            raise RuntimeError("＋のポップアップの「メッセージ」が見つからない")
         box = None
         for press in (lambda: choice.click_input(), lambda: choice.invoke(), lambda: (choice.set_focus(), choice.type_keys("{ENTER}"))):
             try:
@@ -267,25 +275,6 @@ class UiaScreen:
         if send is None:
             raise RuntimeError("送信のボタンが見つからない")
         self._press(send)
-
-    def _menu_choice(self, main: Any, name: str) -> Any:
-        """「＋」を押したあとに出たメニューの中から、name の項目を選ぶ。左のタブ（rktn-route-list の中）は選ばない。
-        メニューは、いつもの窓の中か、別の小さな窓に出る。"""
-        tab = self._part(main, "message_tab")
-        tab_id = tab.element_info.runtime_id if tab is not None else None
-        for _ in range(20):
-            places = [main] + [w for w in self._desktop.windows() if (w.element_info.class_name or "").startswith("Chrome_WidgetWin")]
-            for place in places:
-                for kind in ("MenuItem", "ListItem", "Button"):
-                    try:
-                        found = place.descendants(control_type=kind, title=name)
-                    except Exception:
-                        found = []
-                    for c in found:
-                        if c.element_info.runtime_id != tab_id:
-                            return c
-            time.sleep(0.1)
-        raise RuntimeError(f"＋のメニューの「{name}」が見つからない")
 
     @staticmethod
     def _paste_focused(text: str) -> None:
