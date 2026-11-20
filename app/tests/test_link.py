@@ -62,6 +62,15 @@ class FakePhone:
         self.send_audio = self.send_event = None
         self.ring, self.rings = None, []   # テスト番号の答え（True・False・None）と、試した番号
         self.nationals = []                # 届いた番号の国内の形（かけた番号・試した番号の順）
+        self.ok, self.texts = True, []     # 使えるか（スマホと連携している）・送ったショートメール（国内の形・文）
+
+    def usable(self):
+        return self.ok
+
+    def send_sms(self, phone, text, *, national):
+        if self.fail:
+            raise self.fail
+        self.texts.append((national, text))
 
     def in_call(self):
         return self.busy
@@ -422,7 +431,51 @@ class CallingState(LinkBase):
         self.assertEqual((phone.calls, phone.rings), ([], []))
         driver.start_call("+81300000001")
         self.assertEqual((phone.calls, phone.nationals), (["+81300000001"], ["0300000001"]))
-        self.assertEqual(protocol.VERSION, 7)   # 国内の形を渡す形の版（前の版の PC の部品は、つなぐと更新を求められる）
+        self.assertGreaterEqual(protocol.VERSION, 7)   # 国内の形を渡す形の版から（前の版の PC の部品は、つなぐと更新を求められる）
+
+
+    def test_a_short_message_is_sent_from_the_line_and_withheld_during_a_call(self):
+        """ショートメール（CL-3 の連絡帳 62 の (1)）：その回線のスマホから、宛先の国内の形と文を電話の部品へ渡す。通話の途中は送らない（画面の操作で通話を
+        乱さない＝withheld）。送れなかったと確かに言える＝CallNotPlaced・送れたか分からない＝RuntimeError（知らせを送る部品は、どれも次の送り方へ）。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver.send_sms("+819000000001", "架空の知らせ")
+        self.assertEqual(phone.texts, [("09000000001", "架空の知らせ")])
+        phone.busy = True
+        with self.assertRaises(CallWithheld):
+            driver.send_sms("+819000000001", "架空の知らせ")
+        phone.busy = False
+        with self.assertRaises(CallWithheld):                                  # 文が無い：送らない
+            driver.send_sms("+819000000001", " ")
+        phone.fail = CallNotPlaced("試験：宛先がスマホの連絡先にありません")
+        with self.assertRaises(CallNotPlaced):
+            driver.send_sms("+819000000001", "架空の知らせ")
+        phone.fail = RuntimeError("試験：送れたか分からない")
+        with self.assertRaises(RuntimeError):
+            driver.send_sms("+819000000001", "架空の知らせ")
+        self.assertEqual(len(phone.texts), 1)
+        self.assertEqual(protocol.VERSION, 8)
+
+    def test_a_line_the_phone_cannot_use_is_left_out_of_the_beat_and_comes_back(self):
+        """電話の部品が「使えない」と答えた回線は、合図の lines から外れ、サーバーはその回線を見せない（かけない）。使えるに戻れば、すぐ戻る
+        （CL-3 の連絡帳 62 の (2)）。答えられない電話の部品は、使えないとみなす。通話の途中の回線は外さない（お客様を無言で放置しない）。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        until(lambda: s["line"] in self.hub.lines(), "使える回線は見せる")
+        phone.ok, phone.busy = False, True
+        time.sleep(2.5)
+        self.assertIn(s["line"], self.hub.lines())                            # 通話の途中は外さない（声・おわびを通す）
+        phone.busy = False
+        until(lambda: s["line"] not in self.hub.lines(), "使えない回線は、すぐ外す")
+        phone.ok = True
+        until(lambda: s["line"] in self.hub.lines(), "使えるに戻れば、すぐ戻る")
+        phone.usable = lambda: (_ for _ in ()).throw(RuntimeError("試験：答えない"))
+        until(lambda: s["line"] not in self.hub.lines(), "答えられない回線は外す")
 
 
 class Refusals(LinkBase):

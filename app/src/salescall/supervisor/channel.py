@@ -589,6 +589,23 @@ class AgentDriver:
         value = got.get("value")
         return value if isinstance(value, bool) else None
 
+    def send_sms(self, phone_e164: str, text: str) -> None:
+        """その回線のスマホからショートメールを送る（知らせを送る部品＝CL-3 の output/notices が呼ぶ。CL-3 の連絡帳 62 の (1)）。送れたら返る。送らなかった＝
+        CallWithheld・送れなかったと確かに言える＝CallNotPlaced・送れたか分からない＝RuntimeError（どれも、知らせを送る部品は「送れなかった」として次の送り方へ）。
+        通話ではないので、通話の動きには数えない（live=False）。"""
+        national = _national(phone_e164)
+        try:
+            session = self._session()
+        except ConnectionError:
+            raise CallWithheld("PC の部品がつながっていません") from None
+        got = self.hub.ask(session, "request", live=False, op="send_sms", line=self.line_id, phone=phone_e164, national=national, text=text)
+        if got.get("ok"):
+            return
+        if got.get("error") in NOT_PLACED:
+            kind, why = NOT_PLACED[got["error"]]
+            raise kind(why)
+        raise RuntimeError("電話の部品が、ショートメールを送れたか分からない誤りを返しました")
+
     def send_audio(self, audio: bytes) -> None:
         """AI の声・録音を、通話へ流す（PC の部品が電話の部品の play へ渡す。待たずに返す）。"""
         session, loop = self._session(), self.hub.loop

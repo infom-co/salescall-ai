@@ -1140,7 +1140,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WHERE a.pc_id = p_pc AND a.revoked_at IS NULL RETURNING a.lines INTO kept; RETURN kept; END $$",
      ("tests.test_agents.Passes.test_a_beat_keeps_only_the_tenants_lines_in_use",)),
     ("通話の途中で使わない印を付けた回線を、合図がすぐ外す（0109：声もおわびも通らず、お客様を無言で放置する）",
-     _edited("0109_review_1022.sql", "CREATE OR REPLACE FUNCTION salescall.agent_beat(",
+     _edited("0276_line_seen.sql", "CREATE OR REPLACE FUNCTION salescall.agent_beat(",
              "OR EXISTS (SELECT 1 FROM salescall.attempts t", "AND EXISTS (SELECT 1 FROM salescall.attempts t"),
      ("tests.test_link.LostConnection.test_a_line_retired_during_a_call_keeps_its_voice_and_apology_until_the_call_ends",)),
     ("前の通話の番号のまま答えを書き換えられる（0108・0231：どの通話の答えかを取り違え、別の方の答えが残る）",
@@ -1346,6 +1346,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "DROP POLICY listen_scope ON salescall.recording_listens;"
      " CREATE POLICY listen_scope ON salescall.recording_listens USING (true) WITH CHECK (true)",
      ("tests.test_recording_audio.RecordingAudio.test_a_system_recording_is_stored_once_and_heard_by_any_contractor_with_a_record",)),
+    ("合図に入った回線の時刻を残さない（0276：戻って、また外れても知らせない）",
+     _edited("0276_line_seen.sql", "CREATE OR REPLACE FUNCTION salescall.agent_beat(", "WHERE l.line_id = ANY (coalesce(kept, '{}'))", "WHERE false"),
+     ("tests.test_agents.Down.test_a_line_left_out_of_the_beat_is_noticed_once_while_its_pc_is_alive",)),
     ("「〇時までなら大丈夫です」の読み方の既定を「〇時から」にする（0262：出られる時刻を過ぎてからかける）",
      "ALTER TABLE salescall.setting_values DISABLE TRIGGER setting_values_frozen;"
      " UPDATE salescall.setting_values SET value = '\"after\"' WHERE key = 'callback.until_available' AND scope = 'system';"
@@ -8771,7 +8774,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '            if time.monotonic() - got > p.ANSWER_BY or national is None:', '            if time.monotonic() - got > p.ANSWER_BY:',
      ("tests.test_link.CallingState.test_the_pc_dials_the_national_form_the_server_made_and_withholds_without_it",)),
     ('国内の形の無い頼みでも、PC がテスト番号を試す', 'src/salescall/agent/main.py',
-     'time.monotonic() - got > p.ANSWER_BY or national is None\n', 'time.monotonic() - got > p.ANSWER_BY\n',
+     'p.ANSWER_BY or national is None\n                    or await loop.run_in_executor(None, _busy, phone)):',
+     'p.ANSWER_BY\n                    or await loop.run_in_executor(None, _busy, phone)):',
      ("tests.test_link.CallingState.test_the_pc_dials_the_national_form_the_server_made_and_withholds_without_it",)),
     ('会話AIの声の数を、検証の結果と一緒に書かない', 'src/salescall/core/attempts.py',
      '    for kind, (checked, found) in (summary.ai_voice or {}).items():', '    for kind, (checked, found) in ():',
@@ -8791,6 +8795,30 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ('WAV でない音も置く', 'src/salescall/core/recording_audio.py',
      '    if not isinstance(data, (bytes, bytearray)) or not _wav(bytes(data)):', '    if not isinstance(data, (bytes, bytearray)):',
      ("tests.test_recording_audio.RecordingAudio.test_a_wrong_fingerprint_or_a_missing_sound_is_never_played",)),
+    ('PC が動いていなくても、外れた回線を知らせる（PC の途切れと2つ知らせる）', 'src/salescall/core/agents.py',
+     '            "   AND EXISTS (SELECT 1 FROM pcs p WHERE p.pc_id = ANY (%s::uuid[]) OR coalesce(p.last_seen_at, p.issued_at) >= now() - %s)"',
+     '            "   AND (true OR EXISTS (SELECT 1 FROM pcs p WHERE p.pc_id = ANY (%s::uuid[]) OR coalesce(p.last_seen_at, p.issued_at) >= now() - %s))"',
+     ("tests.test_agents.Down.test_a_line_left_out_of_the_beat_is_noticed_once_while_its_pc_is_alive",)),
+    ('合図に入っている回線も、外れたとして知らせる', 'src/salescall/core/agents.py',
+     '" WHERE l.retired_at IS NULL AND NOT EXISTS (SELECT 1 FROM pcs p WHERE l.line_id = ANY (p.lines))"',
+     '" WHERE l.retired_at IS NULL"',
+     ("tests.test_agents.Down.test_a_line_left_out_of_the_beat_is_noticed_once_while_its_pc_is_alive",)),
+    ('電話の部品が使えないと答えた回線も、合図に入れる', 'src/salescall/agent/main.py',
+     'if _usable(phone) or _busy(phone)]', 'if True]',
+     ("tests.test_link.CallingState.test_a_line_the_phone_cannot_use_is_left_out_of_the_beat_and_comes_back",)),
+    ('通話の途中の回線も、使えないと答えたら合図から外す（声・おわびが通らない）', 'src/salescall/agent/main.py',
+     'if _usable(phone) or _busy(phone)]', 'if _usable(phone)]',
+     ("tests.test_link.CallingState.test_a_line_the_phone_cannot_use_is_left_out_of_the_beat_and_comes_back",)),
+    ('通話の途中でもショートメールを送る（画面の操作で通話を乱す）', 'src/salescall/agent/main.py',
+     '                    or not isinstance(text, str) or not text.strip() or await loop.run_in_executor(None, _busy, phone)):',
+     '                    or not isinstance(text, str) or not text.strip()):',
+     ("tests.test_link.CallingState.test_a_short_message_is_sent_from_the_line_and_withheld_during_a_call",)),
+    ('ショートメールの送れなかったと送れたか分からないを取り違える', 'src/salescall/agent/main.py',
+     '''            except CallNotPlaced:
+                return {"ok": False, "error": "not_placed"}
+            except Exception:  # noqa: BLE001 送れたか分からない''',
+     '''            except Exception:  # noqa: BLE001 送れたか分からない''',
+     ("tests.test_link.CallingState.test_a_short_message_is_sent_from_the_line_and_withheld_during_a_call",)),
 )
 
 

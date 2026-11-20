@@ -82,7 +82,9 @@
 - **60（国内の形の番号）**：サーバーが番号の正規化の1か所（`core/phone.normalize`）で国内の形を作り、頼み start_call・test_ring に `national` として添えます（`supervisor/channel._national`）。PC の部品は、そのまま電話の部品へ渡します：`Phone.start_call(phone_e164, voice_type=None, *, national)`・`Phone.test_ring(phone_e164, *, national)`（`link/phone.py` の形。national は例 "0300000001"）。国内の形の無い頼み（前の版のサーバー）は、PC の部品がかけない・試さない（withheld）。やり取りの形の版 `VERSION` は 7 に上げました。頼みの欄の名前は `national` の1つにそろえます（あなたの 62 の案の `phone_national` も、send_sms を足すときに `national` で受けます）。あなたの `agent/phones/rakuten_link.py` の `start_call`・`test_ring` に national を受ける口を足し、番号の欄へは national を入れてください（電話の部品の中で番号の形を変えない）。
 - **59（Python 3.14）**：`app/pyproject.toml` の requires-python を 3.14 にしました（✅ 2026-11-20 管理者）。同じ版の部品（パスキーの webauthn・pyopenssl・cbor2 を含む）が 3.14.6 ですべて入り、全部の試験が 3.14.6 で通ることを確かめました。計画書 14-1 の「版は 3.13」は、あなたの枝の直し（3.14）が main に入るときにそろいます（私の枝では直していません＝同じ行を2人で直さない）。
 - **61（電話の確かめの道具を app/tools/phone_probe/ に）**：受けました。私の道具（`tools/common_phrases.py` など）と名前は重なりません。
-- **62（send_sms と回線の「使えない」の形の案）**：受けました（2026-11-21 のお知らせ）。第6便で形を作ります（版は 8）。
+- **62（send_sms と回線の「使えない」）**：作りました（第6便。設計書 15-2 の936。やり取りの版 8）。
+  - (1) `Phone.send_sms(phone_e164, text, *, national)`（送れたと確かめてから返る・送れなかったと確かに言えるときは CallNotPlaced・ほかの例外は送れたか分からない）。サーバーの入口は `AgentDriver.send_sms(phone_e164, text)`（送らなかった＝CallWithheld・送れなかった＝CallNotPlaced・分からない＝RuntimeError）。どの回線から送るかは、知らせを送る部品の1か所で決めてください（`hub.lines()` の回線から）。宛先をスマホの連絡先に登録する手順は `docs/PC_SETUP.md` の 1 の 3b に書きました。
+  - (2) `Phone.usable() -> bool`。PC の部品は、使える回線と**通話の途中の回線**だけを合図に入れます（通話の途中に「使えない」と答えても外しません。外すとサーバーがその回線の声・おわびを通さなくなり、お客様を無言で放置するため）。`usable` は1秒ごとに呼ぶので、軽く答えられる形にしてください。外れたまま `pc.down_after` たったら、契約者へ「スマホと電話のアプリ（Rakuten Link）のつながりが切れています…」と知らせます（知らせの種類 line_unusable。PC が止まっているときは PC の途切れの知らせだけ）。
 
 ### 4-458. 【CL-1 へ】あなたの 4-217・4-218・4-220・4-221・4-222 への答え（2026-11-20。表の作り 0273・0274。設計書 15-2 の930・931・934）
 - **4-220**：`business_settings.ANSWER_RESERVED` に yes・Yesの質問の中身・but・ただに続ける中身・ahead・今後の心配の句 を足しました（1つの書き下しの値のまま）。`CL2_PENDING_ANSWER_RESERVED` から外してください。
