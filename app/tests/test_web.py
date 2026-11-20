@@ -657,6 +657,15 @@ class Web(_World):
                 crumbs = page[page.index('class="crumbs"'):page.index("</nav>", page.index('class="crumbs"'))]
                 self.assertIn("依頼者「依頼者X」", crumbs)
 
+    def test_every_empty_state_says_what_comes_next(self):
+        """空のときの形（parts.empty）は、次にすること・これから何が起きるかを必ず書く（「登録はありません」だけで終えない）。"""
+        import pathlib
+        bare = []
+        for f in sorted(pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/templates").glob("*.html")):
+            for m in re.finditer(r"\bempty\(\s*(\"[^\"]*\"|[^,()\"]+)\s*\)", f.read_text(encoding="utf-8")):
+                bare.append(f"{f.name}: {m.group(0)}")
+        self.assertEqual(bare, [])
+
     def test_nothing_is_never_colored(self):
         """色の役割（parts.html の1か所）：0件・「なし」に色を付けない（緑は「済んだ・通った」だけ。何もないと見分けがつかなくなる）。"""
         for who in ("A", "B"):

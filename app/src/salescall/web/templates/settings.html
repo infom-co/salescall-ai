@@ -76,6 +76,6 @@
   {% endfor %}
 </section>
 {% else %}
-<div class="card">{{ empty("この段で決められる設定はありません") }}</div>
+<div class="card">{{ empty("この段で決められる設定はありません", "ほかの段（契約者・依頼者・業務）の設定の画面で決めます。") }}</div>
 {% endfor %}
 {% endblock %}

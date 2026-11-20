@@ -18,8 +18,9 @@
 {% if done %}<div class="flash {{ 'ok' if ok else 'ng' }}" role="status">{{ done }}</div>{% endif %}
 {%- endmacro %}
 
-{% macro empty(big, small="") -%}
-<div class="empty"><div class="big">{{ big }}</div>{% if small %}<div>{{ small }}</div>{% endif %}</div>
+{#- 空のときの形。2つ目（次にすること・これから何が起きるか）は必ず書く（「ありません」だけで終えない。試験が全部の画面を見る） -#}
+{% macro empty(big, then) -%}
+<div class="empty"><div class="big">{{ big }}</div><div>{{ then }}</div></div>
 {%- endmacro %}
 
 {# waiting＝その行で契約者が決めることの名前（例：さらにかける承認）。あれば、終えた行でも「済み」の緑にせず、待ちの色でそれを先に書く

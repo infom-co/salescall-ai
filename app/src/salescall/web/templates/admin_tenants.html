@@ -20,5 +20,5 @@
   {% endfor %}
   </tbody>
 </table></div>
-{% else %}<div class="card">{{ empty("契約者はまだいません") }}</div>{% endif %}
+{% else %}<div class="card">{{ empty("契約者はまだいません", "契約者がサブスクを始めると、ここに並びます。") }}</div>{% endif %}
 {% endblock %}

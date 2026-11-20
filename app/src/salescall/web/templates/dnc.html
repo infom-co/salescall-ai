@@ -35,5 +35,5 @@
   {% endfor %}
   </tbody>
 </table></div>
-{% else %}<div class="card">{{ empty("登録はありません") }}</div>{% endif %}
+{% else %}<div class="card">{{ empty("登録はありません", "お客様が電話で断られたときなどは、自動でここに入ります。手で入れるときは「＋ 番号を登録する」、一覧で受け取ったときは「一覧を取り込む」からです。") }}</div>{% endif %}
 {% endblock %}

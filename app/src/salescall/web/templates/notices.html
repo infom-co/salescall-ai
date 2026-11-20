@@ -26,8 +26,8 @@
 {# 誰にどの知らせを見せるかは、データベースの1か所（知らせの台帳の読める範囲＝0084）が決める。画面では絞り直さない #}
 {% if person.is_admin %}
 <h2 id="admin-notices">管理者あて（全体）</h2>
-{% if admin_rows %}{{ notice_table(admin_rows) }}{% else %}<div class="card">{{ empty("管理者あての知らせはありません") }}</div>{% endif %}
+{% if admin_rows %}{{ notice_table(admin_rows) }}{% else %}<div class="card">{{ empty("管理者あての知らせはありません", "プログラムの不具合など、管理者が直すことが起きると、ここに並びます。") }}</div>{% endif %}
 <h2 style="margin-top:28px">「{{ ctx.tenant_name }}」あて</h2>
 {% endif %}
-{% if rows %}{{ notice_table(rows) }}{% else %}<div class="card">{{ empty("知らせはありません") }}</div>{% endif %}
+{% if rows %}{{ notice_table(rows) }}{% else %}<div class="card">{{ empty("知らせはありません", "止まった・承認待ちができた、などが起きると、ここに並び、ショートメールでもお知らせします。") }}</div>{% endif %}
 {% endblock %}

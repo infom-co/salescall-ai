@@ -133,6 +133,6 @@
   </tbody>
 </table></div>
 {% else %}
-<div class="card">{{ empty("まだ電話をかけていません") }}</div>
+<div class="card">{{ empty("まだ電話をかけていません", "かける時刻になると、自動でおかけします（次の予定は上の「いまの状態」にあります）。") }}</div>
 {% endif %}
 {% endblock %}

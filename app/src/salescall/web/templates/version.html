@@ -19,7 +19,7 @@
       <dt>「忙しい」のときの一言</dt><dd>{{ s.busy_line or "（引き止めない）" }}</dd>
     </dl></section>
   <section class="card"><h2>業務の情報</h2>
-    {% if s.info %}<ul class="need-list">{% for i in s.info %}<li>{{ i }}</li>{% endfor %}</ul>{% else %}{{ empty("ありません") }}{% endif %}
+    {% if s.info %}<ul class="need-list">{% for i in s.info %}<li>{{ i }}</li>{% endfor %}</ul>{% else %}{{ empty("業務の情報はありません", "お客様に質問されたとき、AI が答える材料になる情報です。業務の資料を取り込み直すと入ります。") }}{% endif %}
   </section>
 </div>
 <h2 style="margin-top:24px">質問</h2>
