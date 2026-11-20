@@ -555,6 +555,23 @@ def file_readers_in_one_place(app_root: Path) -> list[Violation]:
     return out
 
 
+# パスキーの確かめ（外の道具 webauthn）を使ってよいのは1か所だけ（✅ 2026-11-20 ユーザー「パスキーだけ」。登録・確かめ・問いの照合を1か所で守る＝0271）
+PASSKEY_MODULES = ("webauthn",)
+PASSKEY_HOME = "src/salescall/core/passkeys.py"
+
+
+def passkeys_in_one_place(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel.startswith("tests/") or rel == "run_tests.py" or rel == PASSKEY_HOME:
+            continue
+        for module, line in _imported_modules(_parse(path)):
+            if any(module == m or module.startswith(m + ".") for m in PASSKEY_MODULES):
+                out.append(Violation("一本化", rel, line, f"パスキーの確かめの部品（{module}）を使うのは {PASSKEY_HOME} だけです"))
+    return out
+
+
 # ── 決まった設定を読んでよいのは1か所だけ（設定の名前 → 読んでよいファイル・決まりの番号・理由）
 #    - 時間帯（かけてよい時間帯・かけない時間）：実際に使う時間帯を出す gate の1か所（NG時間を引き忘れない。5-2-2）
 #    - 契約者の承認のモード：承認の部分だけ（I-13。判定などがモードを読むと、両モードで動きが変わる）
@@ -842,6 +859,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     dial_only_through_exit,
     pc_side_stays_off_the_server,
     file_readers_in_one_place,
+    passkeys_in_one_place,
     settings_read_in_one_place,
     web_parts_only_in_web,
     web_follows_its_rules,
