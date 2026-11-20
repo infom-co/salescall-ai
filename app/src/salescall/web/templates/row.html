@@ -131,7 +131,7 @@
   <tbody>
   {% for c in calls %}
     <tr>
-      <td class="nowrap">{{ time(c.claimed_at) }}</td>
+      <td class="when">{{ time(c.claimed_at) }}</td>
       <td>{{ words.word(words.ATTEMPT_STATES, c.state).screen }}</td>
       <td class="wide">{{ words.call_end(c.trouble) }}</td>
       <td class="nowrap">{{ go(base ~ "/rows/" ~ row.task_id ~ "/calls/" ~ c.attempt_id, "やり取りを見る") }}</td>

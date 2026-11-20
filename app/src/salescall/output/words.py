@@ -373,6 +373,12 @@ SETTING_GROUPS: dict[str, str] = {
 }
 
 
+# ふだん契約者が決める・変える設定のまとまり（設定の画面で開いて並べる。ほかは「くわしい設定」にたたむ。名前は SETTING_GROUPS の鍵）。
+# 選び方：業務の決め事（いつ・何回かけるか・お客様との約束・結果の渡し方・検証モード）と、最初に必ず決める知らせの受け先。
+# 「かける前の確かめ」は予約の期限・平均の通話時間を測る日数など裏側の値が多いので、たたむ側（探せば出る）
+EVERYDAY_GROUPS = frozenset({"business", "calling", "callee", "callback", "retry", "dnc", "output", "approval", "notify"})
+
+
 def grouped_settings(rows: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
     """設定の行を、まとまりごとに SETTING_GROUPS の並び（仕事の順）で返す1か所（設定の画面の目次と本文が使う）。まとまりの中は来た順。"""
     order = {g: i for i, g in enumerate(SETTING_GROUPS)}

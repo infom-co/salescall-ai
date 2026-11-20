@@ -699,6 +699,17 @@ class Web(_World):
                 bare.append(f"{f.name}: {m.group(0)}")
         self.assertEqual(bare, [])
 
+    def test_every_time_cell_has_one_shape(self):
+        """表の時刻の升は、どの表も .when の1つの形（数字の幅はそろえ、左寄せ・折らない）。数量の右寄せ（num）では書かない
+        （2026-11-20 の見直し：時刻を右寄せにした表と左寄せの表が混ざり、「いつから」の見出しと値がずれていた）。"""
+        import pathlib
+        odd = []
+        for f in sorted(pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/templates").glob("*.html")):
+            for m in re.finditer(r'<td(?: class="([^"]*)")?>\{\{ *time\(', f.read_text(encoding="utf-8")):
+                if m.group(1) != "when":
+                    odd.append(f"{f.name}: {m.group(0)}")
+        self.assertEqual(odd, [])
+
     def test_the_home_shows_what_to_look_at_and_how_things_usually_are(self):
         """ホームは2段：いま見ること（止まっている・承認待ち・気をつけること）と、ふだんの様子（今日の電話・回線と PC・今月の費用と報酬。
         計画書 5-2）。どの数も core の答えを数えるだけ。"""
@@ -768,6 +779,47 @@ class Web(_World):
                 self.assertEqual(r.status_code, 200, r.text[:300])
                 self.assertNotIn(words_missing(), r.text)
                 self.assertNotIn("実施回", re.sub(r"架空の[^<」]*?実施回", "", r.text))   # ✅ 2026-11-20 管理者「イ」：画面の呼び方は「お客様リスト」にそろえる（見本のデータの名前は除く）
+                self.assertLessEqual(len(visible_primary_buttons(r.text)), 1, visible_primary_buttons(r.text))   # 設計書 7-4：主のボタンは1画面に1つ
+        for who, path in (("A", "/t/groups"), ("A", f"/c/{self.a['client']}/destinations"), ("A", "/t/settings"), ("ADMIN", "/admin/tenants")):
+            with self.subTest(path=path):
+                r = self.get(who, path)
+                self.assertEqual(r.status_code, 200, r.text[:300])
+                self.assertLessEqual(len(visible_primary_buttons(r.text)), 1, visible_primary_buttons(r.text))
+
+
+def visible_primary_buttons(page: str) -> list[str]:
+    """開かなくても見えている主のボタン（藍＝class に btn と main）の文字。たたんだ小窓（<details>）の中は、開いたときだけ1つ見えるので数えない。"""
+    from html.parser import HTMLParser
+
+    class P(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.closed, self.found, self.cur = 0, [], None
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if tag == "details":
+                self.closed += 0 if "open" in a else 1
+                self.stack.append("open" in a)
+            cls = (a.get("class") or "").split()
+            if "btn" in cls and "main" in cls and not self.closed and tag in ("button", "a"):
+                self.cur = ""
+                self.found.append(self.cur)
+
+        def handle_data(self, data):
+            if self.cur is not None:
+                self.found[-1] += data.strip()
+
+        def handle_endtag(self, tag):
+            if tag in ("button", "a"):
+                self.cur = None
+            if tag == "details" and self.stack:
+                self.closed -= 0 if self.stack.pop() else 1
+
+    p = P()
+    p.stack = []
+    p.feed(page)
+    return p.found
 
 
 class EmergencyStop(_World):

@@ -33,7 +33,7 @@
   {% if sec.passkeys %}
   <div class="table-scroll"><table class="list">
     <thead><tr><th>名前</th><th>登録した時刻</th><th></th></tr></thead>
-    <tbody>{% for k in sec.passkeys %}<tr><td>{{ k.label }}</td><td class="num">{{ time(k.added_at) }}</td>
+    <tbody>{% for k in sec.passkeys %}<tr><td>{{ k.label }}</td><td class="when">{{ time(k.added_at) }}</td>
       <td class="num"><details class="adder"><summary class="btn small danger-text">外す</summary>
         <form class="panel" method="post" action="/t/account/passkey/remove">{{ csrf(token) }}<input type="hidden" name="passkey_id" value="{{ k.passkey_id }}">
           <p><b>パスキー「{{ k.label }}」</b>を外します。{% if sec.passkeys|length == 1 %}最後の1つなので、外すと2段階の確かめが無くなり、予備の合言葉も使えなくなります。{% endif %}</p>

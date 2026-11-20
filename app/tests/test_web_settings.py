@@ -119,6 +119,11 @@ class Forms(unittest.TestCase):
         self.assertEqual([g for g, _ in words.grouped_settings(rows)], ["business", "calling", "approval", "login", "zzz"])
 
 
+    def test_the_everyday_groups_are_real_groups(self):   # ふだんのまとまり（開いて並べる）は、まとまりの名前の表の中から選ぶ
+        self.assertTrue(words.EVERYDAY_GROUPS)
+        self.assertLessEqual(set(words.EVERYDAY_GROUPS), set(words.SETTING_GROUPS))
+
+
 class ScreenWords(unittest.TestCase):
     def test_every_choice_has_a_word(self):
         """選び肢の言葉は設定の定義の1か所（choice_words＝CL-2 4-450）。画面はそれを出すだけ（どの選び肢にも言葉がある）。"""
@@ -188,6 +193,23 @@ class Screens(unittest.TestCase):
         anchor = "s-" + self.key.replace(".", "-")                                 # 上の「この段で決めている値」から、その行へ飛べる
         self.assertIn(f'href="#{anchor}"', page.split("この段で決めている値", 1)[1].split("</section>", 1)[0])
         self.assertIn(f'id="{anchor}"', page)
+
+    def test_the_everyday_groups_are_open_and_the_rest_is_folded_once(self):
+        """設定の画面は、ふだんのまとまりだけを開いて並べ、残りは「くわしい設定」1つにたたむ（どのまとまりも1回だけ出る）。
+        2026-11-20 の見直し：まとまり約30・項目100以上が同じ重さで並び、スマホで3万6千ピクセルの長さだった。"""
+        for path in ("/t/settings", f"/c/{self.a['client']}/b/{self.a['business']}/settings"):
+            with self.subTest(path=path):
+                page = self.get("A", path).text
+                self.assertEqual(page.count('id="advanced"'), 1)
+                opened, folded = page.split('id="advanced"', 1)
+                shown = re.findall(r'<section class="setting-group" id="g-([a-z_]+)"', page)
+                self.assertEqual(len(shown), len(set(shown)))
+                self.assertTrue(shown)
+                for g in shown:
+                    with self.subTest(group=g):
+                        self.assertIn(f'id="g-{g}"', opened if g in words.EVERYDAY_GROUPS else folded)
+                self.assertIn('href="#advanced"', opened)          # 目次から、たたんだ所へも行ける
+                self.assertNotIn("open>", folded.split(">", 1)[0] + ">")   # ふだんのまとまりがある段では、初めはたたんでいる
 
     def test_the_system_values_are_for_the_admin_only(self):
         self.assertEqual(self.get("A", "/admin/settings").status_code, 404)

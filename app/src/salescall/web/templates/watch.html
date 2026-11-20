@@ -24,7 +24,7 @@
         {% if w.where == "client" %}<td class="nowrap"><a href="/c/{{ c.client_id }}">{{ c.name }}</a></td>{% endif %}
         <td>{{ e.what }}</td>
         <td class="wide">{{ e.detail }}{% if e.note %}<div class="muted">{{ e.note }}</div>{% endif %}</td>
-        <td class="nowrap">{{ time(e.at) if e.at else "" }}</td>
+        <td class="when">{{ time(e.at) if e.at else "" }}</td>
         <td class="nowrap">{% if e.link %}{{ go(e.link, "見る") }}{% endif %}</td>
       </tr>
     {% endfor %}

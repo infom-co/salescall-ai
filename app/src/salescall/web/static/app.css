@@ -33,7 +33,9 @@ h2 { font-size: 18px; line-height: 1.4; margin: 0 0 12px; font-weight: 700; }
 .content > h2, .content > .title-row h2, .setting-group > h2, .watch-block > h2 { margin-top: 28px; }
 h3 { font-size: 13px; margin: 0 0 8px; font-weight: 700; color: var(--muted); letter-spacing: .02em; }
 .num { font-variant-numeric: tabular-nums; }
-.tel { font-variant-numeric: tabular-nums; white-space: nowrap; }   /* 電話番号：数字の幅はそろえるが、数量ではないので左寄せ（見出しとそろえる） */
+/* 電話番号と時刻：数字の幅はそろえるが、数量ではないので左寄せ（見出しとそろえる）・途中で折らない。時刻の升はどの表も .when の1つの形
+   （2026-11-20 の見直し：時刻を数量と同じ右寄せにした表と左寄せの表が混ざり、「いつから」の見出しと値がずれていた） */
+.tel, .when { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .muted { color: var(--muted); }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
 
@@ -334,6 +336,13 @@ ol.steps li[aria-current="step"]::before { background: var(--primary); color: va
 .drop-title { font-weight: 700; font-size: 15px; }
 details.more { margin-top: 14px; }
 details.more summary { cursor: pointer; color: var(--muted); }
+/* 設定の「くわしい設定」：たたんだ所も章の1つなので、章の見出しと同じ大きさ・余白で出し、開けることを ▸／▾ で見せる（小さな灰色の字だと見落とす） */
+details.advanced-settings { margin-top: 32px; border-top: 1px solid var(--line); padding-top: 8px; }
+details.advanced-settings > summary { list-style: none; font-size: 18px; font-weight: 700; color: var(--text); padding: 10px 0; }
+details.advanced-settings > summary::-webkit-details-marker { display: none; }
+details.advanced-settings > summary::before { content: "▸ "; color: var(--muted); }
+details.advanced-settings[open] > summary::before { content: "▾ "; }
+details.advanced-settings > summary .muted { display: block; font-size: 13px; font-weight: 400; margin-top: 2px; }
 .grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 table.map tr.on td:first-child { color: var(--primary); }
 table.map select { max-width: 280px; }
@@ -352,7 +361,9 @@ table.map select { max-width: 280px; }
 .settings-filter input { max-width: 420px; }
 .setting-group { margin-top: 24px; }
 details.setting { padding: 0; margin-top: 8px; }
-details.setting > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 14px 18px; }
+/* 設定の行は1つの形：名前の下に値、「変える」はいつも右の同じ位置（2026-11-20 の見直し：値が長い行だけボタンが下の行へ落ち、位置がそろわなかった） */
+details.setting > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "meaning change" "now change"; gap: 4px 16px; align-items: center; padding: 14px 18px; }
 details.setting > summary::-webkit-details-marker { display: none; }
 details.setting[open] > summary { border-bottom: 1px solid var(--line); }
 details.setting.own { border-left: 4px solid var(--info); }
@@ -364,7 +375,9 @@ details.setting > summary:hover .change { background: var(--surface-2); }
 details.setting[open] .change { font-size: 0; } details.setting[open] .change::before { content: "閉じる"; font-size: 13px; color: var(--muted); }
 .own-list ul { margin: 8px 0 0; padding-left: 1.2em; display: grid; gap: 4px; }
 .own-list h2 { margin: 0; }
-details.setting .meaning { flex: 1 1 420px; }
+details.setting .meaning { grid-area: meaning; }
+details.setting .now { grid-area: now; }
+details.setting .change { grid-area: change; }
 details.setting .now { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }   /* 長い値（曜日ごとの時間帯など）は折り返す */
 details.setting .now b, details.setting .now .tag { overflow-wrap: anywhere; white-space: normal; }   /* 長い札（仮の値・見直す時）も折り返す */
 .setting-form { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 8px; }

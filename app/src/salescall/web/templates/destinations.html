@@ -62,7 +62,7 @@
     <fieldset class="pick-dests"><legend class="muted">「選んだ送り先だけ」のときに渡す送り先</legend>
       <div class="check-grid">{% for d in dests %}<label class="choice"><input type="checkbox" name="destination_id" value="{{ d.destination_id }}" {% if b.mode == "pick" and d.destination_id in b.sends %}checked{% endif %}> {{ d.name }}</label>{% endfor %}</div>
     </fieldset>{% endif %}
-    <div><button class="btn small main" type="submit">この業務の渡し方を決める</button></div>
+    <div><button class="btn small" type="submit">この業務の渡し方を決める</button></div>
   </form>
 </section>
 {% else %}<div class="card" style="margin-top:12px">{{ empty("業務はまだありません", "上の業務のタブの「＋ 業務」から作ると、業務ごとに渡し方を決められます。") }}</div>{% endfor %}

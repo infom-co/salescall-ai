@@ -27,7 +27,7 @@
     </span></div>
   <form method="post" action="/t/groups" style="margin-top:10px">{{ csrf(token) }}<input type="hidden" name="op" value="members"><input type="hidden" name="group_id" value="{{ g.group_id }}">
     <div class="check-grid">{% for c in all_clients %}<label class="choice"><input type="checkbox" name="client_id" value="{{ c.client_id }}" {% if c.client_id in g.clients %}checked{% endif %}> {{ c.name }}</label>{% endfor %}</div>
-    {% if all_clients %}<button class="btn small main" type="submit" style="margin-top:8px">このグループの依頼者を決める</button>{% else %}{{ empty("依頼者はまだいません", "上のタブの「＋ 依頼者」から作ってから、グループに入れます。") }}{% endif %}
+    {% if all_clients %}<button class="btn small" type="submit" style="margin-top:8px">このグループの依頼者を決める</button>{% else %}{{ empty("依頼者はまだいません", "上のタブの「＋ 依頼者」から作ってから、グループに入れます。") }}{% endif %}
   </form>
 </section>
 {% else %}

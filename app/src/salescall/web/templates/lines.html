@@ -64,8 +64,8 @@
   <tbody>
   {% for p in pcs %}
     <tr class="{{ 'excluded' if p.revoked_at }}">
-      <td><b>{{ p.label }}</b></td><td class="nowrap">{{ time(p.issued_at) }}</td>
-      <td class="nowrap">{{ time(p.last_seen_at) if p.last_seen_at else "まだつながっていません" }}</td>
+      <td><b>{{ p.label }}</b></td><td class="when">{{ time(p.issued_at) }}</td>
+      <td class="when">{{ time(p.last_seen_at) if p.last_seen_at else "まだつながっていません" }}</td>
       <td class="nowrap">{% if p.revoked_at %}{{ tag("ログインを外しました", "") }}{% else %}
         <details class="adder"><summary class="btn small danger-text">ログインを外す</summary>
           <form class="panel" method="post" action="/t/pcs/{{ p.pc_id }}/revoke">{{ csrf(token) }}

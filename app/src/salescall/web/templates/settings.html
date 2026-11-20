@@ -40,28 +40,7 @@
   <p class="muted">この設定は、まだ画面から変えられません。</p>
 {% endif %}
 {%- endmacro %}
-{% block main %}
-{% set where = "システムの初めの値（管理者だけ）" if level == "system" else (("業務「" ~ business.name ~ "」") if business else (("依頼者「" ~ client.name ~ "」") if client else ("契約者「" ~ ctx.tenant_name ~ "」"))) %}
-{% set action = request.url.path %}
-<h1>設定：{{ where }}</h1>
-<p class="lead">ここで決めた値は、{% if level == "system" %}すべての契約者の初めの値になります（契約者・依頼者・業務で決めた値が勝ちます。「システムだけ」の設定は、この値だけを使います）{% elif level == "tenant" %}すべての依頼者・業務の初めの値になります（依頼者・業務で決めた値が勝ちます）{% elif level == "client" %}この依頼者のすべての業務に効きます（業務で決めた値が勝ちます）{% else %}この業務だけに効きます{% endif %}。変えた値と前の値は、記録に残ります。{% if level != "system" %}どこで決めたかを添えていない値は、システムの初めの値のままです。{% endif %}</p>
-{{ flash(done, ok) }}
-{#- この段で決めている値の一覧（どれを変えたかを一目で。押すとその行を開く）。システムの段は、どれもこの段の値なので出さない -#}
-{% set mine = rows|selectattr("own")|list %}
-{#- この段より上の段（値を受け継ぐ元）の名前。どの段でも話が合うように、いまの段から作る -#}
-{% set uppers = {"tenant": ["システムの初めの値"], "client": ["システムの初めの値", "契約者"], "business": ["システムの初めの値", "契約者", "依頼者"]}.get(level, []) %}
-{% if level != "system" %}
-<section class="card own-list">
-  <h2>この段で決めている値 <span class="muted">（{{ mine|length }}）</span></h2>
-  {% if mine %}<ul>{% for r in mine %}<li><a href="#s-{{ r.key|replace('.', '-') }}">{{ r.label }}</a>：<b>{{ r.shown }}</b></li>{% endfor %}</ul>
-  {% else %}<p class="muted">まだありません。{{ uppers|join("・") }}で決めた値のまま動いています。変えるときは、下の行を開きます。</p>{% endif %}
-</section>
-{% endif %}
-<div class="settings-filter"><input type="text" placeholder="設定を探す（例：時間帯・回数・間隔）" data-filter=".setting" aria-label="設定を探す"></div>
-<nav class="filters setting-toc" aria-label="設定のまとまり">
-  {% for group, items in words.grouped_settings(rows) %}<a class="chip" href="#g-{{ group }}">{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }} <b>{{ items|length }}</b></a>{% endfor %}
-</nav>
-{% for group, items in words.grouped_settings(rows) %}
+{% macro group_section(group, items) -%}
 <section class="setting-group" id="g-{{ group }}">
   <h2>{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }}</h2>
   {% for r in items %}
@@ -87,7 +66,45 @@
   </details>
   {% endfor %}
 </section>
+{%- endmacro %}
+{% block main %}
+{% set where = "システムの初めの値（管理者だけ）" if level == "system" else (("業務「" ~ business.name ~ "」") if business else (("依頼者「" ~ client.name ~ "」") if client else ("契約者「" ~ ctx.tenant_name ~ "」"))) %}
+{% set action = request.url.path %}
+<h1>設定：{{ where }}</h1>
+<p class="lead">ここで決めた値は、{% if level == "system" %}すべての契約者の初めの値になります（契約者・依頼者・業務で決めた値が勝ちます。「システムだけ」の設定は、この値だけを使います）{% elif level == "tenant" %}すべての依頼者・業務の初めの値になります（依頼者・業務で決めた値が勝ちます）{% elif level == "client" %}この依頼者のすべての業務に効きます（業務で決めた値が勝ちます）{% else %}この業務だけに効きます{% endif %}。変えた値と前の値は、記録に残ります。{% if level != "system" %}どこで決めたかを添えていない値は、システムの初めの値のままです。{% endif %}</p>
+{{ flash(done, ok) }}
+{#- この段で決めている値の一覧（どれを変えたかを一目で。押すとその行を開く）。システムの段は、どれもこの段の値なので出さない -#}
+{% set mine = rows|selectattr("own")|list %}
+{#- この段より上の段（値を受け継ぐ元）の名前。どの段でも話が合うように、いまの段から作る -#}
+{% set uppers = {"tenant": ["システムの初めの値"], "client": ["システムの初めの値", "契約者"], "business": ["システムの初めの値", "契約者", "依頼者"]}.get(level, []) %}
+{% if level != "system" %}
+<section class="card own-list">
+  <h2>この段で決めている値 <span class="muted">（{{ mine|length }}）</span></h2>
+  {% if mine %}<ul>{% for r in mine %}<li><a href="#s-{{ r.key|replace('.', '-') }}">{{ r.label }}</a>：<b>{{ r.shown }}</b></li>{% endfor %}</ul>
+  {% else %}<p class="muted">まだありません。{{ uppers|join("・") }}で決めた値のまま動いています。変えるときは、下の行を開きます。</p>{% endif %}
+</section>
+{% endif %}
+<div class="settings-filter"><input type="text" placeholder="設定を探す（例：時間帯・回数・間隔）" data-filter=".setting" aria-label="設定を探す"></div>
+{#- ふだん変える設定のまとまりだけを開いて並べ、ほかは「くわしい設定」にたたむ（どれがふだんのまとまりかは words.EVERYDAY_GROUPS の1か所。
+    2026-11-20 の見直し：まとまり約30・項目100以上が同じ重さで並び、初めての契約者には多すぎた）。どの段も同じ形。
+    この段にふだんのまとまりが1つも無ければ、くわしい設定を初めから開いておく（たたんだ所しか無い画面にしない）。
+    「設定を探す」で当たった行と、上の「この段で決めている値」から飛んだ行は、たたんだ中でも開く（app.js の1か所） -#}
+{% set groups = words.grouped_settings(rows) %}
+{% set everyday = groups|selectattr(0, "in", words.EVERYDAY_GROUPS)|list %}
+{% set rest = groups|rejectattr(0, "in", words.EVERYDAY_GROUPS)|list %}
+{% if groups %}
+<nav class="filters setting-toc" aria-label="設定のまとまり">
+  {% for group, items in everyday %}<a class="chip" href="#g-{{ group }}">{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }} <b>{{ items|length }}</b></a>{% endfor %}
+  {% if rest %}<a class="chip" href="#advanced">くわしい設定 <b>{{ rest|map(attribute=1)|map("length")|sum }}</b></a>{% endif %}
+</nav>
+{% for group, items in everyday %}{{ group_section(group, items) }}{% endfor %}
+{% if rest %}
+<details class="more advanced-settings" id="advanced" {% if not everyday %}open{% endif %}>
+  <summary>くわしい設定（ふだんは変えなくて大丈夫です）<span class="muted">中にあるもの：{% for group, items in rest %}{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }}{% if not loop.last %}、{% endif %}{% endfor %}</span></summary>
+  {% for group, items in rest %}{{ group_section(group, items) }}{% endfor %}
+</details>
+{% endif %}
 {% else %}
 <div class="card">{{ empty("この段で決められる設定はありません", "ほかの段（契約者・依頼者・業務）の設定の画面で決めます。") }}</div>
-{% endfor %}
+{% endif %}
 {% endblock %}

@@ -24,7 +24,10 @@
     if (!e.target.matches("[data-filter]")) return;
     var q = e.target.value.trim().toLowerCase();
     document.querySelectorAll(e.target.getAttribute("data-filter")).forEach(function (a) {
-      a.style.display = a.textContent.toLowerCase().indexOf(q) >= 0 ? "" : "none";
+      var hit = a.textContent.toLowerCase().indexOf(q) >= 0;
+      a.style.display = hit ? "" : "none";
+      // 探したものが、たたんだ所（くわしい設定など）の中にあれば開く（探しても見えない、を作らない）
+      if (hit && q) for (var d = a.parentElement; d; d = d.parentElement) if (d.tagName === "DETAILS" && !d.classList.contains("setting")) d.open = true;
     });
   });
   document.addEventListener("keydown", function (e) {
@@ -141,7 +144,9 @@
           if (heads[i]) td.setAttribute("data-label", heads[i]);
           var t = td.textContent.trim();
           if (t.length <= 8) td.classList.add("short");   // 短い値は途中で折らない（「対応 / 中」と折れていた）
-          if (td.classList.contains("num") && t === "0") td.classList.add("zero");   // スマホの札の形では「0」の数の段を出さない（CSS）
+          // スマホの札の形では、0 の数の段を出さない（CSS）。単位つきの 0（「0円」「0本」「0件」）も同じ（2026-11-20 の見直し：「0円」の段が並んでいた）。
+          // 「0.5」「0:30」のような 0 で始まる別の値は当てない
+          if (td.classList.contains("num") && /^0[^\d.,:]*$/.test(t)) td.classList.add("zero");
         });
       });
     });

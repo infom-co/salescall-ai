@@ -15,7 +15,7 @@
       <td class="nowrap">{% if t.tenant_id != ctx.tenant_id %}
         <form method="post" action="/admin/acting"><input type="hidden" name="{{ token_field }}" value="{{ token }}">
           {% if t.tenant_id != person.tenant_id %}<input type="hidden" name="tenant_id" value="{{ t.tenant_id }}">{% endif %}
-          <button class="btn small main" type="submit">この契約者を見る</button></form>{% endif %}</td>
+          <button class="btn small" type="submit">この契約者を見る</button></form>{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>

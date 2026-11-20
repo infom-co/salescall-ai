@@ -14,7 +14,7 @@
     <tr>
       <td>{{ tag(words.stop_cause(s.cause), "stop") }}</td>
       <td>{{ words.stop_scope(s.scope) }}{% if s.client_name %}<span class="muted">：{{ s.client_name }}</span>{% endif %}</td>
-      <td class="num">{{ time(s.at) }}</td>
+      <td class="when">{{ time(s.at) }}</td>
       <td class="wide">{{ s.reason }}</td>
       <td class="num">{{ go((('/c/' ~ s.client_id) if s.client_id else '/t') ~ '/stops/' ~ s.event_id, "何で止まったか") }}</td>
     </tr>

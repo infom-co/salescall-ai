@@ -23,7 +23,7 @@
     <tr class="{{ 'excluded' if r.revoked_at }}">
       <td class="tel">{{ phone(r.phone_e164) if r.phone_e164 else ("管理番号 " ~ r.client_ref) }}</td>
       {% if client %}<td>{{ words.DNC_REASON_WORDS.get(r.reason, words.NO_WORD) }}{% if r.note %}<div class="muted">{{ r.note }}</div>{% endif %}</td>{% endif %}
-      <td class="nowrap">{{ time(r.registered_at) }}</td>
+      <td class="when">{{ time(r.registered_at) }}</td>
       <td>{% if r.revoked_at %}{{ tag("取り消し済み", "") }}<div class="muted">{{ r.revoke_reason }}</div>{% else %}{{ tag("かけない", "stop") }}{% if not client and r.reason %}<div class="muted">{{ r.reason }}</div>{% endif %}{% endif %}</td>
       <td class="nowrap">{% if not r.revoked_at %}
         <details class="adder"><summary class="btn small danger-text">取り消す</summary>

@@ -47,7 +47,7 @@
 <div class="table-scroll"><table class="list">
   <thead><tr><th>いつから</th>{% for k, label in fields %}<th class="num">{{ label }}</th>{% endfor %}<th>赤字の知らせ</th><th class="wide">理由</th><th>入れた方</th></tr></thead>
   <tbody>{% for r in rows %}
-    <tr><td class="nowrap">{{ time(r.valid_from) }}{% if current and r.terms_id == current.terms_id %} {{ tag("いま", "info") }}{% elif r.valid_from > now %} {{ tag("これから", "") }}{% endif %}</td>
+    <tr><td class="when">{{ time(r.valid_from) }}{% if current and r.terms_id == current.terms_id %} {{ tag("いま", "info") }}{% elif r.valid_from > now %} {{ tag("これから", "") }}{% endif %}</td>
       {% for k, label in fields %}<td class="num">{{ yen(r[k]) if r[k] else "—" }}</td>{% endfor %}
       <td>{{ cautions[r.deficit_caution][0] if r.deficit_caution in cautions else "—" }}</td><td class="wide">{{ r.note }}</td><td>{{ r.set_by }}</td></tr>
   {% endfor %}</tbody>
