@@ -726,7 +726,9 @@ def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, 
     """判定の中身の初め（切れ方と、目的のお客様だと確かめられなかったか・伺っていない（対象外）の質問・ご納得いただけなかった点・
     ほかのご希望を伺った答え・手順を伺い終えていない質問・本題で本心を伺って言っていただいた気になる点＝concern（question＝そのとき伺っていた
     業務の質問・said＝お客様の言葉・answer＝会話AIが応えた文か None）・ほかの会社に頼んでいると言われて伺い、言っていただいた問題・心配事＝elsewhere（同じ形）・業務の申し出の答え＝handoff・close_offer（事実の項目のまま＋お客様の言葉 said）・
-    条件つきで受けていただいた申し出＝offer_terms・手短になら聞くと言われてかけ直さずに続けた答え＝brief。1か所。どの結果でも依頼者へ返す）。"""
+    条件つきで受けていただいた申し出＝offer_terms・手短になら聞くと言われてかけ直さずに続けた答え＝brief・断り文句＝refusal_said・言い直して確かめた時刻の
+    24時間の値＝clock24・日を改める締め＝another_day。1か所。どの結果でも依頼者へ返す）。"""
+    r = inp.report        # 会話の報告（お客様が出なかった通話は無い）
     asked = _asked(inp)   # 伺った事実（目的のお客様だと確かめられなかった通話は無い）
     skipped = not_asked(inp.ask_if, inp.answers, asked, required=inp.rules.required)
     agreed = asked.not_agreed if asked is not None else ()
@@ -758,6 +760,12 @@ def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, 
             **({"offer_terms": [{"question": t.question, "recall": t.recall, "terms": t.terms, "topic": t.topic, "added": t.added,
                                  "said": t.evidence.said} for t in terms]} if terms else {}),
             **({"carried": [_carried_detail(inp, c) for c in carried]} if carried else {}),
+            # 断り文句（お客様の言ったまま＝said・what・at）と、言い直して確かめた時刻の24時間の値（CL-1 の連絡帳 4-208・4-212）。報告のまま渡す（目的のお客様だと
+            # 確かめられなかった通話でも、言われたお断りはお断り＝報告から直に読む）
+            **({"refusal_said": [{"said": x.evidence.said, "what": x.what, "at": x.at} for x in r.refusals_said]} if r and r.refusals_said else {}),
+            **({"clock24": [c.to_json() for c in r.clock24]} if r and r.clock24 else {}),
+            # 日を改めるお礼の締め（call_report.ANOTHER_DAY_ENDS）：この電話の日には、もうかけない（次の動きの not_today の1か所が読む）
+            **({"another_day": True} if r and r.another_day else {}),
             # お客様からのご質問（事実 callee_question。計画書 11-3「お答えできなかったお客様からのご質問は必ず載せる」・CL-3 の 51）：said＝お言葉・
             # answered＝業務の情報で答えた true／答えを持っていなかった false／答えに添えられた質問 None・answer＝会話AIが応えた文か None。伺った事実の
             # 1か所 `_asked` を通ったものだけ（目的のお客様だと確かめられなかった通話の方の言葉は、依頼者へ渡さない）
@@ -803,7 +811,9 @@ def _business(inp: JudgeInput) -> Judgement:
     # この通話で目的のお客様が後任の方に替わった（お呼びした方が在籍しておらず、業務の応じ方が「後任の方をお呼びする」）：これからの
     # 電話は後任のご担当者様をお呼びする（次の動きが、この印で予定と予約証に印を付ける。call_report.turned_to_successor の1か所。
     # 2026-10-22 ユーザー：「基本は後任へつないでもらう」）
-    if r and r.turned_to_successor:
+    if r and r.turned_to_role:
+        detail["role_call"] = True   # 後任の方もいらっしゃらず、その役職の方へ切り替えた：これからの電話は、はじめから役職の方をお呼びする（CL-1 の連絡帳 4-213 の (イ)）
+    elif r and r.turned_to_successor:
         detail["successor"] = True
     asked = _asked(inp)   # 伺った業務の事実（目的のお客様だと確かめられなかった通話は無い＝(3)〜(5) を読まない）
     # (3) 範囲外

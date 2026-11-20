@@ -816,7 +816,9 @@ class Shapes(unittest.TestCase):
                  # （1回分の終わりはこちらが作った端＝口にした端ではない。見直し18c の (2)）
                  (replace(callback("later", time=said), until_why="unavailable"), [15 * 3600, 24 * 3600], [True, False]),
                  (replace(callback("later", time=said), until_why="preparing"), [15 * 3600, 15 * 3600 + 1800], [True, False]),
-                 (replace(callback("later", time=said), until_why="other_party"), [0, 15 * 3600], [False, True])]
+                 (replace(callback("later", time=said), until_why="other_party"), [0, 15 * 3600], [False, True]),
+                 # それまでなら出られる（「3時までなら大丈夫です」に伺い直して「はい」。✅ 2026-11-20 ユーザー「伺い63：ア」＝今から3時まで）
+                 (replace(callback("later", time=said), until_why="available_until"), [0, 15 * 3600], [False, True])]
         for cb, daily, edges in cases:
             with self.subTest(reason=cb.reason, until_why=cb.until_why):
                 j = run(items={}, rep=report(callback=cb))
@@ -825,7 +827,7 @@ class Shapes(unittest.TestCase):
         j = run(items={}, rep=report(callback=callback("later", time=said)))   # 理由が分からない（「3時までなら大丈夫です」だけ）
         self.assertEqual((j.state, j.detail["unknown_cause"]), ("unknown", "callback_time_unconfirmed"))
         # 決め方は設定から：それまでは出られない、を「今から」にした業務
-        other = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "slot_after")))
+        other = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "slot_after"), ("available_until", "now")))
         j = judge(JudgeInput(TALKED, report(callback=callback("absent", time=said)), {}, RULES, callee=other,
                              anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
         self.assertEqual(j.detail["callback"]["daily"], [0, 15 * 3600])

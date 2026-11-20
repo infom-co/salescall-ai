@@ -244,6 +244,9 @@ class Claim:
     earlier_when: str | None = None  # この電話で会話へ渡す前の通話の答えを取った、いちばん新しい電話が今日か（same_day／later。答えが無ければ None。決めるのは
     #                                core/apology.earlier_when の1か所）。引き継ぎを確かめる一言「先日（先ほど）お話しさせていただいた方から…」の言い分け
     #                                （CL-1 の連絡帳 4-148）。担当の方が替わった電話（handover）でも渡る（apology_when は同じ担当の期の話せた電話なので None）
+    role_call: bool = False        # 目的のお客様の代わりに、その役職の方をお呼びする（前の電話で、お呼びした方が在籍しておらず、後任の方も
+    #                                いらっしゃらなかった。次の予定の印 role_call を写す。0261。✅ 2026-11-20 ユーザー「伺い69」＝CL-1 の連絡帳 4-213）。
+    #                                successor と両方は立たない。会話の処理（CL-1）は、これを読んで役職の方をお呼びする（名前の録音の役職の部分）
 
 
 @dataclass(frozen=True)
@@ -973,7 +976,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (1) 次の予定（Q4 の記録を読むだけ）
     nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at,"
-                 "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, cut_call, successor, handover,"
+                 "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, cut_call, successor, role_call, handover,"
                  "       salescall.number_again_of(purpose, number_again) AS number_again,"   # 前の予定の読み替えは1か所（0136）
                  "       salescall.jst(window_from) AS window_from, window_said, window_day_said,"
                  "       salescall.jst(window_recover_until) AS window_recover_until,"
@@ -1231,4 +1234,4 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
                  nxt["purpose"], row["wrong_phone"], voice, reasons, bool(nxt["promised"]),
                  bool(nxt["successor"]), nxt["number_again"], apology_when=when, apology_call=said, apology_text=sorry,
                  judge_route=row["judge_route"], handover=bool(nxt["handover"]),
-                 earlier_when=apology.earlier_when(tx, task["task_id"], row["attempt_id"]))
+                 earlier_when=apology.earlier_when(tx, task["task_id"], row["attempt_id"]), role_call=bool(nxt["role_call"]))

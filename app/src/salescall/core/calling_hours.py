@@ -268,7 +268,7 @@ def _union(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
 # now＝今から〇時まで／after＝〇時から（「〇時以降」と同じ）／slot_after＝〇時から1回分（exact_slot）
 UNTIL_RULES = ("now", "after", "slot_after")
 UNTIL_SETTINGS = {"other_party": "callback.until_other_party", "unavailable": "callback.until_unavailable",
-                  "preparing": "callback.until_preparing"}   # 「〇時まで」の理由（call_report.UNTIL_WHYS）→ その決め方の設定
+                  "preparing": "callback.until_preparing", "available_until": "callback.until_available"}   # 「〇時まで」の理由（call_report.UNTIL_WHYS）→ その決め方の設定
 
 
 @dataclass(frozen=True)
