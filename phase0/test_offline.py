@@ -36625,10 +36625,10 @@ class DateTimePairsTest(unittest.TestCase):
             self.dated(f, hour=10)
             self.assertEqual(self.heard(t.yes(f, qid)), "ありがとうございます。" + self.HALF, kind)
             f, qid = t.asked(kind)
-            # 午後3時：午前は過ぎた＝午前と午後は伺わず（午後を伺わずに入れる）、1時間あとからの時刻2つ。伺わずに入れた午後は、はじめの2択の頭で言う
-            # （分身 V の3回目＝VLadderStartTest。⛔ 6fbefb08 まで「ありがとうございます。4時と5時では…」）
+            # 午後3時：午前は過ぎた＝午前と午後は伺わず、1時間あとからの時刻2つ。いまの時刻で外れて残った午後は、お客様にも分かっている＝言わない
+            # （分身 V の4回目＝VLadderKnownTest。bedfc3a4 だけ「それでは午後でしたら4時と5時では…」）
             self.dated(f, hour=15)
-            self.assertEqual(self.heard(t.yes(f, qid)), "ありがとうございます。それでは午後でしたら" + self.pair("4時", "5時"), kind)
+            self.assertEqual(self.heard(t.yes(f, qid)), "ありがとうございます。" + self.pair("4時", "5時"), kind)
         # 手短にの H3 の「はい」（答えの段）
         o = BriefOfferRulesTest()
         f = o.asked()
@@ -45009,3 +45009,45 @@ class VLadderStartTest(unittest.TestCase):
             r = g.turn(f, "はい、しています。", g.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
             self.assertEqual(heard_words(r), "承知しました。" + want)
             self.assertEqual(r["play"][-1]["kind"], "said", free)
+
+
+class VLadderKnownTest(unittest.TestCase):
+    """日時の2択の続き（分身 V の4回目。CL-1 が書いてある決まりに当てて決めた＝伺わない。2026-11-20 日本時間18時台の CL-1 の頼み）：伺わずに入れた所を言うのは、
+    お客様がまだ知らない所だけ（お客様がもう分かっていることを言い足すと、話を聞いていないように聞こえる＝10-29「「確かめが1回増える」のは安全でなく、相手からの不信ですよ！」・
+    9-3「取得済みのことを重ねて聞かない」と同じ理由）：
+    (a) 今日の話で、いまの時刻でもう過ぎた時間帯が外れて1つだけ残った時間帯（午後3時の電話の「後ほど」の午後）は言わない。空いている予定で外れて残った所（午前10時の電話で
+        午前に空きが無い午後）は今までどおり言う。見分けは候補を作る今の1か所 ladder_hours（flowctl.ladder_half_past）
+    (b) 曜日・日付の名前を並べる2択の前の「平日」「土日」は言わない（2択の言葉で分かる）。時刻の2択の前の時間帯は言う（「2時と4時」は午前か午後かを言葉で持たない）
+    ⛔ bedfc3a4 まで「ありがとうございます。それでは午後でしたら4時と5時では…」（午後3時）・「それでは平日でしたら金曜日と火曜日では…」"""
+    d = DateTimePairsTest()
+
+    def later_today(self, hour, free=None, kind="again"):
+        """お呼びする段の「後ほど」（今日の時刻から）の「はい」のあとの、はじめの2択（電話の日 11-19 の hour 時。free＝電話をかけられる日時の空き）。"""
+        t = CallbackOfferRulesTest()
+        f, qid = t.asked(kind)
+        self.d.dated(f, hour=hour)
+        if free is not None:
+            f.call_free = free
+        return self.d.heard(t.yes(f, qid))
+
+    def test_a_half_left_by_the_clock_is_not_said(self):
+        for kind in ("again", "promise"):
+            self.assertEqual(self.later_today(15, kind=kind), "ありがとうございます。" + self.d.pair("4時", "5時"), kind)
+            # 空きが午後だけでも、午後3時ならもう過ぎた午前が外れた（お客様にも分かっている）
+            self.assertEqual(self.later_today(15, (("2026-11-19", "13:00", "18:00"),), kind), "ありがとうございます。" + self.d.pair("4時", "5時"), kind)
+
+    def test_a_half_left_by_the_schedule_is_said(self):
+        # 午前10時の電話で午前に空きが無い＝お客様は午前が空いていないことを知らない＝言う
+        self.assertEqual(self.later_today(10, (("2026-11-19", "13:00", "17:00"),)), "ありがとうございます。それでは午後でしたら" + self.d.pair("2時", "4時"))
+        f, r = VLadderSaysTest().started_free((("2026-11-24", "13:00", "17:00"),))
+        self.assertEqual(self.d.heard(r), "承知しました。それでは火曜日の午後でしたら" + self.d.pair("2時", "4時"))
+
+    def test_weekdays_before_the_day_pair_are_not_said(self):
+        from flowctl import LADDER_OTHER_UNSURE as U
+        # 平日だけ空いている：平日と土日は伺わず、曜日の2択（平日とは言わない）
+        f, r = VLadderSaysTest().started_free((("2026-11-20", "09:30", "17:00"), ("2026-11-24", "09:30", "17:00")))
+        self.assertEqual(self.d.heard(r), "承知しました。" + self.d.pair("金曜日", "火曜日"))
+        # 片方だけ合わない（ウ）の「土日はちょっと…。」で平日を伺わずに入れた：曜日の2択の言葉で平日と分かる＝言わない
+        g, _ = self.d.first()
+        r = U2LadderOneSideTest.side(g, "土日はちょっと…。", "土日", (U, U))
+        self.assertEqual(self.d.heard(r), "かしこまりました。それでは" + self.d.pair("金曜日", "火曜日"))

@@ -841,6 +841,14 @@ def ladder_hours(s: dict, ctx: LadderCtx, half: str) -> tuple:
     return tuple(sorted(out))
 
 
+def ladder_half_past(s: dict, ctx: LadderCtx, half: str) -> bool:
+    """時間帯 half が、いまの時刻だけで外れたか（唯一の見分け＝伺わずに入れた所を言うか Flow._ladder_set。候補を作る1か所 ladder_hours で見る）：空いている予定を見ずに、
+    いまの時刻を入れると候補が無く、入れなければある＝今日のもう過ぎた時間帯（午後3時の電話の午前）。お客様にも分かっている。空いている予定で外れた（午前10時の電話で
+    午前に空きが無い）・今日でない日は偽（お客様は知らない）。分身 V の4回目（CL-1 が決まりに当てて決めた）"""
+    plain = dataclasses.replace(ctx, free=())
+    return not ladder_hours(s, plain, half) and bool(ladder_hours(s, dataclasses.replace(plain, minute=None), half))
+
+
 def ladder_step(s: dict, ctx: LadderCtx) -> tuple | None:
     """日時の2択の段で、まだ決まっていない最初の所と、その候補（唯一の決まり）：(段, 候補)。段は平日と土日（kind）→ 曜日（day）→ 午前と午後（half）→ 時刻（clock）の順で、
     お客様がもう言った所は飛ばす（場面C）。時刻まで決まった・「いつでも」・候補が無い（その日に、かけられる時刻が無いなど）なら None（伺えた所までの値で受け取る）。
@@ -16695,7 +16703,7 @@ class Flow:
     def _ladder_set(self, qid: str, since: dict | None = None) -> tuple | None:
         """いまの段の質問の文・録音の名前・会話AIの声かを置き換える唯一の場所（判定に見せる質問・流す質問・伺い直し・急かされたときの「承知しました。」＋いまの質問は、
         みなこの文を読む）。候補が1つだけの段は伺わずに入れる。決まった（時刻まで・「いつでも」・候補が無い）なら None（文は替えない）。
-        伺わずに入れた所（日・午前と午後・平日と土日）と、片方だけ合わないのエで受け取った避けなかった方（since＝受け取る前の分かっている所＝_ladder_kept）を、その2択の頭
+        伺わずに入れた所（日・午前と午後・平日と土日。お客様がまだ知らない所だけ＝下の (a)(b)）と、片方だけ合わないのエで受け取った避けなかった方（since＝受け取る前の分かっている所＝_ladder_kept）を、その2択の頭
         「それでは（入れた所）でしたら」（phrases.ladder_kept_head の1か所・言葉は ladder_value の1か所）で言う。はじめの2択（段を始めて最初に伺う2択＝_ladder_begin・伺い62 の
         初めて伺うとき・言い直しを違うと言われて伺い始めの所から）も、お答えのあとの次の2択（_ladder_take・_ladder_neither・_ladder_kept）も同じ。依頼者の日時の質問の伺い始めの形は
         ladder_opening の1か所（聞くことの頭「ご来店は」と、頭のつなぎの言葉「続きまして」は質問の頭を決める今の1か所）。値が入る＝会話AIの声（録音で流す電話でも）
@@ -16716,6 +16724,14 @@ class Flow:
             return None
         q = dataclasses.replace(q, conditions=(*base, *(ladder_side_name(ladder_label(step[0], c, it.ladder, step[1], ctx.today)) for c in step[1])))
         told = {k: it.ladder[k] for k in ("kind", "day", "half", "band", "clock") if k in it.ladder and it.ladder[k] != before.get(k)}
+        # 言うのは、お客様がまだ知らない所だけ（分身 V の4回目＝CL-1 が決まりに当てて決めた。お客様がもう分かっていることを言い足すと、話を聞いていないように聞こえる＝
+        # 10-29・9-3 と同じ理由）：(a) 今日の、いまの時刻でもう過ぎた時間帯が外れて残った時間帯（ladder_half_past）は言わない (b) 曜日・日付の名前を並べる2択の前の平日・土日は
+        # 2択の言葉で分かる＝言わない（時刻の2択の前の時間帯は言う＝「2時と4時」は午前か午後かを言葉で持たない）。⛔ bedfc3a4 まで「それでは午後でしたら4時と5時では…」（午後3時の
+        # 電話の「後ほど」）・「それでは平日でしたら金曜日と火曜日では…」
+        if told.get("half") in LADDER_HALVES and ladder_half_past(it.ladder, ctx, next(h for h in LADDER_HALVES if h != told["half"])):
+            del told["half"]
+        if step[0] == "day":
+            told.pop("kind", None)
         if opening:
             self.questions[qid] = ladder_opening(q, step[0], step[1], it.ladder, ctx.today, ladder_value(told) if told else "")
             return step
