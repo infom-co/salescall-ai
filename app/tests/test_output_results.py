@@ -220,8 +220,8 @@ class Screen(unittest.TestCase):
     def test_the_hand_over_button_waits_for_a_confirmed_result(self):   # 渡せるかは files.deliverable の1か所（ボタンも渡す処理も）
         page = self.http.get(self.base.replace("/results.csv", "/results")).text
         self.assertIn("確定した結果がまだ無いので、依頼者へは渡せません", page)
-        self.assertRegex(page, r'<button class="btn main" type="submit" disabled>依頼者へ渡す（Excel）')
-        self.assertRegex(page, r'formaction="[^"]+/results.csv" disabled>依頼者へ渡す（CSV）')
+        self.assertRegex(page, r'<button class="btn main" type="submit" disabled>渡すファイルを書き出す（Excel）')
+        self.assertRegex(page, r'formaction="[^"]+/results.csv" disabled>渡すファイルを書き出す（CSV）')
         # 確かめ用の書き出しは、渡すボタンと名前で見分けられ、小窓の奥にある（どちらも「CSV で書き出す」で並んでいた）
         check = page.split("<details class=\"more\"><summary>確かめ用に書き出す", 1)
         self.assertEqual(len(check), 2)

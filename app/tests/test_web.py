@@ -707,6 +707,7 @@ class Web(_World):
             with self.subTest(word=word):
                 self.assertIn(word, home)
         self.assertIn('href="/t/lines"', home)
+        self.assertIn("電話をつなぐ PC がまだありません", home)                  # 回線があって PC が0台＝電話はかからない（全体の1か所で知らせる）
         self.assertIn('href="/t/costs"', home)
 
     def test_nothing_is_never_colored(self):

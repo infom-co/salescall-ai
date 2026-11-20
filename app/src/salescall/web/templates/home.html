@@ -32,9 +32,11 @@
     {{ stat("今日かけた電話", per_client|sum(attribute="dialed")) }}
     <div class="muted hint" style="margin-top:6px">お客様と話した {{ per_client|sum(attribute="talked") }}・目的のお客様と話せた {{ per_client|sum(attribute="reached") }}（日本時間の今日）</div>
   </div>
-  <a class="card" href="/t/lines" style="text-decoration:none;color:inherit">
+  {#- PC が無いと電話はかからない（電話をつなぐのは PC）。回線があって PC が0台なら、することがある＝橙 -#}
+  {% set no_pc = system.lines and not system.pcs %}
+  <a class="card {{ 'attention-wait' if no_pc }}" href="/t/lines" style="text-decoration:none;color:inherit">
     {{ stat("休んでいる回線", system.resting, "wait") }}
-    <div class="muted hint" style="margin-top:6px">使っている回線 {{ system.lines }}本・PC {{ system.pcs }}台{% if system.last_seen %}（最後の合図 {{ time(system.last_seen) }}）{% elif system.pcs %}（まだつながっていません）{% endif %}</div>
+    <div class="muted hint" style="margin-top:6px">{% if no_pc %}電話をつなぐ PC がまだありません（PC が無いと電話はかかりません）。{% endif %}使っている回線 {{ system.lines }}本・PC {{ system.pcs }}台{% if system.last_seen %}（最後の合図 {{ time(system.last_seen) }}）{% elif system.pcs %}（まだつながっていません）{% endif %}</div>
   </a>
   {#- 赤字は、承認待ち（赤字の確認）で目立たせる。ここは色を付けずに、今月の数と、お知らせ中の数を添えるだけ（同じことを2か所で目立たせない） -#}
   {% set deficits = per_client|selectattr("deficit")|list %}
