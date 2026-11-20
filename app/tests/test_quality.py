@@ -262,6 +262,41 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class BusinessMetrics(Base):
+    """業務（と声の型）・期間の指標（core/metrics.business。CL-3 の 57）：数え方は品質の段と同じ1か所（core/metrics.counts）。"""
+
+    def test_the_business_metrics_count_like_the_quality_stage(self):
+        from datetime import timedelta
+        from salescall.core import metrics
+        s = self.fresh(stage_cap=5)
+        start = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"]) - timedelta(minutes=1)
+        self.verified_call(s, VerificationSummary(4, 1, 0), items=[("Q1", "confirmed", None)])   # 1行目：話せて完了
+        u = self.second_row(s)
+        self.verified_call(u, VerificationSummary(2, 0, 0))                                       # 2行目：話せたが取れていない
+        until = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"]) + timedelta(minutes=1)
+        got = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=until))
+        self.assertEqual((got["dialed"], got["talked"], got["completion"]["hits"], got["completion"]["total"]), (2, 2, 1, 2))
+        self.assertEqual((got["ear_disagreement"]["hits"], got["ear_disagreement"]["total"], got["redial"]["hits"]), (1, 6, 0))
+        self.assertIsNotNone(got["average_talk_seconds"])
+        # 品質の段と同じ数（同じ1か所から数える）
+        stage = self.tx(s, lambda tx: quality_stage.metrics(tx, s["version"]))
+        self.assertEqual((stage["ear_disagreement"]["hits"], stage["ear_disagreement"]["total"]),
+                         (got["ear_disagreement"]["hits"], got["ear_disagreement"]["total"]))
+        # 期間の外・ほかの声の型の通話は数えない
+        empty = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=until, until=until + timedelta(days=1)))
+        self.assertEqual((empty["dialed"], empty["completion"]["value"], empty["average_talk_seconds"]), (0, None, None))
+        other = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=until, voice_type="架空の声の型"))
+        self.assertEqual(other["dialed"], 0)
+        # 同じ行の2本目は再発信
+        from tests import support
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：お客様と約束したかけ直し",
+                                                       promised=True))   # 間隔の歯止めは門の試験で見る
+        self.verified_call(s, VerificationSummary(1, 0, 0), items=[("Q1", "confirmed", None)])
+        later = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=until + timedelta(minutes=5)))
+        self.assertEqual((later["dialed"], later["redial"]["hits"]), (3, 1))
+
+
 class Production(Base):
     """本番（検証モードでない業務）の品質の見方：止めない（2026-10-22 ユーザー：「前にも言ったはずで本番は止めない（担当への修正依頼と
     管理者への知らせ）ただし、大問題は止める」）。1件ごとの手当て（その行を終える・判定待ち）と、通話ごとの契約者と管理者への知らせ・

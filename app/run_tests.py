@@ -8557,6 +8557,22 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '    if chosen and not _choosing(tx, business_id):\n        set_choosing(tx, business_id, True)',
      '    pass',
      ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_each_business_delivers_to_its_chosen_destinations_and_auto_writeback_needs_upsert",)),
+    ('業務の指標で、声の型を見ない（ほかの声の型の通話も数える）', 'src/salescall/core/metrics.py',
+     '" AND (%s::text IS NULL OR a.voice_type = %s::text)")',
+     '" AND (%s::text IS NULL OR %s::text IS NOT NULL)")',
+     ("tests.test_quality.BusinessMetrics.test_the_business_metrics_count_like_the_quality_stage",)),
+    ('業務の指標で、期間の始まりを見ない', 'src/salescall/core/metrics.py',
+     'a.claimed_at >= %s AND a.claimed_at < %s"',
+     'a.claimed_at >= %s - interval \'100 years\' AND a.claimed_at < %s"',
+     ("tests.test_quality.BusinessMetrics.test_the_business_metrics_count_like_the_quality_stage",)),
+    ('業務完了率で、行のいちばん新しい判定が完了でない行も数える', 'src/salescall/core/metrics.py',
+     '"        (SELECT count(*) FROM latest WHERE business_state = \'completed\') AS completed,"',
+     '"        (SELECT count(*) FROM latest) AS completed,"',
+     ("tests.test_quality.BusinessMetrics.test_the_business_metrics_count_like_the_quality_stage",)),
+    ('再発信率で、行の2本目からの通話を数えない', 'src/salescall/core/metrics.py',
+     'AND {attempts.dialed(\'b\')})) AS redials,"',
+     'AND false)) AS redials,"',
+     ("tests.test_quality.BusinessMetrics.test_the_business_metrics_count_like_the_quality_stage",)),
 )
 
 
