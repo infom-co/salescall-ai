@@ -917,7 +917,7 @@ def ladder_line(step: str, cands: tuple, s: dict, today=None) -> tuple[str, str,
 LADDER_OPENING = "_ladder_"   # 依頼者の日時の質問を2択で伺い始める形の録音の名前の間（依頼主の単位の録音「番号_ladder_（段）」＝ladder_opening）
 
 
-def ladder_opening(q: "Question", step: str, cands: tuple, s: dict, today=None) -> "Question":
+def ladder_opening(q: "Question", step: str, cands: tuple, s: dict, today=None, told: str = "") -> "Question":
     """依頼者のお客様に日時を選んでいただく質問（伺い62＝Question.ladder の accept）を2択で伺い始める形（唯一の作り方＝段の文を置き換える Flow._ladder_set の伺い始めの所・
     録音の一覧 question_forms＝make_ack_clips.script_table）：その質問の聞くこと（Question.topic「ご来店の日時」→「ご来店は」＝phrases.ladder_topic_head）を2択の頭に入れた文
     （「ご来店は平日と土日のどちらがよろしいでしょうか？」）。頭のつなぎの言葉は業務の質問と同じ1か所（spoken_question＝次の項目は「続きまして」・前の答えで伺う質問は
@@ -926,6 +926,10 @@ def ladder_opening(q: "Question", step: str, cands: tuple, s: dict, today=None) 
     ご来店は平日と土日のどちらがよろしいでしょうか？」）＝分身 P の (5)。顧客獲得型のアポの日時（meeting）は、すぐ前の「聞かせてください」の一続きのお時間の文が聞くことを
     言っている＝この形にしない（重ねない）。⛔ 2f61767d まで「承知しました。金曜日と火曜日ではどちらがよろしいでしょうか？」（何を伺っているか分からない）"""
     text, _, voiced = ladder_line(step, cands, s, today)
+    if told:
+        # 伺わずに入れた所（told＝ladder_value の言葉。Flow._ladder_set）：2択の頭「（入れた所）でしたら」（phrases.ladder_kept_head の1か所。頭のつなぎの言葉は spoken_question が
+        # 付けるので外す）＝値の入る文＝会話AIの声。分身 V の3回目（⛔ 6fbefb08 まで「続きましてご来店は午前と午後の…」の録音で、入れた日を言わなかった）
+        text, voiced = ladder_kept_head(told, question_body(text)), True
     return dataclasses.replace(q, text=ladder_topic_head(q.topic, question_body(text)), recording=f"{q.id}{LADDER_OPENING}{step}", voiced=voiced)
 
 
@@ -16688,13 +16692,15 @@ class Flow:
             # 候補が無い＝今のまま依頼者の文で伺う（電話の日がまだ分からなければ、初めて伺うときに作り直す＝_next_question）
             self.questions[qid], it.ladder, it.ladder_start = self.given.get(qid, q), None, {}
 
-    def _ladder_set(self, qid: str, tell: bool = False, since: dict | None = None) -> tuple | None:
+    def _ladder_set(self, qid: str, since: dict | None = None) -> tuple | None:
         """いまの段の質問の文・録音の名前・会話AIの声かを置き換える唯一の場所（判定に見せる質問・流す質問・伺い直し・急かされたときの「承知しました。」＋いまの質問は、
         みなこの文を読む）。候補が1つだけの段は伺わずに入れる。決まった（時刻まで・「いつでも」・候補が無い）なら None（文は替えない）。
-        tell＝2択のお答えのあとの次の2択（_ladder_take・_ladder_neither・_ladder_kept）：伺わずに入れた所（日・午前と午後・平日と土日）と、片方だけ合わないのエで受け取った
-        避けなかった方（since＝受け取る前の分かっている所）を、次の2択の頭「それでは（入れた所）でしたら」（phrases.ladder_kept_head の1か所・言葉は ladder_value の1か所）で言う
-        （お客様がどの日・どちらの時間帯の2択かを知らないまま伺わない。仮の言い方＝お客様が選んだことにはしない。CL-1 が決まりに当てて決めた＝分身 V の2回目。
-        ⛔ e9ecb65d まで、伺わずに入れた所は言い直しまで言わなかった）"""
+        伺わずに入れた所（日・午前と午後・平日と土日）と、片方だけ合わないのエで受け取った避けなかった方（since＝受け取る前の分かっている所＝_ladder_kept）を、その2択の頭
+        「それでは（入れた所）でしたら」（phrases.ladder_kept_head の1か所・言葉は ladder_value の1か所）で言う。はじめの2択（段を始めて最初に伺う2択＝_ladder_begin・伺い62 の
+        初めて伺うとき・言い直しを違うと言われて伺い始めの所から）も、お答えのあとの次の2択（_ladder_take・_ladder_neither・_ladder_kept）も同じ。依頼者の日時の質問の伺い始めの形は
+        ladder_opening の1か所（聞くことの頭「ご来店は」と、頭のつなぎの言葉「続きまして」は質問の頭を決める今の1か所）。値が入る＝会話AIの声（録音で流す電話でも）
+        （お客様がどの日・どちらの時間帯の2択かを知らないまま伺わない。仮の言い方＝お客様が選んだことにはしない。CL-1 が決まりに当てて決めた＝分身 V の2回目・3回目。
+        ⛔ e9ecb65d まで、伺わずに入れた所は言い直しまで言わなかった。⛔ 6fbefb08 まで、はじめの2択では言わなかった）"""
         it, ctx = self.items[qid], self._ladder_ctx(qid)
         before = dict(it.ladder if since is None else since)
         # 依頼者のお客様に日時を選んでいただく質問（伺い62）の伺い始めの所（まだ何も伺えていない）：聞くことを頭に入れた形（ladder_opening＝分身 P の (5)）
@@ -16709,12 +16715,12 @@ class Flow:
                 self.questions[qid] = dataclasses.replace(q, conditions=base)
             return None
         q = dataclasses.replace(q, conditions=(*base, *(ladder_side_name(ladder_label(step[0], c, it.ladder, step[1], ctx.today)) for c in step[1])))
+        told = {k: it.ladder[k] for k in ("kind", "day", "half", "band", "clock") if k in it.ladder and it.ladder[k] != before.get(k)}
         if opening:
-            self.questions[qid] = ladder_opening(q, step[0], step[1], it.ladder, ctx.today)
+            self.questions[qid] = ladder_opening(q, step[0], step[1], it.ladder, ctx.today, ladder_value(told) if told else "")
             return step
         text, rid, voiced = ladder_line(step[0], step[1], it.ladder, ctx.today)
-        told = {k: it.ladder[k] for k in ("kind", "day", "half", "band", "clock") if k in it.ladder and it.ladder[k] != before.get(k)}
-        if tell and told:
+        if told:
             text, rid, voiced = ladder_kept_head(ladder_value(told), question_body(text)), "", True
         self.questions[qid] = dataclasses.replace(q, text=text, recording=rid, voiced=voiced)
         return step
@@ -16741,7 +16747,7 @@ class Flow:
         if s == before:
             return self._ask_again(qid, self._ask_kind(), f"日時の2択の答えとして読めない値（{value}）")
         start, it.ladder = it.ladder_start, s
-        if (now := self._ladder_set(qid, tell=True)) is None:
+        if (now := self._ladder_set(qid)) is None:
             # 1つの答えで決まった（伺い始めの所から、その答えだけで時刻まで・幅・「いつでも」）なら、お客様の言葉のまま（言い直しで言い方を崩さない＝今までの
             # 答えの受け方と同じ）。いくつかの2択で決まったなら、伺えた所から作る（お客様から折り返していただく日の2択＝伺い67 ア は、伺えた日で伺う前の値を言い直す＝_ladder_end）
             return value if before == start and not s.get("theirs") else self._ladder_end(qid, s)
@@ -16821,7 +16827,7 @@ class Flow:
         it.ladder = s
         it.ask_backs = 0   # 新しい2択（伺い64＝2択ごとに数え直す）
         what = "並べた2つのどちらも合わない" if side is None else f"並べた2つの片方だけ合わない（{ladder_label(name, side, s, cands, ctx.today)}）"
-        if self._ladder_set(qid, tell=True) is None:
+        if self._ladder_set(qid) is None:
             it.set(it.state, f"日時の2択：{what}（{name}）＝残りの1つで決まった")
             return self._ladder_end(qid, it.ladder)
         it.set(it.state, f"日時の2択：{what}（{name}）＝" + ("別の空いている予定から2つ" if side is None else "避けた方だけを外して2つ"))
@@ -16836,8 +16842,8 @@ class Flow:
         label, before = ladder_label(name, kept, it.ladder, pair, today), dict(it.ladder)
         it.ladder = ladder_fill(it.ladder, name, kept, pair, today)
         it.ask_backs = 0
-        # 次の2択の頭「それでは（避けなかった方）でしたら」は、伺わずに入れた所と同じ1か所（_ladder_set の tell・since）
-        if self._ladder_set(qid, tell=True, since=before) is None:
+        # 次の2択の頭「それでは（避けなかった方）でしたら」は、伺わずに入れた所と同じ1か所（_ladder_set の since）
+        if self._ladder_set(qid, since=before) is None:
             it.set(it.state, f"日時の2択：片方だけ合わない・もう一方（{label}）で大丈夫そう＝その答えで決まった")
             return self._ladder_end(qid, it.ladder)
         it.set(it.state, f"日時の2択：片方だけ合わない・もう一方（{label}）で大丈夫そう＝その答えで次の2択")

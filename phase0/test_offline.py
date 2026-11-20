@@ -36625,8 +36625,10 @@ class DateTimePairsTest(unittest.TestCase):
             self.dated(f, hour=10)
             self.assertEqual(self.heard(t.yes(f, qid)), "ありがとうございます。" + self.HALF, kind)
             f, qid = t.asked(kind)
-            self.dated(f, hour=15)   # 午後3時：午前は過ぎた＝午前と午後は伺わず、1時間あとからの時刻2つ
-            self.assertEqual(self.heard(t.yes(f, qid)), "ありがとうございます。" + self.pair("4時", "5時"), kind)
+            # 午後3時：午前は過ぎた＝午前と午後は伺わず（午後を伺わずに入れる）、1時間あとからの時刻2つ。伺わずに入れた午後は、はじめの2択の頭で言う
+            # （分身 V の3回目＝VLadderStartTest。⛔ 6fbefb08 まで「ありがとうございます。4時と5時では…」）
+            self.dated(f, hour=15)
+            self.assertEqual(self.heard(t.yes(f, qid)), "ありがとうございます。それでは午後でしたら" + self.pair("4時", "5時"), kind)
         # 手短にの H3 の「はい」（答えの段）
         o = BriefOfferRulesTest()
         f = o.asked()
@@ -43682,7 +43684,9 @@ class PLadderOpeningTest(unittest.TestCase):
         ch = ChooseWhenLadderTest()
         for free, want in ((ch.FREE, "承知しました。続きましてご来店は金曜日と火曜日ではどちらがよろしいでしょうか？"),
                            (self.WEEKEND, "承知しました。続きましてご来店は平日と土日のどちらがよろしいでしょうか？"),
-                           (self.ONE_DAY, "承知しました。続きましてご来店は午前と午後のどちらがよろしいでしょうか？")):
+                           # 空きが1日だけ＝その日を伺わずに入れる：はじめの2択の頭で言う（分身 V の3回目＝VLadderStartTest。値の入る文＝会話AIの声。
+                           # ⛔ 6fbefb08 まで「続きましてご来店は午前と午後のどちらが…」の録音で、入れた日を言わなかった）
+                           (self.ONE_DAY, "承知しました。続きましてご来店は火曜日でしたら午前と午後のどちらがよろしいでしょうか？")):
             f, r = self.first(free)
             self.assertEqual(heard_words(r), want)
         f, r = self.first(self.WEEKEND)
@@ -44977,3 +44981,31 @@ class VLadderSaysTest(unittest.TestCase):
             self.L.neither(g)
             self.d.answer(g, words, value)
             self.assertEqual(g.items[c1].ladder.get("date"), date, words)
+
+
+class VLadderStartTest(unittest.TestCase):
+    """日時の2択の続き（分身 V の3回目。CL-1 が書いてある決まりに当てて決めた＝伺わない。2026-11-20 日本時間18時台の CL-1 の頼み）：伺わずに入れた所を言うのを、
+    はじめの2択（日時の2択の段を始めて最初に伺う2択）にも当てる（お客様がどの日・どちらの時間帯の2択かを知らないまま伺うと、言い直しまで違う日だと気づけない）。
+    1か所は今のまま（Flow._ladder_set・phrases.ladder_kept_head・ladder_value）。頭の言葉は質問の頭を決める今の1か所（システムの質問＝文の頭の「それでは」のまま・依頼者の
+    日時の質問の伺い始めの形＝ladder_opening の聞くことの頭と spoken_question の「続きまして」）。値が入る＝録音で流す電話でも会話AIの声。
+    ⛔ 6fbefb08 まで、はじめの2択では伺わずに入れた所を言わなかった（空きが金曜日だけ＝「お時間は午前と午後のどちらがよろしいでしょうか？」の録音）"""
+    started_free = VLadderSaysTest.started_free
+    d = DateTimePairsTest()
+
+    def test_the_callback_pair_says_the_filled_day(self):
+        f, r = self.started_free((("2026-11-20", "09:30", "17:00"),))
+        self.assertEqual(self.d.heard(r), "承知しました。それでは金曜日でしたら午前と午後のどちらがよろしいでしょうか？")
+        self.assertEqual([p["kind"] for p in r["play"]][-1], "said")   # 値の入る文＝会話AIの声（録音で流す電話でも）
+        self.assertEqual(f.judge_context()[0].text, "それでは金曜日でしたら午前と午後のどちらがよろしいでしょうか？")
+        f, r = self.started_free((("2026-11-24", "13:00", "17:00"),))   # 日も午前と午後も1つだけ
+        self.assertEqual(self.d.heard(r), "承知しました。それでは火曜日の午後でしたら" + self.d.pair("2時", "4時"))
+
+    def test_the_clients_question_says_the_filled_day(self):
+        # 依頼者のお客様に日時を選んでいただく質問（伺い62）の伺い始めの形：聞くことの頭（「ご来店は」）と頭のつなぎの言葉（「続きまして」）は今のまま
+        c, g = ChooseWhenLadderTest(), OtherCompanyClueSendWayTest()
+        for free, want in (((("2026-11-20", "10:00", "17:00"),), "続きましてご来店は金曜日でしたら午前と午後のどちらがよろしいでしょうか？"),
+                           ((("2026-11-24", "13:00", "17:00"),), "続きましてご来店は火曜日の午後でしたら2時と4時ではどちらがよろしいでしょうか？")):
+            f = c.flow(free)
+            r = g.turn(f, "はい、しています。", g.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+            self.assertEqual(heard_words(r), "承知しました。" + want)
+            self.assertEqual(r["play"][-1]["kind"], "said", free)
