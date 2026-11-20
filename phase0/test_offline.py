@@ -47450,3 +47450,66 @@ class NotAQuestionRestateThirdBackTest(unittest.TestCase):
             Question("V1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), required=True), "100万円で考えています。", "100万円")
         self.assertEqual((f.current, f.awaiting_confirm), ("V1", "V1"))
         self.assertIn(BACK_TO_MIDWAY + "100万円でよろしいでしょうか？", heard_words(third))   # 問いの言い直しは、3回目も「確認の途中でしたので…」＋言い直し
+
+
+class TalkUsedUpKeepsRestatementTest(unittest.TestCase):
+    """分身 P（CL-1 の頼み rv183/P の (2)＝分身 O の書き置き (6-1)）：伺い13 の道（別のお話への伺い直しを使い切った Flow._talk_again → _talk_dash）でも、言い直しの返事待ち
+    （問いでない形「…承っておきますね。」も、問いの形「…でよろしいでしょうか？」も）を「-」にするときは、言い直した値を捨てない（本書 9-5 の 11-15 の見直し (12) の (3)
+    「言い直しは…言い直した値は捨てない」＝L14 と同じ理由）＝「-」にする1か所 _talk_dash の keep（L14 で足した1か所）を渡し、締めの前の念のための確認では、質問ではなく、
+    その言い直しを1回。最終の確かめ・申し出の伺い直しは今のまま（同じ確かめを言い直さずに「-」＝締めの前は質問）。⛔ 直す前は、締めの前の念のための確認で
+    「恐れ入りますが（質問）」と伺い直した＝言い直した値を捨てた"""
+
+    MEET = NotAQuestionRestateThirdBackTest.MEET
+
+    def talks(self, q1, words, value, play=True, final=False):
+        """V1 の言い直しへ、別のお話を3回（2回はその場の回数で戻り、3回目は使い切って「-」）。(f, 3回目の返事, say)。"""
+        from flowctl import Flow, Question
+        from meaning_judge import Reading
+        a = AwayEntryTest()
+
+        def say(f, words, reading, qid, cond=None, op="record_answer", **extra):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", reading)
+            return f.apply(op, {"question_id": qid, **({"condition_id": cond} if op == "record_answer" else {}), **extra})
+
+        f = Flow([Question("Q0", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True), q1,
+                  Question("Q2", self.MEET, "choice", conditions=("オンライン", "訪問"))], play_recordings=play)
+        f.use_checks("judge")
+        say(f, "はい、予約しています。", Reading("はい", firm=True), "Q0", "はい")
+        say(f, words, Reading("答えた", firm=True), "V1", "答えた", value=value)
+        self.assertEqual(f.awaiting_confirm, "V1")
+        if final:
+            f.items["V1"].final = True   # 最終の確かめ（同じ確かめを言い直さない）
+        r = None
+        for _ in range(3):
+            if f.awaiting_confirm != "V1":
+                break
+            a.away(f, "confirm_field", result="no_answer")
+            r = a.talk(f)
+        return f, r, say
+
+    def test_a_used_up_restatement_is_said_again_before_closing(self):
+        from flowctl import Question
+        from meaning_judge import Reading
+        for q1, words, value, said, kept in (
+                (Question("V1", "ご訪問の日にちのご希望はございますでしょうか？", "date", conditions=("答えた",), required=True), "15日あたりですかね。", "15日",
+                 "それでは15日あたりでお考えということで承っておきますね。", "15日あたり"),
+                (Question("V1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), required=True), "100万円で考えています。", "100万円",
+                 "それでは100万円でよろしいでしょうか？", "1000000円")):
+            for play in (True, False):
+                f, third, say = self.talks(q1, words, value, play)
+                self.assertEqual((f.current, f.awaiting_confirm, f.items["V1"].state, f.items["V1"].value), ("Q2", None, "unresolved", kept), (value, play))
+                r = say(f, "オンラインでお願いします。", Reading("オンライン", firm=True), "Q2", "オンライン")
+                self.assertEqual((f.phase, f.current, f.awaiting_confirm, r["result"]), ("rechecking", "V1", "V1", "confirm_required"), (value, play))
+                self.assertTrue(r["say"].endswith(said), (value, play, r["say"]))
+                say(f, "はい、お願いします。", Reading("affirmed", firm=True), "V1", op="confirm_field", result="affirmed")
+                self.assertEqual((f.items["V1"].state, f.export()["V1"]), ("confirmed", kept), (value, play))
+
+    def test_a_final_restatement_is_not_kept(self):
+        from flowctl import Question
+        from meaning_judge import Reading
+        f, _, say = self.talks(Question("V1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), required=True), "100万円で考えています。", "100万円",
+                               final=True)
+        self.assertEqual((f.current, f.items["V1"].state, f.items["V1"].kept_say), ("Q2", "unresolved", None))
+        r = say(f, "オンラインでお願いします。", Reading("オンライン", firm=True), "Q2", "オンライン")
+        self.assertEqual((f.current, r["result"]), ("V1", "recheck"), r.get("say"))
+

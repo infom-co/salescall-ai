@@ -6049,7 +6049,7 @@ class Item:
     # 言い方の段も選ぶ＝お客様の言葉は聞き取れているのに「（値）とおっしゃいましたでしょうか？」にしない）。その場の回数の上限は2つの合わせた数（_on_spot の1か所）
     talk_backs: int = 0
     # 別のお話にお話に沿った受け答え（_waits_after）で応えて、伺い直さずにお返事を待った印（Flow._wait_after_word が付ける）：(応えた発話の番号, その場ではもう
-    # 伺い直さないときの「-」にする理由＝相づちだけなら「-」にして次へ。伺い直せるときは空)。いまの待ちがこの印のものか（応えた発話が自分の言葉で応えた発話＝own_turn と同じ）は Flow._talk_waiting の1か所が読む
+    # 伺い直さないときの「-」にする理由＝相づちだけなら「-」にして次へ。伺い直せるときは空, 「-」にするときに捨てない言い直しの文＝_talk_dash の keep。無ければ None)。いまの待ちがこの印のものか（応えた発話が自分の言葉で応えた発話＝own_turn と同じ）は Flow._talk_waiting の1か所が読む
     talk_waited: tuple | None = None
     led_by: str = ""                  # こちらの直前のひとこと・答えが1つだけに触れた選択肢（Flow._lead_after。戻るときに先に並べる＝伺い16）
     rechecks: int = 0
@@ -11578,15 +11578,19 @@ class Flow:
         # その場の回数を使い切った必須の質問は「-」にして次へ（_dash がお声は聞き取れていた印 dash_heard を覚える）＝締めの前の念のための確認で1回伺う
         # （「はい、恐れ入ります。（聞くこと）をもう一度だけ…」・お知らせは最終の確かめ _accepted_ask。✅ 2026-11-14 日本時間14時31分38秒「●伺い13 3回目は最後に
         # 回したほうがよくないですか？」。⛔ 0bde71ec まで、3回目の別のお話にも、その場で「確認の途中でしたのでもう一度お伺いさせていただきますが」＋質問で伺った）
+        # 言い直しの返事を待っていた（最終の確かめ・申し出の伺い直しは上で外した＝settled）：「-」にしても言い直した値は捨てない＝その言い直しの文を「-」にする1か所
+        # （_talk_dash の keep）へ渡し、締めの前の念のための確認では、質問ではなく、その言い直しを1回（本書 9-5 の 11-15 の見直し (12) の (3)「言い直しは…言い直した値は
+        # 捨てない」＝L14 と同じ理由。問いの形も問いでない形も）。⛔ 分身 P の (2) まで、締めの前は質問を伺い直した（分身 O の書き置き (6-1)）
+        keep = self.awaiting_say if self.awaiting_confirm == qid else None
         self.awaiting_confirm = None
         dash = f"{why}・" + ("最終の確かめ・申し出の伺い直しへのお返事（同じ確かめは言い直さない）" if settled else "必須でない・その場の回数を使い切った（伺い直さない）")
         if waits:
             # その場の回数を使い切った・念のための確認の最中・必須でない・最終の確かめへのお返事でも、お話に沿った受け答えのあとは、続けて「-」にして次へ進まずに
-            # お返事を待つ（同じ理由＝21時04分53秒）。待ったあと相づちだけなら、待つ前の決まりのまま「-」にして次へ（_resume が待った印の dash＝「-」にする理由を読む）。
-            # ⛔ 393f474b まで、ひとことのすぐあとに「続きまして」＋次の質問・締めへ進んだ（見直し (12) の B-7）
+            # お返事を待つ（同じ理由＝21時04分53秒）。待ったあと相づちだけなら、待つ前の決まりのまま「-」にして次へ（_resume が待った印の dash＝「-」にする理由と、
+            # 言い直しの文 keep を読む）。⛔ 393f474b まで、ひとことのすぐあとに「続きまして」＋次の質問・締めへ進んだ（見直し (12) の B-7）
             it.set("unclear", f"{why}・お返事を待つ（その場ではもう伺い直さない）")
-            return self._wait_after_word(qid, said, dash=dash)
-        return self._led(plays, "", self._talk_dash(qid, dash)) | {"quiet": True}
+            return self._wait_after_word(qid, said, dash=dash, keep=keep)
+        return self._led(plays, "", self._talk_dash(qid, dash, keep=keep)) | {"quiet": True}
 
     def _talk_turn(self) -> bool:
         """会話AIの受け答え（replay_opening の talk）そのものが応え方になる番か（唯一の決まり＝受け答えを受け付ける入口 _op_replay_opening・応え方 _own_answer）：申し出への
@@ -11666,15 +11670,15 @@ class Flow:
                else self.phase == "rechecking" and bool(self.recheck_queue))
         return "next" if due and (self.phase == "asking" or not all(self._recheck_off(x) for x in self.recheck_queue)) else "close"
 
-    def _talk_dash(self, qid: str, why: str, keep: bool = False) -> dict:
+    def _talk_dash(self, qid: str, why: str, keep: str | None = None) -> dict:
         """別のお話にひとこと応えたあと、その場ではもう伺い直さない質問を「-」にして次へ進む返事（唯一の場所＝_talk_again・お話に沿った受け答えで待ったあとの相づち
         だけのお返事 _resume・問いでない一言へその場で3回目に戻らない _continue）：必須なら締めの前の念のための確認で1回（_dash がお声は聞き取れていた印 dash_heard を
         覚える＝「はい、恐れ入りますが（聞くこと）をもう一度だけ…」）。why＝「-」にする理由（Item の記録）。
-        keep＝お返事を待っていた言い直しの値を捨てない（問いでない言い直しへ、その場で3回目に戻らずに回す＝_continue の言い直しの枝）：その言い直しの文を覚え
-        （Item.kept_say）、締めの前の念のための確認では、質問ではなく、その言い直しを1回（値は Item.value のまま＝本書 9-5 の 11-15 の見直し (12) の (3)「言い直した値は
-        捨てない」。L14）"""
-        if keep and self.awaiting_confirm == qid:
-            self.items[qid].kept_say = self.awaiting_say
+        keep＝お返事を待っていた言い直しの文（言い直した値を捨てない。問いでない言い直しへ、その場で3回目に戻らずに回す＝_continue の言い直しの枝・別のお話への伺い直しを
+        使い切った言い直しの返事待ち＝_talk_again と、そこから待ったあとの _resume）：その言い直しの文を覚え（Item.kept_say）、締めの前の念のための確認では、質問ではなく、
+        その言い直しを1回（値は Item.value のまま＝本書 9-5 の 11-15 の見直し (12) の (3)「言い直した値は捨てない」。L14・分身 P の (2)）"""
+        if keep is not None:
+            self.items[qid].kept_say = keep
         self.awaiting_confirm = None
         self.items[qid].set("unresolved", why)
         return self._dash(qid)
@@ -12265,14 +12269,14 @@ class Flow:
         理由（お話に沿っている＝お客様の返答を待つのが一般的）で待つ（見直し (12) の D-10＝まとめ役が決まりで決めた。⛔ 393f474b まで「それでは」＋質問を続けた）"""
         return self._informs(said) or self._touches(said)
 
-    def _wait_after_word(self, qid: str, said: str, dash: str = "") -> dict:
+    def _wait_after_word(self, qid: str, said: str, dash: str = "", keep: str | None = None) -> dict:
         """別のお話にお話に沿った受け答え（_waits_after）で応えた：伺い直しを続けずに、ひとことだけ言ってお客様のお返事を待つ返事（唯一の場所＝_aside_again・
         _talk_again）。待ったあとは、お客様に尋ねられて答えたあとと同じ1か所：答えなら受け取る（_reply_may_answer）・相づちだけなら質問に戻る（_resume＝戻る
         1か所 _continue が、同じ所への戻りの回数で一言を選ぶ＝1回目は「はい、」＋意向が分からないまま戻る形・2回目からは戻る一言）・また別のお話なら次の別のお話の番
         （_offer_unlinked が、この待ちの間も当てる＝_talk_waiting）。dash＝その場ではもう伺い直さないときの「-」にする理由（使い切った・念のための確認の最中など＝
-        _talk_again）：相づちだけなら「-」にして次へ（_talk_dash）。相づちは付けない（ひとことから始まる＝伺い直すときと同じ）。ひとことが1つだけに触れた選択肢は、戻るときに先に並べる
+        _talk_again）：相づちだけなら「-」にして次へ（_talk_dash。keep＝そのとき言い直した値を捨てない言い直しの文＝_talk_dash の keep）。相づちは付けない（ひとことから始まる＝伺い直すときと同じ）。ひとことが1つだけに触れた選択肢は、戻るときに先に並べる
         （_lead_after・伺い16）。黙られたら、黙ったときの場面「お返事を待つ間」（_turn_done の silence_scene＝QUIET_STEPS・on_silence）"""
-        self.items[qid].talk_waited = (self.callee_turns, dash)
+        self.items[qid].talk_waited = (self.callee_turns, dash, keep)
         self._lead_after(qid, said)
         self._await_reply("talk")
         return {"result": "own_answer", "say": said, "quiet": True, "message": f"{say_note(said)}{self._own_then()}"}
@@ -12640,7 +12644,7 @@ class Flow:
                 # （_talk_dash の keep＝締めの前の念のための確認で、その言い直しを1回。本書 9-5 の 11-15 の見直し (12) の (3)）。⛔ 50d51fd0 まで、何回目も2回目の一言
                 # 「それではもう一度確認させていただきますね。」＋同じ言い直し（L14＝分身 N の書き置き (7-1)）
                 return self._led(play, "", self._talk_dash(self.awaiting_confirm, "問いでない言い直しへ、その場で3回目に戻る（伺い13 と同じ理由で締めの前へ回す・"
-                                                           "言い直した値は保つ）", keep=True))
+                                                           "言い直した値は保つ）", keep=self.awaiting_say))
             back = [] if fresh else self._back_play(digressed or soft, asks=asks)
             # 手短にお伺いする一言（_brief_go の1か所。戻る一言があれば流さない＝質問へ戻るときと同じ）
             go = [] if back else self._brief_go(self.questions.get(self.awaiting_confirm), shown)
@@ -12863,7 +12867,7 @@ class Flow:
             # その場ではもう伺い直さない質問（使い切った・念のための確認の最中など＝_talk_again）へのお話に沿った受け答えで待ったあとの相づちだけのお返事：待つ前の
             # 決まりのまま「-」にして次へ（_talk_dash。見直し (12) の B-7）
             self.items[self.current].led_by = ""
-            return self._talk_dash(self.current, waited[1]) | {"talked": True}
+            return self._talk_dash(self.current, waited[1], keep=waited[2]) | {"talked": True}
         # 別のお話にお話に沿った受け答えで応えて待ったあと（_wait_after_word）・尋ねられて答えたあと（ASKED_REPLY）の相づちだけのお返事：話はいまの質問から移って
         # いない＝その質問へ戻る（戻る1か所 _continue が同じ所への戻りの回数で一言を選ぶ＝1回目は一言を付けずに意向が分からないまま戻る形・2回目からは戻る一言）。
         # お客様の意向はまだ分からないので、戻る一言の無い戻りは「それでは」を付けない（_continue の soft）。待つ前のひとこと・答えが1つだけに触れた選択肢を先に並べる
