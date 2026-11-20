@@ -18,7 +18,7 @@ import functools
 from flowctl import (ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_NONE, ABOUT_WRONG, ABSENT_WHY, ABSENT_WHY_NOT_SAID, AWAY, END, END_NONE, HEAR, HEAR_OK, OFFER,
                      OFFER_NOT_SAID, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, HESITATING, KEEP_ON,
                      END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PHONE, PHONE_NONE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
-                     REFUSED_LABEL, REPEAT, SPEAKER, SPEAKER_SAME, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHO, WHO_RECEPTION, WHY_NOT_SAID, WRONG,
+                     REFUSED_LABEL, REPEAT, HEAR_LOST, SPEAKER, SPEAKER_SAME, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHO, WHO_RECEPTION, WHY_NOT_SAID, WRONG,
                      WRONG_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question, ladder_side_name, pain_question, since_form)
 from grounding import TOUCHED, UNTOUCHED, one_touched
 from meaning_judge import UNDECIDED, WITHDREW
@@ -198,6 +198,10 @@ def answer_words() -> list[dict]:
          "set": "D"},
         {**_row("R8", "はい、大丈夫です。", ["affirmed"], AWAY_NO, asked=budget_again, why="言い直しを認めた＝答えの話（答えは合っている。分身 N の行）"),
          "set": "D"},
+        # 分身 N の行の「うーん、どうでしょうねえ。」（前は答えが決まらず TO_READERS）：束 s の #26＝読み手2人とも答えは「決められない」「考えている途中」「迷っている」・答えの話・
+        # こちらへ尋ねた問いは無い＝そろった読みで表に入れた（分身 S3 の続き (3)）
+        {**_row("R8", "うーん、どうでしょうねえ。", [UNDECIDED, THINKING, HESITATING], AWAY_NO, asked=budget_again, reason=WHY_HESITATING,
+                why="言い直しへの迷い・言いよどみ（rv178/S3/readers の束 s の #26 の読み手2人がそろった）"), "set": "D"},
         {**_row("R7", "そういえば来週は祝日なんですよ。", [UNDECIDED], AWAY_YES, asked=accepted, why="最終の確かめへの別のお話（分身 N の行）", reason=WHY_OTHER),
          "set": "D"},
         {**_row("R7", "あ、はい、分かりました。", ["はい"], AWAY_NO, asked=accepted, why="最終の確かめへのご了承＝答えの話（分身 N の行）"), "set": "D"},
@@ -351,16 +355,19 @@ PREP3_ROWS = [
          why=f"待っていただく一言へのお返事だけ＝候補のとおり{_WAIT_TRUTH}。別のお話かは同じ（答えの話）"),
     _row("R1", "はい、大丈夫です。あ、それとお支払いはカードで。", ["カード"], AWAY_NO, prompt=PROMPT_REPLY_NO, scene=WAIT_SCENE, value="カード",
          why=f"お返事だけではない＝候補のとおり{_WAIT_TRUTH}。待つことに応えたあと、支払いの答えを「カード」と言った（答え＝カード）"),
-    _row("R1", "すみません、ちょっと聞こえなかったんですけど。", [REPEAT], AWAY_NO, prompt=PROMPT_REPLY_NO, scene=WAIT_SCENE,
+    {**_row("R1", "すみません、ちょっと聞こえなかったんですけど。", [REPEAT], (AWAY_NO, UNDECIDED), prompt=PROMPT_REPLY_NO, scene=WAIT_SCENE,
          why="待っていただく一言が聞こえなかったと言った＝もう一度言ってほしい（帳面 1 の (1) の 11-19 日本時間23時台の段＝伺い76 の試しの言葉そのまま・説明「直前にこちらが言ったこと"
              "（…お待ちいただくようにお願いしたことなど）が聞こえなかった…と言ったのも」）。声かけへのお返事だけではない（説明の「お返事だけ＝待ってよい・分かった、と言っただけ」に"
-             "当たらない＝聞こえなかったと言った）"),
+             "当たらない＝聞こえなかったと言った）。束 s の #4：別のお話かは読み手2人とも「答えの話」「決められない」の両方＝境目にした・こちらの声が届いていない様子かは2人とも"
+             "「届いていない様子」（聞こえなかったと言った＝10-30 の管理者のご決定の材料）＝替えた（直す前の値＝答えの話／そういう様子は無い）。声かけへのお返事だけかは読み手の1人が"
+             "決められないも挙げた＝説明の文で決めたまま"), "hear_truth": HEAR_LOST},
     # (2) 待つかかけ直すかの伺い H2（支払いの質問に「上司に相談してみるので、少し待っていてください。」と言われて伺った所＝g53_meaning._wait_ask_scene）
     _row("H2", "そういえば、うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, reason=WHY_OTHER,
          why="H2 と関わりのないご事情＝別のお話（帳面 1 の (1) の 11-19 日本時間21時06分08秒の段の (b)＝分身 AG の flowctl.AWAY_ROLES の試しの言葉そのまま）"),
-    _row("H2", "うーん、どうしようかな。", [UNDECIDED], AWAY_NO, reason=WHY_OTHER,
+    _row("H2", "うーん、どうしようかな。", ["unknown", UNDECIDED, THINKING], AWAY_NO, reason=WHY_HESITATING,
          why="H2 への迷い＝答えの話（決められない）（同じ (b) の試しの言葉と正解の候補そのまま）。⏳ 「考えている途中」（「はい。」で待つ）との境目は、答えを伏せた読み手2人で"
-             "確かめる（前は正解を付けずに TO_READERS＝見直し (13) の D8。11-07 日本時間18時台に業務の質問の「うーん、どうしようかな」へ考えている途中を足したのは H2 の場面ではない）"),
+             "確かめる（前は正解を付けずに TO_READERS＝見直し (13) の D8。11-07 日本時間18時台に業務の質問の「うーん、どうしようかな」へ考えている途中を足したのは H2 の場面ではない）。"
+             "束 s の #6：読み手2人とも「わからない」「決められない」「考えている途中」の3つ・理由は「まだ決まっていない」も＝そろった読みにした（直す前の値＝[決められない]）"),
     # (3) 伺ったあと黙られて「もしもし？」を流したあと（場面＝g53_meaning._played_flow の支払いの質問のあと _quiet。正解に「声かけへのお返事だけか」がある行＝prompted_row）
     _row("R1", "はい", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, reason=WHY_OTHER,
          why=f"「もしもし？」へのお返事だけ（電話口にいる）。支払いの質問には答えていない＝決められない{_MOSHI_TRUTH}"),
@@ -372,31 +379,35 @@ PREP3_ROWS = [
     _row("R1", "あ、すみません、カードで", ["カード"], AWAY_NO, prompt=PROMPT_REPLY_NO,
          why=f"「もしもし？」に応えて支払いの質問に答えた（カード）＝お返事だけではない{_MOSHI_TRUTH}"),
     # (4) 尋ねられて答えたあと（ANSWERED_SCENE＝ご承認のお知らせのあとの「そういえば御社って駐車場ありましたっけ？」に会話AIが答えた所＝お客様に聞こえるのは「はい、店舗の前に駐車場がございます。」）
-    _row("R7", "はい、分かりました。", ["はい", UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, scene=ANSWERED_SCENE, reason=WHY_OTHER,
+    _row("R7", "はい、分かりました。", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, scene=ANSWERED_SCENE, reason=WHY_OTHER,
          why="こちらの答えへのお返事だけ（ご了承ではない）＝帳面 1 の (1) の分身 R13C の段の (a) の試しの言葉と正解そのまま（✅ 2026-11-13 日本時間20時06分19秒「「あ、はい、分かりました。」は、"
-             "…に対して答えてる可能性がある」）。答えの項目は、お知らせのご了承の「はい」とも、決められないとも読める＝どちらも正解（お返事だけなら、どちらの読みでも最終の確かめ）"),
+             "…に対して答えてる可能性がある」）。束 s の #11：答えは読み手2人とも「決められない」だけ（注意書き「お返事だけで、質問への答えをはっきり言っていなければ「決められない」」）"
+             "＝そろった読みにした（直す前の値＝[はい, 決められない]）"),
     _row("R7", "分かりました。キャンセルの件も大丈夫です。", ["はい"], AWAY_NO, prompt=PROMPT_REPLY_NO, scene=ANSWERED_SCENE,
          why="こちらの答えに応え、お知らせ（キャンセル）も了承した＝答え「はい」・お返事だけではない（同じ (a) の試しの言葉と正解そのまま）"),
-    _row("R7", "え、何ておっしゃいました？", [REPEAT], AWAY_NO, prompt=PROMPT_REPLY_NO, scene=ANSWERED_SCENE,
+    {**_row("R7", "え、何ておっしゃいました？", [REPEAT], (AWAY_NO, UNDECIDED), prompt=PROMPT_REPLY_NO, scene=ANSWERED_SCENE,
          why="こちらの答えが聞き取れなかった＝もう一度言ってほしい（帳面 1 の (1) の 11-19 日本時間23時台の段＝伺い76 の試しの言葉「お答え「はい、店舗の前に駐車場がございます。」への"
              "「え、何ておっしゃいました？」」そのまま）。こちらへ尋ねた問いは無い（言い直しを頼んだだけ＝正解の表の HEAR の「すみません、今なんて言いました？」と同じ）。声かけへの"
              "お返事だけではない（説明の「お返事だけ＝分かった、と言っただけ」に当たらない・「こちらに尋ねた など」はお返事だけではない側。お返事だけと読むと、流れの制御は答えを"
-             "言い直さずに最終の確かめへ進む）"),
+             "言い直さずに最終の確かめへ進む）。束 s の #13：#4 と同じ（別のお話かは境目・届いていない様子に替えた）"), "hear_truth": HEAR_LOST},
     # (5) 申し出の最終の確かめ（OFFER_FINAL_SCENE＝パンフレットの申し出に「うーん、送ってもらおうかな…。」→ 言い直し → 「送ってもらったほうがいいですかね？」に答えた → 「そうなんですね。」→
     #     「はい、それではパンフレットをお送りさせていただきましょうか？」）
     _row("R9", "そういえば来週は祝日なんですよ。", [UNDECIDED], AWAY_YES, scene=OFFER_FINAL_SCENE, reason=WHY_OTHER,
          why="最終の確かめと関わりのないご事情＝別のお話（帳面 1 の (1) の分身 N の段の申し出の最終の確かめ「それでは資料をお送りさせていただきましょうか？」への試しの言葉と正解そのまま。"
              "申し出は試しの表のパンフレットの申し出＝同じ形の最終の確かめ）"),
-    _row("R9", "うーん、どうしようかな。", [UNDECIDED], AWAY_NO, scene=OFFER_FINAL_SCENE, reason=WHY_OTHER,
-         why="最終の確かめへの迷い＝答えの話（決められない）（同じ段の試しの言葉と正解そのまま）"),
+    _row("R9", "うーん、どうしようかな。", [THINKING, HESITATING], AWAY_NO, scene=OFFER_FINAL_SCENE, reason=WHY_HESITATING,
+         why="最終の確かめへの迷い＝答えの話（帳面の段の候補は「決められない」）。束 s の #15：読み手2人とも「考えている途中」「迷っている」の2つ＝言い終えた迷い（迷っている）と"
+             "言いよどみ（考えている途中）の境目（✅ 2026-11-07 日本時間18時03分49秒「(1) ア、(2) イ」＝言い終えた「迷っています。」と言い終えていない「うーん、どうしようかな…。」）"
+             "＝お答えで決まる2つを正解にした（直す前の値＝[決められない]）"),
     # (6) 受けていただいた申し出から始まった質問の途中の取り消し（帳面 1 の (1) の伺い40 の段の試しの言葉と正解そのまま。取り消しの言葉は、電話を終える言葉でも答えたくないでもない＝
     #     電話を終える言葉かは「言っていない」・答えは「申し出を取り消した」。時刻の伺いは日時の2択の段＝もう一方で大丈夫そうかは、片方だけ合わないの読みでない行＝言っていない）
     _row("C1", "あ、やっぱりかけ直していただかなくて結構です。", [WITHDREW], AWAY_NO, scene=WITHDRAW_TIME_SCENE, other=LADDER_OTHER_NOT,
          why="受けていただいたかけ直しの申し出を取り消した（伺い40 の段の時刻の質問への試しの言葉そのまま）"),
-    _row("C1", "やっぱりいいです。", [WITHDREW], AWAY_NO, scene=WITHDRAW_TIME_SCENE, other=LADDER_OTHER_NOT,
-         why="受けていただいたかけ直しの申し出を取り消した（同じ）"),
-    _row("C1", "すみません、やっぱりやめておきます。", [WITHDREW], AWAY_NO, scene=WITHDRAW_TIME_SCENE, other=LADDER_OTHER_NOT,
-         why="受けていただいたかけ直しの申し出を取り消した（同じ）"),
+    _row("C1", "やっぱりいいです。", [WITHDREW], AWAY_NO, scene=WITHDRAW_TIME_SCENE, other=LADDER_OTHER_NOT, end=(END_NONE, UNDECIDED),
+         why="受けていただいたかけ直しの申し出を取り消した（同じ）。束 s の #17：電話を終える言葉かは読み手2人とも「言っていない」「決められない」（何をやめるかを言わない短い言葉＝"
+             "決められないの説明「断りらしい言葉でも…言葉から決まらないときも」と、言っていないの説明「前の質問でこちらが申し出たこと…を、断った」の2つの決まりが当たる）＝境目にした"),
+    _row("C1", "すみません、やっぱりやめておきます。", [WITHDREW], AWAY_NO, scene=WITHDRAW_TIME_SCENE, other=LADDER_OTHER_NOT, end=(END_NONE, UNDECIDED),
+         why="受けていただいたかけ直しの申し出を取り消した（同じ）。束 s の #18：#17 と同じ境目"),
     _row("C1", "時間はちょっと分からないです。", ["unknown"], AWAY_NO, scene=WITHDRAW_TIME_SCENE, other=LADDER_OTHER_NOT, reason=(DONT_KNOW_LABEL["unspecified"],),
          why="時刻が分からないとだけ言った＝わからない（取り消しではない＝同じ段の試しの言葉と正解そのまま）"),
     _row("R10", "あ、やっぱりパンフレットはいいです。", [WITHDREW], AWAY_NO, scene=WITHDRAW_SEND_SCENE,
@@ -447,10 +458,7 @@ CALLING_WORDS = [
 
 # 正解が言葉・説明の文・ご決定から決まらない試しの言葉（正解を付けない＝答えを伏せた読み手へ回す。数えには入れない）。場面は answer_words と同じ形（qid の質問）
 TO_READERS = [
-    {"set": "D", "maker": "帳面 1 の (1) の分身 N の行", "qid": "R8", "text": "うーん、どうでしょうねえ。", "asked": None,
-     "why": "帳面には「答えの話」とだけ書かれ、答えは書かれていない。金額の言い直しへのお返事で、「決められない」（「はい、いかがなさいますか？」）・「考えている途中」"
-            "（「はい。」）・「わからない」（「それではまだ確定ではないと承っておきますね。」）で、お客様に聞こえる言葉が分かれる（伺いの候補 (7) のご決定は最初の"
-            "答えの場面＝聞き直しの場面）"},
+    # ⛔ 帳面 1 の (1) の分身 N の行の R8「うーん、どうでしょうねえ。」は、分身 S3 の続き (3) で束 s の #26 の読み手2人の読みを当てて answer_words へ移した
     # ⛔ 見直し (13) の D8 の H2「うーん、どうしようかな。」は、分身 S3 が帳面 1 の (1) の分身 AG の段の候補（答えの話・決められない）で PREP3_ROWS へ移した（同じ言葉を2か所に
     # 持たない。「考えている途中」との境目は、答えを伏せた読み手2人の束 rv178/S3/readers で確かめる）
 ]

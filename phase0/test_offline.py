@@ -7247,8 +7247,10 @@ class MeasureCallingFlowTest(unittest.TestCase):
         import g59_calling_judge as g
         import g59_flow_check as fc
         seen = 0
-        for text, _, _, _, _, facts in g.cases("x"):
-            if text in g.BEFORE_READ:
+        # 候補から移した行（ご事情を伺った一言・詳しい呼ぶ一言・お呼びし直した一言への答え＝LINES_ASKED）は、同じ言葉でも別の一言への答えとして読む＝前の言葉の読みと場面が違う（分身 S3 の続き (3)：候補の48行は答えを伏せた読み手2人の読みで正解の表へ移した＝g59_calling_judge.LINES_ASKED・候補 candidates() は0行）
+        moved = {(c["text"], c["before"]) for c in g._candidate_rows() if c["id"] in g.LINES_ASKED}
+        for text, _, before, _, _, facts in g.cases("x"):
+            if text in g.BEFORE_READ and (text, before) not in moved:
                 seen += 1
                 for k, v in fc.facts(g.BEFORE_READ[text][0]).items():
                     self.assertIn(v, facts[k], (text, k))
@@ -22441,7 +22443,8 @@ class G73WordsTest(unittest.TestCase):
                     r.facts = {fc.key: next(iter(fc.choices)) for fc in q.facets} | {HEAR: HEAR_OK} if q.facets else None
                     out[cid] = (r, None)
                 return out
-            args = N(batch=True, judge=None, judge2="Claude Sonnet 5.5", only=[w["text"] for w in self.WORDS[2:]] + ["はい、岡田です。"], repeat=1,
+            # ふつうの行は表に1つだけの言葉（「はい、岡田です。」は候補から移した行にもある（分身 S3 の続き (3)：候補の48行は答えを伏せた読み手2人の読みで正解の表へ移した＝g59_calling_judge.LINES_ASKED・候補 candidates() は0行））
+            args = N(batch=True, judge=None, judge2="Claude Sonnet 5.5", only=[w["text"] for w in self.WORDS[2:]] + ["岡田は私ですが。"], repeat=1,
                      pace_s=0.0, budget_yen=10.0, env=None, batch_poll_s=0.0, asks_only=False, hide_names=False)
             with m.patch.object(g, "batch_judge", fake_batch), m.patch("common.load_secret", return_value="x"):
                 out = asyncio.run(g.run(args))
@@ -39296,6 +39299,8 @@ class MeasureCallingShownQuestionTest(unittest.TestCase):
                 q, aq = g.judge_questions(r, hide)
                 built = fc.row_scene(r, hide)
                 self.assertEqual((q, aq), (built.judge_context()[0], built.asks_context()[0]), text)
+                if (text, before) in {(x["text"], x["before"]) for x in g._candidate_rows() if x["id"] in g.LINES_ASKED}:
+                    continue   # 候補から移した行は、お客様が最後に聞いた一言（ご事情を伺った一言など）を見せる＝候補の試しと同じ（分身 S3 の続き (3)：候補の48行は答えを伏せた読み手2人の読みで正解の表へ移した＝g59_calling_judge.LINES_ASKED・候補 candidates() は0行）
                 if c.full and before and not asked:
                     # 詳しい呼ぶ一言のきっかけ（どちらの岡田か・お名前だけでは分からない）のあとの行（2026-11-20 rv176/S に候補 S3-5・S4-5 から表へ移した）：
                     # 判定に見せる質問は、部署・フルネームでお呼びし直した一言（候補の試し test_the_inquiry_and_detailed_call_candidates_are_built_in_production_scenes と同じ。
@@ -39313,7 +39318,9 @@ class MeasureCallingShownQuestionTest(unittest.TestCase):
         # 印 inquiry つき・詳しい呼ぶ一言はフルネーム・確かめたあとに答えてお呼びし直した一言は呼ぶ一言）。正解の表（cases）には入れない（指紋は同じ）
         import g59_calling_judge as g
         import g59_flow_check as fc
-        rows = g.candidates()
+        full_moved = {(t, b) for t, b, _, _ in g.LINES_FULL}
+        rows = [r for r in g._candidate_rows() if (r["text"], r["before"]) not in full_moved]
+        self.assertEqual(g.candidates(), [])   # （分身 S3 の続き (3)：候補の48行は答えを伏せた読み手2人の読みで正解の表へ移した＝g59_calling_judge.LINES_ASKED・候補 candidates() は0行）
         # 2026-11-20 rv176/S：S3-5・S4-5 は、答えを伏せた読み手2人の読みで正解の表へ移した（g59_calling_judge.LINES_FULL）＝候補は 19・6・8・5・10 の48行。番号は並びのまま
         self.assertEqual([sum(1 for r in rows if r["scene"] == s) for s in ("S1", "S2", "S3", "S4", "S5")], [19, 6, 8, 5, 10])
         self.assertEqual(len({(r["text"], r["before"], r["asked"], r["full"]) for r in rows}), 48)
@@ -39331,7 +39338,7 @@ class MeasureCallingShownQuestionTest(unittest.TestCase):
             self.assertEqual(aq.text, q.text, r["id"])
             self.assertNotIn("label", r)
         table = {(t, b, bool(a), s) for t, _, b, a, s, _ in g.cases("x")}
-        self.assertFalse(any((r["text"], r["before"], bool(r["asked"]), r["successor"]) in table for r in rows if not r["full"]))
+        self.assertTrue(all((r["text"], r["before"], bool(r["asked"]), r["successor"]) in table for r in rows))   # 48行とも表へ移した
 
     def test_the_words_before_a_candidate_are_read_like_the_answer_table(self):
         # 候補の前の言葉の正しい読み（BEFORE_READ・電話を終える言葉かも）は、その言葉が表の行にもあれば、その行の正解の中
@@ -39340,7 +39347,7 @@ class MeasureCallingShownQuestionTest(unittest.TestCase):
         from flowctl import END
         table = {t: f for t, _, b, a, s, f in g.cases("x") if not b and not a and not s}
         seen = 0
-        for p in {p for r in g.candidates() for p in r["before"].split("／")}:
+        for p in {p for r in g._candidate_rows() for p in r["before"].split("／")}:   # 候補の場面（表へ移した行も）
             code, _, *side = g.BEFORE_READ[p]
             reading = fc.facts(code) | (side[0] if side else {})
             if p in table:
@@ -39426,13 +39433,14 @@ class CallingReadersPacketTest(unittest.TestCase):
         import g59_calling_judge as g
         import g59_readers as rd
         p = rd.packet("a")
-        self.assertEqual(len(p["rows"]), 48)   # 2026-11-20 rv176/S：S3-5・S4-5 は正解の表へ移した（候補の試しの注）
+        self.assertEqual(len(p["rows"]), len(g.candidates()))   # 2026-11-20 rv176/S：S3-5・S4-5 は正解の表へ移した（候補の試しの注）。（分身 S3 の続き (3)：候補の48行は答えを伏せた読み手2人の読みで正解の表へ移した＝g59_calling_judge.LINES_ASKED・候補 candidates() は0行）
         for r, row in zip(g.candidates(), p["rows"]):
             q, aq = g.judge_questions(r)
             self.assertIn(q.text, p["variants"][row["p"]], r["id"])
             self.assertIn(aq.text, p["variants"][row["asks"]], r["id"])
             self.assertEqual(row["talk"][-1], ("お客様", r["text"]))
-        self.assertEqual(set(p["items"]), {"speaker", "who", "phone", "target", "end", "hear", "offer", "absent_why", "asks"})
+        if p["rows"]:
+            self.assertEqual(set(p["items"]), {"speaker", "who", "phone", "target", "end", "hear", "offer", "absent_why", "asks"})
 
     def test_packet_b_has_every_table_row_and_only_the_two_items(self):
         import g59_calling_judge as g
@@ -39449,7 +39457,7 @@ class CallingReadersPacketTest(unittest.TestCase):
         # ご事情を伺った一言の場面（S1）：名乗りと呼ぶ一言 → 受付の方の「お取り次ぎすることはできません」→ ご事情を伺う一言 → 行の言葉
         import g59_calling_judge as g
         import g59_readers as rd
-        r = g.candidates()[0]
+        r = g._candidate_rows()[0]   # （分身 S3 の続き (3)：候補の48行は答えを伏せた読み手2人の読みで正解の表へ移した＝g59_calling_judge.LINES_ASKED・候補 candidates() は0行）
         talk = rd.conversation(r)
         self.assertEqual([w for w, _ in talk], ["こちら", "お客様", "こちら", "お客様"])
         self.assertIn("いらっしゃいますでしょうか？", talk[0][1])
@@ -45574,7 +45582,7 @@ class S3MeasurePrepTest(unittest.TestCase):
     def wanted(self):
         """(質問の番号, 場面の印, 言葉) ⇒ (答えの正解, 項目の正解, 判定に見せるもの, 外れた読み)。判定に見せるもの＝(見せる質問の番号, 質問のあとにこちらが言った一言,
         言い直し・最終の確かめの文)。外れた読み＝流れの制御の動きが正解と違う読み（数えの1か所で外れと数える）。"""
-        from flowctl import (AWAY, AWAY_NO, AWAY_YES, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, REPEAT, UNDECIDED)
+        from flowctl import (AWAY, AWAY_NO, AWAY_YES, HESITATING, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, REPEAT, THINKING, UNDECIDED)
         from flowctl import LADDER_OTHER, LADDER_OTHER_NOT
         from meaning_judge import WITHDREW
         from review_words import WITHDRAW_SEND_SCENE as send, WITHDRAW_TIME_SCENE as time
@@ -45597,7 +45605,9 @@ class S3MeasurePrepTest(unittest.TestCase):
             ("R1", wait, "すみません、ちょっと聞こえなかったんですけど。"): ([REPEAT], {PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R1", self.WAIT_LINE, None),
                                                             {"answer": UNDECIDED}),
             ("H2", None, "そういえば、うちは月曜が定休日なんですよ。"): ([UNDECIDED], {AWAY: [AWAY_YES]}, ("H2", "", None), {AWAY: AWAY_NO}),
-            ("H2", None, "うーん、どうしようかな。"): ([UNDECIDED], {AWAY: [AWAY_NO]}, ("H2", "", None), {AWAY: AWAY_YES}),
+            # 束 s の読み手2人の読みを当てたあと（分身 S3 の続き (3)）：H2 の迷いは わからない・決められない・考えている途中／最終の確かめの迷いは 考えている途中・迷っている／
+            # 尋ねられて答えたあとの「はい、分かりました。」は 決められない だけ／聞き返しの別のお話かは 答えの話・決められない の境目
+            ("H2", None, "うーん、どうしようかな。"): (["unknown", UNDECIDED, THINKING], {AWAY: [AWAY_NO]}, ("H2", "", None), {"answer": UNDECIDED, AWAY: AWAY_YES}),
             ("R1", None, "はい"): ([UNDECIDED], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_YES]}, ("R1", moshi, None),
                                 {"answer": "カード", PROMPT_REPLY: PROMPT_REPLY_NO}),
             ("R1", None, "もしもし"): ([UNDECIDED], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_YES]}, ("R1", moshi, None),
@@ -45606,14 +45616,14 @@ class S3MeasurePrepTest(unittest.TestCase):
                                      {"answer": "カード", PROMPT_REPLY: PROMPT_REPLY_NO}),
             ("R1", None, "あ、すみません、カードで"): (["カード"], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R1", moshi, None),
                                             {"answer": UNDECIDED, PROMPT_REPLY: PROMPT_REPLY_YES}),
-            ("R7", answered, "はい、分かりました。"): (["はい", UNDECIDED], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_YES]}, ("R7", self.OURS, None),
+            ("R7", answered, "はい、分かりました。"): ([UNDECIDED], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_YES]}, ("R7", self.OURS, None),
                                                  {"answer": "はい", PROMPT_REPLY: PROMPT_REPLY_NO}),
             ("R7", answered, "分かりました。キャンセルの件も大丈夫です。"): (["はい"], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R7", self.OURS, None),
                                                           {PROMPT_REPLY: PROMPT_REPLY_YES}),
-            ("R7", answered, "え、何ておっしゃいました？"): ([REPEAT], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R7", self.OURS, None),
+            ("R7", answered, "え、何ておっしゃいました？"): ([REPEAT], {AWAY: [AWAY_NO, UNDECIDED], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R7", self.OURS, None),
                                                  {PROMPT_REPLY: PROMPT_REPLY_YES}),   # お返事だけと読むと、答えを言い直さずに最終の確かめ
             ("R9", final, "そういえば来週は祝日なんですよ。"): ([UNDECIDED], {AWAY: [AWAY_YES]}, ("R9", "", self.FINAL), {AWAY: AWAY_NO}),
-            ("R9", final, "うーん、どうしようかな。"): ([UNDECIDED], {AWAY: [AWAY_NO]}, ("R9", "", self.FINAL), {AWAY: AWAY_YES}),
+            ("R9", final, "うーん、どうしようかな。"): ([THINKING, HESITATING], {AWAY: [AWAY_NO]}, ("R9", "", self.FINAL), {"answer": UNDECIDED}),
         }
 
     def test_1_rows_are_in_the_table_with_the_written_truths(self):
