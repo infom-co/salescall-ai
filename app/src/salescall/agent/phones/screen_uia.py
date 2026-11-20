@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Callable
 from typing import Any
 
 SCREEN: dict[str, dict[str, str]] = {
@@ -76,8 +77,10 @@ class UiaScreen:
             return (field.window_text() or "").strip()
 
     @staticmethod
-    def _paste(field: Any, text: str) -> None:
-        """クリップボードを使って貼り付ける。もとのクリップボードの文字は、貼り付けたあとに戻す。"""
+    def _clipboard_paste(text: str, press: Callable[[], None], landed: Callable[[], bool], wait: float = 3.0) -> bool:
+        """クリップボードに text を入れて貼り付け（press）、入ったこと（landed）を確かめてから、もとのクリップボードに戻す（貼り付けの1か所）。
+        ⛔ 2026-11-20：貼り付けの合図のあと 0.3秒で戻していたら、Rakuten Link がそのあとにクリップボードを読み、もとの中身
+        （管理者がコピーしていた文）がショートメールの本文として送られた。⇒ 入ったことを確かめるまで戻さない。入らなければ偽。"""
         import win32clipboard as cb
         cb.OpenClipboard()
         try:
@@ -89,10 +92,15 @@ class UiaScreen:
             cb.SetClipboardText(text, cb.CF_UNICODETEXT)
         finally:
             cb.CloseClipboard()
+        ok = False
         try:
-            field.set_focus()
-            field.type_keys("^a^v", with_spaces=False)
-            time.sleep(0.2)
+            press()
+            end = time.monotonic() + wait
+            while time.monotonic() < end:
+                if landed():
+                    ok = True
+                    break
+                time.sleep(0.1)
         finally:
             cb.OpenClipboard()
             try:
@@ -101,6 +109,14 @@ class UiaScreen:
                     cb.SetClipboardText(old, cb.CF_UNICODETEXT)
             finally:
                 cb.CloseClipboard()
+        return ok
+
+    def _paste(self, field: Any, text: str) -> None:
+        """欄へ貼り付ける（欄の中身が text になったのを確かめてから、クリップボードを戻す）。"""
+        def press() -> None:
+            field.set_focus()
+            field.type_keys("^a^v", with_spaces=False)
+        self._clipboard_paste(text, press, lambda: self._value(field) == text)
 
     @staticmethod
     def _press(part: Any) -> None:
@@ -293,11 +309,23 @@ class UiaScreen:
         body = self._part(main, "body")
         if body is None:
             raise RuntimeError("本文の欄が見つからない")
-        body.click_input()
-        self._paste_focused(text)
         send = self._part(main, "send")
         if send is None:
             raise RuntimeError("送信のボタンが見つからない")
+        composer = send.parent().parent()   # 本文の欄と送信のボタンが入っているまとまり（送ったメッセージの一覧とは別）
+
+        def typed() -> bool:   # 本文の欄に、決めた文がそのまま入ったか（ほかの文が入っていないか）
+            try:
+                return any((t.window_text() or "").strip() == text.strip() for t in composer.descendants(control_type="Text"))
+            except Exception:
+                return False
+
+        body.click_input()
+        from pywinauto.keyboard import send_keys
+        if not self._clipboard_paste(text, lambda: send_keys("^v"), typed):
+            body.click_input()
+            send_keys("^a{DELETE}")   # 違う文が入っていれば消す（送らない）
+            raise RuntimeError("本文の欄に、決めた文が入ったことを確かめられなかった（送らずに止めた）")
         self._press(send)
 
     @staticmethod
@@ -312,30 +340,3 @@ class UiaScreen:
             if any(k.element_info.control_type == "ListItem" for k in c.children()):
                 return True
         return False
-
-    @staticmethod
-    def _paste_focused(text: str) -> None:
-        """いまの入力の場所へ貼り付ける（本文の欄は入力欄の形で出ないので、押したあとに貼り付ける）。"""
-        import win32clipboard as cb
-        from pywinauto.keyboard import send_keys
-        cb.OpenClipboard()
-        try:
-            try:
-                old = cb.GetClipboardData(cb.CF_UNICODETEXT)
-            except Exception:
-                old = None
-            cb.EmptyClipboard()
-            cb.SetClipboardText(text, cb.CF_UNICODETEXT)
-        finally:
-            cb.CloseClipboard()
-        try:
-            send_keys("^v")
-            time.sleep(0.3)
-        finally:
-            cb.OpenClipboard()
-            try:
-                cb.EmptyClipboard()
-                if old is not None:
-                    cb.SetClipboardText(old, cb.CF_UNICODETEXT)
-            finally:
-                cb.CloseClipboard()
