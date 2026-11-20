@@ -19,7 +19,7 @@
   - (1) 写しの作り直し（共通の一言＝name_head_*・acquire_*・wrong_number_ask・omatase・wait_soon など／続く言葉＝target_reconfirm を外す・acquire_glad・pain_ask・listen_*・reception_purpose）と、要る名前の録音（name_needs：target_reconfirm を外す・役職の呼び方の名前の部分＝target_role 系・reception_purpose_role・mobile_owner→target_individual・顧客獲得型の行の続く言葉）・使えない番号（Y1・Y2・yes・but ほか）。
   - (2) 業務設定の欄：電話の型 call_type（confirm／acquire）・yes_asks・special・pains・meeting_time・アポのお断りのあと次の実施回まであける日数（初め30日）・accept_free。確かめは CL-1 の Business._check_call_type と同じ決まり（顧客獲得型は法人だけ・3つの欄が要る・最初の質問は日時・確認の電話には書かない）。
   - (3) 会話の報告：事実 refusal_said（turn・said・what・at）・締めた理由 yes_used_up・no_pain・事実 clock24・until_why の available_until・departed の to_role。判定：departed_end は to_role を数えない・役職の方の口 role_call（予約証）・依頼者へ refusal_said。
-  - (4) 顧客獲得型の発信禁止と切れ方（4-207 の (2)(3)。✅ 11-20 ユーザー伺い80「電話の終わりに切られたり、怒っていたらつける」）：切れ方の決め方と、アポのお断りのあと次の実施回まであける日数を、電話の型ごとの表の1か所で。
+  - (4) 顧客獲得型の発信禁止と切れ方（4-207 の (2)(3)。✅ 11-20 ユーザー伺い80「電話の終わりに切られたり、怒っていたらつける」。⚠️ ✅ 11-20 ユーザー「顧客獲得型だけですよ。それ以外は、お断りの言葉でも付けます」＝確認の電話の型は今のまま（お断りの言葉で発信禁止）・変えるのは顧客獲得型だけ。CL-1 の尺度の表 refusal_mark＝確認の電話 every_end／顧客獲得型 cut_or_angry と同じ分け方）：切れ方の決め方と、アポのお断りのあと次の実施回まであける日数を、電話の型ごとの表の1か所で。
   - (5) お客様リストの連絡先の出どころ（listed_contacts の source）・この電話のかけ直しに使える空き call_free を会話へ渡す（call_dates と同じ所）。
   - (6) CL-3 のお願い 54〜57。
 - **受けた所**：CL-1 の連絡帳 4-206 まで（答えは 4-443）・CL-3 の連絡帳 4-1c の 53 まで（答えは 4-428〜4-442）。
