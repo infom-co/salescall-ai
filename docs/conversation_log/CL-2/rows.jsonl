@@ -4289,3 +4289,10 @@
 {"at": "2026-11-20T19:15:06+09:00", "who": "CL-2", "text": "I left a meaningless placeholder at the end of that test; removing it and testing the conversation entrance in the conversation tests instead."}
 {"at": "2026-11-20T19:16:15+09:00", "who": "CL-2", "text": "通話で伺った連絡先には、その通話（attempt_id）が要ります（表の守りどおり）。試験を、その形に直します。"}
 {"at": "2026-11-20T19:17:26+09:00", "who": "CL-2", "text": "While those run, the design-book row and a commit of the work so far."}
+{"at": "2026-11-20T19:17:46+09:00", "who": "CL-2", "text": "待つあいだに、(6) の CL-3 のお願い 54〜57 を読みます。"}
+{"at": "2026-11-20T19:18:16+09:00", "who": "CL-2", "text": "次に 54（お客様の言葉の書き方の設定）です。"}
+{"at": "2026-11-20T19:18:31+09:00", "who": "CL-2", "text": "次に 56（業務ごとの送り先：「書き戻さない」を選べる形と、選んだかを読む部品）です。"}
+{"at": "2026-11-20T19:19:18+09:00", "who": "CL-2", "text": "The helper name is clumsy; tidying it into one private reader, then reading the existing test whose expectation changes."}
+{"at": "2026-11-20T19:19:51+09:00", "who": "CL-2", "text": "54・55・56 の試験が通りました。壊し試しを足します。前の組の結果も見ます。"}
+{"at": "2026-11-20T19:20:22+09:00", "who": "CL-2", "text": "That old one is the same check as my new \"依頼者の送り先すべてへ渡す\"; removing the old entry (it pointed at the replaced SQL)."}
+{"at": "2026-11-20T19:20:37+09:00", "who": "CL-2", "text": "連絡先の出どころの壊し試しは全部、試験が見つけました。設計書に 918・919 を書いて記録します。"}

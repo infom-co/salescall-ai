@@ -1271,6 +1271,14 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("依頼者が受けられる空きを、管理者・契約者でなくても書ける（0264）",
      "DROP TRIGGER business_free_slots_guard ON salescall.business_free_slots",
      ("tests.test_business_settings.Versions.test_the_free_slots_the_client_can_take",)),
+    ("お客様の言葉の書き方の初めの値を、ユーザーの決めた「縮める」でなくする（0266。CL-3 の 54）",
+     "ALTER TABLE salescall.setting_values DISABLE TRIGGER setting_values_frozen;"
+     " UPDATE salescall.setting_values SET value = '\"full\"' WHERE key = 'output.customer_words' AND scope = 'system';"
+     " ALTER TABLE salescall.setting_values ENABLE TRIGGER setting_values_frozen",
+     ("tests.test_settings.UserDecisions.test_values",)),
+    ("業務が送り先を選ぶかを、管理者・契約者でなくても書ける（0267）",
+     "DROP TRIGGER business_destination_choosing_guard ON salescall.business_destination_choosing",
+     ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_each_business_delivers_to_its_chosen_destinations_and_auto_writeback_needs_upsert",)),
     ("「〇時までなら大丈夫です」の読み方の既定を「〇時から」にする（0262：出られる時刻を過ぎてからかける）",
      "ALTER TABLE salescall.setting_values DISABLE TRIGGER setting_values_frozen;"
      " UPDATE salescall.setting_values SET value = '\"after\"' WHERE key = 'callback.until_available' AND scope = 'system';"
@@ -5407,8 +5415,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ('契約者あての知らせを、管理者あてとして送る（契約者を渡さない）', 'src/salescall/supervisor/jobs.py',
      '    ctx.part(ctx.cfg.notice_sender).deliver(ctx.access, ACTOR, ctx.tenant_id)', '    ctx.part(ctx.cfg.notice_sender).deliver(ctx.access, ACTOR, None)',
      ('tests.test_supervisor.AIVersions.test_notices_are_sent_for_each_contractor_and_for_the_admin_by_the_one_sender',)),
-    ('業務が選んだ送り先があっても、依頼者の送り先のすべてへ渡す', 'src/salescall/core/destinations.py',
-     '"   AND (NOT EXISTS (SELECT 1 FROM picked) OR x.destination_id IN (SELECT destination_id FROM picked))"', '"   AND true"', ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_each_business_delivers_to_its_chosen_destinations_and_auto_writeback_needs_upsert",)),
+    # ⛔ 外した：「業務が選んだ送り先があっても、依頼者の送り先のすべてへ渡す」は、0267 で選び方を destinations.chosen の1か所にしたので、同じ守りを
+    # 「業務が選んだ送り先を見ず、依頼者の送り先すべてへ渡す」が見る（同じことを2つ持たない）
     ('グループの依頼者を、いちばん新しい出入りでなく、入れた記録があれば入っているとする', 'src/salescall/core/registry.py',
      '"       FILTER (WHERE m.member), \'{}\') AS clients"', '"       FILTER (WHERE m.client_id IS NOT NULL), \'{}\') AS clients"', ("tests.test_registry.ClientGroups.test_groups_arrange_clients_only_and_are_kept_by_the_contractor",)),
     ('やめたグループも一覧に出す', 'src/salescall/core/registry.py',
@@ -8537,6 +8545,18 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '        note_heard(tx, task_id, "number", number.e164, "customer", attempt_id=attempt_id)',
      '        pass',
      ("tests.test_conversation_io.Materials.test_the_listed_contacts_carry_their_sources_and_the_dialed_number",)),
+    ('業務が送り先を選んでいなくても、選んだ送り先だけに渡す（依頼者の送り先すべてへ渡らない）', 'src/salescall/core/destinations.py',
+     '    if not _choosing(tx, business_id):\n        return None',
+     '    if False:\n        return None',
+     ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_each_business_delivers_to_its_chosen_destinations_and_auto_writeback_needs_upsert",)),
+    ('業務が選んだ送り先を見ず、依頼者の送り先すべてへ渡す', 'src/salescall/core/destinations.py',
+     '    return [r for r in rows if picked is None or r["destination_id"] in picked]',
+     '    return list(rows)',
+     ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_each_business_delivers_to_its_chosen_destinations_and_auto_writeback_needs_upsert",)),
+    ('送り先を選んでも、送り先を選ぶ業務にしない（選びが効かない）', 'src/salescall/core/destinations.py',
+     '    if chosen and not _choosing(tx, business_id):\n        set_choosing(tx, business_id, True)',
+     '    pass',
+     ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_each_business_delivers_to_its_chosen_destinations_and_auto_writeback_needs_upsert",)),
 )
 
 

@@ -936,7 +936,8 @@ class DeliveriesOnlyForReleasedVersions(unittest.TestCase):
         deliver()
 
     def test_each_business_delivers_to_its_chosen_destinations_and_auto_writeback_needs_upsert(self):
-        """業務ごとの送り先（core/destinations。0254・CL-3 の 19）：選んでいなければ依頼者の送り先のすべて、選んでいれば、その送り先だけ（業務ごと）。
+        """業務ごとの送り先（core/destinations。0254・0267・CL-3 の 19・56）：業務が送り先を選んでいなければ依頼者の送り先のすべて、選んでいれば、その送り先だけ
+        （業務ごと。1つも選ばなければ、どこへも書き戻さない＝ファイルだけ）。
         選ぶのは管理者か契約者だけ。自動で書き戻す送り先は「同じ鍵なら上書き」で受けられる送り先だけ（CL-3 の 5）。送り先を作る・直すのも管理者か契約者だけ。"""
         from salescall.core import destinations
         w = World(); s = w.setup()
@@ -950,8 +951,19 @@ class DeliveriesOnlyForReleasedVersions(unittest.TestCase):
         self.assertEqual(to(s["business"]), [a, b])
         tx(lambda t: destinations.choose(t, s["business"], a, True))
         self.assertEqual((to(s["business"]), to(other_biz)), ([a], [a, b]))
+        chosen = lambda biz: tx(lambda t: destinations.chosen(t, biz))   # noqa: E731
+        self.assertEqual((chosen(s["business"]), chosen(other_biz)), (frozenset({a}), None))   # 選んだか（画面が読む＝CL-3 の 56 の (2)）
         tx(lambda t: destinations.choose(t, s["business"], a, False))
-        self.assertEqual(to(s["business"]), [a, b])
+        # 選ぶ業務のまま1つも選ばない＝どこへも書き戻さない（ファイルだけで渡す。0267＝CL-3 の 56 の (1)。⛔ 0254 では依頼者の送り先すべてへ戻った）
+        self.assertEqual((to(s["business"]), chosen(s["business"])), ([], frozenset()))
+        tx(lambda t: destinations.set_choosing(t, s["business"], False))   # 選ばないに戻す＝依頼者の送り先すべて
+        self.assertEqual((to(s["business"]), chosen(s["business"])), ([a, b], None))
+        tx(lambda t: destinations.set_choosing(t, s["business"], True))    # また選ぶにすれば、選んでいた記録のまま（いまは何も選んでいない）
+        self.assertEqual(to(s["business"]), [])
+        tx(lambda t: destinations.set_choosing(t, s["business"], False))
+        with self.assertRaises(Rejected) as e:
+            tx(lambda t: destinations.set_choosing(t, s["business"], True), SYSTEM)
+        self.assertEqual(e.exception.constraint, "business_destination_by_person")
         for name, run, why in (
                 ("システムの処理が選ぶ", lambda: tx(lambda t: destinations.choose(t, s["business"], b, True), SYSTEM), "business_destination_by_person"),
                 ("上書きで受けられない先へ自動で書き戻す", lambda: tx(lambda t: t.execute(
