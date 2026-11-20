@@ -92,6 +92,22 @@ class Forms(unittest.TestCase):
             "SELECT key AS k FROM salescall.setting_definitions")})
         self.assertEqual(heads - set(words.SETTING_GROUPS), set())
 
+    def test_every_number_setting_has_a_unit_and_seconds_read_as_time(self):
+        """数の設定には単位を添える（「30」ではなく「30日」）。長い秒は人の時間に直す（「300秒」ではなく「5分（300秒）」）。"""
+        keys = app_access().in_system(SYSTEM, lambda tx: {r["key"] for r in tx.all(
+            "SELECT key FROM salescall.setting_definitions WHERE value_type::text = ANY(%s)", (list(words.UNIT_VALUE_TYPES),))})
+        self.assertEqual(set(words.SETTING_UNITS), keys)
+        self.assertEqual(setting_forms.show("seconds", 20), "20秒")
+        self.assertEqual(setting_forms.show("seconds", 300), "5分（300秒）")
+        self.assertEqual(setting_forms.show("seconds", 5400), "1時間30分（5400秒）")
+        self.assertEqual(setting_forms.show("integer", 30, "日"), "30日")
+        self.assertEqual(setting_forms.show("limit", None, "本"), "上限なし")
+        self.assertEqual(setting_forms.show("integer_list", [60, 600], "秒"), "1分（60秒）、10分（600秒）")
+
+    def test_the_groups_are_in_the_order_of_the_work_not_of_the_internal_names(self):
+        rows = [{"group": g, "key": g + ".x"} for g in ("login", "approval", "calling", "business", "zzz")]
+        self.assertEqual([g for g, _ in words.grouped_settings(rows)], ["business", "calling", "approval", "login", "zzz"])
+
 
 class ScreenWords(unittest.TestCase):
     def test_every_choice_has_a_word(self):

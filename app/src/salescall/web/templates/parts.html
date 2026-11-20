@@ -37,7 +37,7 @@
     <div class="decide">{{ i.decide }}</div>
     {% if i.evidence %}
     <dl class="facts evidence">
-      {% for h, v in i.evidence %}<dt>{{ h }}</dt><dd>{{ v }}</dd>{% endfor %}
+      {% for h, v in i.evidence %}<dt>{{ h }}</dt><dd>{% if v %}{{ v }}{% else %}<span class="muted">（空欄）</span>{% endif %}</dd>{% endfor %}
     </dl>
     {% endif %}
     {% if i.if_not %}<div class="if-not">{{ i.if_not }}</div>{% endif %}
@@ -45,12 +45,13 @@
     <div class="actions">
       {% if i.buttons %}
         {% for b in i.buttons %}
+        {% if b.go %}<a class="btn" href="{{ b.go }}">{{ b.label }}</a>{% else %}
         <form method="post" action="{{ '/c/' ~ place.client_id if place.client_id else '/admin' }}/inbox/{{ i.kind }}/{{ b.action }}">
           {{ csrf(token) }}
           {% for k, v in i.key.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
           {% if back %}<input type="hidden" name="back" value="{{ back }}">{% endif %}
           <button class="btn {{ 'main' if b.main }}" type="submit">{{ b.label }}</button>
-        </form>
+        </form>{% endif %}
         {% endfor %}
       {% else %}
         <span class="muted">{{ i.waiting_why }}（決まるまでボタンは出ません）</span>

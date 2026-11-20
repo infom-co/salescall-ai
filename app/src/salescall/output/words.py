@@ -19,6 +19,7 @@ import re
 import unicodedata
 from pathlib import Path
 from dataclasses import dataclass
+from typing import Any
 
 from salescall.core import ai_plans, ai_troubles, business_import, errors, exclusions, gate, notify, stops
 
@@ -298,14 +299,34 @@ DEFICIT_CONFIRM = "確かめた（これ以上お知らせしない）"
 DNC_IMPORT_FIELD_WORDS: dict[str, str] = {"phone": "電話番号", "client_ref": "依頼者の管理番号"}
 
 
-# 設定のまとまりの名前（設定の名前の頭。データベースの設定の定義のすべての頭を書く。試験が突き合わせる）
+# 設定のまとまりの名前（設定の名前の頭。データベースの設定の定義のすべての頭を書く。試験が突き合わせる）。
+# **並びは、設定の画面に出す順**＝契約者が業務を組み立てる仕事の順（業務 → いつかけるか → かける前の確かめ → お客様の扱い → 通話・会話 →
+# かけ直し → 決めたことの扱い → 結果 → 承認と品質 → 回線と PC → 費用・控え・知らせなどの裏方）。中の名前の順（英字の順）では並べない
 SETTING_GROUPS: dict[str, str] = {
-    "calling": "かける時間帯", "gate": "かける前の確かめ（回数・間隔）", "callback": "かけ直し", "retry": "かけ直しの回数",
-    "call": "通話の進め方", "callee": "お客様の扱い", "conversation": "会話", "line": "回線", "dial": "発信", "pc": "PC",
-    "stop": "止める・解く", "quality": "品質の段（検証モード）", "verification": "通話のあとの確かめ", "judge": "判定",
-    "decision": "取り消せない決定", "approval": "承認", "recording": "録音", "budget": "費用と予算", "backup": "控え",
-    "measure": "測り", "dnc": "発信禁止", "ai": "AI", "business": "業務", "notify": "知らせ", "login": "ログイン", "output": "結果の出力",
+    "business": "業務", "calling": "かける時間帯", "gate": "かける前の確かめ（回数・間隔）", "callee": "お客様の扱い",
+    "call": "通話の進め方", "conversation": "会話", "callback": "かけ直し", "retry": "かけ直しの回数", "decision": "取り消せない決定",
+    "dnc": "発信禁止", "output": "結果の出力", "approval": "承認", "quality": "品質の段（検証モード）", "verification": "通話のあとの確かめ",
+    "judge": "判定", "measure": "測り", "recording": "録音", "line": "回線", "dial": "発信", "pc": "PC", "stop": "止める・解く",
+    "budget": "費用と予算", "ai": "AI", "backup": "控え", "notify": "知らせ", "login": "ログイン",
 }
+
+
+def grouped_settings(rows: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
+    """設定の行を、まとまりごとに SETTING_GROUPS の並び（仕事の順）で返す1か所（設定の画面の目次と本文が使う）。まとまりの中は来た順。"""
+    order = {g: i for i, g in enumerate(SETTING_GROUPS)}
+    out: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        out.setdefault(r["group"], []).append(r)
+    return sorted(out.items(), key=lambda gi: order.get(gi[0], len(order)))
+
+
+# 数の設定の単位（setting_units.json。値の形が integer・limit・integer_list の設定のすべてを書く。試験が突き合わせる。見出しの言葉と同じく
+# 言葉の表のファイルに置く＝設定を読む所ではない）。値の横と入れる欄の横に出す。
+# 「秒」の並び（integer_list）は、1つずつ人の時間（例：5分）に直して見せる。秒の形（seconds）の設定は、形そのものが秒なので書かない
+SETTING_UNITS: dict[str, str] = json.loads((Path(__file__).with_name("setting_units.json")).read_text(encoding="utf-8"))
+UNIT_VALUE_TYPES = ("integer", "limit", "integer_list")   # 単位を書く値の形（試験が突き合わせる）
+
+
 SCOPE_WORDS: dict[str, str] = {"system": "初めの値（システム）", "tenant": "契約者の値", "client": "依頼者の値", "business": "業務の値",
                                "merged": "組み合わせた値"}
 

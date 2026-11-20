@@ -537,11 +537,11 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             except settings.SettingMissing:
                 got = None
             shown = (None if got is None else words.setting_choice(d["key"], got["value"], d.get("choices")) if d["value_type"] == "choice"
-                     else setting_forms.show(d["value_type"], got["value"]))
+                     else setting_forms.show(d["value_type"], got["value"], words.SETTING_UNITS.get(d["key"], "")))
             rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": words.screen_help(d["key"], d["meaning"]),
                          "got": got, "shown": shown,
                          "own": got is not None and got["from"] == level, "group": d["key"].split(".")[0],
-                         "merge": MERGE_WORDS.get(d["merge_kind"], "")})
+                         "merge": MERGE_WORDS.get(d["merge_kind"], ""), "unit": words.SETTING_UNITS.get(d["key"], "")})
         return rows
 
     def _settings_page(request: Request, level: str, client_id: UUID | None, business_id: UUID | None,

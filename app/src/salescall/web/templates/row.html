@@ -26,7 +26,7 @@
             <button class="btn main small" type="submit" data-submit disabled>戻す</button></form></details></dd>{% endif %}
       <dt>結果</dt><dd>{{ words.word(words.BUSINESS_STATES, row.business_state).screen }}
         {% if can_correct %}
-        <details class="adder"><summary class="btn small">結果を直す</summary>
+        <details class="adder" id="result-fix"><summary class="btn small">結果を直す</summary>
           <form class="panel" method="post" action="{{ base }}/rows/{{ row.task_id }}/result" data-needs-reason>{{ csrf(token) }}
             <input type="hidden" name="version" value="{{ latest.version_no }}">
             <label class="field">正しい結果</label>

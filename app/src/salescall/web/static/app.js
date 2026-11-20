@@ -38,6 +38,16 @@
     document.querySelectorAll(".finder[open], .adder[open]").forEach(function (d) { if (d !== e.target) d.open = false; });
     var first = e.target.querySelector("input[type=text]"); if (first) first.focus();
   }, true);
+  // 飛び先（#…）が閉じた窓（details）なら開く（例：承認の札の「違う（直す）」→ 行の画面の「結果を直す」）。同じ画面の中の飛び先も同じ
+  function openTarget() {
+    var id = decodeURIComponent(location.hash.slice(1));
+    var el = id && document.getElementById(id);
+    if (!el) return;
+    for (var d = el; d; d = d.parentElement) if (d.tagName === "DETAILS") d.open = true;
+    el.scrollIntoView({ block: "start" });
+  }
+  document.addEventListener("DOMContentLoaded", openTarget);
+  window.addEventListener("hashchange", openTarget);
   // 探す欄を開いたら、すぐ打てるようにする
   document.addEventListener("toggle", function (e) {
     if (e.target.matches && e.target.matches(".finder") && e.target.open) {

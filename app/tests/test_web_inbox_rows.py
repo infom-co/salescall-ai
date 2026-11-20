@@ -262,6 +262,13 @@ class VerificationMode(ApprovalHelpers):
         inbox_page = http.get("/t/inbox").text
         row_page = http.get(f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}/rows/{s["task"]}').text
         self.assertIn("答え（依頼者へ渡す書き方のまま）", row_page)
+        # 「よい」と「違う（直す）」は同じ重さで並ぶ（よいだけを目立たせない）。違うは、行の画面の「結果を直す」の窓へ移る（決めずに移るだけ）
+        self.assertNotIn('class="btn main" type="submit">この結果でよい', inbox_page)
+        self.assertIn(f'/rows/{s["task"]}#result-fix">違う（直す）</a>', inbox_page)
+        self.assertIn('id="result-fix"', row_page)
+        self.assertIn("（空欄）", inbox_page)                                     # この試験の土台は値を入れないので、答えの欄は空＝空と見せる
+        self.assertEqual(self._post(http, f'/c/{s["client"]}/inbox/result_check/fix',
+                                    {"task_id": str(s["task"]), "seq": "1"}).status_code, 404)   # 移るだけのボタンは送れない（決める鍵が無い）
         for q, _a, _said in check:
             self.assertIn(f"答え：{q}", inbox_page)
             self.assertIn(q, row_page)

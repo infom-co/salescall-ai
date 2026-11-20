@@ -175,7 +175,27 @@ def _percent(s: Any) -> float:
     return round(float(t) / 100, 6)
 
 
-def show(value_type: str, value: Any) -> str:
+def human_seconds(v: Any) -> str:
+    """秒を人の時間で見せる1か所（例：300 → 「5分（300秒）」・20 → 「20秒」）。1分より短ければ秒だけ。入れる欄は秒なので、秒も添える。"""
+    n = int(v)
+    if n < 60:
+        return f"{n}秒"
+    parts, rest = [], n
+    for size, name in ((86400, "日"), (3600, "時間"), (60, "分"), (1, "秒")):
+        if rest >= size:
+            parts.append(f"{rest // size}{name}")
+            rest %= size
+    return f"{''.join(parts)}（{n}秒）"
+
+
+def show(value_type: str, value: Any, unit: str = "") -> str:
+    """値を日本語で見せる1か所。unit は数の設定の単位（output/words.SETTING_UNITS）。秒は人の時間に直す。"""
+    if value_type == "seconds" and value is not None:
+        return human_seconds(value)
+    if unit and value is not None and value_type in ("integer", "limit"):
+        return f"{value}{unit}"
+    if unit and value_type == "integer_list" and value:
+        return "、".join(human_seconds(x) if unit == "秒" else f"{x}{unit}" for x in value)
     f = FORMS.get(value_type)
     return f.show(value) if f else str(value)
 

@@ -28,6 +28,7 @@ class Button:
     action: str        # 送る名前（`KINDS[種類].perform` の鍵）
     label: str
     main: bool = False
+    go: str = ""       # 押すと決めずに、その画面へ移るボタン（例：「違う（直す）」→ 行の画面の直す所）。送らないので perform の鍵は要らない
 
 
 @dataclass(frozen=True)
@@ -248,7 +249,8 @@ def _result_checks(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
             evidence=_row(tx, r["task_id"]) + [("システムの読み", words.word(words.BUSINESS_STATES, r["business_state"]).screen)]
             + [(f"答え：{q}", a + (f"（お客様の言葉：{said}）" if said else "")) for q, a, said in result_rows.answers_for_check(tx, r["task_id"])],
             if_not="確かめるまで、この結果は依頼者へ渡しません。", at=r["decided_at"],
-            buttons=(Button("approve", "この結果でよい", main=True),), **biz))
+            # 「よい」と「違う」は同じ重さで並べる（よいの方だけを目立たせて、見ずに押させない）。違えば、行の画面の「結果を直す」を開く
+            buttons=(Button("approve", "この結果でよい"), Button("fix", "違う（直す）", go=links.row(tx, r["task_id"]) + "#result-fix")), **biz))
     return items
 
 

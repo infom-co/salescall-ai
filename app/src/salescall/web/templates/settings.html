@@ -9,9 +9,9 @@
   <label class="choice"><input type="radio" name="f_v" value="0" {% if v == false %}checked{% endif %}> いいえ</label>
 {% elif w in ("number", "seconds", "percent") %}
   <div class="unit-input"><input type="text" inputmode="decimal" name="f_v" value="{{ (v * 100)|round(2) if w == 'percent' and v is not none else (v if v is not none else '') }}" aria-label="値">
-  <span>{{ {"seconds": "秒", "percent": "%"}.get(w, "") }}</span></div>
+  <span>{{ {"seconds": "秒", "percent": "%"}.get(w, r.unit) }}</span></div>
 {% elif w == "list" %}
-  <input type="text" name="f_v" value="{{ v|join(', ') if v else '' }}" placeholder="例：1, 3, 7" aria-label="値">
+  <div class="unit-input"><input type="text" name="f_v" value="{{ v|join(', ') if v else '' }}" placeholder="例：1, 3, 7" aria-label="値">{% if r.unit %}<span>{{ r.unit }}（並び）</span>{% endif %}</div>
 {% elif w == "range" %}
   <input type="text" name="f_v" value="{{ v|join('-') if v else '' }}" placeholder="例：09:00-18:00" aria-label="時間帯">
 {% elif w == "ranges" %}
@@ -26,7 +26,7 @@
     <option value="{{ special }}" {% if v == special %}selected{% endif %}>{{ words.SETTING_VALUE_WORDS[special] }}</option>
   </select><input type="text" inputmode="numeric" name="f_n" value="{{ (v.hours or v.days) if v is mapping else '' }}" aria-label="数"></div>
 {% elif w == "limit" %}
-  <div class="unit-input"><input type="text" inputmode="numeric" name="f_v" value="{{ v if v is not none else '' }}" aria-label="上限">
+  <div class="unit-input"><input type="text" inputmode="numeric" name="f_v" value="{{ v if v is not none else '' }}" aria-label="上限">{% if r.unit %}<span>{{ r.unit }}</span>{% endif %}
   <label class="inline"><input type="checkbox" name="f_none" value="1" {% if r.got and v is none %}checked{% endif %}> 上限なし</label></div>
 {% elif w == "phone" %}
   <input type="text" inputmode="tel" name="f_v" value="" placeholder="例：090-0000-0000" aria-label="番号">
@@ -44,20 +44,20 @@
 {% set where = "システムの初めの値（管理者だけ）" if level == "system" else (("業務「" ~ business.name ~ "」") if business else (("依頼者「" ~ client.name ~ "」") if client else ("契約者「" ~ ctx.tenant_name ~ "」"))) %}
 {% set action = request.url.path %}
 <h1>設定：{{ where }}</h1>
-<p class="lead">ここで決めた値は、{% if level == "system" %}すべての契約者の初めの値になります（契約者・依頼者・業務で決めた値が勝ちます。「システムだけ」の設定は、この値だけを使います）{% elif level == "tenant" %}すべての依頼者・業務の初めの値になります（依頼者・業務で決めた値が勝ちます）{% elif level == "client" %}この依頼者のすべての業務に効きます（業務で決めた値が勝ちます）{% else %}この業務だけに効きます{% endif %}。変えた値と前の値は、記録に残ります。</p>
+<p class="lead">ここで決めた値は、{% if level == "system" %}すべての契約者の初めの値になります（契約者・依頼者・業務で決めた値が勝ちます。「システムだけ」の設定は、この値だけを使います）{% elif level == "tenant" %}すべての依頼者・業務の初めの値になります（依頼者・業務で決めた値が勝ちます）{% elif level == "client" %}この依頼者のすべての業務に効きます（業務で決めた値が勝ちます）{% else %}この業務だけに効きます{% endif %}。変えた値と前の値は、記録に残ります。{% if level != "system" %}どこで決めたかを添えていない値は、システムの初めの値のままです。{% endif %}</p>
 {{ flash(done, ok) }}
 <div class="settings-filter"><input type="text" placeholder="設定を探す（例：時間帯・回数・間隔）" data-filter=".setting" aria-label="設定を探す"></div>
 <nav class="filters setting-toc" aria-label="設定のまとまり">
-  {% for group, items in rows|groupby("group") %}<a class="chip" href="#g-{{ group }}">{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }} <b>{{ items|length }}</b></a>{% endfor %}
+  {% for group, items in words.grouped_settings(rows) %}<a class="chip" href="#g-{{ group }}">{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }} <b>{{ items|length }}</b></a>{% endfor %}
 </nav>
-{% for group, items in rows|groupby("group") %}
+{% for group, items in words.grouped_settings(rows) %}
 <section class="setting-group" id="g-{{ group }}">
   <h2>{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }}</h2>
   {% for r in items %}
   <details class="setting card {{ 'own' if r.own }}">
     <summary>
       <span class="meaning"><b>{{ r.label }}</b></span>
-      <span class="now">{% if r.got %}<b>{{ r.shown }}</b> <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if r.own and level != "system" %} {{ tag("この段で決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag("仮の値（見直す時：" ~ words.plain(r.provisional.review_when) ~ "）", "wait") }}{% endif %}</span>
+      <span class="now">{% if r.got %}<b>{{ r.shown }}</b>{% if r.got["from"] != "system" and not r.own %} <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% endif %}{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if r.own and level != "system" %} {{ tag("この段で決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag("仮の値（見直す時：" ~ words.plain(r.provisional.review_when) ~ "）", "wait") }}{% endif %}</span>
     </summary>
     <form method="post" action="{{ action }}" class="setting-form" data-needs-reason>
       {{ csrf(token) }}<input type="hidden" name="key" value="{{ r.key }}">
