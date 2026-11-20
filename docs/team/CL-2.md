@@ -15,7 +15,8 @@
 ## 1. いまの状態（2026-11-19）
 - **第2便は main に入った**（546303a6。2026-11-20 ユーザー「第2便を main に上げてよい」）。CL-1・CL-3 に知らせた。
 - **main へ入れるときの確かめ**：設計書 15-3（CL-3 の章）は CL-3 の枝だけにある。合わせたあと、15-2 の行き先の行のあとに 15-3 が残ることを見る（2026-11-19 CL-3 の知らせ）。
-- **第3便（作っている。2026-11-20〜）**：CL-1 の連絡帳 4-207〜4-215 と、CL-3 のお願い 54〜57 を受ける。作る順（済んだら ✓）：
+- **第3便は main に入った**（15c02cea。2026-11-20 ユーザー「上げてよい」。試験 2060件合格・壊し試しは全部見つけた）。CL-1 へ 4-445・CL-3 へ 4-446。次は CL-3 の 57（指標）・58（通話の土台への足し。分担の表は管理者に確かめてから）。
+- **第3便（済み）**：CL-1 の連絡帳 4-207〜4-215 と、CL-3 のお願い 54〜57 を受ける。作る順（済んだら ✓）：
   - (1) 写しの作り直し（共通の一言＝name_head_*・acquire_*・wrong_number_ask・omatase・wait_soon など／続く言葉＝target_reconfirm を外す・acquire_glad・pain_ask・listen_*・reception_purpose）と、要る名前の録音（name_needs：target_reconfirm を外す・役職の呼び方の名前の部分＝target_role 系・reception_purpose_role・mobile_owner→target_individual・顧客獲得型の行の続く言葉）・使えない番号（Y1・Y2・yes・but ほか）。
   - (2) 業務設定の欄：電話の型 call_type（confirm／acquire）・yes_asks・special・pains・meeting_time・アポのお断りのあと次の実施回まであける日数（初め30日）・accept_free。確かめは CL-1 の Business._check_call_type と同じ決まり（顧客獲得型は法人だけ・3つの欄が要る・最初の質問は日時・確認の電話には書かない）。
   - ✓ (3)（773e7d94）会話の報告：事実 refusal_said（turn・said・what・at）・締めた理由 yes_used_up・no_pain・事実 clock24・until_why の available_until・departed の to_role。判定：departed_end は to_role を数えない・役職の方の口 role_call（予約証）・依頼者へ refusal_said。
