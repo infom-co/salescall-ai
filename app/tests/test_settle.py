@@ -3457,6 +3457,27 @@ class DialFixAfterCalls(SettleBase):
         self.assertEqual((rounds(None), rounds(suzuki)), (0, 1))               # 田中様の約束の回には、鈴木様への電話を数えない
         self.assertTrue(self.tx(s, lambda tx: next_action._missed(tx, s["task"], w)))   # 田中様へは、まだかけていない
 
+    def test_a_dropped_promise_brought_back_still_counts_the_calls_to_the_same_person_before_it_was_dropped(self):
+        """やめていた約束を戻したとき、その約束の担当の方（田中様）に、やめる前に同じ回でかけた電話は、戻した回の本数に数えたまま（回の数えは約束の始め
+        から＝計画書 7-1 (31)「約束を戻す」。数えないと、その回の上限より多くかける）。やめていたあいだの、ほかの期の方（鈴木様）への電話は数えない
+        （担当の期の比べ＝core/attempts.in_promise_count の1か所）。"""
+        s = self.ready()
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        self.put_client(s, "gate.max_dials_per_contact_per_day", 20)
+        self.person_fix(s, "target_name", "田中", "たなか", same=True)
+        self.promise_window(s)                                                  # 田中様との幅の約束（いまの回の中）
+        w = self.tx(s, lambda tx: next_action.window_of(next_action.current(tx, s["task"])))
+        time.sleep(1.1)
+        self.settle(s, self.call(s, report=rep(("reception",), not_reached="absent")))   # 田中様への電話（約束の回の中・不在）
+        rounds = lambda period: self.tx(s, lambda tx: next_action._round_calls(tx, s["task"], w, period))   # noqa: E731
+        self.assertEqual(rounds(None), 1)
+        self.person_fix(s, "target_name", "鈴木", "すずき", keep=False, same=False)
+        suzuki = self.tx(s, lambda tx: next_action.person_now(tx, s["task"]))
+        time.sleep(1.1)
+        self.settle(s, self.call(s, report=rep(("reception",), not_reached="absent")))   # 鈴木様への電話
+        self.back_to_first(s, "name")
+        self.assertEqual((rounds(None), rounds(suzuki)), (1, 1))               # 田中様の回には田中様への1本だけ（戻す前の電話も数える）
+
     def kept_promise(self, s, way):
         """田中様との幅の約束を「違う」・「約束も守る」で直す（番号の直し＝前の番号 O に約束が残る・名前などの直し＝会社の番号に約束が残る・
         mobile＝田中様が言った携帯 M への約束を、名前などの直しで残す）。新しい担当の方（鈴木様）へかける番号を返す。"""

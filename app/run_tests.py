@@ -7255,10 +7255,10 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("戻した約束の予定を、いまの予定（新しい担当の方の期）から続けたものとして書く（next_action._write の resumes）", _NEXT,
      "    base = current(tx, task_id) if d.resumes is None else \\", "    base = current(tx, task_id) if True else \\",
      (_BACK_COUNT,)),
-    ("約束の回の本数に、ほかの期の方への電話も数える（attempts.in_promise_count の期の比べ）", "src/salescall/core/attempts.py",
-     '    return (f"({t}person_since IS NOT DISTINCT FROM {p} AND ({in_row_count(table)}"',
-     '    return (f"(true AND ({in_row_count(table)}"',
-     (_BACK_COUNT,)),
+    # ⛔ 2026-11-19 に外した壊し試し「約束の回の本数に、ほかの期の方への電話も数える（attempts.in_promise_count の期の比べ）」：いまの期の約束は、行の回数の
+    # 範囲（attempts.in_row_count）の「いまの担当の方の期の電話だけ」が同じ比べで先に外し、前の担当の方との「守る」約束は、その回のあいだ前の担当の方にしか
+    # かけない（ほかの期の電話がその回に入らない）ので、外しても結果が変わらない（守りは in_row_count の壊し試し）。戻した約束が戻す前の電話も数えることは
+    # test_settle.DialFixAfterCalls.test_a_dropped_promise_brought_back_still_counts_the_calls_to_the_same_person_before_it_was_dropped が見る
     ("前の担当の方との「守る」約束の電話を、番号を直したあとの数え直しで外す（attempts.in_promise_count）", "src/salescall/core/attempts.py",
      '            f" OR {p} IS DISTINCT FROM salescall.task_person_since({t}task_id, now())))")',
      '            f"))")',
