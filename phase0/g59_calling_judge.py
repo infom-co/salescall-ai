@@ -586,7 +586,7 @@ def prompts_fingerprint(sees_target: bool | None = None) -> dict[str, tuple[int,
 
 
 async def run(args) -> dict:
-    from flowctl import ASKED, ASKS_OTHER, ASKS_WHO, ASKS_YES, Question, label
+    from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Question, label
     sees = False if args.hide_names else None
     b, _, _ = flows(sees)
     if args.batch:
@@ -696,14 +696,9 @@ async def run(args) -> dict:
     summary["ほかの質問を差し戻せた（ほかの読みがあり、名乗り・用件の読みが無い）"] = (
         f"{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_OTHER and any(r.get(f'{k}_asks') == ASKS_OTHER for k in measured) and not any(r.get(f'{k}_asks') == ASKS_YES for k in measured))}"
         f"/{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_OTHER)}")
-    # どの方をお呼びかを尋ねている（flowctl.ASKS_WHO＝2026-11-20 に分けた）：判定の組がそろってこの読みのときだけ、お伝えすることがもう無ければかけ直さない締め（Flow._who_asked）
-    # ＝ほかの言葉をそろってこの読みにした行は取り消せない側の外れ・どの方の質問をそろって読めなかった行は締めずに選び直す側（取り消せる）
-    summary["どの方の質問以外を、判定の組がそろってどの方と読んだ（締めうる＝取り消せない側の外れ）"] = (
-        f"{sum(1 for r in rows if r['asks_accept'] is not None and r['asks_kind'] != ASKS_WHO and measured and all(r.get(f'{k}_asks') == ASKS_WHO for k in measured))}"
-        f"/{sum(1 for r in rows if r['asks_accept'] is not None and r['asks_kind'] != ASKS_WHO)}")
-    summary["どの方の質問を、判定の組がそろってどの方と読んだ"] = (
-        f"{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_WHO and measured and all(r.get(f'{k}_asks') == ASKS_WHO for k in measured))}"
-        f"/{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_WHO)}")
+    # どの方をお呼びかを尋ねている（flowctl.ASKS_WHO＝2026-11-20 に分けた）の外れ（ほかの言葉をどの方と読んでかけ直さない締め・どの方の質問を名乗り・用件と読んで締めない）は、
+    # 測りの数えの1か所（g59_tally.cascade の尋ねているかの問い合わせ＝flow_kind。会話AIの「お呼びした方で答える」報告＝g59_flow_check.REPORTS）で、流れの制御の動きで数える
+    # （⛔ 4bc94b4d はここに値だけで数える2つを足した＝数える所が2つ。まとめ役 CL-1 の頼み rv178/X の4回目 (2) で外した）
     summary |= {f"{k}（前の言葉つき）": f"{sum(1 for r in rows if r['before'] and r.get(k) in r['accept'])}/{sum(1 for r in rows if r['before'])}"
                 for k in measured}
     # 取り次ぎの読み（流れの制御は、読みのどれか1つでも「取り次ぎを待つ」なら黙って待つ＝flowctl.HOLD_READINGS）。⛔ 2026-10-25 J10b：不在と取り次ぎの

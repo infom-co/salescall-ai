@@ -7222,13 +7222,16 @@ class MeasureCallingFlowTest(unittest.TestCase):
         # 前の言葉の無い「お電話代わりました。山本です。」（正解＝前と違う方・別の方）を、判定が「代理の方（どれかは分からない）」と読んだ：本番は、
         # 会話AIが代理の方と報告すれば名乗りから伺い直さずに用件とご判断のお立場の質問を流し、後任の方と報告すれば後任の方を確かめる（ほかの報告では同じ）
         import g59_flow_check as fc
+        import g59_tally as t
         from flowctl import END, END_NONE, HEAR, HEAR_OK
         text = "お電話代わりました。山本です。"
         got = self.count([self.row(text, None, fc.facts("違代xx") | {END: END_NONE, HEAR: HEAR_OK})])
         self.assertEqual(dict(got["動きが変わる外れ"]), {(self.PART, self.D1, "呼ぶ一言への返事"): 1})
         self.assertEqual(dict(got["項目だけの外れ"]), {})
-        # 電話口の方は判定の読みだけで決める（Flow._calling_party）＝どの報告でも同じ動き（⛔ 9e707d0a までは会話AIの報告で変わった＝(FN) の残り）
-        self.assertEqual(got["外れの行"][0][-1], "どの報告でも動きが変わる")
+        # 電話口の方は判定の読みだけで決める（Flow._calling_party）＝どの相手の報告・報告なしでも同じ動き（⛔ 9e707d0a までは会話AIの報告で変わった＝(FN) の残り）。
+        # 会話AIが「お呼びした方」で答える報告（2026-11-21 に数える報告に足した＝まとめ役 CL-1 の頼み rv178/X の4回目 (1)）では、どちらの読みでも呼ぶ一言で答える
+        # ＝その報告だけ動きが同じ（尋ねられていない言葉への答えの報告で、会話AIの選びで動く所＝書き置き 31 で CL-1 へ知らせた）
+        self.assertEqual(got["外れの行"][0][-1], f"{t.SOME_REPORTS}：" + "・".join(n for n, op in fc.REPORTS if op != fc.A))
         right = self.count([self.row(text, None, fc.facts("違別xx") | {END: END_NONE, HEAR: HEAR_OK})])
         self.assertEqual((dict(right["動きが変わる外れ"]), dict(right["項目だけの外れ"])), ({}, {}))
 
@@ -34516,6 +34519,8 @@ class CallingJudgedOnlyTest(unittest.TestCase):
         import g59_flow_check as fc
         out = {}
         for label, op in fc.REPORTS:
+            if op == fc.A:   # 答えの報告（お呼びした方で答える＝尋ねられたことへの答え）は相手の報告ではない＝この試験の外（2026-11-21 に数える報告に足した。尋ねられていない言葉にその報告が来ると、流れの制御は判定の読みより会話AIの選びで動く＝まとめ役 CL-1 の頼み rv178/X の4回目の書き置き 31 で CL-1 へ知らせた）
+                continue
             f, _, _ = fc.scene(before)
             fc.heard(f, text, code)
             rep = f.apply(*op) if op else f.judged_turn(voiced=False)
@@ -35165,6 +35170,8 @@ class CallingOffersJudgedTest(unittest.TestCase):
         import g59_flow_check as fc
         from phrases import HOLD_TIMEOUT
         for label, op in fc.REPORTS:
+            if op == fc.A:   # 答えの報告（お呼びした方で答える＝尋ねられたことへの答え）は相手の報告ではない＝この試験の外（2026-11-21 に数える報告に足した。尋ねられていない言葉にその報告が来ると、流れの制御は判定の読みより会話AIの選びで動く＝まとめ役 CL-1 の頼み rv178/X の4回目の書き置き 31 で CL-1 へ知らせた）
+                continue
             f, _, _ = fc.scene([])
             fc.heard(f, "岡田ですね。", "同受xx")
             rep = f.apply(*op) if op else f.judged_turn(voiced=False)
@@ -35544,6 +35551,8 @@ class CallingHeardQuestionTest(unittest.TestCase):
         import g59_flow_check as fc
         from phrases import HOLD_TIMEOUT
         for label, op in fc.REPORTS:
+            if op == fc.A:   # 答えの報告（お呼びした方で答える＝尋ねられたことへの答え）は相手の報告ではない＝この試験の外（2026-11-21 に数える報告に足した。尋ねられていない言葉にその報告が来ると、流れの制御は判定の読みより会話AIの選びで動く＝まとめ役 CL-1 の頼み rv178/X の4回目の書き置き 31 で CL-1 へ知らせた）
+                continue
             f, _, _ = fc.scene([])
             fc.heard(f, "いいえ、私は山田と申します。", "同別xx")
             f.judged_turn(voiced=False)
@@ -46056,3 +46065,93 @@ class XAsksWhoTableTest(unittest.TestCase):
         for text in ("どちらの岡田でしょうか？", "営業部の岡田でしょうか、それとも経理の岡田でしょうか？", "どういったご用件でしょうか？", "失礼ですが、どちら様でしょうか？"):
             self.assertIn((text, None), rows, text)
         self.assertIn(("はい、それで？", "はい。／失礼ですが、どちら様でしょうか？"), rows)
+
+
+class XCallingAnswerReportCountTest(unittest.TestCase):
+    """測りの数えの1か所（g59_flow_check.REPORTS → calling_acts → g59_tally.off_reports・flow_miss）で、尋ねているかの判定の読みの外れも流れの制御の動きで数える（まとめ役 CL-1 の
+    頼み rv178/X の続きの4回目 (1)(2)。帳面 0-1「数えは測りの唯一の数え（流れの制御の動きで比べる）で数え、値だけで比べない」・帳面 1 の (1) の F1「判定の読みは本番と同じ入口で
+    渡し、正解の動きも同じ1か所」）：会話AIの報告の並びに「お呼びした方」で答える報告（replay_opening の target）を足し、尋ねているかの判定の読みを本番と同じ入口
+    （meaning_judge.read → Flow.on_check("asks")）で渡す（目的のお客様の判定は正解の表の正しい読み）。⛔ 4bc94b4d まで、尋ねているかの外れは値だけで数えていた（測りの数え cascade の
+    「尋ねているかが正解と違う」・測り run のどの方の数え2つ）＝報告の並びに答えの報告が無く、どの方と読んでもかけ直さない締めの外れが動きに出なかった"""
+
+    ANSWER = ("replay_opening", {"part": "target"})
+
+    @staticmethod
+    def row(text, before=None):
+        import g59_calling_judge as g
+        b, _, _ = g.flows(None)
+        c = next(c for c in g.cases(b.target.confirm()) if c[0] == text and c[2] == before and not c.full)
+        return g.case_row(c), c[5]
+
+    def test_0_the_reports_have_the_answer_with_the_called_person(self):
+        import g59_flow_check as fc
+        ops = [op for _, op in fc.REPORTS]
+        self.assertEqual(ops.count(self.ANSWER), 1)
+        self.assertEqual(dict(fc.REPORTS)["お呼びした方で答える"], self.ANSWER)
+        self.assertEqual(len({n for n, _ in fc.REPORTS}), len(fc.REPORTS))
+
+    def test_1_a_purpose_question_read_as_which_person_is_counted(self):
+        # 「はい、それで？」（正解＝尋ねている＝名乗り・用件）を判定が「どの方」と読んだ：会話AIが「お呼びした方」で答えると、お伝えすることが無いのでかけ直さない締め
+        # （正しい読みは呼ぶ一言）＝取り消せない側の外れを、流れの制御の動きで数える
+        import g59_tally as t
+        from flowctl import ASKS_WHO, ASKS_YES
+        r, facts = self.row("はい、それで？", "はい。／失礼ですが、どちら様でしょうか？")
+        self.assertIsNone(t.flow_kind(None, facts, r, asks=ASKS_YES))
+        self.assertIn("お呼びした方で答える", t.off_reports(None, facts, r, asks=ASKS_WHO))
+        self.assertTrue(t.moves(t.flow_kind(None, facts, r, asks=ASKS_WHO)))
+
+    def test_2_a_which_person_question_read_as_name_or_purpose_is_counted(self):
+        # 「どちらの岡田でしょうか？」（正解＝どの方）を判定が「尋ねている」と読んだ：会話AIが「お呼びした方」で答えると、締めずにいつもの呼ぶ一言（正しい読みはお礼の締め）
+        import g59_tally as t
+        from flowctl import ASKS_WHO, ASKS_YES
+        for text in ("どちらの岡田でしょうか？", "営業部の岡田でしょうか、それとも経理の岡田でしょうか？"):
+            r, facts = self.row(text)
+            self.assertIsNone(t.flow_kind(None, facts, r, asks=ASKS_WHO), text)
+            self.assertIn("お呼びした方で答える", t.off_reports(None, facts, r, asks=ASKS_YES), text)
+
+    def test_3_right_and_judged_asks_readings_go_through_the_same_place(self):
+        # 正解の動き（正解の表の読み）も判定の読みの動きも calling_acts の1か所：尋ねているかの読みを渡さなければ正しい読みのどれも・渡せばその読み1つ
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        import g59_tally as t
+        from flowctl import ASKS_WHO, ASKS_YES
+        r, facts = self.row("どちらの岡田でしょうか？")
+        right = t.right_readings(facts, facts)[0]
+        self.assertEqual(fc.calling_acts(r, right, ASKS_WHO), fc.calling_acts(r, right))
+        self.assertNotEqual(fc.calling_acts(r, right, ASKS_YES), fc.calling_acts(r, right))
+        self.assertEqual(len(fc.calling_acts(r, right)), len(g.asks_truths(r["text"])))
+        self.assertEqual(len(fc.calling_acts(r, right)[0]), len(fc.REPORTS))
+        acts = dict(zip((n for n, _ in fc.REPORTS), fc.calling_acts(r, right)[0]))
+        self.assertIn("who_unclear", acts["お呼びした方で答える"])   # 測りの場面の判定（1つ）がどの方と読み、お伝えすることが無い：お礼の締め
+        with self.assertRaises(fc.Unreadable):
+            fc.calling_acts(r, right, "（選べるものに無い答え）")
+
+    def test_4_cascade_counts_the_asks_part_by_the_flow(self):
+        # 測りの数え（g59_tally.cascade）の尋ねているかの問い合わせも、目的のお客様の判定と同じ1か所（flow_kind → flow_miss）で数える（外れの種類も同じ名前）
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        import g59_tally as t
+        from flowctl import ASKS_NO, ASKS_WHO, ASKS_YES
+        d1 = "d1 Ultra（Liquid）"
+        part = "尋ねているか"
+
+        def count(text, before, got):
+            r, _ = self.row(text, before)
+            rec = {k: r[k] for k in ("text", "before", "asked", "successor")} | {
+                "rep": 0, "asks_accept": None, "judge2_asks_s": 0.5, "judge2_asks_by": d1, "judge2_asks_sure": 0.99, "judge2_asks": got}
+            with tempfile.TemporaryDirectory() as d:
+                (Path(d) / "0.json").write_text(json.dumps({"rows": [rec]}, ensure_ascii=False), encoding="utf-8")
+                with mock.patch.object(t, "RESULTS", Path(d)):
+                    return t.cascade(["0.json"])
+        said = ("はい、それで？", "はい。／失礼ですが、どちら様でしょうか？")
+        right = count(*said, ASKS_YES)
+        self.assertEqual((dict(right["決めた判定"]), dict(right["動きが変わる外れ"])), ({(part, d1): 1}, {}))
+        wrong = count(*said, ASKS_WHO)
+        self.assertEqual(sum(wrong["動きが変わる外れ"].values()), 1)
+        self.assertTrue(wrong["外れの行"][0][-1].startswith(t.SOME_REPORTS), wrong["外れの行"])
+        self.assertIn("お呼びした方で答える", wrong["外れの行"][0][-1])
+        self.assertEqual(dict(count("どちらの岡田でしょうか？", None, ASKS_WHO)["動きが変わる外れ"]), {})
+        self.assertEqual(sum(count("どちらの岡田でしょうか？", None, ASKS_NO)["動きが変わる外れ"].values()), 1)
