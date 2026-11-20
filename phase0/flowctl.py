@@ -3981,7 +3981,7 @@ def stops_connect(value) -> bool:
 INTERNAL_KEYS = {"ack", "ack_pause_s", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
                  "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s", "hold_wait_kept", "ahead_offer", "ahead_closed", "form_reason",
                  "started_over", "silence_s", "silence_scene", "hurried", "brief_sorry", "unheard", "transfer", "owner", "neither", "listed_no",
-                 "drop_short", "yes_ack", "concern_back"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
+                 "drop_short", "yes_ack", "aside_back"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values())
            | set(CALLBACK_LABEL.values()) | set(OFFER_LABEL.values()) | {VALUE_CHOICE})
@@ -8775,11 +8775,13 @@ class Flow:
             return None if reply.get("renamed") else "arigatou"
         if reply.get("talked"):
             return "hai"  # 受け答え（世間話・お礼への返事）のあとに、いまの位置へ戻る（_resume）
-        if reply.get("concern_back"):
-            # 本心を伺う一言 D2 のお返事が「問題は無い」「はっきりしない」（断ったとは言われていない＝_concern_decided の印）：伺う前の質問へ戻るときも、その場で戻らずに
-            # 次の質問へ進むとき（その場の回数を使い切った＝n8・L14 の「-」の道）も、頭は「はい、」（本書 9-4 の「断られた」の行「…伺う前の質問へ戻る（「はい、話を戻させて
-            # いただきますね。それでは…」）」。お返事を受けた答えとして順に回す相づち・「わからない」の「承知しました。」にしない）。⛔ 分身 P の (3) まで、進むときは
-            # 「ありがとうございます。続きまして…」・はっきりしないお返事は「承知しました。」（分身 O の書き置き (6-2)）
+        if reply.get("aside_back"):
+            # 脇で伺ったシステムの質問のお返事が、断ったとは言われていない答え（ご遠慮の一言 R1 の「いいえ」・はっきりしない／本心を伺う一言 D2 の「問題は無い」・はっきりしない＝
+            # 戻る1か所 _back_from_aside の印）：伺う前の質問へ戻るときも、その場で戻らずに次の質問へ進むとき（その場の回数を使い切った＝n8・L14 の「-」の道）も、頭は「はい、」
+            # （本書 9-4 の「断られた」の行「…ご遠慮の一言の「いいえ」と同じ1か所から伺う前の質問へ戻る（「はい、話を戻させていただきますね。それでは…」）」＝R1 と D2 は同じ1か所・
+            # 同じ頭。お返事を受けた答えとして順に回す相づち・「わからない」の「承知しました。」にしない）。⛔ 分身 P の (3) まで、D2 も進むときは「ありがとうございます。続きまして…」・
+            # はっきりしないお返事は「承知しました。」（分身 O の書き置き (6-2)）。⛔ 分身 Q の (1) まで、R1 は D2 の印（concern_back＝_concern_decided だけが付けた）の外で、
+            # 同じ食い違いが残っていた（分身 P の書き置き (6-3)）
             return "hai"
         if result == "ask_back" and reply.get("ask_reason") == "ladder":
             # 日時の2択の段の次の2択：土日を選ばれたら、その受けの一言の頭の「はい、」（✅ 2026-11-19 日本時間14時18分13秒 お言葉の文「はい、承知致しました。土日に…」。
@@ -15975,11 +15977,12 @@ class Flow:
     def _back_from_aside(self, prefix: str) -> dict:
         """脇で伺ったシステムの質問の答えが、断ったとは言っていない答え（ご遠慮の一言の「いいえ」・はっきりしない／本心を伺った一言の「問題は無い」・
         はっきりしない）だったとき、伺う前の位置へ、話がそれたあとに戻る1か所（_continue）から戻る返事（唯一の場所）：「話を戻させていただきますね。」から質問へ
-        （10-23）。✅ 2026-11-01 ユーザー：「全く同じ質問を2度したら、機械だと思われてしまいませんか？」"""
+        （10-23）。✅ 2026-11-01 ユーザー：「全く同じ質問を2度したら、機械だと思われてしまいませんか？」
+        返事の頭は、戻るときも、その場で戻らずに次の質問へ進むときも「はい、」（相づちの1か所 _ack_choice が、ここで付ける中の印 aside_back で選ぶ＝R1 と D2 は同じ1か所・同じ頭）"""
         self._restore_aside()
         self.answer_held, self.digressed = None, True
         r = self._continue([], "")
-        return r | {"message": prefix + r["message"]}
+        return r | {"message": prefix + r["message"], "aside_back": True}
 
     def _concern_ask(self) -> dict:
         """本題に入ったあと（_main_talk）の、電話を終える言葉か決まらず、いまの質問への答えとも読めない言葉（「もういいです。」）に、ご遠慮の一言より先に本心を
@@ -16015,8 +16018,8 @@ class Flow:
             return self._refusal_confirm()
         if cond == "問題を言った":
             return self._concern_heard(prefix, "concern")
-        # 問題は無い・はっきりしない：返事の頭は、戻るときも進むときも「はい、」（相づちの1か所 _ack_choice が印 concern_back で選ぶ）
-        return self._back_from_aside(prefix) | {"concern_back": True}
+        # 問題は無い・はっきりしない：返事の頭は、戻るときも進むときも「はい、」（戻る1か所 _back_from_aside の印 aside_back＝ご遠慮の一言の「いいえ」と同じ）
+        return self._back_from_aside(prefix)
 
     def _concern_left(self, why: str) -> None:
         """本心を伺う一言 D2 のお返事を待っている間に、D2 の答えの1か所（_concern_decided）を通らずに次の一言へ進むとき、D2 を伺う前の位置へ戻す唯一の場所（D2 は1通話1回＝

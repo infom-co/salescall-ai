@@ -47672,3 +47672,37 @@ class MisgivingTest(unittest.TestCase):
             if hears_hesitation(qmap[k.split("|")[1]]):
                 self.assertIn(MISGIVING, v, k)
                 self.assertTrue(v.get("misgiving_why"), k)
+
+
+class RefusalNoHeadTest(unittest.TestCase):
+    """分身 Q（CL-1 の頼み rv183/Q の (1)＝分身 P の書き置き (6-3)）：ご遠慮の一言 R1「今後このようなお電話はご遠慮したほうがよろしいでしょうか？」へのお返事が「いいえ」
+    「はっきりしない」のときの返事の頭は「はい、」（本書 9-4 の「断られた」の行「R1 … いいえ・はっきりしない答え＝断ったとは言われていないので、伺う前の位置へ…戻る」・D2 の
+    「問題は無い・はっきりしない＝…ご遠慮の一言の「いいえ」と同じ1か所から伺う前の質問へ戻る（「はい、話を戻させていただきますね。それでは…」）」＝D2 と R1 は同じ1か所・同じ頭）。
+    伺う前の質問へ戻るときも、その場で戻らずに次の質問へ進むときも（相づちの1か所 _ack_choice が、戻る1か所 _back_from_aside の印で選ぶ）。
+    ⛔ 直す前は、進むときは順に回す相づち「ありがとうございます。続きまして…」・はっきりしないお返事で戻るときは「承知しました。」"""
+
+    def refusal(self, words, cond, talks):
+        """D2 のお返事「もう結構ですので。」（断ろうとしている）で R1 を伺い、R1 へのお返事を受ける。(f, お返事への返事)。"""
+        from flowctl import CALLBACK_IDS
+        from meaning_judge import Reading
+        c = ConcernNoMatterHeadTest()
+        f, r = c.concern("もう結構ですので。", Reading("断ろうとしている", firm=True), "断ろうとしている", talks=talks)
+        self.assertEqual(f.current, CALLBACK_IDS["refusal"], heard_words(r))
+        f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(cond, firm=True))
+        return f, f.apply("record_answer", {"question_id": CALLBACK_IDS["refusal"], "condition_id": cond})
+
+    def test_no_to_r1_is_received_with_hai_going_on_or_back(self):
+        for words, cond in (("いいえ、そういうわけでは。", "いいえ"), ("うーん、どうでしょう。", "unknown")):
+            # 進む（その場の回数を使い切った言い直し＝L14 の「-」の道）
+            f, r = self.refusal(words, cond, 2)
+            self.assertEqual((f.current, r["ack"]), ("Q2", "hai"), (cond, heard_words(r)))
+            self.assertTrue(heard_words(r).startswith("はい、続きまして"), (cond, heard_words(r)))
+            # 戻る（その場の回数が残っている）
+            f, r = self.refusal(words, cond, 0)
+            self.assertEqual((f.current, f.awaiting_confirm, r["ack"]), ("V1", "V1", "hai"), (cond, heard_words(r)))
+            self.assertTrue(heard_words(r).startswith("はい、話を戻させていただきますね。"), (cond, heard_words(r)))
+
+    def test_yes_to_r1_still_closes(self):
+        f, r = self.refusal("はい、もうかけないでください。", "はい", 0)
+        self.assertEqual(f.end_reason, "callee_refused_call", heard_words(r))
+        self.assertNotEqual(r.get("ack"), "hai", heard_words(r))
