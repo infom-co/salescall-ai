@@ -544,3 +544,5 @@ details.setting .now > b { font-weight: 700; }
 .content > h2.home-band { font-size: 13px; color: var(--muted); letter-spacing: .06em; margin: 22px 0 10px; }
 .content > h2.home-band:first-of-type { margin-top: 8px; }
 .nav .account a { padding: 6px 8px; margin: 0 -8px; }   /* 「ログインと安全」を上の文字とそろえる（道しるべの行の字下げを打ち消す） */
+.passkey-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }   /* 名前の欄とボタンは、狭い幅で折り返す */
+.passkey-add .field { flex-basis: 100%; margin: 0; }

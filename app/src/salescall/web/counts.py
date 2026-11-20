@@ -134,17 +134,24 @@ def business_figures(tx: Tx, business_id: UUID | None = None) -> dict[str, Any]:
 
 # ── はじめかた（業務のタブ。docs/DASHBOARD.md 5-8）：まだ動き出していない業務で、次にすることを並べる。どの手順も「データにあるか」を
 #    読むだけ（版・実施回・行・回線・録音の答え）。かけられるかは門だけが決める（ここでは言い切らない）。
+def script_versions(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:
+    """業務の電話の台本の版（新しい順）と、それぞれ中身を読めるか（ready。読むのは core の business_settings.load の1か所＝通話と同じ確かめ）。
+    「台本ができているか」（はじめかた）と「お客様リストに選べる版」（版を選ぶ欄）は、この1つの答えを使う（2026-11-20 の見直し：
+    版を選ぶ欄は版が1つでもあれば出し、中身の無い版を選べた）。"""
+    out = []
+    for v in tx.all("SELECT version_id, version_no, created_at FROM salescall.business_versions WHERE business_id = %s"
+                    " ORDER BY version_no DESC", (business_id,)):
+        try:
+            business_settings.load(tx, v["version_id"])
+            ready = True
+        except (LookupError, business_settings.SettingsInvalid):
+            ready = False
+        out.append({**v, "ready": ready})
+    return out
+
+
 def _script_ready(tx: Tx, business_id: UUID) -> bool:
-    """業務に、中身を読める電話の台本の版があるか（版があるだけでは済みにしない＝中身を置いていない版もある。読むのは core の
-    business_settings.load の1か所＝通話と同じ確かめ）。"""
-    v = tx.one("SELECT version_id FROM salescall.business_versions WHERE business_id = %s ORDER BY version_no DESC LIMIT 1", (business_id,))
-    if v is None:
-        return False
-    try:
-        business_settings.load(tx, v["version_id"])
-        return True
-    except (LookupError, business_settings.SettingsInvalid):
-        return False
+    return any(v["ready"] for v in script_versions(tx, business_id))
 
 
 def setup_steps(tx: Tx, client_id: UUID, business_id: UUID, recording_needs: list[Any]) -> list[dict[str, Any]]:
@@ -166,7 +173,8 @@ def setup_steps(tx: Tx, client_id: UUID, business_id: UUID, recording_needs: lis
          "link": f"{base}/runs/{f['last_run']}/import" if f["last_run"] else ""},
         {"name": "回線を用意する（この依頼者で使える回線）", "done": f["lines"] > 0, "how": "「回線と PC」で足すか、使い先を決めます",
          "link": "/t/lines"},
-        {"name": "録音をそろえる", "done": script and not recording_needs, "how": "録音の要るものは、この画面の上の警告に出ます",
+        {"name": "録音をそろえる", "done": script and not recording_needs,
+         "how": "録音の要るものは、この画面の上の警告に出ます" if script else "電話の台本ができてから、録音の要るものが分かります",
          "link": ""},
     ]
 

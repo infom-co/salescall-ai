@@ -1223,9 +1223,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                               " JOIN salescall.businesses b ON b.business_id = r.business_id"
                               " WHERE %s::uuid IS NULL OR r.business_id = %s ORDER BY r.created_at DESC, r.run_id",
                               (business_id, business_id))
-                versions = [] if business_id is None else tx.all(
-                    "SELECT version_id, version_no, created_at FROM salescall.business_versions WHERE business_id = %s"
-                    " ORDER BY version_no DESC", (business_id,))
+                versions = [] if business_id is None else counts.script_versions(tx, business_id)   # 中身を読めるか（ready）も1か所で
                 needs, stages = [], []   # 業務のタブだけ：録音の要るもの（recordings.version_needs）と品質の段（quality_stage）。実施回のいまの版ごと
                 verification = business_id is not None and approval_core.human_for_business(tx, business_id)
                 for r in (runs if business_id is not None else []):

@@ -43,7 +43,8 @@
     if (json) headers["Content-Type"] = "application/json";
     else if (body) headers["Content-Type"] = "application/x-www-form-urlencoded";
     var r = await fetch(url, { method: "POST", headers: headers, body: body, credentials: "same-origin" });
-    var data = await r.json();
+    var data;
+    try { data = await r.json(); } catch (e) { data = { error: "うまくいきませんでした。画面を開き直してください。" }; }   // 返事が JSON でなくても日本語で
     if (!r.ok) throw new Error(data.error || "うまくいきませんでした。画面を開き直してください。");
     return data;
   }
@@ -72,6 +73,7 @@
           box.querySelector("ol").innerHTML = "";
           got.codes.forEach(function (code) { var li = document.createElement("li"); li.textContent = code; box.querySelector("ol").appendChild(li); });
           box.hidden = false;
+          box.scrollIntoView({ block: "center" });   // 1回しか見られないので、出したら画面をそこへ送る（スマホで気づかずに離れない）
         } else {
           location.href = "/t/account?done=" + encodeURIComponent("パスキーを登録しました。");
         }

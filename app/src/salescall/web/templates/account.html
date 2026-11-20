@@ -7,7 +7,7 @@
 <script src="/static/passkey.js" defer></script>
 {% if google_client_id %}<script src="https://accounts.google.com/gsi/client" async></script>{% endif %}
 <div class="title-row"><div class="titles"><h1>ログインと安全</h1>
-  <p class="lead">{{ person.name or person.login_id }}さんのログインの守りです。お客様の情報を扱うので、パスキー（2段階の確かめ）の設定をお願いします。</p></div></div>
+  <p class="lead">{{ person.name or person.login_id }}さんのログインの守りです。{% if passkey %}お客様の情報を扱うので、パスキー（2段階の確かめ）の設定をお願いします。{% endif %}</p></div></div>
 {{ flash(done, ok) }}
 
 {% if codes %}
@@ -40,7 +40,7 @@
           <button class="btn danger small" type="submit">「{{ k.label }}」を外す</button></form></details></td></tr>{% endfor %}</tbody>
   </table></div>
   {% else %}{{ empty("パスキーはまだありません", "下で名前を付けて登録すると、次のログインから2段階の確かめになります。") }}{% endif %}
-  <div class="gap" style="margin-top:12px">
+  <div class="gap passkey-add" style="margin-top:12px">
     <label class="field" for="passkey-label">新しいパスキーの名前</label>
     <input id="passkey-label" type="text" name="passkey_label" placeholder="例：仕事の PC・自分のスマホ" style="max-width:320px">
     <button class="btn main" type="button" data-passkey="register">この端末でパスキーを登録する</button>
