@@ -4357,3 +4357,7 @@
 {"at": "2026-11-21T00:30:03+09:00", "who": "CL-2", "text": "Writing the passkey tests with a simulated authenticator (same WebAuthn shapes a real device produces)."}
 {"at": "2026-11-21T00:31:25+09:00", "who": "CL-2", "text": "パスキーの試験は通りました。ログインの今までの試験（続けて誤ったら断る）も流し、壊し試しを足します。"}
 {"at": "2026-11-21T00:32:27+09:00", "who": "CL-2", "text": "パスキーの壊し試しは全部、試験が見つけました。前からあるパスワードの壊し試しも確かめ、記録します。"}
+{"at": "2026-11-21T00:33:43+09:00", "who": "CL-2", "text": "Now the table (0272) and the Google sign-in part."}
+{"at": "2026-11-21T00:34:24+09:00", "who": "CL-2", "text": "I left a silly string replacement in one error message; fixing that, and adding the new outcome names to the login steps."}
+{"at": "2026-11-21T00:34:46+09:00", "who": "CL-2", "text": "Now the tests: a fake Google signing key, tokens built the same way Google does, and the link/login rules."}
+{"at": "2026-11-21T00:36:04+09:00", "who": "CL-2", "text": "Google の壊し試しも全部、試験が見つけました。設計書と連絡帳に書いて記録します。"}

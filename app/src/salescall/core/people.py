@@ -155,7 +155,7 @@ def _lookup(tx: Tx, login_id: str) -> dict[str, Any] | None:
 
 # 確かめの段ごとの、失敗と成功の記録の名前（続けて誤ったら断る `locked` の1か所が読む）。2段目の失敗は2段目の成功のあとからだけ数える
 # （パスワードが通るたびに数え直すと、パスワードを知る者が予備の合言葉を試し続けられる）
-STEPS = {"password": (("no_such_login", "wrong_password", "no_password", "inactive"), ("ok",)),
+STEPS = {"password": (("no_such_login", "wrong_password", "no_password", "inactive"), ("ok", "google_ok")),   # 1段目（パスワード・Google）
          "second": (("passkey_failed", "recovery_code_failed"), ("passkey_ok", "recovery_code_ok"))}
 
 
@@ -194,16 +194,22 @@ def login(app: Access, login_id: str, password: str) -> Session | None:
         note_login(tx, key, None if row is None else row["person_id"], why)
         if why != "ok":
             return None
-        token = secrets.token_urlsafe(32)
-        second = passkeys.needs_second(tx, row["person_id"])   # パスキーを登録した方は、2段目を通るまで印を使えない（0271）
-        tx.execute("INSERT INTO salescall.person_sessions (token_sha, person_id, expires_at, needs_second)"
-                   " VALUES (%s, %s, now() + make_interval(secs => %s), %s)",
-                   (hashlib.sha256(token.encode()).hexdigest(), row["person_id"], int(_setting(tx, "login.session_seconds")), second))
-        return Session(token, _person(row), second)
+        return start_session(tx, row)
     return app.in_system(LOGIN_CHECKER, work)
 
 
-OK_WHYS = frozenset({"ok", "passkey_ok", "recovery_code_ok"})   # 通った確かめ（ログインの記録の why。データベースの守り person_login_events_ok と同じ）
+def start_session(tx: Tx, row: dict[str, Any]) -> Session:
+    """1段目（パスワード・Google）が通った方に、ログインの印を作る1か所（ログインの確かめの取引の中で）。パスキーを登録した方は、2段目を通るまで印を
+    使えない（0271）。印は、このときだけ返す（データベースには指紋だけ）。"""
+    token = secrets.token_urlsafe(32)
+    second = passkeys.needs_second(tx, row["person_id"])
+    tx.execute("INSERT INTO salescall.person_sessions (token_sha, person_id, expires_at, needs_second)"
+               " VALUES (%s, %s, now() + make_interval(secs => %s), %s)",
+               (hashlib.sha256(token.encode()).hexdigest(), row["person_id"], int(_setting(tx, "login.session_seconds")), second))
+    return Session(token, _person(row), second)
+
+
+OK_WHYS = frozenset({"ok", "passkey_ok", "recovery_code_ok", "google_ok"})   # 通った確かめ（ログインの記録の why。データベースの守り person_login_events_ok と同じ）
 
 
 def note_login(tx: Tx, login_key: str, person_id: UUID | None, why: str) -> None:
