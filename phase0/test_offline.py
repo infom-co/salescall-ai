@@ -15,6 +15,35 @@ from types import SimpleNamespace
 
 import common
 
+# この試験の流しが作る一時置き場（tempfile の mkdtemp・TemporaryDirectory・子の処理が受ける TMPDIR）は、流しごとの1つの置き場の中に作り、流しの終わりに
+# まとめて消す（唯一の場所＝setUpModule・tearDownModule。試験 RunTempTest）。⛔ 2026-11-20 まで、試験の24か所が一時置き場を作って消さず、/tmp に約3万個・
+# 約7.9GB 残った（見張りの試験 CompactGuardTest の控えと書き出しが1つ約7.8MB）＝書き込みの容量（決まった分だけ）を食う（11-19 日本時間18時台に使い切り、試験が落ちた）
+_RUN_TMP: str | None = None
+_TMP_BEFORE: tuple = (None, None)
+
+
+def setUpModule():
+    import os
+    global _RUN_TMP, _TMP_BEFORE
+    _TMP_BEFORE = (tempfile.tempdir, os.environ.get("TMPDIR"))
+    _RUN_TMP = tempfile.mkdtemp(prefix="salescall-test-")
+    tempfile.tempdir = _RUN_TMP
+    os.environ["TMPDIR"] = _RUN_TMP
+
+
+def tearDownModule():
+    import os
+    import shutil
+    tempdir, env = _TMP_BEFORE
+    tempfile.tempdir = tempdir
+    if env is None:
+        os.environ.pop("TMPDIR", None)
+    else:
+        os.environ["TMPDIR"] = env
+    if _RUN_TMP:
+        shutil.rmtree(_RUN_TMP, ignore_errors=True)
+
+
 
 def fc(name, **args):
     return SimpleNamespace(name=name, args=args, id="x")
@@ -19692,6 +19721,17 @@ class OnelinerGuardTest(unittest.TestCase):
         self.assertEqual(self.run_guard(head[:1], state + "s", hook_event_name="Stop",
                                         last_assistant_message="`Flow._ack` を直しました。"), 2)   # 返事の終わりも同じ
 
+
+
+class RunTempTest(unittest.TestCase):
+    """この試験の流しが作る一時置き場は、流しごとの1つの置き場の中に作り、流しの終わりにまとめて消す（setUpModule・tearDownModule の1か所）。"""
+
+    def test_temp_dirs_live_in_one_run_dir(self):
+        import os
+        self.assertTrue(_RUN_TMP)
+        self.assertEqual(tempfile.gettempdir(), _RUN_TMP)
+        self.assertEqual(os.environ.get("TMPDIR"), _RUN_TMP)
+        self.assertEqual(Path(tempfile.mkdtemp()).parent, Path(_RUN_TMP))
 
 
 class CompactGuardTest(unittest.TestCase):
