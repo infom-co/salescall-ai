@@ -392,6 +392,8 @@ CALL_END_CLIENT: dict[str, str] = {
     "notice:power_off": "電源が入っていないか圏外", "notice:out_of_range": "電源が入っていないか圏外", "notice:not_in_use": "使われていない番号",
     "side:callee": "お客様が途中で切られました", "side:line": "回線が途中で切れました", "side:unknown": "途中で切れました",
     "unknown": "不明",
+    # 電話口が機械だった（設計書 7-3-4 の4番目。種別の正本は core の call_report.MACHINE_PARTIES＝試験が突き合わせる。CL-2 4-453 の 20）
+    "machine:voicemail": "留守番電話", "machine:ivr": "音声ガイダンス", "machine:fax": "ファクス",
 }
 
 

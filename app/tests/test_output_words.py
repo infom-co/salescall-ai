@@ -163,6 +163,18 @@ class NotForClient(unittest.TestCase):
                 self.assertEqual(words.not_for_client(text), [])
 
 
+class MachineParties(unittest.TestCase):
+    def test_every_machine_party_has_a_call_end_word(self):
+        """電話口が機械だった種別（core の call_report.MACHINE_PARTIES）のすべてに、依頼者へ渡す「通話の終わり方」の言葉がある（設計書 7-3-4 の4番目）。"""
+        from salescall.core import call_report
+        from salescall.output import result_rows
+        for p in call_report.MACHINE_PARTIES:
+            with self.subTest(party=p):
+                self.assertIn(f"machine:{p}", words.CALL_END_CLIENT)
+                self.assertEqual(result_rows.call_end({"state": "ended", "machine": p}, None), words.CALL_END_CLIENT[f"machine:{p}"])
+        self.assertEqual(result_rows.call_end({"state": "ended", "machine": None}, None), words.ATTEMPT_STATES["ended"].client)
+
+
 class AnswerMarks(unittest.TestCase):
     def test_every_answer_mark_has_a_word(self):
         """必須の質問の答えの数の分け方（core の judge.ITEM_MARKS と not_asked）のすべてに、画面の言葉がある。"""

@@ -26,7 +26,7 @@ from uuid import UUID
 
 import json
 
-from salescall.core import business_rules, business_settings, calling_hours, conversation_io, customer_rows, judge, phone
+from salescall.core import business_rules, business_settings, call_report, calling_hours, conversation_io, customer_rows, judge, phone
 from salescall.core.access import Tx
 from salescall.output import words
 
@@ -169,6 +169,8 @@ def call_end(last: dict[str, Any] | None, next_kind: str | None) -> str:
     state, notice = last["state"], last.get("notice")
     if notice and f"notice:{notice}" in words.CALL_END_CLIENT:
         return words.CALL_END_CLIENT[f"notice:{notice}"]
+    if last.get("machine"):   # 電話口が機械だった（留守番電話・自動音声・ファクス。読むのは core の call_report.machine_party の1か所）
+        return words.CALL_END_CLIENT[f"machine:{last['machine']}"]
     if state == "dropped":
         return words.CALL_END_CLIENT.get(f"side:{last.get('hangup_side')}", words.CALL_END_CLIENT["side:unknown"])
     w = words.ATTEMPT_STATES.get(state)
@@ -219,10 +221,12 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
         " FROM salescall.latest_task_results l JOIN salescall.tasks k ON k.task_id = l.task_id WHERE k.run_id = %s",
         (list(DELIVERABLE_STAGES), run_id))}
     calls = {r["task_id"]: r for r in tx.all(
-        "SELECT DISTINCT ON (a.task_id) a.task_id, a.state::text AS state, a.notice, a.hangup_side::text AS hangup_side, a.claimed_at,"
+        "SELECT DISTINCT ON (a.task_id) a.task_id, a.attempt_id, a.state::text AS state, a.notice, a.hangup_side::text AS hangup_side, a.claimed_at,"
         "       count(*) OVER (PARTITION BY a.task_id) AS dialed"
         " FROM salescall.attempts a JOIN salescall.tasks k ON k.task_id = a.task_id"
         " WHERE k.run_id = %s AND salescall.is_dialed(a.state) ORDER BY a.task_id, a.claimed_at DESC", (run_id,))}
+    for c in calls.values():   # 最後の電話の電話口が機械だったか（core の1か所。通話の終わり方の4番目＝設計書 7-3-4）
+        c["machine"] = call_report.machine_party(tx, c["attempt_id"])
     full_names = {r["task_id"]: r["target_full_name"] for r in tx.all(
         "SELECT task_id, target_full_name FROM salescall.tasks_now WHERE run_id = %s", (run_id,))}
     version = tx.one("SELECT salescall.run_current_version(%s) AS v", (run_id,))["v"]
