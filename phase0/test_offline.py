@@ -30618,6 +30618,55 @@ class OtherCompanyClueSendWayTest(unittest.TestCase):
         say(g, "じゃあメールで。", "record_answer", question_id=w1, condition_id=wish_label("email"))
         self.assertEqual(record(g)["before_ways"], {"turn": turn, "said": "はい、お願いします。", "value": None})
 
+    def test_wish_said_before_the_ways_stays_when_the_line_is_cut_before_choosing(self):
+        # 分身 B（rv179 の束1 の B4）：方法を並べて伺った直後、方法を選んでいただく前に電話が切れても、並べる前に言っていただいたご希望の中身を通話の事実 other_wish に
+        # 残す（伺い27 の読み「選ばれた方法の記録と同じ1件に残す（書く所は1か所）」＝書くのは other_wish を書く1か所 Flow._wish_note・電話の終わりの1か所 on_line_end が呼ぶ。
+        # 本書 9-4「範囲外の質問」の「お客様の質問は、依頼者へ渡す記録に残す」・設計書の「通話の事実は操作のたびに書き直す＝締めの前に切られても、取れた分は残る」）。
+        # 選ばれた方法の欄（wish・value・means・contact・outcome・wish_state）は、まだ選んでいただいていない＝空。次の電話では、切れた所から W1 を伺う（earlier_wish_open）。
+        # ⛔ 59b4aa37 まで、並べる前の答えは流れの制御の中（ほかのご希望の手順 self.wish）だけにあり、切れると依頼者へ渡らなかった
+        from flowctl import CALLBACK_IDS, NONE, WAY_UNSAID, earlier_wish_open, wish_label
+        w1 = CALLBACK_IDS["other_wish"]
+        words = "営業の方じゃなくて、説明書を送ってほしいです。"
+
+        def listed():
+            f = self.flow(offer_ways=("メール", "郵送"))
+            self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+            self.turn(f, "どちらも要らないです。", self.rd(NONE), "record_answer", question_id="Q2", condition_id=NONE)
+            r = self.turn(f, words, self.rd(WAY_UNSAID), "record_answer", question_id=w1, condition_id=WAY_UNSAID, value="説明書を送ってほしい")
+            self.assertEqual((f.current, self.heard(r)), (w1, "承知しました。それではメールと郵送のどちらがよろしいでしょうか？"))
+            self.assertNotIn("other_wish", f.facts)
+            return f, {"turn": f.callee_turns, "said": words, "value": "説明書を送ってほしい"}
+
+        f, before = listed()
+        f.on_line_end(ai_speaking=False, callee_speaking=False)
+        e, = f.facts["other_wish"]
+        self.assertEqual({k: e.get(k) for k in ("turn", "said", "question", "wish", "value", "means", "contact", "outcome", "wish_state", "before_ways")},
+                         {"turn": before["turn"], "said": words, "question": "Q2", "wish": None, "value": None, "means": None, "contact": None,
+                          "outcome": None, "wish_state": None, "before_ways": before})
+        self.assertTrue(earlier_wish_open(e))   # 次の電話で W1 を伺う（記録が無いときと同じ）
+        self.assertEqual(f.report()["facts"]["other_wish"], [e])
+        f.on_line_end(ai_speaking=False, callee_speaking=False)   # 2回目は何もしない（重ねない）
+        self.assertEqual(len(f.facts["other_wish"]), 1)
+        # 並べたあとに急いでいると言われ（また改めてお掛けしてよいかを伺った）、そのあと切れた：根拠の発話は並べる前のご希望の言葉（W1 への答え）のまま
+        from flowctl import END_HURRY
+        f, before = listed()
+        self.turn(f, "すみません、今ちょっと急いでるので。", self.rd("決められない", end=END_HURRY), "record_answer", question_id=w1, condition_id="決められない")
+        f.on_line_end(ai_speaking=False, callee_speaking=False)
+        e, = f.facts["other_wish"]
+        self.assertEqual((e["turn"], e["said"], e["wish"], e["outcome"], e["before_ways"]), (before["turn"], words, None, None, before))
+        # 選んでいただいたあとに切れた：記録はその答えの1件のまま（重ねない）
+        f, before = listed()
+        self.turn(f, "メールでお願いします。", self.rd(wish_label("email")), "record_answer", question_id=w1, condition_id=wish_label("email"))
+        f.on_line_end(ai_speaking=False, callee_speaking=False)
+        e, = f.facts["other_wish"]
+        self.assertEqual((e["wish"], e["means"], e["outcome"], e["before_ways"]), (wish_label("email"), "email", None, before))
+        # 並べて伺っていない W1 の途中で切れた：今のまま（記録は無い＝次の電話で伺う）
+        f = self.flow(offer_ways=("郵送",))
+        self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        self.turn(f, "どちらも要らないです。", self.rd(NONE), "record_answer", question_id="Q2", condition_id=NONE)
+        f.on_line_end(ai_speaking=False, callee_speaking=False)
+        self.assertNotIn("other_wish", f.facts)
+
     # ── (2) の (b)
     def test_undecided_end_on_n1_n2_takes_the_judged_answer_without_asking_again(self):
         # 電話を終える言葉か判定でも決まらず、いまの質問の答えと読んだ言葉：言い直さない質問（ご承認の手順の N1・N2）は、言い直す言葉が無いからといって

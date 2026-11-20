@@ -16841,6 +16841,7 @@ class Flow:
         今の確認の電話の型では、聞いたらその場で締めるので残っていない）。"""
         if self._cut is None:
             self._mark_refusals(self.end_reason)
+            self._wish_cut()   # 方法を並べて伺い、選んでいただく前に切れた：並べる前のご希望の中身を通話の事実に残す
             callee = self.callee_speaking if callee_speaking is None else callee_speaking
             self._cut = {"speaker": "callee" if callee else {True: "ai", False: "none"}.get(ai_speaking),
                          "in_closing": self.phase == "closing",
@@ -18256,6 +18257,23 @@ class Flow:
         ほしいです。」に方法を並べて伺う形にしたとき、記録が並べたあとの答え（「メールでお願いします。」＝wish「メールでの連絡」）だけになり、ご希望の中身が依頼者へ
         渡らなくなった（並べる前の作りでは value に残っていた）。"""
         self._note("other_wish", question=q.id, **fields, before_ways=(self.wish or {}).get("before_ways"))
+
+    def _wish_cut(self) -> None:
+        """方法を並べて伺い（before_ways＝_wish_step）、選んでいただく前に電話が切れた・終わった（電話の終わりの1か所 on_line_end が呼ぶ）：並べる前に言っていただいた
+        ご希望の中身を、選ばれた方法の記録と同じ1件として通話の事実 other_wish に残す（書くのは _wish_note の1か所。✅ 2026-11-15 日本時間21時55分35秒 伺い27 の読み
+        「選ばれた方法の記録と同じ1件に残す（書く所は1か所）」・本書 9-4「範囲外の質問」の「お客様の質問は、依頼者へ渡す記録に残す」）。選ばれた方法の欄（wish・value・
+        means・contact・outcome・wish_state）は、まだ選んでいただいていない＝空（結びが無い＝次の電話で切れた所から W1 を伺う＝earlier_wish_open。記録が無いときと同じ）。
+        根拠の発話は、並べる前のご希望を言っていただいた発話（W1 への答え＝ほかの記録と同じ。並べたあとに別のことを言われてから切れても、その言葉にしない）。
+        並べたあとの答えをもう書いた（_wish_step）・並べて伺っていない・W1 を伺い終えたなら何もしない。⛔ 59b4aa37 まで、並べる前の答えは流れの制御の中（self.wish）
+        だけにあり、選んでいただく前に切れると依頼者へ渡らなかった（分身 B（rv179 の束1 の B4））"""
+        w = self.wish
+        if w is None or not w.get("before_ways") or w["outcome"] is not None:
+            return
+        if any(e.get("before_ways") == w["before_ways"] for e in self.facts.get("other_wish", ())):
+            return   # 並べたあとの答えで、もう書いた（_wish_step）
+        bw = w["before_ways"]
+        self._wish_note(self.questions[w["q"]], turn=bw["turn"], said=bw["said"], wish=None, value=None, means=None, contact=None, outcome=None, via=None,
+                        wish_state=None, **self._proposal_terms(CALLBACK_IDS["other_wish"]))
 
     def _wish_option(self, q: "Question", means: str) -> str:
         """いまのほかのご希望の手順（self.wish）の W1 で、ご連絡の方法 means のご希望にあたる選択肢の名前（唯一の読み口＝並べて伺った「どれでも」・W1 を伺っている
