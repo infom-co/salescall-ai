@@ -433,7 +433,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
 
     @app.post("/t/emergency")
     async def emergency(request: Request) -> HTMLResponse:
-        """緊急停止（人が押す。docs/DASHBOARD.md 5-3・7-4）。範囲：この契約者の全部／1つの依頼者／全体（管理者だけ＝データベースも守る）。
+        """緊急停止（人が押す。docs/DASHBOARD.md 5-3・7-4）。範囲：この契約者の全部／1つの依頼者／1つの業務／全体（管理者だけ＝データベースも守る）。
         同じ範囲の人の停止がもう開いていれば重ねない（stops.open_same の1か所）。押したあとは「止まっているもの」へ戻る。"""
         form = dict(await request.form())
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
@@ -450,6 +450,12 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 if scope == "client":
                     cid = actions.uuid_of(form, "client_id")
                     return ctx.client(cid, lambda tx: stop_in(tx, tenant_id=ctx.tenant_id, client_id=cid))
+                if scope == "business":   # その業務だけ（業務の画面から。2026-11-20 の見直しで足した＝前は依頼者より細かく止められなかった）
+                    cid, bid = actions.uuid_of(form, "client_id"), actions.uuid_of(form, "business_id")
+                    def biz(tx: Any) -> str:
+                        context.business(tx, bid)
+                        return stop_in(tx, tenant_id=ctx.tenant_id, client_id=cid, business_id=bid)
+                    return ctx.client(cid, biz)
                 if scope == "system":
                     return ctx.system(lambda tx: stop_in(tx))
                 raise NotFound()

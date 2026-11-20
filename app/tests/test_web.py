@@ -705,6 +705,23 @@ class EmergencyStop(_World):
         finally:
             self._resume_all(self.a["tenant"], self.y["client"], "client")
 
+    def test_a_contractor_stops_one_business_only(self):
+        """業務の画面から押すと、その業務だけを止められる（依頼者のほかの業務は止めない）。"""
+        cid, bid = self.a["client"], self.a["business"]
+        try:
+            r = self.press("A", {"scope": "business", "client_id": str(cid), "business_id": str(bid)})
+            self.assertIn("ok=1", r.headers["location"])
+            self.assertEqual(len(self._opened(self.a["tenant"], cid, "business")), 1)
+            self.assertEqual(self._opened(self.a["tenant"], cid, "client"), [])
+            self.assertIn("業務「", self.get("A", f"/c/{cid}/b/{bid}").text)       # 業務の画面に、業務だけを止める選び肢が出る
+        finally:
+            self._resume_all(self.a["tenant"], cid, "business")
+
+    def test_a_business_of_another_client_cannot_be_stopped(self):
+        r = self.press("A", {"scope": "business", "client_id": str(self.y["client"]), "business_id": str(self.a["business"])})
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(self._opened(self.a["tenant"], self.y["client"], "business"), [])
+
     def test_a_contractor_cannot_stop_another_contractors_client_or_everything(self):
         r = self.press("A", {"scope": "client", "client_id": str(self.b["client"])})
         self.assertEqual(r.status_code, 404)

@@ -29,8 +29,9 @@
   {{ csrf(token) }}
   <div class="bulk card">
     <span class="bulk-count"><b data-checked-count>0</b> 行を選んでいます</span>
-    <select name="level" aria-label="かけるか・かけないか">
-      {% for k, label in level_names.items() %}<option value="{{ k }}" {% if k == "exclude" %}selected{% endif %}>{{ label }}にする</option>{% endfor %}
+    <select name="level" aria-label="かけるか・かけないか" required>
+      <option value="" selected disabled>どうするかを選ぶ</option>{# 初めから「かけない」を選んでおかない（押し間違えで行を止めない。2026-11-20 の見直し） #}
+      {% for k, label in level_names.items() %}<option value="{{ k }}">{{ label }}にする</option>{% endfor %}
     </select>
     <input type="text" name="reason" placeholder="理由（記録に残ります）" aria-label="理由">
     <button class="btn main" type="submit" data-submit disabled>選んだ行に付ける</button>

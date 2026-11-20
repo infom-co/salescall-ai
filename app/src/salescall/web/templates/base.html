@@ -30,6 +30,8 @@
       <label class="choice"><input type="radio" name="scope" value="tenant" required> 「{{ ctx.tenant_name }}」の全部（すべての依頼者）</label>
       {% if client %}<label class="choice"><input type="radio" name="scope" value="client" required> 依頼者「{{ client.name }}」だけ（すべての業務）
         <input type="hidden" name="client_id" value="{{ client.client_id }}"></label>{% endif %}
+      {% if client and business %}<label class="choice"><input type="radio" name="scope" value="business" required> 業務「{{ business.name }}」だけ（依頼者「{{ client.name }}」のこの業務）
+        <input type="hidden" name="business_id" value="{{ business.business_id }}"></label>{% endif %}
       {% if person.is_admin %}<label class="choice"><input type="radio" name="scope" value="system" required> 全体（すべての契約者）</label>{% endif %}
       <label class="field" for="emergency-reason" style="margin-top:12px">理由（記録に残ります）</label>
       <input type="text" id="emergency-reason" name="reason" value="画面の緊急停止" required>

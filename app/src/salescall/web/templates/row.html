@@ -79,7 +79,8 @@
       {% if not draft or error %}
         {% if error %}<div class="flash ng" role="alert">{{ error }}</div>{% endif %}
         <label class="field" for="fix-field">直す欄</label>
-        <select id="fix-field" name="field" data-reading-fields="{{ name_fields|join(' ') }}">
+        <select id="fix-field" name="field" data-reading-fields="{{ name_fields|join(' ') }}" required>
+          {% if not draft %}<option value="" selected disabled>直す欄を選ぶ</option>{% endif %}{# 初めから「かける番号」を選んでおかない（2026-11-20 の見直し） #}
           {% for f, label in fields %}<option value="{{ f }}" {% if draft and draft.field == f %}selected{% endif %}>{{ label }}</option>{% endfor %}
         </select>
         <label class="field" for="fix-value">新しい値</label>
