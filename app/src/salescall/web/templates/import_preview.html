@@ -10,8 +10,8 @@
 <ol class="steps"><li>ファイルを選ぶ</li><li>列を確かめる</li><li aria-current="step">行ごとの結果を確かめて登録</li></ol>
 <p class="lead">「{{ file_name }}」を実施回「{{ run.name }}」に取り込みます。まだ何も登録していません。</p>
 <div class="grid cols-4 stats">
-  <div class="card">{{ stat("登録する行", counts.registered, "ok" if counts.registered else "") }}</div>
-  <div class="card {{ 'attention-stop' if counts.stopped }}">{{ stat("止める行", counts.stopped, "stop" if counts.stopped else "") }}</div>
+  <div class="card">{{ stat("登録する行", counts.registered) }}</div>
+  <div class="card {{ 'attention-stop' if counts.stopped }}">{{ stat("登録できない行", counts.stopped, "stop" if counts.stopped else "") }}</div>
   <div class="card">{{ stat("登録済みの行", counts.already) }}</div>
   <div class="card">{{ stat("空の行", counts.empty) }}</div>
 </div>
@@ -31,12 +31,12 @@
 </form>
 {% endif %}
 {% if stopped %}
-<h2 style="margin-top:24px">止める行と理由</h2>
+<h2 style="margin-top:24px">登録できない行と理由</h2>
 <div class="table-scroll"><table class="list">
   <thead><tr><th class="num">行</th><th>理由</th><th class="wide">会社名</th></tr></thead>
   <tbody>{% for r in stopped %}<tr><td class="num">{{ r.row_no }}</td><td>{{ r.reason }}</td><td class="wide">{{ r.name or row_names.get(r.row_no, "") }}</td></tr>{% endfor %}</tbody>
 </table></div>
-<p class="muted">止める行は登録しません。ファイルを直して、もう一度取り込めます（登録済みの行は2つになりません）。</p>
+<p class="muted">この行は登録しません。ファイルを直して、もう一度取り込めます（登録済みの行は2つになりません）。</p>
 {% endif %}
 <form method="post" action="{{ base }}/import/{{ key }}/register" style="margin-top:20px">
   {{ csrf(token) }}

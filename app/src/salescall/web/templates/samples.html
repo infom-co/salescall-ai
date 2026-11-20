@@ -36,7 +36,7 @@
   {% if d.calls %}
   <ul class="plain-list">{% for c in d.calls %}
     <li>{% if c.url %}<a href="{{ c.url }}">{{ c.who or "（会社名なし）" }}</a>{% else %}{{ c.who or "（見つかりません）" }}{% endif %}
-      <span class="muted">{{ time(c.claimed_at) }}</span> {{ tag("正解を付けた", "ok") if c.checked else tag("正解はまだ", "wait") }}</li>
+      <span class="muted">{{ time(c.claimed_at) }}</span> {{ tag("正解を付けた", "ok") if c.checked else tag("正解はまだ") }}</li>
   {% endfor %}</ul>
   {% else %}<p class="muted">その週は、お客様と話せた本番の電話がありませんでした。</p>{% endif %}
 </section>

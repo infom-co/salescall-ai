@@ -48,11 +48,13 @@
 {{ flash(done, ok) }}
 {#- この段で決めている値の一覧（どれを変えたかを一目で。押すとその行を開く）。システムの段は、どれもこの段の値なので出さない -#}
 {% set mine = rows|selectattr("own")|list %}
+{#- この段より上の段（値を受け継ぐ元）の名前。どの段でも話が合うように、いまの段から作る -#}
+{% set uppers = {"tenant": ["システムの初めの値"], "client": ["システムの初めの値", "契約者"], "business": ["システムの初めの値", "契約者", "依頼者"]}.get(level, []) %}
 {% if level != "system" %}
 <section class="card own-list">
   <h2>この段で決めている値 <span class="muted">（{{ mine|length }}）</span></h2>
   {% if mine %}<ul>{% for r in mine %}<li><a href="#s-{{ r.key|replace('.', '-') }}">{{ r.label }}</a>：<b>{{ r.shown }}</b></li>{% endfor %}</ul>
-  {% else %}<p class="muted">まだありません。ほかの段（システム・契約者・依頼者）で決めた値のまま動いています。変えるときは、下の行を開きます。</p>{% endif %}
+  {% else %}<p class="muted">まだありません。{{ uppers|join("・") }}で決めた値のまま動いています。変えるときは、下の行を開きます。</p>{% endif %}
 </section>
 {% endif %}
 <div class="settings-filter"><input type="text" placeholder="設定を探す（例：時間帯・回数・間隔）" data-filter=".setting" aria-label="設定を探す"></div>

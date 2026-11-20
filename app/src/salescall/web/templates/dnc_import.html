@@ -51,15 +51,15 @@
 {% elif stage == "preview" %}
 <p class="lead">ファイル：{{ file_name }}。まだ何も登録していません。</p>
 <div class="grid cols-3 stats">
-  <div class="card">{{ stat("新しく止める行", counts.registered, "stop" if counts.registered else "") }}<span class="muted">番号 {{ counts.numbers }}件{% if client %}・管理番号 {{ counts.client_refs }}件{% endif %}</span></div>
-  <div class="card">{{ stat("もう止めている行", counts.already) }}</div>
-  <div class="card">{{ stat("止められない行", counts.stopped, "wait" if counts.stopped else "") }}</div>
+  <div class="card">{{ stat("かけない番号に加える行", counts.registered) }}<span class="muted">番号 {{ counts.numbers }}件{% if client %}・管理番号 {{ counts.client_refs }}件{% endif %}</span></div>
+  <div class="card">{{ stat("もう入っている行", counts.already) }}</div>
+  <div class="card">{{ stat("加えられない行", counts.stopped, "wait" if counts.stopped else "") }}</div>
 </div>
 {% if stopped %}
-<h2 style="margin-top:20px">止められない行（理由）</h2>
+<h2 style="margin-top:20px">加えられない行（理由）</h2>
 <div class="table-scroll"><table class="list"><thead><tr><th class="num">行</th><th class="wide">理由</th></tr></thead>
   <tbody>{% for r in stopped %}<tr><td class="num">{{ r.row_no }}</td><td class="wide">{{ r.reason }}</td></tr>{% endfor %}</tbody></table></div>
-<p class="muted">止められない行は登録しません。ファイルを直して、もう一度取り込めます。</p>
+<p class="muted">この行は加えません。ファイルを直して、もう一度取り込めます。</p>
 {% endif %}
 <form method="post" action="{{ base }}/{{ key }}/register" style="margin-top:20px">
   {{ csrf(token) }}

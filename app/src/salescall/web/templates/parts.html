@@ -84,7 +84,8 @@
 {# 赤字の知らせ（費用と報酬・依頼者のタブで同じ部品）。確認ボタンは、赤字が続くあいだ画面に出したまま（✅ 2026-10-30 管理者「確認ボタンは画面に出したまま」）。
    押したあとは「確かめました」の印のボタンにして残す（もう知らせない＝core の usage.confirm_deficit）。赤字かは core の usage.deficit_notice の答えだけ #}
 {% macro deficit_card(client, d, token, back) -%}
-  <div class="card attention-stop deficit">
+  {#- 赤字は電話を止めない（決めること＝橙）。赤は止まっているときだけ（色の役割） -#}
+  <div class="card attention-wait deficit">
     <b>「{{ client.name }}」は今月、報酬より費用が多くなっています（赤字）</b>
     <span class="muted">お知らせした時点（{{ time(d.warned_at) }}）：{{ d.figures }}。電話は止めていません。</span>
     {% if d.confirmed %}

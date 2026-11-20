@@ -47,7 +47,7 @@ class DncImport(_World):
         tok = self.token("A")
         pv = self.post("A", key_url + "/preview", {"form_token": tok, "map_phone": "電話番号", "map_client_ref": "管理番号"})
         self.assertEqual(pv.status_code, 200)
-        self.assertIn("止められない行", pv.text)
+        self.assertIn("加えられない行", pv.text)
         self.assertNotIn(e164, self._entries(self.a["client"]))                 # 行ごとの結果を出しただけでは書かない
         other = self.post("B", key_url + "/register", {"form_token": self.token("B")})
         self.assertEqual(other.status_code, 404)                                 # 別の契約者は、置いたファイルを使えない

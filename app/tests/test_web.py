@@ -335,7 +335,7 @@ class Web(_World):
         prev = self.post("A", key_url + "/preview", {"form_token": tok, "map_name": "会社名", "map_phone": "電話番号",
                                                      "map_client_ref": "管理番号"})
         self.assertEqual(prev.status_code, 200, prev.text[:300])
-        self.assertIn("止める行と理由", prev.text)                               # 番号の無い行は止める（理由は core の文）
+        self.assertIn("登録できない行と理由", prev.text)                               # 番号の無い行は止める（理由は core の文）
         self.assertEqual(self._count_rows(), before)                            # プレビューでは何も書かない
         reg = self.post("A", key_url + "/register", {"form_token": tok})
         self.assertIn("ok=1", reg.headers["location"])
