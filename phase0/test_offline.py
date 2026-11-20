@@ -44042,7 +44042,7 @@ class U2LadderOneSideTest(unittest.TestCase):
     """伺い94（✅ 2026-11-20 日本時間16時13分55秒「他も書いてることばかりだろ！」＝書いてあることで決まる・16時25分52秒「伺い94：はもう一方で大丈夫そうなら、エでいいし、
     もう一方では不安そうならウでしょ」）：日時の2択の片方だけを避けられたら（「金曜日はちょっと…。」）、判定が、どちらを避けたか（答えの選べるもの「（避けた方）だけ合わない」）と、
     もう一方で大丈夫そうか（答えとは別の項目 LADDER_OTHER）を読む。判定の組がそろって「大丈夫そう」＝エ（避けなかった方を答えとして受け取り、次の段の2択へ。頭は
-    「それでは（避けなかった方）でしたら」。最後の段は今の言い直しの確かめ）／ほか（不安そう・分からない・割れた・届かない）＝ウ（避けた方だけを外し、避けなかった方と次の空いている
+    「それでは（避けなかった方）でしたら」。最後の段は今の言い直しの確かめ）／ほか（不安そう・大丈夫とは言っていない・割れた・届かない）＝ウ（避けた方だけを外し、避けなかった方と次の空いている
     予定で2択）。時刻・午前と午後・平日と土日の2択も、2つとも合わないときの今の1か所（Flow._ladder_neither）。場面は DateTimePairsTest と同じ（電話の日 2026-11-19 木曜日 10時・
     11-23 は祝日）。"""
     d = DateTimePairsTest()
@@ -44884,3 +44884,46 @@ class S2ReaderBorderTest(unittest.TestCase):
         from meaning_judge import REFUSED_FACT
         self.assertIn("受け入れとも断りとも取れる短い言葉", REFUSED_FACT)
         self.assertIn("控える", REFUSED_FACT)
+
+
+class S2DecidedProposalTest(unittest.TestCase):
+    """分身 S2 の続きの続き（CL-1 の決め＝書き置き 13-6 の案 (1)・(2)・(5) を入れる）：判定の説明の文・選べるものの名前の1か所ずつを直す（お客様に聞こえる言葉・流れの制御の動きは
+    変えない。お呼びする段の文は変えない＝3つとも答えの段だけの文）。"""
+
+    def test_1_thanks_after_the_answer_is_not_pressed(self):
+        # CL-1 の決め（案 (1)）：答えのあとのお礼の締めくくりだけ（いまの質問への答えにお礼を添えて話を終えた）は「この電話を終えたい・念を押して断った」ではない（いまの質問への
+        # 答えで読む・電話を終える言葉は「言っていない」）。理由＝10-17 ユーザー「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」・本書 1-3（取り消せない
+        # 印は、言葉から1つに決まるときだけ）・ほかのご希望 W1 への「無い」はお礼の締めで、断りの印は付けない（11-03 の W1 の段）。⛔ 直す前は、読み手2人とも、ほかのご希望への
+        # 「もう大丈夫です。」「もう結構です、ありがとうございます／ました。」を「この電話を終えたい・念を押して断った」とも読んだ（rv176/S2 の束 e の #38〜#40）。境目はこの説明の1か所
+        from flowctl import END_NONE, END_PRESSED, end_choices
+        pressed = end_choices(False)[END_PRESSED]
+        for words in ("お礼を添えて", f"「{END_NONE}」"):
+            self.assertIn(words, pressed)
+        self.assertNotIn(END_PRESSED, end_choices(True))   # お呼びする段には無い（文は変わらない）
+
+    def test_2_unsure_name_matches_its_description(self):
+        # CL-1 の決め（案 (2)）：選べるもの「不安そう・分からない」の名前を、説明の幅（大丈夫かは言っていない も含む）に合わせて「不安そう・大丈夫とは言っていない」にする（お言葉の
+        # 「不安そう」は残す＝✅ 2026-11-20 日本時間16時25分52秒「もう一方では不安そうならウ」。名前が1つの事実を指すように＝11-01 日本時間6時05分「初めて読む人が分かる言葉で」）。
+        # ⛔ 直す前は、読み手2人とも、名前が「不安そう」を思わせるのに説明は「何も言っていない」も含む、と書いた（rv176/S2 の束 n の #7・#11）。流れの制御の動き（エは「大丈夫そう」が
+        # そろったときだけ）は変えない
+        from flowctl import LADDER_OTHER_OK, LADDER_OTHER_UNSURE, ladder_other_choices, ladder_other_ok
+        from types import SimpleNamespace
+        self.assertEqual(LADDER_OTHER_UNSURE, "不安そう・大丈夫とは言っていない")
+        c = ladder_other_choices(False, True)
+        self.assertIn(LADDER_OTHER_UNSURE, c)
+        self.assertNotIn("不安そう・分からない", c)
+        self.assertIn("大丈夫かは言っていない", c[LADDER_OTHER_UNSURE])
+        r = lambda v: SimpleNamespace(ladder_other=v)
+        self.assertTrue(ladder_other_ok([r(LADDER_OTHER_OK), r(LADDER_OTHER_OK)]))
+        self.assertFalse(ladder_other_ok([r(LADDER_OTHER_OK), r(LADDER_OTHER_UNSURE)]))
+
+    def test_3_refusing_the_call_is_not_refusing_the_fact(self):
+        # CL-1 の決め（案 (5)）：事実を伺う質問の「答えたくない」は、この質問への答えを控える・断ると言ったときだけ。電話そのもの・このあとの電話を断った言葉はこちらではない（電話を
+        # 終える言葉の項目が読む）。理由＝10-13 のユーザー指摘「断りは3つに分ける：発信の拒否＝発信禁止／用件への断り＝断られた／質問だけの拒否＝その項目だけ「✕」」。正解は分身 S の
+        # 束 a1 の決めのまま。⛔ 直す前は、読み手2人とも「もう電話しないでもらえますか。」「そういうお電話はちょっと……。」を「答えたくない」とも読んだ（rv176/S2 の束 e の #6・#10）
+        from flowctl import END_HEADING
+        from meaning_judge import REFUSED_FACT, SYSTEM_DESC
+        for words in ("この質問への答えを控える・断る", "電話そのもの", "このあとの電話", f"「{END_HEADING}」"):
+            self.assertIn(words, REFUSED_FACT)
+        self.assertNotIn("答えることを控える・断る", REFUSED_FACT)
+        self.assertNotIn("このあとの電話", SYSTEM_DESC["refused"])   # ふつうの質問の文は変えない
