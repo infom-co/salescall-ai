@@ -47513,3 +47513,59 @@ class TalkUsedUpKeepsRestatementTest(unittest.TestCase):
         r = say(f, "オンラインでお願いします。", Reading("オンライン", firm=True), "Q2", "オンライン")
         self.assertEqual((f.current, r["result"]), ("V1", "recheck"), r.get("say"))
 
+
+class ConcernNoMatterHeadTest(unittest.TestCase):
+    """分身 P（CL-1 の頼み rv183/P の (3)＝分身 O の書き置き (6-2)）：本心を伺う一言 D2「何か問題でもございましたでしょうか？」へのお返事が「問題は無い」「はっきりしない」の
+    ときの返事の頭は「はい、」（本書 9-4 の「断られた」の行「問題は無い・はっきりしない＝断ったとは言われていないので、ご遠慮の一言の「いいえ」と同じ1か所から伺う前の質問へ
+    戻る（「はい、話を戻させていただきますね。それでは…」）」の頭）。その場で戻らずに次の質問へ進む返事（n8・L14 の「-」の道）も同じ1か所（相づちの _ack_choice）で「はい、」。
+    ⛔ 直す前は、進むときは順に回す相づち「ありがとうございます。続きまして…」（お返事を受けた答えとして回していた）・はっきりしないお返事で戻るときは「承知しました。」"""
+
+    def concern(self, words, reading, cond, talks=2, **extra):
+        """V1 の問いでない言い直しへ、別のお話を talks 回（2回＝その場の回数を使い切る）のあと「もういいです。」に D2 → お返事。(f, お返事への返事)。"""
+        from end_words import _reading
+        from flowctl import CALLBACK_IDS, UNDECIDED
+        from meaning_judge import Reading
+        t = NotAQuestionRestateThirdBackTest()
+        a = AwayEntryTest()
+        from flowctl import Flow, Question
+
+        def say(f, words, reading, qid=None, cond=None, op="record_answer", **extra):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", reading)
+            if qid is None:
+                return f.judged_turn(voiced=False)
+            return f.apply(op, {"question_id": qid, **({"condition_id": cond} if op == "record_answer" else {}), **extra})
+
+        f = Flow([Question("Q0", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
+                  Question("V1", "ご訪問の日にちのご希望はございますでしょうか？", "date", conditions=("答えた",), required=True),
+                  Question("Q2", t.MEET, "choice", conditions=("オンライン", "訪問"))], play_recordings=True)
+        f.use_checks("judge")
+        say(f, "はい、予約しています。", Reading("はい", firm=True), "Q0", "はい")
+        say(f, "15日あたりですかね。", Reading("答えた", firm=True), "V1", "答えた", value="15日")
+        for _ in range(talks):
+            a.away(f, "confirm_field", result="no_answer")
+            a.talk(f)
+        say(f, "もういいです。", _reading(UNDECIDED, UNDECIDED))
+        self.assertEqual(f.current, CALLBACK_IDS["concern"])
+        return f, say(f, words, reading, CALLBACK_IDS["concern"], cond, **extra)
+
+    def test_no_matter_is_received_with_hai_going_on_or_back(self):
+        from flowctl import CALLBACK_IDS
+        from meaning_judge import Reading
+        for words, cond in (("いえ、別に問題はないです。", "問題は無い"), ("うーん、どうでしょう。", "unknown")):
+            # 進む（その場の回数を使い切った言い直し＝L14 の「-」の道）
+            f, r = self.concern(words, Reading(cond, firm=True), cond)
+            self.assertEqual((f.current, r["ack"]), ("Q2", "hai"), (cond, heard_words(r)))
+            self.assertTrue(heard_words(r).startswith("はい、続きまして"), (cond, heard_words(r)))
+            # 戻る（その場の回数が残っている）
+            f, r = self.concern(words, Reading(cond, firm=True), cond, talks=0)
+            self.assertEqual((f.current, f.awaiting_confirm, r["ack"]), ("V1", "V1", "hai"), (cond, heard_words(r)))
+            self.assertTrue(heard_words(r).startswith("はい、話を戻させていただきますね。"), (cond, heard_words(r)))
+
+    def test_a_matter_or_a_refusal_keeps_its_way(self):
+        from flowctl import CALLBACK_IDS
+        from meaning_judge import Reading
+        f, r = self.concern("説明が長くてよく分からないんですよ。", Reading("問題を言った", firm=True), "問題を言った", value="説明が長い")
+        self.assertEqual(r["result"], "callee_asked")
+        f, r = self.concern("もう結構ですので。", Reading("断ろうとしている", firm=True), "断ろうとしている")
+        self.assertEqual(f.current, CALLBACK_IDS["refusal"], heard_words(r))
+        self.assertNotEqual(r.get("ack"), "hai", heard_words(r))
