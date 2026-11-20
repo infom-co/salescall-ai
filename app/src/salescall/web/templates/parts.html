@@ -62,7 +62,7 @@
     </dl>
     {% endif %}
     {% if i.if_not %}<div class="if-not">{{ i.if_not }}</div>{% endif %}
-    {% if i.link and not back %}<a class="see" href="{{ i.link }}">決める前に見る →</a>{% endif %}
+    {% if i.link and not back %}<a class="go see" href="{{ i.link }}">決める前に見る</a>{% endif %}
     <div class="actions">
       {% if i.buttons %}
         {% for b in i.buttons %}

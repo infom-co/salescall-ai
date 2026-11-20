@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, empty %}
+{% from "parts.html" import go, tag, empty %}
 {% block title %}{{ words.page("watch") }}{% endblock %}
 {% block main %}
 <h1>{{ words.page("watch") }}</h1>
@@ -25,7 +25,7 @@
         <td>{{ e.what }}</td>
         <td class="wide">{{ e.detail }}{% if e.note %}<div class="muted">{{ e.note }}</div>{% endif %}</td>
         <td class="nowrap">{{ time(e.at) if e.at else "" }}</td>
-        <td class="nowrap">{% if e.link %}<a href="{{ e.link }}">見る</a>{% endif %}</td>
+        <td class="nowrap">{% if e.link %}{{ go(e.link, "見る") }}{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>

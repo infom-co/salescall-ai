@@ -20,7 +20,7 @@
 <a class="card attention-stop notice-link stopped" href="{{ '/c/' ~ client.client_id ~ '/stops/' ~ s.event_id if s.scope in ('client', 'business') else '/t/stops/' ~ s.event_id }}">
   <b>新しい電話を止めています：{{ words.stop_cause(s.cause) }}</b>
   <span class="muted">範囲：{{ words.stop_scope(s.scope) }}・{{ time(s.at) }}から</span>
-  <span class="go">何で止まったか →</span>
+  <span class="go">何で止まったか</span>
 </a>
 {% endfor %}
 {% for n in needs %}
@@ -63,7 +63,7 @@
 <a class="card attention-wait notice-link" href="/t/inbox?client={{ client.client_id }}">
   <b>承認待ちが {{ waiting|length }} 件あります</b>
   <span class="muted">いちばん急ぐもの：{{ waiting[0][1].title }}</span>
-  <span class="go">承認待ちを開く →</span>
+  <span class="go">承認待ちを開く</span>
 </a>
 {% endif %}
 {# 業務の成果（計画書 5-2）。数えるのは web/counts.business_figures の1か所・言葉は output/words の1か所。画面は数を並べるだけ #}

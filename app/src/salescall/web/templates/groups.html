@@ -21,9 +21,9 @@
       <details class="adder"><summary class="btn small">名前を変える</summary>
         <form class="panel" method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="rename"><input type="hidden" name="group_id" value="{{ g.group_id }}">
           <input type="text" name="name" value="{{ g.name }}" required aria-label="グループの名前"><button class="btn main small" type="submit">変える</button></form></details>
-      <details class="adder"><summary class="btn small danger-text">やめる</summary>
+      <details class="adder"><summary class="btn small danger-text">消す</summary>
         <form class="panel" method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="remove"><input type="hidden" name="group_id" value="{{ g.group_id }}">
-          <p class="muted">グループだけをやめます。依頼者とそのデータは、そのまま残ります。</p><button class="btn danger small" type="submit">「{{ g.name }}」をやめる</button></form></details>
+          <p class="muted">グループだけを消します。依頼者とそのデータは、そのまま残ります。</p><button class="btn danger small" type="submit">グループ「{{ g.name }}」を消す</button></form></details>
     </span></div>
   <form method="post" action="/t/groups" style="margin-top:10px">{{ csrf(token) }}<input type="hidden" name="op" value="members"><input type="hidden" name="group_id" value="{{ g.group_id }}">
     <div class="check-grid">{% for c in all_clients %}<label class="choice"><input type="checkbox" name="client_id" value="{{ c.client_id }}" {% if c.client_id in g.clients %}checked{% endif %}> {{ c.name }}</label>{% endfor %}</div>

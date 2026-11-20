@@ -349,12 +349,12 @@ details.setting > summary { list-style: none; cursor: pointer; display: flex; fl
 details.setting > summary::-webkit-details-marker { display: none; }
 details.setting[open] > summary { border-bottom: 1px solid var(--line); }
 details.setting.own { border-left: 4px solid var(--info); }
-/* 開くと変えられることを示す印（閉じているとき「変える ›」、開いたら「閉じる」） */
-details.setting .change { align-self: center; font-size: 13px; font-weight: 600; color: var(--primary); white-space: nowrap; }
-details.setting .change::after { content: " ›"; }
-details.setting[open] .change { color: var(--muted); }
-details.setting[open] .change::after { content: ""; }
-details.setting[open] .change { font-size: 0; } details.setting[open] .change::before { content: "閉じる"; font-size: 13px; }
+/* その場で開くことを示す印（閉じているとき「変える」、開いたら「閉じる」）。移るリンク（›）ではなく、ほかのその場で変える操作と
+   同じ小さなボタンの形（.btn.small と同じ見た目） */
+details.setting .change { align-self: center; display: inline-flex; align-items: center; min-height: 30px; padding: 4px 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--surface); font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; }
+details.setting > summary:hover .change { background: var(--surface-2); }
+details.setting[open] .change { font-size: 0; } details.setting[open] .change::before { content: "閉じる"; font-size: 13px; color: var(--muted); }
 .own-list ul { margin: 8px 0 0; padding-left: 1.2em; display: grid; gap: 4px; }
 .own-list h2 { margin: 0; font-size: 16px; }
 details.setting .meaning { flex: 1 1 420px; }
@@ -368,7 +368,9 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .weekly label { display: flex; align-items: center; gap: 8px; } .weekly span { width: 2.5em; font-weight: 700; }
 .gap { display: flex; gap: 8px; } .gap select { max-width: 200px; } .gap input { max-width: 120px; }
 .setting-form .unit-input input { max-width: 160px; } .setting-form .gap input { max-width: 120px; } .setting-form .gap select { max-width: 200px; }
-.danger-text { color: var(--stop) !important; }
+/* 取り消せない操作を開くボタン（使用停止・ログインを外す・取り消す・消す）は、ふだんは静かな色。赤は、開いた中で名前を見せてから
+   最後に押す「決める」ボタン（.btn.danger）だけ（2026-11-20 の見直し：全部の行に赤い文字が並び、急ぐものが目立たなかった） */
+.danger-text { color: var(--muted) !important; font-weight: 600; }
 td .inline-mark { margin-top: 0; } td .inline-mark select { max-width: 240px; }
 .btn-row { display: inline-flex; gap: 8px; flex-wrap: wrap; }
 .notice-link .go-btn { margin-left: auto; }
@@ -492,7 +494,7 @@ form.handover { display: grid; gap: 8px; margin: 12px 0; }
 /* 依頼者のグループ：タブの左の選び・グループの画面の依頼者のレ点 */
 .group-pick > summary { font-size: 13px; color: var(--muted); padding: 0 10px; white-space: nowrap; }
 .group-pick .panel { left: 0; right: auto; display: grid; gap: 2px; }
-.group-pick .panel a { padding: 6px 8px; border-radius: 6px; text-decoration: none; color: var(--ink); }
+.group-pick .panel a { padding: 6px 8px; border-radius: 6px; text-decoration: none; color: var(--text); }
 .group-pick .panel a[aria-current] { background: var(--wait-soft); font-weight: 600; }
 .group-pick .panel a.manage { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 8px; color: var(--primary); }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 12px; }
@@ -512,7 +514,7 @@ fieldset.pick-dests { border: 1px solid var(--line); border-radius: 8px; padding
 
 /* 行き先（別の画面へ移るだけ＝parts.go）。ボタンの形にしない：色の付いた文字と「›」。並べるときは .go-links */
 a.go { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 2px 0; font-weight: 600; color: var(--primary); white-space: nowrap; }
-a.go::after { content: "›"; font-size: 1.15em; line-height: 1; transform: translateY(-1px); }
+.go::after { content: "›"; font-size: 1.15em; line-height: 1; transform: translateY(-1px); }
 a.go:hover { text-decoration: underline; text-underline-offset: 3px; }
 .go-links { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 18px; }
 .title-row > .go-links { flex-basis: 100%; }

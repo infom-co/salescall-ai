@@ -94,27 +94,45 @@
     if (e.target.closest(".menu-toggle")) document.body.classList.toggle("nav-open");
   });
   // 理由が要る操作：理由が空のあいだはボタンを押せない（サーバーも断る）。押せない理由を、ボタンのすぐ横に出す（どの画面も同じ1か所）
-  function reasonState(form) {
-    var btn = form.querySelector("[data-submit]");
+  // 押せるか（1か所）：理由が要る操作・まとめての操作で、足りないもの（行を選ぶ・どうするかを選ぶ・理由を書く）をまとめて数え、
+  // 足りないあいだはボタンを押せない。足りないものを、ボタンのすぐ横にすべて出す（前は理由だけを見ていて、行を選んでいなくても
+  // 理由を書くと「押せます」の案内が消えた＝2026-11-20 の見直し）。サーバーも同じものを断る
+  function missingOf(form) {
+    var out = [];
+    if (form.classList.contains("bulk-form") && form.querySelectorAll("input[name=task_id]:checked").length === 0) out.push("行を選ぶ");
+    Array.prototype.forEach.call(form.querySelectorAll("select[required]"), function (sel) { if (!sel.value) out.push("どうするかを選ぶ"); });
     var box = form.querySelector("[name=reason]");
-    if (!btn || !box) return;
-    var empty = !box.value.trim();
-    btn.disabled = empty;
+    if (box && !box.value.trim()) out.push("理由を書く");
+    return out;
+  }
+  function submitState(form) {
+    var btn = form.querySelector("[data-submit]");
+    if (!btn) return;
+    var c = form.querySelector("[data-checked-count]"); if (c) c.textContent = form.querySelectorAll("input[name=task_id]:checked").length;
+    var missing = missingOf(form);
+    btn.disabled = missing.length > 0;
     var hint = form.querySelector(".why-disabled");
     if (!hint) {
       hint = document.createElement("span");
       hint.className = "why-disabled";
-      hint.textContent = "理由を書くと押せます";
       btn.insertAdjacentElement("afterend", hint);
     }
-    hint.hidden = !empty;
+    hint.textContent = missing.length ? "押せるまでに：" + missing.join("・") : "";
+    hint.hidden = !missing.length;
   }
-  document.addEventListener("input", function (e) {
-    var form = e.target.closest && e.target.closest("form[data-needs-reason]");
-    if (form) reasonState(form);
+  function stateful(t) { return t.closest && (t.closest("form[data-needs-reason]") || t.closest(".bulk-form")); }
+  ["input", "change"].forEach(function (k) {
+    document.addEventListener(k, function (e) {
+      var form = stateful(e.target);
+      if (!form) return;
+      if (k === "change" && e.target.matches("[data-check-all]")) {
+        form.querySelectorAll("input[name=task_id]").forEach(function (b) { b.checked = e.target.checked; });
+      }
+      submitState(form);
+    });
   });
   document.addEventListener("DOMContentLoaded", function () {
-    document.querySelectorAll("form[data-needs-reason]").forEach(reasonState);
+    document.querySelectorAll("form[data-needs-reason], .bulk-form").forEach(submitState);
     // 狭い画面では、表の1行を「見出し：値」の札に並べ替える（CSS）。見出しは表の見出しから付ける（画面ごとに書かない）
     document.querySelectorAll("table.list").forEach(function (table) {
       var heads = Array.prototype.map.call(table.querySelectorAll("thead th"), function (th) { return th.textContent.trim(); });
@@ -137,26 +155,6 @@
   document.addEventListener("change", function (e) { if (e.target.matches("[data-reading-fields]")) readingBox(e.target); });
   document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll("[data-reading-fields]").forEach(readingBox);
-  });
-  // レ点：すべて選ぶ・選んだ数（選んでいないあいだは一括のボタンを押せない。理由が空でも押せない）
-  function bulkState(form) {
-    var n = form.querySelectorAll("input[name=task_id]:checked").length;
-    var c = form.querySelector("[data-checked-count]"); if (c) c.textContent = n;
-    var btn = form.querySelector("[data-submit]");
-    var reason = form.querySelector("[name=reason]");
-    if (btn) btn.disabled = n === 0 || !(reason && reason.value.trim());
-  }
-  document.addEventListener("change", function (e) {
-    var form = e.target.closest && e.target.closest(".bulk-form");
-    if (!form) return;
-    if (e.target.matches("[data-check-all]")) {
-      form.querySelectorAll("input[name=task_id]").forEach(function (b) { b.checked = e.target.checked; });
-    }
-    bulkState(form);
-  });
-  document.addEventListener("input", function (e) {
-    var form = e.target.closest && e.target.closest(".bulk-form");
-    if (form) bulkState(form);
   });
   // 送っている間は二度押しできない。
   // ボタンを止めるのは、ブラウザが送る中身を作り終えたあと（次の順番）にする。

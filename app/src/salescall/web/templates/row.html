@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, next_tag, empty, flash, csrf, inbox_item %}
+{% from "parts.html" import go, tag, next_tag, empty, flash, csrf, inbox_item %}
 {% set active = "client" %}
 {% block title %}{{ row.source_name or "お客様" }}{% endblock %}
 {% block crumb %}{{ row.source_name or "お客様" }}{% endblock %}
@@ -133,7 +133,7 @@
       <td class="nowrap">{{ time(c.claimed_at) }}</td>
       <td>{{ words.word(words.ATTEMPT_STATES, c.state).screen }}</td>
       <td class="wide">{{ words.call_end(c.trouble) }}</td>
-      <td class="nowrap"><a href="{{ base }}/rows/{{ row.task_id }}/calls/{{ c.attempt_id }}">やり取りを見る</a></td>
+      <td class="nowrap">{{ go(base ~ "/rows/" ~ row.task_id ~ "/calls/" ~ c.attempt_id, "やり取りを見る") }}</td>
     </tr>
   {% endfor %}
   </tbody>
