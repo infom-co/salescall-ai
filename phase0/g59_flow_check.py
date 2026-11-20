@@ -21,13 +21,22 @@ K = {"同": "前と同じ方", "違": "前と違う方", "本": "ご本人", "�
 def facts(code):   # 例 "違本xx"＝(前と同じ方か, 誰か, 電話のやり取り＝x は何もない, 事情＝x は言っていない)
     return {SPEAKER: K[code[0]], WHO: K[code[1]], PHONE: K["無"] if code[2] == "x" else K[code[2]], ABOUT: K[code[3]]}
 
-def heard(f, text, code):
-    """相手の言葉 text を聞き、判定の読み code（読みの字か、項目ごとの答え＝判定の返事の形の dict）を本番と同じ入口（meaning_judge.read → Flow.on_check）で渡す。"""
+def heard(f, text, code, asks=None):
+    """相手の言葉 text を聞き、判定の読み code（読みの字か、項目ごとの答え＝判定の返事の形の dict）を本番と同じ入口（meaning_judge.read → Flow.on_check）で渡す。
+    asks＝同時に出る尋ねているかの問い合わせの読み（使う判定ごとの受け持ち＝flowctl.ASKS_CHECKS。None＝渡さない＝まだ届かない）。会話AIの答えの報告は、この読みを
+    待ってから決める（Flow._answer_judged。まとめ役 CL-1 の頼み rv178/X の5回目）。"""
     f.on_callee(); f.on_heard(text)
     if code:
         r = read(f.judge_context()[0], json.dumps(facts(code) if isinstance(code, str) else code, ensure_ascii=False))
         assert r is not None, (text, code)   # 読めない返事を作っていたら止める（⛔ 1回目は電話のやり取りに事情の字を入れ、判定が届かなかった）
         f.on_check("judge", r)
+    if asks is not None:
+        from flowctl import ASKS_CHECKS, JUDGMENTS
+        said = read(f.asks_context()[0], json.dumps({"choice": asks}, ensure_ascii=False))
+        assert said is not None, (text, asks)
+        for a, j in zip(ASKS_CHECKS, JUDGMENTS):
+            if j in f.checks_used:
+                f.on_check(a, said)
 
 def shown(r):
     return r.get("result"), [p.get("part", p.get("kind")) for p in r.get("play") or []], (r.get("say") or "")[:30]
@@ -35,6 +44,7 @@ def shown(r):
 def scene(steps, successor=False, checks=("judge",), business=None, sees_target=None, first=None):
     """お呼びする段の場面を、本番の流れの制御（Flow）に組む唯一の所（会話の試し run・G-68 の測り g68_returned が通る）。steps：[(相手の言葉, 読みの字,
     AIの報告 (op, args) か None)]。checks＝流れの制御が待つ確かめの名前（Flow.use_checks）。business＝業務（既定は b・フルネームのある行は b_full）。
+    手順に4つ目を書けば、その言葉の尋ねているかの読み（heard の asks）。
     sees_target＝お呼びする方の名前と読みを判定に見せるか（測りの --hide-names＝instruction.Business.judge_names の1か所）。
     first＝電話に出た方の第一声（本番の始まり＝繋がってから第一声を聞き、会話AIの「人」の報告のあとに名乗りと呼ぶ一言を流す Flow.on_connect の道で組む）。
     None は第一声を待たない古い形（名乗りの終わりが呼ぶ一言＝測りの表の行の場面）。2つの形で、判定に見せる質問とその前の言葉が同じこと（第一声は判定に渡らない）を
@@ -50,8 +60,8 @@ def scene(steps, successor=False, checks=("judge",), business=None, sees_target=
         heard(f, "岡田は先月退職いたしました。", "同受x籍")
         f.apply("request_callback", {"why": "departed"})
     out, ctx = [], None
-    for text, code, op in steps:
-        heard(f, text, code)
+    for text, code, op, *asks in steps:
+        heard(f, text, code, *asks)
         ctx = {"asked": f.asked_target is not None, "before": f.judge_context()[2], "successor": successor}   # 最後の言葉の場面（g59_tally の行と同じ形）
         if op:
             out.append(shown(f.apply(*op)))
@@ -107,18 +117,20 @@ _ACTS: dict = {}
 FACT_NOTES = ("turn", "said", "by", "read", "turn_reads", "judging")
 
 
-def calling_acts(r: dict, got: dict) -> tuple:
+def calling_acts(r: dict, got: dict, asks: str | None = None) -> tuple:
     """行 r の場面で、判定の読み got（目的のお客様の判定の項目ごとの答え）を本番と同じ入口（meaning_judge.read → Flow.on_check("judge")）で渡し、
     会話AIの報告（REPORTS）ごとの流れの制御の動きの名前（act_name）の並び。同時に出る「尋ねているか」の問い合わせ（convo の asks＝Flow._asking_now：
-    質問なら先に答える）の読みは、正しい読み（g59_calling_judge.asks_truths。どちらでもよい言葉は、そのどれも）を同じ入口で渡す＝目的のお客様の判定の外れだけを
-    比べる（尋ねているかの外れは、測りの数えの「尋ねているか」の問い合わせで別に数える）。返す：正しい尋ねているかの読みごとの、報告ごとの名前の並び。
+    質問なら先に答える・Flow._who_asked：どの方かの答え）の読み asks も同じ入口（meaning_judge.read → Flow.on_check("asks")）で渡す：None なら正しい読み
+    （g59_calling_judge.asks_truths。どちらでもよい言葉は、そのどれも）＝目的のお客様の判定の外れを比べる形。尋ねているかの判定の読みを渡すと、その読み1つ（測りの数えの
+    「尋ねているか」の問い合わせ＝g59_tally.off_reports が、got に正解の表の読みを渡して比べる。⛔ 4bc94b4d まで、尋ねているかはいつも正しい読みを渡し、尋ねているかの外れは
+    値だけで数えていた＝まとめ役 CL-1 の頼み rv178/X の4回目 (1)）。返す：尋ねているかの読みごとの、報告ごとの名前の並び。
     同じ行・同じ読みは1回だけ流す（同じ行＝場面を組む row_scene が読む欄の全部。フルネームのある業務の印 full も＝⛔ 分身 S（rv176/S）まで鍵に無く、印の無い行の動きを
-    印のある行にも使っていた＝試験 RereadRowsTest の test_4）。組めない場面は NoScene・今の問いで読めない読みは Unreadable。"""
+    印のある行にも使っていた＝試験 RereadRowsTest の test_4）。組めない場面は NoScene・今の問いで読めない読み（目的のお客様の判定・尋ねているかのどちらも）は Unreadable。"""
     import g59_calling_judge as g
-    k = (r["text"], r["before"] or None, bool(r["asked"]), r["successor"], bool(r.get("full")), json.dumps(got, ensure_ascii=False, sort_keys=True))
+    k = (r["text"], r["before"] or None, bool(r["asked"]), r["successor"], bool(r.get("full")), json.dumps(got, ensure_ascii=False, sort_keys=True), asks)
     if k not in _ACTS:
         out = []
-        for asks in g.asks_truths(r["text"]):
+        for a in (asks,) if asks is not None else g.asks_truths(r["text"]):
             acts = []
             for _, op in REPORTS:
                 f = row_scene(r)
@@ -128,7 +140,10 @@ def calling_acts(r: dict, got: dict) -> tuple:
                     raise Unreadable(f"今の問いで読めない判定の読み：{got}")
                 f.on_check("judge", res)
                 # 尋ねているかの質問も本番と同じ1か所（Flow.asks_context＝_calling_asked。⛔ a13eb002 まで、ここで呼ぶ一言・確かめる一言の質問を組み直していた）
-                f.on_check("asks", read(f.asks_context()[0], json.dumps({"choice": asks}, ensure_ascii=False)))
+                said = read(f.asks_context()[0], json.dumps({"choice": a}, ensure_ascii=False))
+                if said is None:
+                    raise Unreadable(f"今の問いで読めない尋ねているかの読み：{a}")
+                f.on_check("asks", said)
                 acts.append(act_name(f, f.apply(*op) if op else f.judged_turn(voiced=False)))
             out.append(tuple(acts))
         _ACTS[k] = tuple(out)
@@ -143,8 +158,12 @@ def run(steps, successor=False):
 T, H, R, S = (("report_party", {"party": "target"}), ("replay_opening", {"part": "handover"}), ("report_party", {"party": "reception"}),
               ("report_party", {"party": "successor"}))
 # 会話AIがお呼びする段で出しうる報告の全部（g59_tally が報告ごとに流す）：相手の報告（人の相手＝flowctl.PERSON_PARTIES と、目的の人の代わりにお話しうる方
-# STANDIN_PARTIES）・代わった方（名乗りから伺い直す）・報告なし（会話AIが声だけで操作を呼ばなかった＝Flow.judged_turn）
-REPORTS = (("ご本人", T), ("受付の方", R), ("代理の方", ("report_party", {"party": "substitute"})), ("代わった方", H), ("後任の方", S), ("報告なし", None))
+# STANDIN_PARTIES）・代わった方（名乗りから伺い直す）・お呼びした方で答える（尋ねられたことに、お呼びしている方のことで答える＝replay_opening の target。
+# 尋ねているかの読みで動きが変わる答えの報告＝どの方かと読めば、お伝えすることが無ければかけ直さない締め・Flow._asked_target。帳面 0-3。まとめ役 CL-1 の頼み rv178/X の4回目 (1)。
+# ⛔ 4bc94b4d まで無く、尋ねているかの外れが動きに出なかった）・報告なし（会話AIが声だけで操作を呼ばなかった＝Flow.judged_turn）
+A = ("replay_opening", {"part": "target"})
+REPORTS = (("ご本人", T), ("受付の方", R), ("代理の方", ("report_party", {"party": "substitute"})), ("代わった方", H), ("後任の方", S),
+           ("お呼びした方で答える", A), ("報告なし", None))
 YES = ("はい、そうです。", "同本xx", T)
 # 名前の「確かめへの」は、読みが分かれた言葉が確かめる一言のあとの言葉のとき・「お呼びし直した呼ぶ一言への」は、その前のこちらの返事がお呼びし直し（call_target）のとき
 # （本番の流れの制御の場面のとおり＝試験 CallingBeforeTest が確かめる）。⛔ d8d03a78 まで、電話を代わった方が違うお名前を名乗ったあと（名乗りから呼ぶ一言でお呼びし直す
