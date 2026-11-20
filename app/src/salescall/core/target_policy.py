@@ -18,9 +18,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime, timedelta
 from uuid import UUID
 
-from salescall.core import dnc, settings, tasks
+from salescall.core import business_settings, dnc, settings, tasks
 from salescall.core.access import Tx
 from salescall.core.phone import PhoneNumber, normalize
 
@@ -78,13 +79,17 @@ def task_block_reason(tx: Tx, task_id: UUID, dial: PhoneNumber, *, client_ref: s
     """登録した行へ、その番号でかけない理由（`row_block_reason` を、行のほかの番号のうち、かける番号と同じ方の番号で）。門と、発信禁止を取り消した
     行を戻す処理が読む。同じ方の番号：「担当の方は違う」で直した行では、前の担当の方の番号（tasks.former_numbers＝断りの範囲 dnc.refusal_reach と
     同じ1か所）と、いまの担当の方の番号は別の方の番号（前の担当の方が断っても、新しい担当の方へはかける・その逆も＝✅ 2026-11-07 ユーザー＝計画書 7-1 (22)）。
-    かける番号が前の担当の方の番号なら前の担当の方の番号、ほかはいまの担当の方の番号。"""
-    numbers = tasks.numbers(tx, task_id)
+    かける番号が前の担当の方の番号なら前の担当の方の番号、ほかはいまの担当の方の番号（`same_person_numbers` の1か所）。"""
+    return row_block_reason(tx, dial, same_person_numbers(tx, task_id, dial), client_ref=client_ref, tenant_id=tenant_id, client_id=client_id,
+                            business_id=business_id, task_id=task_id)
+
+
+def same_person_numbers(tx: Tx, task_id: UUID, dial: PhoneNumber) -> list[PhoneNumber]:
+    """行のほかの番号のうち、かける番号と同じ方の番号（1か所。かけない理由 `task_block_reason`・待つ時刻 `declined_wait_until` が読む）：「担当の方は違う」で
+    直した行では、前の担当の方の番号（tasks.former_numbers）と、いまの担当の方の番号は別の方の番号。"""
     former = set(tasks.former_numbers(tx, task_id))
     same = (lambda n: n in former) if dial.e164 in former else (lambda n: n not in former)
-    others = [normalize(n) for n in numbers if n != dial.e164 and same(n)]
-    return row_block_reason(tx, dial, others, client_ref=client_ref, tenant_id=tenant_id, client_id=client_id,
-                            business_id=business_id, task_id=task_id)
+    return [normalize(n) for n in tasks.numbers(tx, task_id) if n != dial.e164 and same(n)]
 
 
 def customer_block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
@@ -125,14 +130,37 @@ def _declined_in_client(tx: Tx, number: PhoneNumber, *, client_ref: str | None, 
     return tx.one("SELECT salescall.declined_in_client(%s, %s, %s, %s, %s) AS d", (client_id, business_id, number.e164, ref, task_id))["d"]
 
 
+def _declines(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID, business_id: UUID,
+              task_id: UUID | None, after: str) -> list[datetime]:
+    """同じ業務で、用件・最終目的を断られた電話のうち、その電話の業務の版の電話の型の扱い（business_settings.DECLINED_NEXT）が after のものの、終わった時刻
+    （1か所）。同じお客様かはデータベースの1か所 salescall.declined_in_business（断られて終わった行の番号のどれか・依頼者が管理番号をお客様を表す変わらない番号と
+    したときは管理番号＝発信禁止を広げるときと同じ設定 dnc.client_ref_is_stable_id）。"""
+    scope = dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+    ref = client_ref if client_ref is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", **scope) else None
+    rows = tx.all("SELECT version_id, ended_at FROM salescall.declined_in_business(%s, %s, %s, %s)", (business_id, number.e164, ref, task_id))
+    kinds = {v: business_settings.DECLINED_NEXT[business_settings.call_type(tx, v)] for v in {r["version_id"] for r in rows}}
+    return [r["ended_at"] for r in rows if kinds[r["version_id"]] == after]
+
+
 def _declined_in_business(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
                           business_id: UUID, task_id: UUID | None) -> bool:
-    """同じ業務で、用件・最終目的を断られたお客様か（業務の設定 business.call_declined_again が「はい」なら、いつも いいえ）。同じお客様かは
-    データベースの1か所 salescall.declined_in_business（断られて終わった行の番号のどれか・依頼者が管理番号をお客様を表す変わらない番号と
-    したときは管理番号＝発信禁止を広げるときと同じ設定 dnc.client_ref_is_stable_id）。2026-11-01 管理者：伺い8「業務ごとに選択できるように
-    する。デフォルトは案1（同じ業務では、次の実施回でもかけない）。…非推奨で案2も選べるように」。"""
+    """同じ業務で、用件・最終目的を断られたお客様か（業務の設定 business.call_declined_again が「はい」なら、いつも いいえ）。2026-11-01 管理者：伺い8
+    「業務ごとに選択できるようにする。デフォルトは案1（同じ業務では、次の実施回でもかけない）。…非推奨で案2も選べるように」。数えるのは、断られた電話の
+    業務の版の電話の型の扱いが setting（確認の電話）のものだけ（顧客獲得型の断りは行を止めず、門が日数を待つ＝`declined_wait_until`）。"""
     scope = dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id)
     if settings.resolve(tx, "business.call_declined_again", **scope):
         return False
-    ref = client_ref if client_ref is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", **scope) else None
-    return tx.one("SELECT salescall.declined_in_business(%s, %s, %s, %s) AS d", (business_id, number.e164, ref, task_id))["d"]
+    return bool(_declines(tx, number, client_ref=client_ref, task_id=task_id, after="setting", **scope))
+
+
+def declined_wait_until(tx: Tx, task_id: UUID, dial: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
+                        business_id: UUID) -> datetime | None:
+    """顧客獲得型で用件・最終目的（アポ）を断られたお客様へ、同じ業務の次の実施回でかけてよい最も早い時刻（門の間隔の1か所＝gate が読む。無ければ None）：
+    断られた電話（電話の型の扱いが after_days のもの）のいちばん新しい終わりから、業務の設定 business.declined_wait_days の日数。同じお客様の番号は、かけない理由と
+    同じく、かける番号と、その番号と同じ方の行のほかの番号（`same_person_numbers` の1か所）。✅ 2026-11-20 ユーザー（計画書 9-9）「伺い83」。"""
+    scope = dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+    ends = [at for n in [dial, *same_person_numbers(tx, task_id, dial)]
+            for at in _declines(tx, n, client_ref=client_ref, task_id=task_id, after="after_days", **scope)]
+    if not ends:
+        return None
+    return max(ends) + timedelta(days=int(settings.resolve(tx, "business.declined_wait_days", **scope)))

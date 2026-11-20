@@ -244,6 +244,9 @@ class UserDecisions(unittest.TestCase):
                          "retry.ask_number_again_max"}.isdisjoint(decided))
         self.assertEqual((v("retry.ask_number_again_max"), v("retry.time_band_boundaries")), (3, [12, 15]))
         self.assertEqual(v("callee.business_hours"), ["09:00", "19:00"])
+        # 2026-11-20 のご決定（伺い63・伺い83・CL-3 の伺い「お客様の言葉の書き方」）：決まった値（仮でない）
+        self.assertTrue({"callback.until_available", "business.declined_wait_days", "output.customer_words"}.isdisjoint(decided))
+        self.assertEqual((v("callback.until_available"), v("business.declined_wait_days"), v("output.customer_words")), ("now", 30, "short"))
         self.assertEqual((v("call.silence_prompt_after"), v("conversation.ask_back_required"),
                           v("conversation.recheck_required")), (5, 2, 1))
         self.assertEqual((v("calling.allow_toll_free"), v("calling.allow_navi_dial"), v("dnc.client_ref_is_stable_id")),

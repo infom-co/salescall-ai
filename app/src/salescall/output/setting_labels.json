@@ -117,5 +117,8 @@
  "login.password_min_length": "合言葉の短さの下限",
  "login.max_failures": "続けて誤ってよい回数",
  "login.lock_seconds": "続けて誤ったあと、ログインを止める長さ",
- "login.session_seconds": "ログインが続く長さ"
+ "login.session_seconds": "ログインが続く長さ",
+ "output.customer_words": "お客様の言葉の書き方",
+ "business.declined_wait_days": "アポを断られた方へ次の回でかけるまでの日数",
+ "callback.until_available": "「〇時までなら大丈夫」のときのかける時間"
 }

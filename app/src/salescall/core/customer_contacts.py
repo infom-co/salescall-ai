@@ -84,6 +84,8 @@ def add(tx: Tx, task_id: UUID, kind: str, value: str, *, origin: str, service: s
         " FROM salescall.tasks t WHERE t.task_id = %s",
         (kind, value.strip(), service.strip() if service else None, origin, import_id, source_row, attempt_id, turn,
          origin, owner_period, task_id))
+    if origin == "call":   # 通話で伺った連絡先は、お客様から伺ったもの（出どころの1か所 `note_heard`）
+        note_heard(tx, task_id, kind, value, "customer", attempt_id=attempt_id)
     if kind == "fax" and normalize(value).e164 is not None:   # そろえられない番号（海外の番号など）は番号として持てない（連絡先だけ）
         # ファクス番号も行の番号（記録だけ・かけない）：断ったお客様のファクス番号も止め、ほかの行と番号を共有するかにも入る（✅ 2026-11-17 ユーザー「止める」。0237。
         # 止める範囲・足した番号を止める・門は行の番号の1か所＝tasks.numbers・dnc.stop_added。⛔ それまで：ファクス番号は止める範囲に入らなかった）
@@ -98,7 +100,10 @@ def add_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, origin
         raise ValueError(f"記録だけの番号の名札は {list(RECORD_LABELS)} のどれかです（{label!r}）")
     if origin not in ORIGINS:
         raise ValueError(f"出どころは {list(ORIGINS)} のどれかです（{origin!r}）")
-    return tasks.add_record_number(tx, task_id, number, label, origin=origin, attempt_id=attempt_id, owner_period=owner_period)
+    contact = tasks.add_record_number(tx, task_id, number, label, origin=origin, attempt_id=attempt_id, owner_period=owner_period)
+    if origin == "call":   # 通話で伺った番号は、お客様から伺ったもの（出どころの1か所 `note_heard`）
+        note_heard(tx, task_id, "number", number.e164, "customer", attempt_id=attempt_id)
+    return contact
 
 
 def now(tx: Tx, task_id: UUID) -> dict[str, Any]:
@@ -129,15 +134,61 @@ _ROLE_OF_KIND = {"email": "email", "fax": "fax", "address": "address", "line_id"
 _MOBILE_LABELS = ("mobile", "line")   # 携帯電話の番号の役目（SMS でご招待する番号）に当たる記録だけの番号の名札
 
 
+# 連絡先の出どころ（0265。✅ 2026-11-20 ユーザー（計画書 9-4・伺い66）：お客様・お客様の会社の方から伺った連絡先は、会話の側がこちらから言って確かめる。こちらが無断で
+# 取った・分からない連絡先は、今のまま伺い直す）。一覧の出どころの欄の言葉 → 出どころ（そのほか＝分からない・無断で取った＝書かない）。読むのは `heard_word` だけ
+HEARD_FROM = ("customer", "company")
+HEARD_WORDS = {"お客様から": "customer", "会社の方から": "company", "そのほか": None}
+
+
+def heard_word(text: str) -> str | None:
+    """一覧の出どころの欄の言葉を読む（1か所）。HEARD_WORDS の外の言葉は ValueError（理由は日本語）。"""
+    word = text.strip()
+    if word not in HEARD_WORDS:
+        raise ValueError(f"出どころは「{'」「'.join(HEARD_WORDS)}」のどれかです（{word}）")
+    return HEARD_WORDS[word]
+
+
+def note_heard(tx: Tx, task_id: UUID, kind: str, value: str, heard_from: str, *, import_id: UUID | None = None,
+               attempt_id: UUID | None = None) -> None:
+    """その行の連絡先の値の出どころを書く（1か所。いまの出どころと同じなら書かない）。kind＝number（値は E.164）か番号ではない連絡先の種類。"""
+    if heard_from not in HEARD_FROM:
+        raise ValueError(f"出どころは {list(HEARD_FROM)} のどれかです（{heard_from!r}）")
+    tx.execute("INSERT INTO salescall.task_contact_sources (tenant_id, client_id, task_id, kind, value, heard_from, import_id, attempt_id)"
+               " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, %s, %s, %s FROM salescall.tasks t WHERE t.task_id = %s"
+               "  AND (SELECT s.heard_from FROM salescall.task_contact_sources s WHERE s.task_id = t.task_id AND s.kind = %s AND s.value = %s"
+               "       ORDER BY s.seq DESC LIMIT 1) IS DISTINCT FROM %s",
+               (kind, value.strip(), heard_from, import_id, attempt_id, task_id, kind, value.strip(), heard_from))
+
+
+def _heard(tx: Tx, task_id: UUID) -> dict[tuple[str, str], str]:
+    """その行の連絡先の値ごとの、いまの出どころ（いちばん新しい記録）。"""
+    return {(r["kind"], r["value"]): r["heard_from"] for r in tx.all(
+        "SELECT DISTINCT ON (kind, value) kind, value, heard_from FROM salescall.task_contact_sources WHERE task_id = %s"
+        " ORDER BY kind, value, seq DESC", (task_id,))}
+
+
+def listed(tx: Tx, task_id: UUID, dialing: str | None) -> list[dict[str, Any]]:
+    """会話へ渡す、分かっている連絡先と出どころ（会話の側の listed_contacts＝CL-1 の連絡帳 4-212。選び方は `by_role` と同じ1か所＝`_by_role`）：
+    [{kind＝連絡先の役目, value, source＝customer／company／None（分からない・無断で取った）, dialed＝いまかけている番号か}]。dialing＝いまかけている番号（E.164）。"""
+    heard = _heard(tx, task_id)
+    return [{"kind": role, "value": value, "source": heard.get(key), "dialed": key == ("number", dialing)}
+            for role, (value, key) in _by_role(tx, task_id).items()]
+
+
 def by_role(tx: Tx, task_id: UUID) -> dict[str, str]:
-    """いまお呼びする方の連絡先を、会話の側の連絡先の役目の名前で（line＝LINE の ID・mobile＝携帯電話の番号・email・fax・address）。会話の側が、
+    """いまお呼びする方の連絡先を、会話の側の連絡先の役目の名前で（選び方は `_by_role` の1か所）。"""
+    return {role: value for role, (value, _) in _by_role(tx, task_id).items()}
+
+
+def _by_role(tx: Tx, task_id: UUID) -> dict[str, tuple[str, tuple[str, str]]]:
+    """いまお呼びする方の連絡先を、会話の側の連絡先の役目の名前で（役目 → (値, 出どころの鍵)）（line＝LINE の ID・mobile＝携帯電話の番号・email・fax・address）。会話の側が、
     分かっている連絡先を重ねて伺わないために読む。
     - 番号ではない連絡先：いまの担当の方の連絡先（持ち主の期の1か所＝データベースの salescall.task_person_contacts。0226）。
     - 携帯電話の番号：いまの担当の方の番号（前の担当の方の番号＝tasks.former_numbers の1か所を除く）で、SMS の届く種類（phone.SMS_KINDS の1か所）
       のもの。かけない番号のうち携帯電話・LINE のご招待の番号の名札のいちばん新しいもの、無ければ、お客様が指定した番号。
     オンライン面談用の ID は、会話で伺う連絡先ではない。⛔ 2026-11-16 の3回目の見直しまで：担当の期を見ず、前の担当の方の携帯・メール・LINE の ID を
     新しい担当の方の連絡先として渡し（SMS のご招待・資料が前の担当の方へ）、携帯かを一覧の列の名札で決めて、固定電話を携帯電話として渡しえた。"""
-    out = {_ROLE_OF_KIND[c["kind"]]: c["value"]
+    out = {_ROLE_OF_KIND[c["kind"]]: (c["value"], (c["kind"], c["value"]))
            for c in tx.all("SELECT kind, value, service FROM salescall.task_person_contacts(%s)", (task_id,)) if c["kind"] in _ROLE_OF_KIND}
     former = set(tasks.former_numbers(tx, task_id))
     unconfirmed = {r["phone_e164"] for r in tx.all(   # 目的のお客様だと確かめられなかった通話で伺った番号（別の方の番号かもしれない。0234）
@@ -147,7 +198,7 @@ def by_role(tx: Tx, task_id: UUID) -> dict[str, str]:
             if n["phone"] not in former | unconfirmed and normalize(n["phone"]).kind in SMS_KINDS]
     phones = [n for n in mine if n["label"] in _MOBILE_LABELS] or [n for n in mine if n["label"] == "designated"]
     if phones:
-        out["mobile"] = phones[-1]["phone"]
+        out["mobile"] = (phones[-1]["phone"], ("number", phones[-1]["phone"]))
     return out
 
 

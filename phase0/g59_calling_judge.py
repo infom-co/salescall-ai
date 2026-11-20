@@ -11,8 +11,8 @@ import time
 
 from common import base_parser, require_python, save_result, say
 from convo import answers
-from flowctl import (ABOUT, ABSENT_WHY, ABSENT_WHY_NOT_SAID, CALLBACK_LABEL, END, END_HURRY, END_NONE, END_UNCLEAR, END_WHO, HEAR, HEAR_LOST, HEAR_OK,
-                     OFFER, OFFER_NOT_SAID, PHONE, SPEAKER, UNDECIDED, WHO)
+from flowctl import (ABOUT, ABOUT_NO_SUCH, ABOUT_WRONG, ABSENT_WHY, ABSENT_WHY_NOT_SAID, CALLBACK_LABEL, END, END_HURRY, END_NONE, END_UNCLEAR, END_WHO, HEAR,
+                     HEAR_LOST, HEAR_OK, OFFER, OFFER_NOT_SAID, PHONE, SPEAKER, UNDECIDED, WHO)
 from g53_meaning import spread_record
 from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, measured_judges
 
@@ -28,13 +28,14 @@ from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge,
 #    字：(1) 前と同じ方か＝同・違（⛔ 2026-10-30 に足した「決められない」はやめた＝ユーザーの形のとおり2つ）／(2) 誰か＝本（ご本人）・受（受付・取次ぎの方）・後（代理の方：後任）・上（代理の方：上司）・
 #    可（代理の方：代わりに決められる）・否（代理の方：代わりに決められない）・代（代理の方：どれかは分からない）・別（別の方：どなたかは分からない）・
 #    不（決められない）／(3) 電話のやり取り＝無（何もない）・待（取り次ぎを待つ）／(4) いまお呼びしている方の事情＝無（言っていない）・在（不在）・
-#    籍（在籍していない）／(5) お呼びした方が電話に出られない理由（書かなければ「理由は言っていない」＝cases の既定）＝無（理由は言っていない）・在（不在）・
+#    籍（在籍していない）・名（そういう方はいない）・番（番号違い）／(5) お呼びした方が電話に出られない理由（書かなければ「理由は言っていない」＝cases の既定）＝無（理由は言っていない）・在（不在）・
 #    休（お休み）・長（長期の不在）・後（あとで）・別（別の番号へ）・決（決められない）。並べた字のどれでもよい（言葉から、どちらとも言える）
 _CODES = {SPEAKER: {"同": "前と同じ方", "違": "前と違う方"},
           WHO: {"本": "ご本人", "受": "受付・取次ぎの方", "後": "代理の方（後任）", "上": "代理の方（上司）", "可": "代理の方（代わりに決められる）",
                 "否": "代理の方（代わりに決められない）", "代": "代理の方（どれかは分からない）", "別": "別の方（どなたかは分からない）",
                 "不": "決められない"},
-          PHONE: {"無": "何もない", "待": "取り次ぎを待つ"}, ABOUT: {"無": "言っていない", "在": "不在", "籍": "在籍していない"},
+          PHONE: {"無": "何もない", "待": "取り次ぎを待つ"}, ABOUT: {"無": "言っていない", "在": "不在", "籍": "在籍していない",
+                                                                  "名": ABOUT_NO_SUCH, "番": ABOUT_WRONG},
           ABSENT_WHY: {"無": ABSENT_WHY_NOT_SAID, "在": CALLBACK_LABEL["absent"], "休": CALLBACK_LABEL["day_off"], "長": CALLBACK_LABEL["long_absent"],
                        "後": CALLBACK_LABEL["later"], "別": CALLBACK_LABEL["other_number"], "決": UNDECIDED}}
 
@@ -207,6 +208,24 @@ LINES_SUCCESSOR = [
     ("はい、そうです。", f"{DEPARTED_SAID}／{ASKED_AFTER}", True, F("同", "後", "無", "無")),
     ("いえ、私は受付の者です。", f"{DEPARTED_SAID}／{ASKED_AFTER}", True, F("同", "受", "無", "無")),
 ]
+# お呼びした方はいない・番号違いの言葉（会社の電話のはじめの場面。2026-11-20 rv176/S：試しの言葉の表の案 review_words.CALLING_WORDS の会社の電話の行と、候補
+# CANDIDATES の S3-5・S4-5 を、答えを伏せた読み手2人（rv176/S/readers の束 c）の読みで表へ移した。2人がそろった読みはその読み・割れた項目は決まりで決めた＝
+# rv176/S/notes.md の 9）。どの行もフルネームのある業務（印 full＝g59_flow_check.b_full）：「そういう方はいない」（ABOUT_NO_SUCH）は、まだなら部署・フルネームで
+# お呼びし直す（Flow._recall_full）＝在籍していない（後任の方を伺う）と違う動きを数える（CL-1 が決まりで決めた (b)＝帳面 0-3 の (1)）。部署・フルネームでお呼びし直した
+# あとの行（前の言葉が詳しい呼ぶ一言のきっかけ）は、もうお呼びし直さない＝在籍していないと同じ道。お呼びした方が出られない理由は、そういう方はいない・在籍していない・
+# 番号違いでは使わない＝言っていないも決められないも正解（11-19 日本時間21時台の決め＝cases の注）。ご本人の電話の行（番号違いの説明が替わる）は、表の場面の業務
+# （会社の電話）では組めない＝試しの言葉の表の案のまま（review_words.CALLING_WORDS）
+# (相手の言葉, その前に相手が言ったこと, 確かめたあとか, 正解)
+LINES_FULL = [
+    ("うちには岡田という者はおりませんが。", None, False, F("同", "受", "無", "名", "無決")),
+    ("そういう者はおりませんが。", None, False, F("同", "受", "無", "名", "無決")),
+    ("いえ、そういう者はおりませんが。", ASKED_AFTER, True, F("同", "受", "無", "名", "無決")),
+    ("岡田はもうおりませんが。", None, False, F("同", "受", "無", "在籍", "在無決")),   # 「もう」＝もういない（在籍していない）とも、今日はもういない（不在）とも
+    ("そちらは番号をお間違えではないですか。うちはそういう会社ではありませんが。", None, False, F("同", "受不", "無", "番", "無決")),
+    ("いいえ、違いますけど。", ASKED_AFTER, True, F("同", "受", "無", "無")),
+    ("営業部には岡田太郎という者はおりませんが。", "どちらの岡田でしょうか？", False, F("同", "受", "無", "名", "無決")),
+    ("そういった者はおりませんが。", "お名前だけではどの者か分かりかねますので、お繋ぎできかねます。", False, F("同", "受", "無", "名", "無決")),
+]
 # ご決定で足した、受け取ってよい読み（流れの制御の読み）：受付の方が不在を伝えてから代わった別の方は、組み合わせた読みが「不在」でもよい（どちらでも、
 # 流れの制御は代わりの方として扱う＝Flow._handed。✅ 2026-10-22 ユーザー（4回目）。test_away_text_quotes_the_words_read_as_away）。項目ごとの
 # 正解は、いまの言葉の事情（言っていない）のまま
@@ -345,14 +364,35 @@ def successor_before(text: str, before: str | None, asked: bool) -> str | None:
     return f.judge_context()[2]
 
 
-def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bool, dict]]:
-    """測る言葉の全部：(相手の言葉, 受け取ってよい読み, その前に相手が言ったこと, 確かめた言い方, 後任の方をお呼びしたあとか, 正解)。"""
+class Case(tuple):
+    """正解の表の1行：6つの欄（相手の言葉, 受け取ってよい読み, その前に相手が言ったこと, 確かめた言い方, 後任の方をお呼びしたあとか, 正解＝今までの並びのまま
+    6つに分けて読める）と、フルネームのある業務の行の印 full（行の場面を g59_flow_check.b_full で組む＝row_scene・測りの鍵 g59_tally.key・送る文の指紋
+    prompts_fingerprint・測り run が読む）。2026-11-20 rv176/S（CL-1 が決まりで決めた (b)）"""
+    full = False
+
+
+def _case(fields: tuple, full: bool) -> Case:
+    c = Case(fields)
+    if full:
+        c.full = True
+    return c
+
+
+def case_row(c: Case) -> dict:
+    """表の1行の場面の欄（唯一の作り＝測り run・送る文の指紋・読み手への束 g59_readers が row_scene・judge_questions に渡す形）。"""
+    return {"text": c[0], "before": c[2], "asked": c[3] is not None, "successor": c[4], "full": c.full}
+
+
+def cases(confirm: str) -> list[Case]:
+    """測る言葉の全部：(相手の言葉, 受け取ってよい読み, その前に相手が言ったこと, 確かめた言い方, 後任の方をお呼びしたあとか, 正解) と印 full（Case）。"""
     from phrases import SUCCESSOR
     rows = ([(t, None, False, False, f) for t, f in LINES] + [(t, b, False, False, f) for t, b, f in LINES_AFTER]
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
             + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED]
             + [(t, successor_before(t, b, c), c, True, f) for t, b, c, f in LINES_SUCCESSOR]
             + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, hear_before(a), a, False, f) for t, a, f in lines_hear()])
+    full = {(t, b, c) for t, b, c, _ in LINES_FULL}
+    rows += [(t, b, c, False, f) for t, b, c, f in LINES_FULL]
     # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉の正解は、行に END を書いたもの（ご本人の「…会議中で手が離せないのですが。」＝
     #    急いでいる）のほかは「言っていない」（断り・取り次げない・急ぎ・怒りの言葉は無い。⛔ 11-01 は1つずつ読まずに全部を「言っていない」にしていた＝
     #    2026-11-05 に71の言葉を1つずつ読み直した）。
@@ -364,9 +404,9 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
     #    ご決定（10-25「休みとは言われず…だけなら「お戻り」」・11-15 伺い17 の会議中＝あとで）とお客様に聞こえる伺う一言で CL-1 が決めた（「本日おりません」
     #    「本日終日外出」＝その日のうちには戻らない＝長期の不在・「本日は難しい」＝あとで・お呼びした方がもう在籍していない・受付の方が取り次がない
     #    （営業の電話・お名前だけではどの方か分からない・個人あての電話）＝理由は使わない＝言っていないも決められないも正解）。申し出はどの行も「言っていない」。行に書かなければ「言っていない」
-    return [(t, sorted(set(accept_of(f, s)) | set(EXTRA.get((t, b), ()))), b, (SUCCESSOR["target_confirm"] if s else confirm) if c else None, s,
-             f | {END: f.get(END, {END_NONE}), HEAR: f.get(HEAR, {HEAR_OK}), OFFER: f.get(OFFER, {OFFER_NOT_SAID}),
-                  ABSENT_WHY: f.get(ABSENT_WHY, {ABSENT_WHY_NOT_SAID})})
+    return [_case((t, sorted(set(accept_of(f, s)) | set(EXTRA.get((t, b), ()))), b, (SUCCESSOR["target_confirm"] if s else confirm) if c else None, s,
+                   f | {END: f.get(END, {END_NONE}), HEAR: f.get(HEAR, {HEAR_OK}), OFFER: f.get(OFFER, {OFFER_NOT_SAID}),
+                        ABSENT_WHY: f.get(ABSENT_WHY, {ABSENT_WHY_NOT_SAID})}), (t, b, c) in full and not s)
             for t, b, c, s, f in rows]
 
 
@@ -438,8 +478,10 @@ CANDIDATES = [
 def candidates() -> list[dict]:
     """正解の表の候補の行（正解なし）：{番号・場面・場面の説明・相手の言葉・その前に相手が言ったこと・確かめたあとか・後任の方の場面か・フルネームの印}。
     行の形は測りの行と同じ（row_scene・judge_questions にそのまま渡せる）。"""
+    # 表へ移した言葉（LINES_FULL＝2026-11-20 rv176/S の S3-5・S4-5）は候補に出さない（同じ行を2か所に持たない）。番号は候補の並びのまま（読み手の答えの名札が変わらない）
+    moved = {(t, b) for t, b, _, _ in LINES_FULL}
     return [{"id": f"{sid}-{i}", "scene": sid, "title": title, "text": t, "before": before, "asked": asked, "successor": False, "full": full}
-            for sid, title, before, asked, full, words in CANDIDATES for i, t in enumerate(words, 1)]
+            for sid, title, before, asked, full, words in CANDIDATES for i, t in enumerate(words, 1) if (t, before) not in moved]
 
 
 def prompts_fingerprint(sees_target: bool | None = None) -> dict[str, tuple[int, str]]:
@@ -454,8 +496,9 @@ def prompts_fingerprint(sees_target: bool | None = None) -> dict[str, tuple[int,
     from meaning_judge import sent_text
     b, _, _ = flows(sees_target)
     target = asks = ""
-    for text, _, before, asked, succ, _ in cases(b.target.confirm()):
-        q, aq = judge_questions({"text": text, "before": before, "asked": asked, "successor": succ}, sees_target)   # 本番の場面の1か所
+    for c in cases(b.target.confirm()):
+        text, before = c[0], c[2]
+        q, aq = judge_questions(case_row(c), sees_target)   # 本番の場面の1か所（フルネームのある業務の行の印 full も＝2026-11-20 rv176/S）
         target += sent_text(q, text, None, before)
         asks += sent_text(aq, text, None, before)
     return {name: (len(s), hashlib.sha256(s.encode()).hexdigest()[:16]) for name, s in (("目的のお客様の判定", target), ("尋ねているか", asks))}
@@ -486,18 +529,19 @@ async def run(args) -> dict:
         row["facts_ok"] = all(facts_ok(row.get(f"{k}_facts"), facts) for k in asked_now)
         say(f"（前：{row['before']}）" if row["before"] else "", row["text"], {k: (row.get(k), row.get(f"{k}_asks")) for k in judges},
             "OK" if row["ok"] else "×")
-    for text, ok, before, asked, successor, facts in cases(b.target.confirm()):
+    for case in cases(b.target.confirm()):
+        text, ok, before, asked, successor, facts = case
         if args.only and text not in args.only:   # 外れた言葉だけを、本番と同じ送り方でくり返して確かめるとき（測る言葉を選ぶだけ）
             continue
         # 判定に見せる質問は、行の場面の本番の流れの制御の1か所（judge_questions＝Flow._calling_asked）
-        q, aq = judge_questions({"text": text, "before": before, "asked": asked, "successor": successor}, sees)
+        q, aq = judge_questions(case_row(case), sees)
         for rep in range(args.repeat):
             only = (text, before, bool(asked)) in hear_only
             truths = asks_truths(text, only)   # 尋ねているかの正しい読み（1か所）：1つに決まる言葉だけ数える（「尋ねている」か＝ASKED に入るか）
             want = truths[0] in ASKED if len(truths) == 1 else None
             kind = truths[0] if len(truths) == 1 and truths[0] in ASKED else None
             row = {"text": text, "accept": ok, "asks_accept": want, "asks_kind": None if only else kind, "before": before, "asked": asked, "rep": rep,
-                   "hear_only": only,
+                   "hear_only": only, "full": case.full,
                    "successor": successor, "facts_accept": {k: sorted(v) for k, v in facts.items()},
                    "both": (text, before, bool(asked)) in {(t, b, c) for t, b, c, _ in LINES_BOTH}}
             rows.append(row)

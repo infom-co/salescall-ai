@@ -53,7 +53,9 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, replace
+from datetime import date
 from typing import Any
 from uuid import UUID
 
@@ -65,7 +67,12 @@ VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
               "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
               "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on", "concern",
-              "handoff", "close_offer", "offer_terms", "carried", "elsewhere", "brief", "elsewhere_whole", "elsewhere_point")
+              "handoff", "close_offer", "offer_terms", "carried", "elsewhere", "brief", "elsewhere_whole", "elsewhere_point",
+              "refusal_said", "clock24")
+# refusal_said（CL-1 の連絡帳 4-208 の (2)・4-211。顧客獲得型だけ）：お客様の断り文句をお客様の言ったまま（✅ 2026-11-20 ユーザー「「断り文句」をお客様の言ったまま
+#   必ず記録で残す」）。turn・said＝その発話・what＝REFUSAL_WHATS・at＝REFUSAL_ATS（どの段のお断りか）。依頼者へ返す（判定の中身 refusal_said）。
+# clock24（CL-1 の連絡帳 4-212。✅ 2026-11-20 ユーザー「伺い68：ア」）：言い直しに「はい」をいただいた日時・時刻の答えの24時間の値。会話の側が通話の終わりの答えで
+#   作る（発話を持たない＝turn・said が無い）：question・value・date（言った日。読めなければ null）・times（「HH:MM」の並び）。依頼者へ返す（判定の中身 clock24）
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
@@ -257,7 +264,9 @@ CALLBACK_CYCLES = ("month",)
 # other_party＝別の番号・別の方へ（「3時までにこちらの番号へ」）・unavailable＝それまでは出られない（「3時までには戻ります」「3時まで
 # 会議です」）・preparing＝それまでに確認・準備をしておく（「3時までに担当者に確認しておきます」）。理由ごとの、かけてよい時間の決め方は
 # お客様の時間の設定の1か所（calling_hours.CalleeSettings.until_rule。設定 callback.until_*）
-UNTIL_WHYS = ("other_party", "unavailable", "preparing")
+UNTIL_WHYS = ("other_party", "unavailable", "preparing", "available_until")
+# available_until＝それまでなら出られる（「3時までなら大丈夫です」の理由を伺い直し「それ以降はお電話が難しい」に「はい」。CL-1 の連絡帳 4-212。✅ 2026-11-20
+# ユーザー「伺い63：ア」）。読み方は設定 callback.until_available（既定 now＝今から〇時まで。0262）
 # かけ直しの理由（why）だけで決まる「〇時まで」の理由（同じことを2つの項目で表さない＝この理由には until_why を書かせない）：別の番号へ・
 # 分かるお客様（a1）＝別の方へ／不在・長期の不在・お休み＝それまでは出られない／分かる時（a2）＝それまでに確かめておく
 UNTIL_BY_REASON = {"other_number": "other_party", "ask_who": "other_party", "absent": "unavailable", "long_absent": "unavailable",
@@ -269,11 +278,16 @@ UNTIL_BY_REASON = {"other_number": "other_party", "ask_who": "other_party", "abs
 # 「〇時まで」の理由を伺い直さない＝CL-1 の連絡帳 4-161 のまま）
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
                "callback", "not_transferred", "departed", "other_means", "hold_timeout", "goal_refused",
-               "transfer_unclear", "who_unclear", "not_agreed")   # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
+               "transfer_unclear", "who_unclear", "not_agreed", "yes_used_up", "no_pain")   # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
 # 会話AIが電話を終える理由として報告できるが、その理由のまま締めることは無い名前（会話の側が取り次げなかったときのお礼の締め＝not_transferred か、
 # ご事情を伺う一言・お呼びし直しに替える。CL-1 の連絡帳 4-63・4-65 の (e)）。締めた理由 end に来たら報告の誤り（END_REASONS は CL-1 の
 # 名前の一覧とそろえるので入れておく。判定の入力 end_unjudged の理由には来る＝UNJUDGED_REASONS）
 NEVER_CLOSES = frozenset({"transfer_unclear", "who_unclear"})
+# 日を改めるお礼の締め（顧客獲得型。発信禁止ではない。CL-1 の連絡帳 4-208 の (2)・4-211）：yes_used_up＝Yes の質問を使い切り、会話AIも中身を書けなかった／
+# no_pain＝本題の悩みがどれも無かった。この電話の日には、もうかけない（「日を改めます」とお伝えした＝同じ日にかけ直さない1か所 next_action.not_today が読む）
+ANOTHER_DAY_ENDS = frozenset({"yes_used_up", "no_pain"})
+REFUSAL_WHATS = ("refused", "busy", "elsewhere")   # 断り文句の種類：通話・営業を断った（決まらない断り・答えたくないも）／忙しい／ほかの会社に頼んでいる
+REFUSAL_ATS = ("yes", "main", "reception")         # どの段のお断りか：Yes の質問の段／本題の段（アポのお断り）／受付の方の営業のお断り
 HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})   # 急いでいる・断られた・怒っている（CL-1 の Flow.hurried と同じ）
 NOT_REACHED_REASONS = ("absent", "not_transferred", "departed", "other_means", "who_unclear")   # 目的のお客様に繋がらなかった理由（7-1。CL-1 の
 #   Flow.not_reached の1か所と flowctl の注の名前。⛔ 前は CL-1 の表 NOT_REACHED_LABEL を指していたが、CL-1 の連絡帳 4-160 で外された）：在籍していない＝後任の方にも繋がらなかった・終える業務／ほかの手段を望まれた。2026-10-22 の版 0.5。
@@ -287,7 +301,8 @@ HUMAN_PARTIES = frozenset({"reception", "target", "substitute", "successor", "wr
 # 在籍していない・ほかの手段・保留で待ちきった＝保留を頼むのは人の言葉。CL-1 の 4-42）。入れないもの（MACHINE_ENDS）：留守番電話・
 # 自動音声・FAX。締めに来る理由（END_REASONS から、その理由のまま締めない NEVER_CLOSES を除いたもの）は、この2つにちょうど分かれる
 HUMAN_ENDS = frozenset({"done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "callback",
-                        "not_transferred", "departed", "other_means", "hold_timeout", "goal_refused", "not_agreed"})
+                        "not_transferred", "departed", "other_means", "hold_timeout", "goal_refused", "not_agreed",
+                        "yes_used_up", "no_pain"})   # 日を改めるお礼の締め（Yes の質問・本題の悩みへのお返事のあと＝人の言葉でしか起きない。CL-1 の連絡帳 4-208・4-211）
 # not_agreed（締めた理由。CL-1 の連絡帳 4-66 のあとの (g)＝11-02 5時56分 ✅ ユーザー）：最終目的のご承認で、ご納得いただけなかった点を
 #   資料でご説明できず、担当の者に申し伝えることにして、お礼で締めた。もうかけないの印は付けず、改めてご案内するかは依頼者が決める
 #   ＝判定は「結論として終えた」（judge の1か所。goal_refused と違って「用件を断られた」に入れない＝同じ業務の次の実施回でもかけうる）
@@ -314,7 +329,8 @@ HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "
                "offers", "offer_terms",   # 申し出への答え・条件つきで受けていただいた申し出（人の言葉でしか起きない。CL-1 の連絡帳 4-122〜4-129）
                "carried",   # 引き継ぎを確かめる一言への答え（人の言葉でしか起きない。CL-1 の連絡帳 4-141）
                "brief",   # 手短になら聞くと言っていただいた（人の言葉でしか起きない。CL-1 の連絡帳 4-173）
-               "choice_points")   # 決め手を言っていただいた（人の言葉でしか起きない。CL-1 の連絡帳 4-195）
+               "choice_points",   # 決め手を言っていただいた（人の言葉でしか起きない。CL-1 の連絡帳 4-195）
+               "refusals_said")   # 断り文句（人の言葉でしか起きない。CL-1 の連絡帳 4-208）。⛔ clock24 は入れない：通話の終わりの答え（前の通話で取れた答えも入る）から作る＝この通話の人の証でない
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 # お客様につながったら、まずお詫びすること（次の予定の印 apology_reasons・予約証の apology・会話の報告の apologies_delivered の理由の名前。名前の正本はここ。
 # 次の動きの next_action.APOLOGY_REASONS はこれを指す）：約束した日（回）に一度もかけられなかった／前の電話が途中で切れた／前の通話で言ってはいけないことを言った
@@ -444,6 +460,7 @@ class Departed:
     read: tuple[str, ...]
     successor: bool              # 後任の方へ切り替えたあとに言われたか
     evidence: Said
+    to_role: bool = False        # その役職の方へ切り替えた記録（後任の方もいらっしゃらず、その役職の方をお呼びする。CL-1 の連絡帳 4-213。successor が真のときだけ）
 
 
 @dataclass(frozen=True)
@@ -706,6 +723,26 @@ class ChoicePoint:
 
 
 @dataclass(frozen=True)
+class RefusalSaid:
+    """お客様の断り文句（事実 refusal_said。お客様の言ったまま＝evidence.said）。依頼者へ返す。"""
+    evidence: Said
+    what: str                    # REFUSAL_WHATS
+    at: str                      # REFUSAL_ATS
+
+
+@dataclass(frozen=True)
+class Clock24:
+    """言い直して確かめた時刻の24時間の値（事実 clock24。会話の側の flowctl.clock24 の1か所が作る）。依頼者へ返す。"""
+    question: str                # 質問の番号（かけ直しの時刻は C1 など）
+    value: str                   # 答えの値（言ったまま）
+    date: str | None             # 言った日（ISO の形。日の言葉が無い・読めなければ None）
+    times: tuple[str, ...]       # 値の中の時刻ごとの「HH:MM」（1つ以上）
+
+    def to_json(self) -> dict[str, Any]:
+        return {"question": self.question, "value": self.value, "date": self.date, "times": list(self.times)}
+
+
+@dataclass(frozen=True)
 class Brief:
     """手短になら聞くと言われ、かけ直さずに続けた（事実 brief。CL-1 の 4-173 の (3)）。"""
     evidence: Said               # かけ直しの伺い（H3）への答えの発話（取れなければ turn が None・said が空）
@@ -792,6 +829,8 @@ class CallReport:
     brief: Brief | None = None                    # 事実 brief：手短になら聞くと言われ、必須・最終目的の質問だけを伺った（1通話に1つまで）
     whole: EndedOn | None = None                  # 事実 elsewhere_whole：ご案内全体をほかの会社にと言われ、残りを伺わなかった（形は ended_on と同じ。1通話に1つまで）
     choice_points: tuple[ChoicePoint, ...] = ()   # 事実 elsewhere_point：ほかの会社をお選びになった決め手（依頼者へ返す）
+    refusals_said: tuple[RefusalSaid, ...] = ()   # 事実 refusal_said：お客様の断り文句（依頼者へ返す）
+    clock24: tuple[Clock24, ...] = ()             # 事実 clock24：言い直して確かめた時刻の24時間の値（依頼者へ返す）
     offers: tuple[Offer, ...] = ()                # 事実 handoff・close_offer：業務の申し出の答え（起きた順。種類は Offer.kind）
     offer_terms: tuple[OfferTerms, ...] = ()      # 事実 offer_terms：業務の申し出の質問を条件つきで受けていただいた
     carried: tuple[Carried, ...] = ()             # 事実 carried：新しい担当の方に、前の担当の方からお話を聞いているかを伺った答え
@@ -896,8 +935,10 @@ class CallReport:
     @property
     def departed_end(self) -> bool:
         """お呼びした方が在籍していないので、行を終える通話か（1か所）：業務で「お礼を言って終える」を選んでいた、または後任の方へ
-        切り替えたあとに、また在籍していないと言われた（CL-1 の Flow._departed。お呼びできる方がもういない）。"""
-        return any(d.policy == "end" or d.successor for d in self.departures)
+        切り替えたあとに、また在籍していないと言われた（CL-1 の Flow._departed。お呼びできる方がもういない）。後任の方もいらっしゃらず、その役職の方へ切り替えた
+        記録（to_role。✅ 2026-11-20 ユーザー「伺い69：エで後任もいないときは、該当の役職の方」＝CL-1 の連絡帳 4-213 の (ア)）は、行を終える記録に数えない（役職の方も
+        いらっしゃらない記録は、to_role の無い successor の記録＝終える）。"""
+        return any(d.policy == "end" or (d.successor and not d.to_role) for d in self.departures)
 
     @property
     def turned_to_successor(self) -> bool:
@@ -905,6 +946,12 @@ class CallReport:
         する」（既定）で、行を終えない（departed_end でない）。後任の方に繋がっても繋がらなくても、この行のこれからの電話は後任の
         ご担当者様をお呼びする（2026-10-22 ユーザー：「基本は後任へつないでもらう。選択可能にしたはずです」）。"""
         return bool(self.departures) and not self.departed_end
+
+    @property
+    def turned_to_role(self) -> bool:
+        """この通話で、お呼びする方がその役職の方に替わったか（1か所）：後任の方もいらっしゃらず、その役職の方へ切り替えた記録があり（to_role）、行を終えない。
+        この行のこれからの電話は、はじめから役職の方をお呼びする（予約証の口 role_call。後任の方の口 successor と同じ考え・両方は立てない＝CL-1 の連絡帳 4-213 の (イ)）。"""
+        return any(d.to_role for d in self.departures) and not self.departed_end
 
     @property
     def callback(self) -> Callback | None:
@@ -916,6 +963,11 @@ class CallReport:
     @property
     def end_reason(self) -> str | None:
         return self.ends[-1].reason if self.ends else None
+
+    @property
+    def another_day(self) -> bool:
+        """日を改めるお礼の締めで終えたか（1か所。ANOTHER_DAY_ENDS）：この電話の日には、もうかけない。"""
+        return self.end_reason in ANOTHER_DAY_ENDS
 
     @property
     def closing_started(self) -> bool:
@@ -988,8 +1040,8 @@ class CallReport:
                                 for n in self.not_transferred],
             "substitute": [{**said(x.evidence), "policy": x.policy, "read": list(x.read),
                             **({} if x.answer is None else {"answer": x.answer})} for x in self.substitutes],
-            "departed": [{**said(x.evidence), "policy": x.policy, "read": list(x.read), "successor": x.successor}
-                         for x in self.departures],
+            "departed": [{**said(x.evidence), "policy": x.policy, "read": list(x.read), "successor": x.successor,
+                          **({"to_role": True} if x.to_role else {})} for x in self.departures],
             "callee_question": [{**said(x.evidence), "answered": x.answered, **x.own.to_json()} for x in self.callee_questions],
             "talk": [{**said(t.evidence), **t.own.to_json(), **({} if t.fallback is None else {"fallback": t.fallback}),
                       **({} if t.terms_dropped is None else {"terms_dropped": {"text": t.terms_dropped.text, "problem": t.terms_dropped.problem}})}
@@ -1010,7 +1062,9 @@ class CallReport:
             "brief": [] if self.brief is None else [
                 {**said(self.brief.evidence), "answer": self.brief.answer, "skipped": list(self.brief.skipped)}],
             "elsewhere_whole": [] if self.whole is None else [self.whole.to_json()],
-            "elsewhere_point": [{**said(c.evidence), "question": c.question, "point": c.point} for c in self.choice_points]}
+            "elsewhere_point": [{**said(c.evidence), "question": c.question, "point": c.point} for c in self.choice_points],
+            "refusal_said": [{**said(x.evidence), "what": x.what, "at": x.at} for x in self.refusals_said],
+            "clock24": [c.to_json() for c in self.clock24]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last,
@@ -1447,9 +1501,7 @@ def from_json(raw: Any) -> CallReport:
                                    _reads(r.get("read"), "facts.substitute.read"),
                                    _value(r.get("answer"), "facts.substitute.answer"), s)
                         for r, s in _records(facts, "substitute", {"policy", "read", "answer"}))
-    departures = tuple(Departed(_choice(r.get("policy"), RESPONSE_POLICIES["departed"], "facts.departed.policy"),
-                                _reads(r.get("read"), "facts.departed.read"), _bool(r, "successor"), s)
-                       for r, s in _records(facts, "departed", {"policy", "read", "successor"}))
+    departures = tuple(_departed(r, s) for r, s in _records(facts, "departed", {"policy", "read", "successor", "to_role"}))
     # 確かめに戻った（target_back）・続きへ戻った（callback_resume）は記録だけ。いつ戻るか（どの申し出・伺いの途中か）は会話の側の決まり
     # （CL-1 の Flow.asking_reception）なので、ここで写して組み合わせを断らない（⛔ 見直し29c の 3：前はかけ直し・代わりの方・取り次げない
     # の記録が無い確かめを断っていた。会話の側に「急いでいる方への伺いの途中に取り次がれた」道が増え、正しい報告が丸ごと断られ、その
@@ -1507,10 +1559,57 @@ def from_json(raw: Any) -> CallReport:
                       who_unclears=who_unclears, not_agreed=not_agreed, other_wishes=other_wishes, ended_on=ended_on, brief=brief,
                       concerns=tuple(concerns), offers=_offers(facts), offer_terms=_offer_terms(facts), carried=_carried(facts),
                       irreversible_check=check, ai_troubles=troubles, unfinished=tuple(sorted(unfinished)), whole=_whole(facts),
-                      choice_points=_choice_points(facts), apologies_delivered=_apologies(d.get("apologies_delivered")))
+                      choice_points=_choice_points(facts), apologies_delivered=_apologies(d.get("apologies_delivered")),
+                      refusals_said=tuple(RefusalSaid(s, _choice(r.get("what"), REFUSAL_WHATS, "facts.refusal_said.what"),
+                                                      _choice(r.get("at"), REFUSAL_ATS, "facts.refusal_said.at"))
+                                          for r, s in _records(facts, "refusal_said", {"what", "at"})),
+                      clock24=_clock24(facts))
 
 
 OWN_WORDS_KEYS = {"answer", "drafts", "checked"}
+
+
+_HHMM = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]")
+
+
+def _clock24(facts: dict) -> tuple[Clock24, ...]:
+    """事実 clock24 の並び（形は CL-1 の Flow.clock24_facts が作るもの。発話を持たない。確かめはここだけ）：同じ質問は1つまで。"""
+    rows = facts.get("clock24", [])
+    if not isinstance(rows, list):
+        raise ReportInvalid("facts.clock24 は記録の並びです")
+    out = []
+    for i, r in enumerate(rows):
+        where = f"facts.clock24[{i}]"
+        r = _keys(r, {"question", "value", "date", "times"}, where)
+        question, value, day, times = r.get("question"), r.get("value"), r.get("date"), r.get("times")
+        if not isinstance(question, str) or not question.strip():
+            raise ReportInvalid(f"{where}.question は、質問の番号です")
+        if not isinstance(value, str) or not value.strip():
+            raise ReportInvalid(f"{where}.value は、答えの値（文字）です")
+        if day is not None and (not isinstance(day, str) or _iso_date(day) is None):
+            raise ReportInvalid(f"{where}.date は、言った日（YYYY-MM-DD）か null です")
+        if not isinstance(times, list) or not times or not all(isinstance(t, str) and _HHMM.fullmatch(t) for t in times):
+            raise ReportInvalid(f"{where}.times は、24時間の時刻「HH:MM」の並び（1つ以上）です")
+        out.append(Clock24(question, value, day, tuple(times)))
+    if len({c.question for c in out}) != len(out):
+        raise ReportInvalid("facts.clock24 に、同じ質問が2つあります")
+    return tuple(out)
+
+
+def _iso_date(v: str) -> date | None:
+    try:
+        return date.fromisoformat(v) if len(v) == 10 else None
+    except ValueError:
+        return None
+
+
+def _departed(r: dict, s: Said) -> Departed:
+    """事実 departed の1つの記録（確かめはここだけ）：to_role（その役職の方へ切り替えた記録）は無ければ偽で、後任の方へ切り替えた記録（successor が真）だけに付く。"""
+    d = Departed(_choice(r.get("policy"), RESPONSE_POLICIES["departed"], "facts.departed.policy"), _reads(r.get("read"), "facts.departed.read"),
+                 _bool(r, "successor"), s, _bool_or_false(r, "to_role"))
+    if d.to_role and not d.successor:
+        raise ReportInvalid("facts.departed.to_role（その役職の方へ切り替えた）は、後任の方へ切り替えた記録（successor が真）だけに付きます")
+    return d
 
 
 def _concerns(facts: dict) -> tuple[Concern, ...]:

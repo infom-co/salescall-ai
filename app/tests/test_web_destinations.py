@@ -57,14 +57,23 @@ class Destinations(unittest.TestCase):
             self.assertTrue(all(d["upsert_capable"] for d in dests.values()))         # 送り先は、上書きで受けられるものだけ（4-5）
             # 選んでいない業務は、すべての送り先へ
             self.assertEqual(self.sends(self.a["business"]), {"架空の台帳", "架空の表"})
+            biz = str(self.a["business"])
             # 1つ目の業務は台帳だけに
-            self.assertIn("ok=1", self.post({"op": "business", "business_id": str(self.a["business"]),
+            self.assertIn("ok=1", self.post({"op": "business", "business_id": biz, "mode": "pick",
                                              "destination_id": str(dests["架空の台帳"]["destination_id"])}))
             self.assertEqual(self.sends(self.a["business"]), {"架空の台帳"})
             self.assertEqual(self.sends(self.b2), {"架空の台帳", "架空の表"})   # ほかの業務は変わらない
-            # 1つも選ばないのは受けない（core の決まりでは「すべて」に戻り、画面と逆になるため）
-            self.assertIn("ok=0", self.post({"op": "business", "business_id": str(self.a["business"])}))
+            # 「選んだ送り先だけ」で1つも選ばないのは受けない（どこへも書き戻さないなら「ファイルだけ」を選ぶ）
+            self.assertIn("ok=0", self.post({"op": "business", "business_id": biz, "mode": "pick"}))
             self.assertEqual(self.sends(self.a["business"]), {"架空の台帳"})
+            # ファイルだけ（どこへも書き戻さない＝CL-2 4-446 の 56）
+            self.assertIn("ok=1", self.post({"op": "business", "business_id": biz, "mode": "file"}))
+            self.assertEqual(self.sends(self.a["business"]), set())
+            self.assertIn("ファイルだけ", self.http.get(self.path).text)
+            # 依頼者の送り先すべてに戻す
+            self.assertIn("ok=1", self.post({"op": "business", "business_id": biz, "mode": "all"}))
+            self.assertEqual(self.sends(self.a["business"]), {"架空の台帳", "架空の表"})
+            self.assertIn("ok=0", self.post({"op": "business", "business_id": biz}))   # 渡し方を選ばなければ受けない
             # 直す：名前と自動の書き戻し
             self.assertIn("ok=1", self.post({"op": "update", "id": str(dests["架空の台帳"]["destination_id"]), "name": "架空の台帳（新）"}))
             got = {d["name"]: d for d in app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], result_destinations.of_client)}

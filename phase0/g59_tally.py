@@ -27,7 +27,8 @@ def rows_of(name: str) -> list[dict]:
 
 
 def key(r: dict) -> tuple:
-    return r["text"], r["before"], bool(r["asked"]), r["successor"]
+    """測りの行の鍵（唯一の作り）：言葉・前の言葉・確かめたあとか・後任の方か・フルネームのある業務の行の印 full（2026-11-20 rv176/S。印の無い記録は偽）。"""
+    return r["text"], r["before"], bool(r["asked"]), r["successor"], bool(r.get("full"))
 
 
 def scene(r: dict) -> str:
@@ -36,7 +37,7 @@ def scene(r: dict) -> str:
 
 def current() -> dict:
     """いまの正解の表：場面の鍵 ⇒ (受け取ってよい読み, 項目ごとの正解)。前の表で作った答えも、この表で数え直す。"""
-    return {(t, b, a is not None, s): (acc, f) for t, acc, b, a, s, f in g.cases("確かめる一言")}
+    return {(t, b, a is not None, s, c.full): (acc, f) for c in g.cases("確かめる一言") for t, acc, b, a, s, f in (c,)}
 
 
 # 外れの種類（flow_miss の1か所が返す名前）

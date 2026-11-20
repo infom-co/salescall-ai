@@ -15,7 +15,7 @@ from salescall.web import setting_forms
 from salescall.web.actions import Refused
 from salescall.web.app import create_app
 from salescall.web.context import Person
-from tests.support import OPERATOR, SYSTEM, World, app_access
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access
 
 SECRET = b"test-only-secret"
 
@@ -164,6 +164,19 @@ class Screens(unittest.TestCase):
         page = self.get("ADMIN", "/admin/settings")
         self.assertEqual(page.status_code, 200)
         self.assertIn("システムの初めの値", page.text)
+
+    def test_the_ai_tier_rows_show_only_when_the_contractor_uses_its_own_api(self):
+        """会話AIの枠は、自分で API を契約するプランのときだけ（決めるのは core の ai_plans.tier の1か所。CL-2 4-438・4-446 の 55）。"""
+        from salescall.core import ai_plans, settings as core_settings
+        label = words.SETTING_LABELS[ai_plans.TIER_SETTINGS["conversation"]]
+        w = World()
+        c = w.setup()
+        http = TestClient(create_app(app_access(), lambda r: Person("試験の契約者C", False, c["tenant"], "契約者C"), SECRET))
+        self.assertIn(label, http.get("/t/settings").text)                            # 初めは自分で契約する（own）＝枠を出す
+        app_access().in_tenant(ADMIN, c["tenant"], lambda tx: core_settings.set_value(   # プランを切り替えるのは管理者だけ
+            tx, ai_plans.PLAN_SETTINGS["conversation"], "included", scope="tenant", tenant_id=c["tenant"],
+            status="decided", rationale="試験（架空）：AI料金込みにする", review_when="試験のあいだ"))
+        self.assertNotIn(label, http.get("/t/settings").text)                         # AI料金込み＝システムのキー＝契約者の枠は無い
 
     def test_a_setting_that_cannot_be_decided_per_business_is_refused_there(self):
         if self.tenant_only is None:
