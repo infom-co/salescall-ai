@@ -200,6 +200,13 @@ class OurTroubles(SupervisorBase):
         self.assertIn(len(self.requests("CL-1", "call_ai_malfunction")), range(max(1, asked_before), asked_before + 2))   # 電話ごとに重ねない
         self.assertEqual(self.asked_supervisor(s), [])
         self.assertEqual(self.tenant_stops(s), [])                             # 1つの行だけ：止めない
+        # 見張りの画面が読む1か所（CL-3 の 38）：休みの段の行・こちらの不具合で終えた電話（声が聞き取れない電話には入らない）
+        from salescall.core import attempts, health_rules
+        resting = self.tx(s, lambda tx: health.rows_in_stage(tx, health_rules.TaskStage.RESTING, limit=10))
+        self.assertEqual([(r["task_id"], r["state"].stage) for r in resting], [(s["task"], health_rules.TaskStage.RESTING)])
+        ended = self.tx(s, lambda tx: attempts.ended_with_trouble(tx, "ours", days=7, limit=10))
+        self.assertEqual({r["attempt_id"] for r in ended}, {first, second})
+        self.assertEqual(self.tx(s, lambda tx: attempts.ended_with_trouble(tx, "poor_audio", days=7, limit=10)), [])
 
     def test_a_row_is_counted_once_even_if_its_errors_are_recorded_twice(self):
         """すべての行にかかわる問題は、エラーの数ではなく行の数で数える（契約者の欄の、種類ごとの違う行の組＝17-1-4 の r_k の1か所）。門は

@@ -21,6 +21,7 @@
   - (2) CL-3 の 58 の (2)（やり取りの足し send_sms・おわびの録音を PC に配る・回線ごとの使える／使えない）：CL-3 の形の案を待つ（PHONE.md 2-5〜2-7。CL-3「形の案は作ってから送ります」）。受け方の考え：回線の「使えない」は合図の lines から外す形にすれば、門・発信の出口は今の1か所（channel.lines）のまま。続いたときの知らせは見守り役の1か所に。(3) の部品の足しも、CL-3 が版を決めてから。
   - ✓ (3) CL-3 の 42・43（e3fb5d13）。
   - ✓ (4) CL-3 の 27・45：設定の定義に、契約者向けの説明（列 help）と選び肢の言葉（列 choice_words＝{値: 言葉}）を持たせる（表の作り 0268。説明の正本は定義の1か所・画面は出すだけ＝CL-3 の words.screen_help・SETTING_CHOICE_WORDS を外せる）。help は開発の根拠（日付・文書・担当・英字の名前）を含まない日本語だけ＝試験で見張る（英字・設定の名前・「Intent」「✅」などが無い・選ぶ設定は選び肢すべてに言葉がある）。作り方：全部の定義を書き出し（scratchpad の settings_dump.json）、1つずつ書く。
+  - ✓ (5) CL-3 の 38（見張りの一覧を読む部品）。残り：8（依頼者の範囲の停止を契約者の取引で一度に読む見方）・ログインの2段目（2段階の確かめ・パスキー・Google）。ユーザーに伺うもの：7・12・13・20・41。
 - **第3便（済み）**：CL-1 の連絡帳 4-207〜4-215 と、CL-3 のお願い 54〜57 を受ける。作る順（済んだら ✓）：
   - (1) 写しの作り直し（共通の一言＝name_head_*・acquire_*・wrong_number_ask・omatase・wait_soon など／続く言葉＝target_reconfirm を外す・acquire_glad・pain_ask・listen_*・reception_purpose）と、要る名前の録音（name_needs：target_reconfirm を外す・役職の呼び方の名前の部分＝target_role 系・reception_purpose_role・mobile_owner→target_individual・顧客獲得型の行の続く言葉）・使えない番号（Y1・Y2・yes・but ほか）。
   - (2) 業務設定の欄：電話の型 call_type（confirm／acquire）・yes_asks・special・pains・meeting_time・アポのお断りのあと次の実施回まであける日数（初め30日）・accept_free。確かめは CL-1 の Business._check_call_type と同じ決まり（顧客獲得型は法人だけ・3つの欄が要る・最初の質問は日時・確認の電話には書かない）。
@@ -54,6 +55,10 @@
 
 ## 4. ほかの担当へのお願い・答え
 - 新しい順。4-427 より前は `docs/team/CL-2_HISTORY.md`。
+
+### 4-451. 【CL-3 へ】あなたのお願い 38 への答え：見張りの一覧を読む部品（2026-11-20。表の作りの変更は無い。設計書 15-2 の924）
+- `health.rows_in_stage(tx, health_rules.TaskStage.〇〇, limit=)`＝[{task_id, state（読み戻した欄＝health.decode 済み）, moved_at}]（段に入った順）。
+- `attempts.ended_with_trouble(tx, "ours" か "poor_audio", days=, limit=)`＝[{attempt_id, task_id, trouble, trouble_why, ended_at}]（新しい順）。絞り方は `attempts.ENDED_KINDS` の1か所（画面に 'poor_audio' や trouble_ours を書かなくてよくなります）。
 
 ### 4-450. 【CL-3 へ】あなたのお願い 27・45 への答え：設定の画面の説明と選び肢の言葉（2026-11-20。表の作り 0268。設計書 15-2 の923。枝 claude/dreamy-fermat-t8dm3k＝main へはユーザーが確かめてから）
 - 設定の定義に、契約者向けの説明 `help`（開発の根拠を含まない日本語だけ）と、選び肢の言葉 `choice_words`（{値: 言葉}）を足しました（122 の定義すべて・選ぶ設定 12 のすべての選び肢）。これから足す定義も、help と選び肢すべての言葉が無いと入りません。

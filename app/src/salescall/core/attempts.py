@@ -244,6 +244,15 @@ def record_keys(tx: Tx, attempt_id: UUID, keys: list[dict[str, str]]) -> None:
 # ours。番号・回線・行の回数のどれにも数えない。同じ行で続けば、その行を休ませる＝core/troubles）は、データベースの salescall.trouble_ours の
 # 1か所（`is_ours`。0141：「声が聞き取れない」は、こちらの不具合に数えない）
 TROUBLES = errors.ENDS
+# 終えた電話の一覧の絞り方（画面の見張りの一覧が読む1か所＝`ended_with_trouble`。CL-3 の 38）：ours＝こちらの不具合（salescall.trouble_ours の1か所）／
+# poor_audio＝声が聞き取れずに終えた（こちらの不具合には数えない）
+ENDED_KINDS = {"ours": "salescall.trouble_ours(trouble)", "poor_audio": "trouble = 'poor_audio'"}
+
+
+def ended_with_trouble(tx: Tx, kind: str, *, days: int, limit: int) -> list[dict[str, Any]]:
+    """直近 days 日に、お詫びして終えた電話（取引の依頼者の電話。新しい順に limit 本）：kind＝ENDED_KINDS の名前。[{attempt_id, task_id, trouble, trouble_why, ended_at}]。"""
+    return tx.all(f"SELECT attempt_id, task_id, trouble, trouble_why, ended_at FROM salescall.attempts WHERE {ENDED_KINDS[kind]}"
+                  " AND ended_at > now() - make_interval(days => %s) ORDER BY ended_at DESC, attempt_id LIMIT %s", (days, limit))
 
 
 def is_ours(tx: Tx, attempt_id: UUID) -> bool:

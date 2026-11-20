@@ -8603,6 +8603,14 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '    row = tx.one("SELECT help FROM salescall.setting_definitions WHERE key = %s", (name,))',
      '    row = tx.one("SELECT meaning AS help FROM salescall.setting_definitions WHERE key = %s", (name,))',
      ("tests.test_help_texts.Explain.test_the_screen_texts_have_no_development_notes_and_every_choice_has_words",)),
+    ('見張りの一覧の「声が聞き取れずに終えた電話」に、こちらの不具合の電話も入れる', 'src/salescall/core/attempts.py',
+     '"poor_audio": "trouble = \'poor_audio\'"}',
+     '"poor_audio": "trouble IS NOT NULL"}',
+     ("tests.test_troubles.OurTroubles.test_two_in_a_row_on_one_row_rest_it_and_the_line_moves_to_the_next_row",)),
+    ('見張りの一覧の段の行に、ほかの段の行も入れる', 'src/salescall/core/health.py',
+     '"SELECT task_id, state, moved_at FROM salescall.task_states WHERE stage = %s ORDER BY moved_at, task_id LIMIT %s",',
+     '"SELECT task_id, state, moved_at FROM salescall.task_states WHERE stage IS DISTINCT FROM %s OR true ORDER BY moved_at, task_id LIMIT %s",',
+     ("tests.test_troubles.OurTroubles.test_two_in_a_row_on_one_row_rest_it_and_the_line_moves_to_the_next_row",)),
 )
 
 

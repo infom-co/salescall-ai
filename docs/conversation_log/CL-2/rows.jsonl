@@ -4327,3 +4327,7 @@
 {"at": "2026-11-20T22:58:21+09:00", "who": "CL-2", "text": "移行は通りました。画面が定義を読む部品（settings の一覧）に、説明と選び肢の言葉を足します。"}
 {"at": "2026-11-20T23:07:01+09:00", "who": "CL-2", "text": "This test recreates old definitions in a rolled-back transaction; it now needs the new required column. Adding it to the test's insert."}
 {"at": "2026-11-20T23:07:48+09:00", "who": "CL-2", "text": "その2つの守りは、直した試験で見つかりました。選び肢の数の守り（setting_definitions_choices）には壊し試しが無かったので、足して確かめます。"}
+{"at": "2026-11-20T23:15:29+09:00", "who": "CL-2", "text": "27・45 を記録して上げました（9c43b220）。45 には続きがあったので（知らせの種類の話）、全文を確かめます。"}
+{"at": "2026-11-20T23:15:56+09:00", "who": "CL-2", "text": "Writing the two readers in core and their test."}
+{"at": "2026-11-20T23:16:13+09:00", "who": "CL-2", "text": "Adding a check of the two readers to this test (the row that rests and the two ended calls)."}
+{"at": "2026-11-20T23:17:21+09:00", "who": "CL-2", "text": "38 の読む部品を作り、壊し試しも見つかりました。ここで記録して上げます。"}
