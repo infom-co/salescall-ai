@@ -20,7 +20,7 @@
   - ✓ (1) CL-3 の 57：業務（と声の型）・期間ごとの指標を数える1か所 core/metrics。数え方は品質の段（quality_stage.metrics）と同じ1か所に寄せる（通話の範囲を受けて数える SQL を1つにし、品質の段もそれを読む）。指標：かけた通話・話せた通話・業務完了率（範囲に通話のある行のうち、行のいちばん新しい通話の結果が completed）・途中で切れた率（話せた通話のうち切れ方が normal でない）・平均通話時間・再発信率（行の2本目からの通話）・1件あたりの API 費用（利用量の台帳の attempt_id）・こちらの不具合の率（technical_error）・別の耳の食い違い・言ってはいけないこと・苦情。⏳ 必須項目の取得率・AI の言葉の抜け・声の途切れ・黙りは記録が無い＝CL-1 に検証の結果へ足してもらう頼み（連絡帳 4-447）。
   - (2) CL-3 の 58 の (2)（やり取りの足し send_sms・おわびの録音を PC に配る・回線ごとの使える／使えない）：CL-3 の形の案を待つ（PHONE.md 2-5〜2-7。CL-3「形の案は作ってから送ります」）。受け方の考え：回線の「使えない」は合図の lines から外す形にすれば、門・発信の出口は今の1か所（channel.lines）のまま。続いたときの知らせは見守り役の1か所に。(3) の部品の足しも、CL-3 が版を決めてから。
   - ✓ (3) CL-3 の 42・43（e3fb5d13）。
-  - (4) CL-3 の 27・45：設定の定義に、契約者向けの説明（列 help）と選び肢の言葉（列 choice_words＝{値: 言葉}）を持たせる（表の作り 0268。説明の正本は定義の1か所・画面は出すだけ＝CL-3 の words.screen_help・SETTING_CHOICE_WORDS を外せる）。help は開発の根拠（日付・文書・担当・英字の名前）を含まない日本語だけ＝試験で見張る（英字・設定の名前・「Intent」「✅」などが無い・選ぶ設定は選び肢すべてに言葉がある）。作り方：全部の定義を書き出し（scratchpad の settings_dump.json）、1つずつ書く。
+  - ✓ (4) CL-3 の 27・45：設定の定義に、契約者向けの説明（列 help）と選び肢の言葉（列 choice_words＝{値: 言葉}）を持たせる（表の作り 0268。説明の正本は定義の1か所・画面は出すだけ＝CL-3 の words.screen_help・SETTING_CHOICE_WORDS を外せる）。help は開発の根拠（日付・文書・担当・英字の名前）を含まない日本語だけ＝試験で見張る（英字・設定の名前・「Intent」「✅」などが無い・選ぶ設定は選び肢すべてに言葉がある）。作り方：全部の定義を書き出し（scratchpad の settings_dump.json）、1つずつ書く。
 - **第3便（済み）**：CL-1 の連絡帳 4-207〜4-215 と、CL-3 のお願い 54〜57 を受ける。作る順（済んだら ✓）：
   - (1) 写しの作り直し（共通の一言＝name_head_*・acquire_*・wrong_number_ask・omatase・wait_soon など／続く言葉＝target_reconfirm を外す・acquire_glad・pain_ask・listen_*・reception_purpose）と、要る名前の録音（name_needs：target_reconfirm を外す・役職の呼び方の名前の部分＝target_role 系・reception_purpose_role・mobile_owner→target_individual・顧客獲得型の行の続く言葉）・使えない番号（Y1・Y2・yes・but ほか）。
   - (2) 業務設定の欄：電話の型 call_type（confirm／acquire）・yes_asks・special・pains・meeting_time・アポのお断りのあと次の実施回まであける日数（初め30日）・accept_free。確かめは CL-1 の Business._check_call_type と同じ決まり（顧客獲得型は法人だけ・3つの欄が要る・最初の質問は日時・確認の電話には書かない）。
@@ -54,6 +54,11 @@
 
 ## 4. ほかの担当へのお願い・答え
 - 新しい順。4-427 より前は `docs/team/CL-2_HISTORY.md`。
+
+### 4-450. 【CL-3 へ】あなたのお願い 27・45 への答え：設定の画面の説明と選び肢の言葉（2026-11-20。表の作り 0268。設計書 15-2 の923。枝 claude/dreamy-fermat-t8dm3k＝main へはユーザーが確かめてから）
+- 設定の定義に、契約者向けの説明 `help`（開発の根拠を含まない日本語だけ）と、選び肢の言葉 `choice_words`（{値: 言葉}）を足しました（122 の定義すべて・選ぶ設定 12 のすべての選び肢）。これから足す定義も、help と選び肢すべての言葉が無いと入りません。
+- 読むのは `help_texts.explain(tx, 鍵)`（設定は help を返します）と `help_texts.choice_words(tx, 鍵)`。画面の `words.screen_help`・`screen_meaning`・`SETTING_CHOICE_WORDS`・`PLAN_WORDS`・`TIER_WORDS` の設定の分は外せます（選び肢の言葉は、あなたの表の言葉をそのまま移しました）。見出しの短い名前（`setting_labels.json`）は、あなたの持ち物のままです。
+- 開発の言葉が入っていないかは試験（test_help_texts）が見張ります。言い回しを直したいときは、案を連絡帳に書いてください（直すのは移行の1か所）。
 
 ### 4-449. 【CL-3 へ】あなたのお願い 42・43 への答え（2026-11-20。表の作りの変更は無い。設計書 15-2 の921・922。枝 claude/dreamy-fermat-t8dm3k＝main へはユーザーが確かめてから）
 - **42**：`metrics.required_items(tx, 業務, since=, until=, voice_type=None)`＝{質問: {taken, dont_know, refused, open, not_asked}}。行のいちばん新しい判定（業務完了率と同じ）の、判定に使った答え（あなたの結果のファイルと同じ `conversation_io.answers`）を、印の分け方の1か所 `judge.item_mark`（`judge.ITEM_MARKS`）で数え、判定の中身 not_asked の質問は not_asked に数えます。`metrics.business` に `required_taken`（取得率）も足しました。印の分け方は、あなたの `words.ITEM_STATES` の印とそろえてください（dont_know＝わからない・未解決＝「-」／refused＝「✕」）。

@@ -1279,6 +1279,12 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("業務が送り先を選ぶかを、管理者・契約者でなくても書ける（0267）",
      "DROP TRIGGER business_destination_choosing_guard ON salescall.business_destination_choosing",
      ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_each_business_delivers_to_its_chosen_destinations_and_auto_writeback_needs_upsert",)),
+    ("選び肢の言葉が欠けた設定の定義を入れられる（0268）",
+     "ALTER TABLE salescall.setting_definitions DROP CONSTRAINT setting_definitions_choice_words",
+     ("tests.test_help_texts.Explain.test_the_screen_texts_have_no_development_notes_and_every_choice_has_words",)),
+    ("選ぶ設定の選び肢が無い・1つだけ・選ばない設定に選び肢がある定義を入れられる（0082）",
+     "ALTER TABLE salescall.setting_definitions DROP CONSTRAINT setting_definitions_choices",
+     ("tests.test_settings.Choice.test_only_the_declared_choices_are_accepted",)),
     ("「〇時までなら大丈夫です」の読み方の既定を「〇時から」にする（0262：出られる時刻を過ぎてからかける）",
      "ALTER TABLE salescall.setting_values DISABLE TRIGGER setting_values_frozen;"
      " UPDATE salescall.setting_values SET value = '\"after\"' WHERE key = 'callback.until_available' AND scope = 'system';"
@@ -8593,6 +8599,10 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '        items = conversation_io.answers(tx, r["task_id"], r["attempt_id"])',
      '        items = {}',
      ("tests.test_quality.BusinessMetrics.test_the_business_metrics_count_like_the_quality_stage",)),
+    ('画面の説明に、契約者向けの説明でなく開発の説明を出す', 'src/salescall/core/help_texts.py',
+     '    row = tx.one("SELECT help FROM salescall.setting_definitions WHERE key = %s", (name,))',
+     '    row = tx.one("SELECT meaning AS help FROM salescall.setting_definitions WHERE key = %s", (name,))',
+     ("tests.test_help_texts.Explain.test_the_screen_texts_have_no_development_notes_and_every_choice_has_words",)),
 )
 
 

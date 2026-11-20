@@ -1886,9 +1886,12 @@ class Blame(SupervisorBase):
         self.set_ring_hours(s, ("22:00", "02:00"), ("02:00", "05:00"))        # 端が触れるだけは重なりではない
         other = self.ready()                                                  # ほかの契約者は初めの値のまま
         self.assertEqual(hours(other["tenant"]), ((7 * 3600, 22 * 3600),))
-        meaning = support.owner_access().in_system(SYSTEM, lambda tx: help_texts.explain(tx, "line.test_ring_hours"))
-        for words in ("0:00〜9:00", "14:00〜24:00", "昼間に私は寝ていることがあるし", "0:00〜24:00"):
-            self.assertIn(words, meaning)
+        shown = support.owner_access().in_system(SYSTEM, lambda tx: help_texts.explain(tx, "line.test_ring_hours"))   # 契約者向けの説明（0268）
+        for words in ("0:00〜9:00", "14:00〜24:00", "0:00〜24:00"):
+            self.assertIn(words, shown)
+        meaning = support.owner_access().in_system(SYSTEM, lambda tx: tx.one(   # 決めた根拠は開発の説明の側
+            "SELECT meaning FROM salescall.setting_definitions WHERE key = 'line.test_ring_hours'"))["meaning"]
+        self.assertIn("昼間に私は寝ていることがあるし", meaning)
 
     def test_values_in_the_old_single_range_form_are_moved_into_the_list(self):
         """前の形（範囲1つ ["07:00","22:00"]）の値が入ったデータベースでも読める：0139 が、どの記録も並びの形に移す（読み口は並びの形
@@ -1909,9 +1912,9 @@ class Blame(SupervisorBase):
             tx.execute("INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
                        " VALUES ('line.test_ring_hours', 'tenant', %s, '[\"21:00\", \"03:00\"]', 'decided', '前の形', '試験', '試験')",
                        (s["tenant"],))
-            tx.execute("INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope)"
-                       " VALUES ('line.test_ring_gap', 'override', 'seconds', '前の形', '試験', 'tenant'),"
-                       "        ('line.test_ring_gap_max', 'override', 'seconds', '前の形', '試験', 'tenant')")
+            tx.execute("INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope, help)"   # help＝0268
+                       " VALUES ('line.test_ring_gap', 'override', 'seconds', '前の形', '試験', 'tenant', '前の形'),"
+                       "        ('line.test_ring_gap_max', 'override', 'seconds', '前の形', '試験', 'tenant', '前の形')")
             tx.execute("INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
                        " VALUES ('line.test_ring_gap', 'tenant', %s, '600', 'decided', '前の形', '試験', '試験'),"
                        "        ('line.test_ring_gap_max', 'tenant', %s, '3000', 'decided', '前の形', '試験', '試験')",
