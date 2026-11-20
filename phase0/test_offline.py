@@ -16911,6 +16911,51 @@ class OffScriptTest(unittest.TestCase):
         self.assertEqual(src.count("stop_off_script("), 3)                 # 止めたあとは1か所（定義と、呼ぶ所2つ）
         self.assertIn("flow.on_off_script(", src)
 
+    # 分身 N（束 n10＝D6-32）：外れて止めたあとの言い直し（2回目）も同じ見分け（offscript.SpeechGate の1か所）で見て、外れたら止めずに「おかしな動き」として
+    # 知らせる（Flow.on_ai_trouble の glitch の1か所＝発信の門は止めず、ダッシュボードに警告）。✅ 10-31（本書 1057行）「甚大な問題は止める。甚大でない場合は、
+    # ダッシュボードに警告を出す。」・10-16「止めるというのは、このまま進めると、お客様に対して、影響が出てしまうということだけ」。⛔ 3cd6ec5c まで、言い直しの
+    # ターンは見張らず、外れても誰にも知らされなかった
+
+    def test_restate_turn_is_watched_without_stopping(self):
+        import asyncio
+        from types import SimpleNamespace
+        from live_util import collect_turn
+        from offscript import SpeechGate
+
+        def said(text):
+            return SimpleNamespace(tool_call=None, usage_metadata=None, go_away=None, session_resumption_update=None,
+                                   server_content=SimpleNamespace(interrupted=False, input_transcription=None, model_turn=None,
+                                                                  output_transcription=SimpleNamespace(text=text)))
+
+        class Session:
+            async def receive(self):
+                for m in (said("承知いたしました。"), said("では、これらを"), said("踏まえて、実際の"), said("プレゼン資料の")):
+                    yield m
+                await asyncio.sleep(3600)
+
+        r = asyncio.run(collect_turn(Session(), started_at=0.0, timeout_s=0.5, gate=SpeechGate(lambda: self.SAY, stop=False)))
+        self.assertEqual((r.off_script, r.off_again), (False, True))   # 止めない（受け取りを続ける）・外れたことだけ印にする
+        self.assertEqual("".join(r.output_transcript), "承知いたしました。では、これらを踏まえて、実際のプレゼン資料の")
+        self.assertEqual([e["kind"] for e in r.events if e["kind"].startswith("off_script")], ["off_script_again"])
+
+    def test_flow_reports_the_second_miss_as_a_glitch(self):
+        from flowctl import AI_TROUBLE_WHATS, CONVO_AI, Flow, Question
+        f = Flow([Question("Q1", "日時は。", "datetime", conditions=("答えた",)), Question("Q2", "人数は。", "number", conditions=("答えた",))])
+        f.on_callee()
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の午後2時"})
+        plan = f.on_off_script(r["say"])
+        self.assertEqual(f.ai_trouble, [])                           # 1回目は止めて言い直す（おかしな動きには数えない＝今のまま）
+        self.assertIsNone(f.on_off_script(plan["say"], stopped=False))   # 言い直しも外れた：止めずに続ける（言い直しを重ねない）
+        self.assertEqual([(t["ai"], t["what"], t["count"]) for t in f.ai_trouble], [(CONVO_AI, AI_TROUBLE_WHATS[2], 1)])
+        self.assertEqual((f.awaiting_confirm, f.log[-1]["reply"]["result"]), ("Q1", "restate"))   # 位置も記録も変えない
+
+    def test_call_loop_watches_the_restate_turn(self):
+        import inspect
+        import convo
+        src = inspect.getsource(convo.run_call)
+        self.assertEqual(src.count("stop=False"), 1)                       # 言い直しのターンの見張りは止めない形（1か所）
+        self.assertEqual(src.count("stopped=False"), 1)                    # 外れたら、流れの制御の同じ入口へ「止めていない」で知らせる
+
 
 class G53LabelsTest(unittest.TestCase):
     """G-53 の数え方：付け直した正解（g53_labels.json）を1か所（g53_meaning.accept）で使う。"""
@@ -34780,6 +34825,39 @@ class Review422Test(unittest.TestCase):
             self.assertEqual(r["result"], "rejected", kind)
             self.assertIn(ARG_LABEL["terms"], r["message"], kind)
             self.assertNotIn("offer_terms", g.facts, kind)
+
+    def test_6_content_added_to_yes_is_received_by_the_ai_word_before_the_time(self):
+        # 分身 N（束 n6＝OPEN-A2）：こちらがかけ直す申し出の「はい」に添えた中身（「はい、料金のことも聞きたいので、お願いします。」）には、決まった文を作らず、
+        # お客様のお話に応える今の1か所（会話AIのひとことを中身の判定で確かめる＝_own_answer・TALK_RECEIVE）で応えてから時刻を伺う（CL-1 が決めた形。✅ 2026-11-14
+        # 日本時間14時31分38秒「…相手の話を受けた受けごたえを入れたほうがいいんじゃないですか！？」と同じ理由）。約束は足さない（上の test_5 の見張り）。
+        # ⛔ 3cd6ec5c まで、中身に触れずに「ありがとうございます。お時間は午前と午後のどちらが…」
+        from flowctl import AHEAD_CHECKS, ARG_LABEL, CALLBACK_IDS, PART_LABEL, UNDECIDED
+        word = "料金のこともお気になりますよね。"
+        for kind in Review13RecallTest.KINDS:
+            f = Review13RecallTest().pending(kind)
+            qid = f.current
+            f.on_callee(); f.on_heard("はい、料金のことも聞きたいので、お願いします。")
+            grounded(f, "料金のことも含めて")
+            for k in f.checks_used:
+                f.on_check(k, Review13RecallTest.rd(kind, "はい"))
+            f.on_decided()
+            r = f.apply("record_answer", {"question_id": qid, "condition_id": "はい", "topic": "料金のことも含めて"})
+            self.assertTrue(r.get("ahead_offer"), kind)
+            # 先に言われたことを伺う番の知らせ：時刻の答えが無ければ、まず添えた中身にひとこと応える（受け答え）
+            self.assertIn("「料金のことも含めて」", r["message"], kind)
+            self.assertIn(f"replay_opening を「{PART_LABEL['talk']}」で呼び", r["message"], kind)
+            f.ahead_context()
+            for k in AHEAD_CHECKS:
+                if k.split("@")[0] in f.checks_used:
+                    f.on_check(k, UNDECIDED, f.callee_turns)
+            grounded(f, word)
+            r = f.apply("replay_opening", {"part": "talk", "answer": word})
+            heard = self.heard(r) + ("" if r.get("play") else r.get("message", ""))
+            # お礼のあとに会話AIのひとこと、続けて時刻の伺い（伺う一言は今のまま）
+            self.assertEqual((r["result"], r["ack"], f.current), ("replayed", "arigatou", CALLBACK_IDS["time"]), (kind, r))
+            self.assertIn(word, heard, kind)
+            self.assertLess(heard.index(word), heard.index("どちらがよろしいでしょうか？"), kind)
+            self.assertEqual([e["answer"] for e in f.facts["talk"]], [word], kind)   # 受け答えの記録（依頼者へは渡さない）
 
 
 def who_reading(value, who=None, about=None, new=False, offer=None, why=None):

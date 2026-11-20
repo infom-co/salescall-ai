@@ -6231,6 +6231,7 @@ class Flow:
             raise ValueError(f"想定問答の問いの名前 {clash} は、名乗りなどの録音の部分の名前と同じです（使えない名前＝RESERVED_PART_NAMES）")
         self.answered: dict[str, int] = {}  # 想定問答の答えを流した相手の発話の番号（部分ごと。同じ言葉に同じ答えを2回流さない＝尋ねられるたびの回数では切らない）
         self.ways_again: tuple[int, str] | None = None   # 方法を並べて伺い直した (発話の番号, 質問)（_list_ways_again の1か所が付け、相づち _ack_choice が読む）
+        self.taken_worded: set[str] = set()   # 「はい」に添えた中身にひとこと応えた、こちらがかけ直す申し出の質問（_taken_word。1つの申し出に1回）
         # 相手の申し出への応じ方（業務設定。✅ 2026-10-22 ユーザー：代わりの方・伝言・在籍していない は業務ごとに選べる。Flow._not_available）
         self.policies = {**{k: v[0] for k, v in POLICIES.items()}, "follow_up": False, **(policies or {})}
         self.message_text = (target or {}).get("message") or (opening or {}).get("message")  # 伝言の文（伝言を残す業務。依頼主の単位の録音）
@@ -11149,11 +11150,17 @@ class Flow:
                     f"record_answer で、聞いた答えのとおりに報告します（「わからない」「答えたくない」も答えです）。入っていなければ、{resume}"
                     "（質問は、プログラムが流します）。" + choices_note(q))
         if h.get("ahead"):
-            # 先に言われた答え（_offer_ahead）：次に伺う質問の答えが、こちらの質問の答えのほかに言われたことの中にあるか
+            # 先に言われた答え（_offer_ahead）：次に伺う質問の答えが、こちらの質問の答えのほかに言われたことの中にあるか。こちらがかけ直す申し出の「はい」に中身が
+            # 添えられていた（_taken_word_due）なら、入っていないときは、まずその中身にひとこと応える（_taken_word。束 n6＝OPEN-A2）
+            topic = self._taken_word_due()
+            left = (f"ほかに言われたことのうち、このあと伺うことの答えになりそうなことが残っていれば、{ARG_LABEL['rest']}に書きます")
+            back = (f"まず、相手が「はい」に添えたお話（中身「{topic}」）に、ひとこと応えます：replay_opening を「{PART_LABEL['talk']}」で呼び、"
+                    f"応えるひとことを「{ARG_LABEL['answer']}」に書きます（短く1文。{TALK_RECEIVE}時刻・日にちの伺いは入れません。返す文が使えないときの一言も"
+                    f"「{ARG_LABEL['fallback']}」から選びます：{TALK_CHOICES}）。続けて、次の質問はプログラムが流します（{left}）。" if topic
+                    else f"{resume}（次の質問は、プログラムが流します。{left}）。")
             return (f"相手の言葉のうち、答えのほかに言われたこと（「{h['rest']}」）に、次に伺う質問 {q.id}「{q.text}」への答えが入っていたなら、"
                     f"何も言わずに record_answer で、聞いた答えのとおりに報告します（ほかにまだ言われたことがあれば、{ARG_LABEL['rest']}に書きます）。"
-                    f"入っていなければ、{resume}（次の質問は、プログラムが流します。ほかに言われたことのうち、このあと伺うことの答えになりそうなことが"
-                    f"残っていれば、{ARG_LABEL['rest']}に書きます）。" + choices_note(q))
+                    f"入っていなければ、{back}" + choices_note(q))
         # 覚えておいた言葉がどの言葉か（head＝覚えた所が名指す一文。待っていただく一言のあとの別のお話＝_wait_answered）。無ければ、応える前の言葉（答えと世間話を
         # 一緒に言われた＝_keep_answer_reading）
         words = f"{h['head']}この言葉" if h.get("head") else "相手のさきほどの言葉（こちらが応える前の言葉）"
@@ -11239,6 +11246,9 @@ class Flow:
         ladder_word = self._talk_turn() and not offer
         if ladder_word and part != "talk":
             return self._reject(f"いまは、相手が言った迷っている点にひとこと応える番です。replay_opening を「{PART_LABEL['talk']}」で呼びます。")
+        # こちらがかけ直す申し出の「はい」に添えた中身にひとこと応える番（_taken_word_due＝先に言われたことを伺う番の間の受け答え）：ひとことのあと、プログラムが
+        # 次の質問（時刻の伺い）を流す（_taken_word。束 n6＝OPEN-A2）
+        taken_word = part == "talk" and not offer and not ladder_word and self._taken_word_due() is not None
         # 困りごとに応える提案の番（_trouble_offering）で中身「〜も含めて」を書かなかった：方法の書き直しは頼まずに、提案しない（_offer_again が _elsewhere_back へ）
         offering = unlinked == "offer" and not (self._trouble_offering() and proposal["topic"] is None)
         rejected, proposal, dropped = self._proposal_checked(proposal, given, self.current, offering)   # dropped＝声に出さなかった提案の言葉と、その理由（受け答えの記録に残す）
@@ -11260,6 +11270,8 @@ class Flow:
                 self.own_turn = self.callee_turns
                 if ladder_word:
                     return self._ladder_word(None, pick, {}, {"checked": "fallback"})
+                if taken_word:
+                    return self._taken_word(None, pick, {}, {"checked": "fallback"})
                 if again:
                     return self._talk_again(None, pick, {}, {"checked": "fallback"})
                 if announcing:
@@ -11305,6 +11317,8 @@ class Flow:
             return self._asked_skip(problem, drafts, checked)   # 尋ねられた考えの答えが使えない：尋ねられる前の流れのとおりに進める
         if ladder_word:
             return self._ladder_word(None if problem else answer, pick if problem else None, drafts, checked)
+        if taken_word:
+            return self._taken_word(None if problem else answer, pick if problem else None, drafts, checked)
         if again:
             return self._talk_again(None if problem else answer, pick if problem else None, drafts, checked)
         if announcing:
@@ -11553,6 +11567,37 @@ class Flow:
         self.items[qid].set(self.items[qid].state, "日時の2択の段で迷っている点にひとこと応えた・いまの2択を伺い直す")
         plays = [{"kind": "said", "text": said}] if said is not None else [{"kind": "recorded", "id": pick, "text": fb}]
         return self._led(plays, "", self._continue([], "")) | {"quiet": True}
+
+    def _taken_word_due(self) -> str | None:
+        """こちらがかけ直す申し出（C7・P1・H1・H3＝RECALL_ROLES）の「はい」に添えた中身（会話AIが申し出の中身の欄に書き、提案の言葉と同じ確かめ＝_proposal_checked を
+        通った Item.offer_topic）に、まだひとこと応えていなければ、その中身（唯一の読み＝先に言われたことを伺う番の知らせ _return_note・受け答えの番 _own_answer）。
+        応えるのは、その「はい」の言葉を時刻の質問について読み直してもらう番の間（_held_now の ahead）に1回（taken_worded）。無ければ None。"""
+        h = self._held_now()
+        if h is None or not h.get("ahead"):
+            return None
+        qid = next((x for x in reversed(self.offers_timed) if self.questions[x].callback in RECALL_ROLES), None)
+        # その「はい」の言葉の番か（受け取った発話＝taken の turn。受け取る報告の途中は、まだ記録の前＝この報告で受け取った答え _received_now）
+        now = (self.taken.get(qid) or {}).get("turn") == h["turn"] or any(x == qid for x, _ in self._received_now())
+        if qid is None or qid in self.taken_worded or not now:
+            return None
+        return self.items[qid].offer_topic or None
+
+    def _taken_word(self, said: str | None, pick: str | None, drafts: dict, checked: dict) -> dict:
+        """こちらがかけ直す申し出の「はい」に添えた中身にひとこと応える番（_taken_word_due）の唯一の返事（_own_answer から）：(1) 会話AIのひとこと（said＝受け答えと
+        同じ確かめを通った自分の言葉。使えなければ pick＝受け答えの録音 TALK_FALLBACK）、(2) 続けて、時刻の質問へ（先に言われたことを伺う番を閉じる1か所 _resume＝
+        判定の読み直しに時刻があれば受け取る・無ければ時刻の質問を流す）。頭の相づちは受けていただいた申し出のお礼「ありがとうございます。」（伺う番を開いた報告の受けの
+        言葉＝_ack の ahead_closed）。約束（料金をご説明する・担当がかける など）は足さない（ひとことの確かめ＝TALK_RECEIVE・本書 1-3）。
+        CL-1 が決めた形（束 n6＝OPEN-A2）：決まった文を新しく作らず、お客様のお話に応える今の1か所で応える。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「…相手の話を
+        受けた受けごたえを入れたほうがいいんじゃないですか！？」と同じ理由。⛔ 3cd6ec5c まで、中身に触れずに「ありがとうございます。お時間は午前と午後のどちらが…」"""
+        fb = TALK_FALLBACK[pick][0] if said is None else None
+        self._note("talk", answer=said or fb, **({"fallback": pick} if said is None else {}), **drafts, **checked)
+        qid = next(x for x in reversed(self.offers_timed) if self.questions[x].callback in RECALL_ROLES)
+        self.taken_worded.add(qid)
+        self.own_turn = self.callee_turns
+        # 添えた中身は「はい」のお話のうち（話はそれていない）＝戻る一言は付けない（_op_replay_opening が受け答えに立てた digressed を戻す）
+        self.digressed = False
+        plays = [{"kind": "said", "text": said}] if said is not None else [{"kind": "recorded", "id": pick, "text": fb}]
+        return self._led(plays, "", self._resume()) | {"quiet": True}
 
     def _talk_settled(self, qid: str) -> bool:
         """別のお話にひとこと応えたとき、言い直し・最終の確かめのお返事を待っていた質問で、同じ確かめをもう言い直さないか（唯一の決まり＝_talk_again・_talk_then）：
@@ -12817,11 +12862,18 @@ class Flow:
         AIが自由に答えるターン（相手の質問への答えなど）は、渡した言い方が無いので見張らない。"""
         return self.log[-1]["reply"].get("say") if len(self.log) > since else None
 
-    def on_off_script(self, expected: str, heard: str = "content") -> dict:
+    def on_off_script(self, expected: str, heard: str = "content", stopped: bool = True) -> dict | None:
         """外れた言葉を止めたあと：新しいつなぎに、相手に聞こえていたもの（heard＝offscript.SpeechGate.heard の kind）に合わせた言い方を言わせる
         （何も聞こえていない＝渡した言い方のまま／受けの言葉だけ＝「それでは、…」／外れた中身まで＝「失礼いたしました。改めまして、…」。
         人が言い間違えて、少し間を置いて言い直すのと同じ形。offscript.restate。お詫びを録音にしない理由も同じ所）。✅ 2026-10-19 ユーザー：「違和感のない形にしないと、AIや機械だと勘繰られますよ。
-        その設計が必要でしょう」。流れの位置（言い直しの返事待ちなど）は変えない（言う中身は同じ）。"""
+        その設計が必要でしょう」。流れの位置（言い直しの返事待ちなど）は変えない（言う中身は同じ）。
+        stopped＝電話接続側が止めたか。外れて止めたあとの言い直しのターン（2回目）は、同じ見分け（SpeechGate の stop=False）で見て、止めずに流し、ここへ
+        stopped=False で知らせる：言い直しは重ねず（返事なし＝None）、おかしな動きとして知らせる（on_ai_trouble の glitch の1か所＝発信は止めずに警告）。
+        ✅ 10-31（本書 1057行）「甚大な問題は止める。甚大でない場合は、ダッシュボードに警告を出す。」・10-16「止めるというのは、このまま進めると、お客様に対して、
+        影響が出てしまうということだけ」。⛔ 3cd6ec5c まで、言い直しのターンは見張らず、外れても誰にも知らされなかった（D6-32＝分身 N の束 n10）"""
+        if not stopped:
+            self.on_ai_trouble({"model": CONVO_AI, "error": "外れた言葉を止めたあとの言い直しも、渡した言い方から外れた（止めずに流した）", "glitch": True})
+            return None
         from offscript import restate
         say = restate(expected, heard)
         stopped = {"none": "相手に流す前に止めました（相手には何も聞こえていません）", "opener": "受けの言葉のあとで止めました",

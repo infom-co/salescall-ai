@@ -104,10 +104,13 @@ class SpeechGate:
     - ⛔ 2026-10-19 G-57 の本番の形で見つけた穴：AI自身の文字が1つも届かないターンがある（言い方を渡して声が出た333ターン中11＝3.3%。声は
       言い方どおり）。文字が無いまま切れ目で待つと、続きが流れない ⇒ 切れ目までに文字が1つも届いていなければ待たない（見張れないので、これまで
       どおり流す）。文字は届いたが決まらないときだけ、MAX_HOLD_S まで待つ。
-    expected_of：いまの渡した言い方を返す関数（返事を送るたびに変わる。None なら見張らない）。force：試験だけ（最初の文字で外れにする）。"""
+    expected_of：いまの渡した言い方を返す関数（返事を送るたびに変わる。None なら見張らない）。force：試験だけ（最初の文字で外れにする）。
+    stop：外れたと決まったら止めるか。外れて止めたあとの言い直しのターン（2回目）は、同じ見分けで見て、止めずに外れたことだけを知らせる（stop=False＝
+    電話接続側は流し続け、流れの制御の同じ入口 Flow.on_off_script へ「止めていない」で知らせる＝おかしな動きの1か所 on_ai_trouble の glitch）。✅ 10-31（本書 1057行）
+    「甚大な問題は止める。甚大でない場合は、ダッシュボードに警告を出す。」。⛔ 3cd6ec5c まで、言い直しのターンは見張らなかった（D6-32＝分身 N の束 n10）"""
 
-    def __init__(self, expected_of, force: bool = False):
-        self.expected_of, self.force = expected_of, force
+    def __init__(self, expected_of, force: bool = False, stop: bool = True):
+        self.expected_of, self.force, self.stop = expected_of, force, stop
         self.reset(0)
 
     def reset(self, audio_from: int) -> None:
