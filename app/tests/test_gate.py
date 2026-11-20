@@ -212,6 +212,31 @@ class ClaimAndDial(Base):
             "SELECT reason FROM salescall.gate_denials WHERE task_id = %s ORDER BY denial_id", (t2,))])
         self.assertEqual(rows, ["no_schedule", "task_ended"])
 
+    def test_a_stop_after_a_pass_is_a_new_stop_and_the_rows_stopped_now_are_counted(self):
+        """止め始めの記録（gate._DENIAL_STARTS の1か所）：前の断りと同じ理由でも、あいだに門が通した電話があれば、新しい止め始めとして書く（⛔ 2026-11-20 まで：
+        書かず、いま止めている行・今日止め始めた数を少なく数えた）。いま止めている行の数（gate.denied_now。CL-3 の 43）：終わっていない行のうち、いちばん新しい断りの
+        あとに通した電話の無いもの（理由ごと）。"""
+        s = self.ready()
+        later = self.tx(s, lambda tx: tx.one("SELECT now() + interval '1 day' AS t")["t"])
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        due = lambda at: self.tx(s, lambda tx: support.schedule_call(tx, s["task"], at, contact_id=s["contact"], cause="試験",   # noqa: E731
+                                                                      promised=True))
+        due(later)
+        self.assertEqual(self.reason(s), "not_due")
+        self.assertEqual(self.tx(s, lambda tx: gate.denied_now(tx)), {"not_due": 1})
+        due(now)
+        c = self.claim(s)                                             # 門が通した
+        self.assertEqual(self.tx(s, lambda tx: gate.denied_now(tx)), {})
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        due(later)
+        self.assertEqual(self.reason(s), "not_due")                   # 同じ理由で、また止めた＝新しい止め始め
+        rows = self.tx(s, lambda tx: [r["reason"] for r in tx.all(
+            "SELECT reason FROM salescall.gate_denials WHERE task_id = %s ORDER BY denial_id", (s["task"],))])
+        self.assertEqual(rows, ["not_due", "not_due"])
+        self.assertEqual(self.tx(s, lambda tx: gate.denied_now(tx)), {"not_due": 1})
+        self.tx(s, lambda tx: next_action.end(tx, s["task"], "試験", cause="試験"))
+        self.assertEqual(self.tx(s, lambda tx: gate.denied_now(tx)), {})   # 終えた行は、止めている行ではない
+
     def test_every_reason_has_a_kind_and_a_handling(self):
         """理由の表の1か所が、種類と扱い（断られた行の予定をどうするか）を持つ。扱いごとの集まりは、表から作る（⛔ 見直し17a：前は
         集まりを別々に書き、どれにも入らない理由は、次の動きが予定を書き直し続けた）。"""

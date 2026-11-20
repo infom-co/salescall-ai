@@ -278,6 +278,10 @@ class BusinessMetrics(Base):
         self.assertEqual((got["dialed"], got["talked"], got["completion"]["hits"], got["completion"]["total"]), (2, 2, 1, 2))
         self.assertEqual((got["ear_disagreement"]["hits"], got["ear_disagreement"]["total"], got["redial"]["hits"]), (1, 6, 0))
         self.assertIsNotNone(got["average_talk_seconds"])
+        # 必須の質問の「取れた」「-」「✕」（判定に使った答え・印の分け方は judge.item_mark の1か所。CL-3 の 42）
+        tally = self.tx(s, lambda tx: metrics.required_items(tx, s["business"], since=start, until=until))
+        self.assertEqual(tally, {"Q1": {"taken": 1, "dont_know": 0, "refused": 0, "open": 1, "not_asked": 0}})
+        self.assertEqual((got["required_taken"]["hits"], got["required_taken"]["total"]), (1, 2))
         # 品質の段と同じ数（同じ1か所から数える）
         stage = self.tx(s, lambda tx: quality_stage.metrics(tx, s["version"]))
         self.assertEqual((stage["ear_disagreement"]["hits"], stage["ear_disagreement"]["total"]),
