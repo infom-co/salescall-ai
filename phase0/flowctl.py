@@ -26,7 +26,7 @@ from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_W
 from phrases import APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
 from phrases import LISTED_ASK, LISTED_DIALED_ID, UNTIL_ASK, brief_sorry_text, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
 from phrases import YES_LEADS, YES_RECEIVE, fixed_words, yes_line
-from phrases import ACQUIRE_SPECIAL, LISTEN_TIME, NAME_FORMS, PAIN_TOLD
+from phrases import ACQUIRE_SPECIAL, LISTEN_TIME, NAME_FORMS, PAIN_TOLD, RECEPTION_PARTS, visit_id
 from phrases import AGAIN_LEAD, LEAD_PIECES, OTHERS_HEAD, again_fit, back_fit, closes, drop_receipt, head_join, head_word, heads_said
 from phrases import OFFER_ACCEPTED, APOLOGY_FIRST, APOLOGY_SAME_DAY, CALL_AGAIN_TAKEN, OFFER_DONE, OFFER_TAKEN, WISH_WAY_TOPIC, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OFFER_THANKS_AGAIN, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import NOT_ASKED_AGAIN, RECORDED, STANDARD_PARTS, THINKING_PROMPT, ack_pause_s, ask_again as ask_again_phrase
@@ -2471,7 +2471,8 @@ CALL_TYPES = (CALL_CONFIRM, CALL_ACQUIRE)
 #                     角度を変えた次の Yes の質問（伺い79 ウ＝回数を決めない。Flow._yes_again）
 #   reception_sales   受付の方の営業のお断り（お呼びする段）：close＝断られたときの締め／call_again＝受け止め＋「（お呼びする方）にとって大切なお話がございましてお電話
 #                     いたしました。」＋もう一度お呼びする一言（伺い85＝✅ 2026-11-20 日本時間2時18分01秒「営業ではなく、○○様にとって、「大切な話」「役に立つ話」としてかけるので、
-#                     営業では断られない。」。回数は決めない＝お客様が切るまで。印は refusal_mark の決め方＝切られた・怒っていたら付ける。Flow._reception_again＝分身 K2）
+#                     営業では断られない。」。回数は決めない＝お客様が切るまで。印は refusal_mark の決め方＝切られた・怒っていたら付ける。Flow._reception_again＝分身 K2）。
+#                     重ねてのお断りは、受付の方の Yes の質問の段（受け止め＋角度を変えた Yes の質問・Yes が2つでお取り次ぎのお願い＝伺い88。Flow._reception_yes＝分身 U1）
 #   hurry             急いでいる（Flow._op_request_end）：hurry_ask＝業務設定の引き止めの一言（busy_ask）を1回・また改めてお掛けしてよいか（H1＝_hurry_ask）／
 #                     yes_again＝「あっ、お忙しいところ突然のお電話、大変申し訳ございません！」＋次の Yes の質問（decided の (2)）
 #   brief             「手短に」（Flow._judged_first）：brief_ask＝お礼＋後ほどかけ直してよいか（H3＝_brief_ask）／yes_brief＝「ありがとうございます！それでは手短に
@@ -2487,6 +2488,10 @@ CALL_TYPES = (CALL_CONFIRM, CALL_ACQUIRE)
 #                     Flow._main_again＝分身 K2）
 #   main_hurry        本題に入ってからの「忙しい」：hurry_ask＝今の道（引き止めの一言・H1）／yes_but＝本題のお断りと同じ（まとめ役の頼み rv174/K2 の (2)）
 #   main_brief        本題に入ってからの「手短に」：brief_ask＝今の道（H3）／brief_again＝「ありがとうございます！それでは手短にお伺いいたしますね。」＋いま伺っていた質問（伺い84 イ）
+#   reception_hurry   受付の方（お呼びする段・顧客獲得型の受付の方の Yes の質問の段）の「急いでいる」（受付の方の「手短に」も＝お呼びする段の判定には「手短に」の選べるものが無い・
+#                     担当 W の控えの 3 の (7)。Flow._op_request_end・_judged_first・_end_late）：hurry_ask＝今の道（業務設定の引き止め・また改めてお掛けしてよいか H1）／
+#                     transfer_short＝お詫び（受付の方の1回目の受け止めと同じ録音）のあと、お取り次ぎだけを短くお願いする（Flow._reception_hurry。かけ直しを先に申し出ない＝
+#                     伺い84 と同じ手法。1通話1回＝ONCE_WAYS：重ねて急いでいると言われたら今の道の H1）。本書 9-9 の終わりの CL-1 の読み (92)（✅ 2026-11-20 日本時間16時13分06秒の段）。分身 U1
 #   main_concern      本題のお断りに本心を伺う一言 D2「何か問題でもございましたでしょうか？」を当てる所（1通話1回）：first＝本題の最初の決まらないお断り（今の道）／second＝顧客獲得型：
 #                     最初は「そうですよね。ただ～」・2回目のお断りに D2（⏳ 9-9 の「(8) と本題の「もういいです」への本心を伺う一言 D2 の順」は CL-1 が会話つきで伺う＝この1行を
 #                     first にすれば D2 が先）
@@ -2512,13 +2517,25 @@ SCALES = {"refusal_mark": {CALL_CONFIRM: "every_end", CALL_ACQUIRE: "cut_or_angr
           "main_hurry": {CALL_CONFIRM: "hurry_ask", CALL_ACQUIRE: "yes_but"},
           "main_brief": {CALL_CONFIRM: "brief_ask", CALL_ACQUIRE: "brief_again"},
           "main_concern": {CALL_CONFIRM: "first", CALL_ACQUIRE: "second"},
-          "concern_refusal": {CALL_CONFIRM: "concern_answer", CALL_ACQUIRE: "as_refusal"}}
+          "concern_refusal": {CALL_CONFIRM: "concern_answer", CALL_ACQUIRE: "as_refusal"},
+          "reception_hurry": {CALL_CONFIRM: "hurry_ask", CALL_ACQUIRE: "transfer_short"}}
 YES_WAYS = ("yes_again", "yes_brief")   # Yes の質問の段（Flow._yes_open）の中だけの道（段の外では Flow._scale が今の道を仮に返す）
 MAIN_WAYS = ("yes_but", "brief_again")   # 本題の段（Flow._main_open）の中だけの道（段の外では Flow._scale が今の道を仮に返す）
-KEEP_ON_WAYS = ("yes_again", "yes_but", "call_again")   # 引き下がらずに続ける道（判定が断った・急いでいると読んでも締めない＝Flow._keep_on の1か所が振り分ける）
+KEEP_ON_WAYS = ("yes_again", "yes_but", "call_again", "transfer_short")   # 引き下がらずに続ける道（判定が断った・急いでいると読んでも締めない＝Flow._keep_on の1か所が振り分ける）
+ONCE_WAYS = ("transfer_short",)   # 1通話1回の道（使ったあとは Flow._scale が今の道＝確認の電話の型の値を返す。受付の方の「急いでいる」の2回目は H1＝伺い92 のウの形）
+# 顧客獲得型の受付の方の Yes の質問の段（伺い88）の、お断りへの1回目の受け止めの録音（段の名前 → 共通の一言の録音の名前。唯一の表＝Flow._yes_again・_reception_again・
+# _reception_hurry）：ご本人（yes）＝「あっ、そうですよね、いらなかったですよね、…」（9-9 の (3)）／受付の方（reception）＝「あっ、お忙しいところ突然のお電話、大変申し訳ございません！」
+# （営業のお電話だと認める「そうですよね・いらなかったですよね」は言わない＝伺い85・本書 9-9 の終わり【決まりで決めて入れる】の受付の方の1回目の受け止め）。2回目からは
+# どちらも「あっ、そうでしたよね。もう、ほとんどのお客様は…」（9-9 の (3)＝伺い88 の「(3) と同じ手法」）
+FIRST_RECEIVE = {"yes": "yes_received_refused", "reception": "yes_received_busy"}
 PAINS_MAX = 3    # 業務設定の悩みの数の上限（9-9 の (5)「3つくらい用意」＝instruction.Business._check_call_type）
 YES_NEEDED = 2   # 次の段へ進む Yes の数（9-9 の (2)「必ずYesを取れる簡単な質問を2個ほど」・(4)「2つYesが取れたら」）
 # 用意した Yes の質問の材料を使い切ったとき、会話AIに中身だけを書いていただく知らせ（伺い82 ア＝Flow._yes_ask。問いかけの文はプログラムが流す＝本書 9-3）
+# 悩みがどれも無いと言われたあと、会話AIに E4 の句だけを書いていただく知らせ（伺い89＝Flow._main_ask。問いかけの文はプログラムが流す＝本書 9-3。句の形は深める一言の
+# 句と同じ確かめ＝offer_terms_problem の kept）
+AHEAD_WRITE_NOTE = ("業務設定の悩み（{pains}）は、どれも無いとのことでした。まだ声に出さずに、その悩みが今のまま続くとしたら、の句（業務の情報とお客様の言ったことだけで"
+                    "短く、「〜と」で終える。例「ドライバーさんの採用が今のままだと」）を「{answer}」に書いて、replay_opening を「{part}」で呼びます（書けなければ書かずに呼びます）。"
+                    "プログラムが「{ask}」の形で流します。")
 YES_WRITE_NOTE = ("用意した Yes の質問の中身を使い切りました。まだ声に出さずに、お客様が必ず「はい」と答えられる中身（こちらが知っている事実か、この電話でお客様が言ったことの"
                   "確かめ）だけを「{answer}」に書いて、replay_opening を「{part}」で呼びます。必須の質問や、こちらがお伝えしたいことに繋がる中身を先に選びます。問いかけの文に"
                   "せず、名前・約束・区切りの記号を入れません（例「今は人手は足りていらっしゃるということで」）。プログラムが、頭の言葉（「ちなみに」など）＋（中身）＋"
@@ -2550,7 +2567,9 @@ PART_LABEL = {"intro": "名乗り", "purpose": "用件", "all": "最初から", 
               # 顧客獲得型の Yes の質問の中身を会話AIが書く（用意した材料を使い切ったとき＝伺い82 ア。Flow._yes_written。中身は「答えの文」に書く）
               "yes": "Yesの質問の中身",
               # 顧客獲得型の本題のお断りに「そうですよね。」と受けたあと、「ただ」に続ける中身を会話AIが書く（9-9 の (8)。Flow._but_written。中身は「答えの文」に書く＝分身 K2）
-              "but": "ただに続ける中身"}
+              "but": "ただに続ける中身",
+              # 顧客獲得型の本題の段で悩みがどれも無いと言われたあとに伺う E4 の句を会話AIが書く（伺い89＝CL-1 の読み (89)。Flow._ahead_written。句は「答えの文」に書く＝分身 U1）
+              "ahead": "今後の心配の句"}
 # AIが自分の言葉で言う部分（Flow._own_answer の1か所）：質問への答え2つと、質問ではない言葉（世間話・お礼・気遣い・お客様の話）への受け答え。
 # ✅ 2026-10-22 ユーザー（5回目）：「世間話のような対応や設定にない無難な対応はライブAIにしかできないよ！」（Intent.md 9-3「AIが柔軟にやること：
 # …想定外の発話への受け答え」）⛔ 前は質問への答えの2つしか無く、録音で流す通話の答えの段では、世間話に返す道が無かった
@@ -4509,7 +4528,7 @@ WAY_ROLES = ("other_wish", "handoff_way", "line_how")
 ASKED_ROLES = (*CALLBACK_ASK, *LADDER_ROLES, *CALLBACK_ASK_REUSED, *OPENING_ROLES)
 # 顧客獲得型だけで伺うシステムの質問の役目（Yes の質問＝文は業務設定の材料か会話AIが書いた中身から＝yes_question。依頼者の単位の録音か会話AIの声。会話AIの道具の
 # 宣言には、顧客獲得型の業務だけ足す＝tool_declarations の yes）
-ACQUIRE_PARTS = ("yes", "but")   # 顧客獲得型の業務だけの、会話AIが中身を書く部分（Yes の質問の中身・本題のお断りの「ただ（中身）」＝tool_declarations）
+ACQUIRE_PARTS = ("yes", "but", "ahead")   # 顧客獲得型の業務だけの、会話AIが中身を書く部分（Yes の質問の中身・本題のお断りの「ただ（中身）」・悩みがどれも無いときの E4 の句＝tool_declarations）
 ACQUIRE_ROLES = ("yes", "pain")   # pain＝本題の段の悩みの伺い（Y2＝pain_question。分身 K2）
 SYSTEM_ROLES = set(ASKED_ROLES) | set(BUSINESS_ROLES) | set(ACQUIRE_ROLES)  # システムが足す質問の役目
 _ROLE_TYPE = {"number": "phone", "fax": "phone", "email": "email", "address": "address", "authority": "choice", "message": "yes_no", "ask_who": "name",
@@ -5637,6 +5656,14 @@ def yes_recording_id(n: int, lead: str) -> str:
     return f"yes{n}_{lead}"
 
 
+def yes_state(at: str) -> dict:
+    """顧客獲得型の Yes の質問の段の状態を作る唯一の場所（ご本人＝Flow.__init__・_yes_back／受付の方＝Flow._reception_state）：got＝いただいた Yes の数・used＝使った材料の数・
+    refused＝受け止めたお断りの数（受け止めの1回目と2回目からを分ける）・done＝Yes が2つ取れて本題へ進んだ・write＝会話AIに中身を書いてもらう番（(発話の番号, 頭の鍵)）・
+    at＝段の名前（yes＝お呼びした方ご本人・目的のお客様のいない業務の電話に出た方／reception＝受付の方＝伺い88。断り文句の記録の at・1回目の受け止め FIRST_RECEIVE・
+    Yes が2つ取れたあと＝Flow._yes_done が読む）。分身 U1"""
+    return {"got": 0, "used": 0, "refused": 0, "done": False, "write": None, "at": at}
+
+
 def yes_question(content: str, lead: str, n: int | None = None) -> "Question":
     """顧客獲得型の Yes の質問（システムの質問 Y1。本書 9-9 の (2)）を作る唯一の場所（流れの制御 Flow._yes_ask・名乗りの録音 instruction.Business.first_question・会話AIの
     道具の宣言）：文は phrases.yes_line（頭＋中身＋「これお間違いなかったですよね？」）。n＝業務設定の材料の番号＝依頼者の単位の録音（中身が入る）／None＝会話AIが書いて
@@ -5875,9 +5902,10 @@ class Flow:
                  filler_after: float = 2.0, swap_after: float = SWAP_AFTER_S,
                  earlier_when: str | None = None, dialed_mobile: bool = False, now=None, call_days: tuple = (), purpose: str = "",
                  personal: bool = False, call_type: str | None = None, yes_asks: tuple = (), special: str = "", pains: tuple = (), meeting_time: str = "",
-                 call_free: tuple = (), accept_free: tuple = (), listed_contacts: tuple = ()):
+                 call_free: tuple = (), accept_free: tuple = (), listed_contacts: tuple = (), visit: bool = True):
         """call_type・yes_asks：電話の型（CALL_TYPES。無ければ確認の電話＝今の型）と、顧客獲得型の Yes の質問の材料（instruction.Business の同じ欄。並びの順が伺う順）。
         special・pains・meeting_time：顧客獲得型の本題の段の材料（特別感の条件・悩みと事例の組の並び・お時間＝instruction.Business の同じ欄。分身 K2）。
+        visit：顧客獲得型のアポで訪問するか（instruction.Business.meeting_visit。「その時は…ので」の言い方＝_visit_play。伺い91＝分身 U1）。
         confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う引き止めの一言（業務設定。録音で流す電話では業務の録音 busy。None なら引き止めず、
         締める前の伺い「それではまた改めてお掛けしてもよろしいでしょうか？」へ＝_hurry_ask。✅ 2026-11-01 日本時間20時56分。Intent.md 9-4）。
@@ -6445,13 +6473,22 @@ class Flow:
         # お断りの数（受け止めの1回目と2回目からを分ける）・done＝Yes が2つ取れて次の段の入口へ進んだ・write＝会話AIに中身を書いてもらう番（(発話の番号, 頭の鍵)）。
         # 伺っている Yes の質問の番号は yes_q（答えが決まったら _yes_decided の1か所が受ける）
         self.yes_asks = tuple(yes_asks)
-        self.yes: dict | None = {"got": 0, "used": 0, "refused": 0, "done": False, "write": None} if self.yes_asks else None
+        self.yes: dict | None = yes_state("yes") if self.yes_asks else None
         self.yes_q: str | None = None
+        # 受付の方の Yes の質問の段（伺い88＝分身 U1）：受付の方の段の状態（yes_state("reception")。受付の方に一文を伝えたか・営業のお断りを受けたときに作る＝_reception_state）と、
+        # 受付の方への一文を流した発話の番号（同じ方に2回目からは同じ一文をくり返さない＝_reception_told）。いま受付の方と段にいるかは self.yes の at（_reception_yes_on）
+        self.reception_yes: dict | None = None
+        self.reception_told: list[int] = []
+        # 受付の方への一文の名乗りの部分の名前（業務設定の言葉ごと＝phrases.RECEPTION_PARTS。その部分の無い電話は None。伺い87＝分身 U1）
+        self.reception_part = next((k for k in RECEPTION_PARTS.values() if (target or {}).get(k)), None)
+        self.visit = visit
+        self.ways_used: set[str] = set()   # 使った1通話1回の道（ONCE_WAYS＝_scale）
         # 顧客獲得型の本題の段（本書 9-9 の (4)〜(9)。分身 K2）：材料の文（main_forms の1か所）・pain＝いま伺っている悩みの番号（0から）・refused＝本題で受けたお断りの数
         # （本心を伺う一言 D2 を当てる所＝尺度の表の main_concern）・write＝会話AIに「ただ」に続ける中身を書いてもらう番（発話の番号）。伺っている悩みの質問の番号は pain_q
         self.main_lines = dict(main_forms(special, pains, meeting_time))
         self.pains = tuple(tuple(x) for x in pains)
-        self.main: dict | None = {"pain": 0, "refused": 0, "write": None} if self.yes is not None else None
+        # ahead＝悩みがどれも無いときに E4 の句を会話AIに書いてもらう番（発話の番号）・ahead_done＝E4 を伺った（1通話1回。伺い89＝分身 U1）
+        self.main: dict | None = {"pain": 0, "refused": 0, "write": None, "ahead": None, "ahead_done": False} if self.yes is not None else None
         self.pain_q: str | None = None
         self.meeting_qid = questions[0].id if self.main is not None and questions else None   # アポの日時の業務の質問（instruction.Business._check_call_type＝最初の業務の質問）
         # 番号を伺い直す電話か（始めの並びは下の1か所。どなたもお呼びしない電話＝かけた番号がご本人の電話かの1か所 _own_phone も読む＝_calling_questions より先に入れる）
@@ -9138,7 +9175,13 @@ class Flow:
                 self.hurried_turn = self.callee_turns
                 head = "あなたの声が相手に流れました。" if voiced else "この言葉には、もう応えました。"
                 return {"result": "replayed", "silent": True, "again": True, "message": f"{head}何も言わずに、相手の答えを待ってください。{self._now()}"}
-            way = self._scale("main_brief" if self._main_talk() else "brief")
+            # 受付の方の Yes の質問の段の「手短に」は、受付の方の「急いでいる」と同じ1行（担当 W の控えの 3 の (7)＝お呼びする段の判定には「手短に」が無く急いでいるの道。伺い92）
+            row = "reception_hurry" if self._reception_yes_on() else "main_brief" if self._main_talk() else "brief"
+            way = self._scale(row)
+            if way == "transfer_short":
+                return self._reception_hurry()
+            if row == "reception_hurry":
+                return self._hurry_ask()   # 重ねて急いでいる（手短に）と言われた：今の道（また改めてお掛けしてよいか H1）
             if way == "yes_brief":
                 # 顧客獲得型の Yes の質問の段：「ありがとうございます！それでは手短にお伺いいたしますね。」＋すぐ次の Yes の質問（尺度の表の1行。伺い84 イ＝かけ直しは先に申し出ない）
                 return self._yes_again("brief")
@@ -10424,6 +10467,8 @@ class Flow:
             return self._yes_written(a.get("answer"))   # 顧客獲得型の Yes の質問の中身を会話AIが書いた（伺い82 ア）
         if part == "but":
             return self._but_written(a.get("answer"))   # 顧客獲得型の本題のお断りの「ただ（中身）」を会話AIが書いた（9-9 の (8)。分身 K2）
+        if part == "ahead":
+            return self._ahead_written(a.get("answer"))   # 顧客獲得型の悩みがどれも無いときの E4 の句を会話AIが書いた（伺い89。分身 U1）
         if (why := self._explain_problem(a)) is not None:
             return self._reject(why)
         if (k := next((k for k in PROPOSAL_ARGS if (a.get(k) or "").strip()), None)) is not None and part != "talk":
@@ -10506,6 +10551,10 @@ class Flow:
                 return self._new_person_unrecorded()
         if self._opening_answer(part) and (other := self._asked_other()):
             return other
+        if part == "purpose" and self.reception_part and self._at_reception() and self._reception_told():
+            # 顧客獲得型の受付の方に、受付の方への一文をもう伝えたあとに重ねて用件を聞かれた：同じ一文をくり返さず（11-01「全く同じ質問を2度したら、機械だと思われてしまい
+            # ませんか？」）、受付の方の Yes の質問の段へ（伺い88 の決め＝9-9 の (3) と同じ手法。担当 W の控えの 3 の (3)。分身 U1）
+            return self._reception_yes("asked")
         if part == "target":
             return self._asked_target()
         if not self.opening:
@@ -10532,8 +10581,11 @@ class Flow:
         self.opening_unheard = [k for k in self.opening_unheard if k not in keys]
         # 受付の方に伝える用件（お呼びする段）：顧客獲得型は「（お呼びする方）にとって大切なお話がございましてお電話いたしました。」（名前の録音の台帳 reception_purpose＝伺い85。
         # その部分は顧客獲得型の業務だけ＝instruction.Business.replay_parts）。営業・ご案内の言葉で用件を伝えない（分身 K2）
-        play = [p for k in keys for p in (self._part_plays("reception_purpose") if calling and k == "purpose" and (self.target or {}).get("reception_purpose")
+        told = calling and "purpose" in keys and self.reception_part is not None
+        play = [p for k in keys for p in (self._part_plays(self.reception_part) if told and k == "purpose"
                                           else [{"kind": "opening", "part": k, "text": self.opening[k]}])] + apology
+        if told:
+            self.reception_told.append(self.callee_turns)   # 受付の方への一文を伝えた（重ねて聞かれたら Yes の質問の段＝上）
         if asked and not calling:
             self.apology_asked = self.apology_played = True   # お詫びそのものを流した（用件の一言では、まだお詫びしていない）
         return self._continue(play, "".join(x["text"] for x in play))
@@ -11862,12 +11914,13 @@ class Flow:
         if name in ("record_answer", "confirm_field"):   # 申し出を条件つきで受けていただいた答え・お返事の報告に添えた言葉（_terms_reported）
             return [(self.knowledge, self._answered_words(), t) for k in ("terms", "topic")
                     if (t := (a.get(k) or "").strip()) and self._grounded(t) is None and offer_terms_problem(t, self.names, self.name_readings, k) is None]
-        if name == "replay_opening" and a.get("part") in ("yes", "but"):
+        if name == "replay_opening" and a.get("part") in ("yes", "but", "ahead"):
             # 顧客獲得型の Yes の質問の中身（伺い82 ア）・本題のお断りの「ただ（中身）」（9-9 の (8)＝分身 K2）：提案の言葉と同じ中身の判定（形の合わない中身は聞かない＝
             # _yes_written・_but_written が書き直させる）
             t = (a.get("answer") or "").strip()
             return ([(self.knowledge, self._answered_words(), t)]
-                    if t and self._grounded(t) is None and offer_terms_problem(t, self.names, self.name_readings, a["part"]) is None else [])
+                    if t and self._grounded(t) is None and offer_terms_problem(t, self.names, self.name_readings, {"ahead": "kept"}.get(a["part"], a["part"])) is None
+                    else [])
         if name != "replay_opening" or a.get("part") not in OWN_PARTS or self.own_turn == self.callee_turns:
             return []
         from grounding import verbatim
@@ -14200,6 +14253,7 @@ class Flow:
         self.back_turn = self.callee_turns
         self.order, self.phase, self.current, self.recheck_queue = list(self.business_ids), "calling", None, []
         self.awaiting_confirm = self.awaiting_say = None
+        self._yes_back()   # 顧客獲得型：ご本人の Yes の質問の段を初めの形に（受付の方の Yes の質問の段の途中に取り次がれたときも＝伺い88。分身 U1）
         self._new_speaker(self.callee_turns, after=False, sure=True)
         return self._ask_target(new_person=True)
 
@@ -14862,6 +14916,8 @@ class Flow:
         # 本題の段だけの道（MAIN_WAYS）は、本題の段でこちらの質問のお返事を待っているとき（_main_open）だけ（分身 K2）
         if (way in YES_WAYS and not self._yes_open()) or (way in MAIN_WAYS and not self._main_open()):
             return SCALES[row][CALL_CONFIRM]
+        if way in ONCE_WAYS and way in self.ways_used:
+            return SCALES[row][CALL_CONFIRM]   # 1通話1回の道を使ったあと（受付の方の「急いでいる」の2回目＝伺い92 のウの形）は今の道（分身 U1）
         return way
 
     def _retreat_way(self, reason: str) -> str | None:
@@ -14873,10 +14929,12 @@ class Flow:
         if (reason == "callee_refused_call" and self.concern_q is not None and self.end_read == END_PRESSED
                 and (way := self._scale("concern_refusal")) != "as_refusal"):
             return way
-        # 本題に入ったあと（_main_talk）は本題の行（main_refusal・main_hurry＝分身 K2。確認の電話の型の値は序盤の行と同じ今の道）
-        main = reason in ("callee_hurry", "callee_refused_call") and self.phase != "calling" and self._main_talk()
-        row = {"callee_hurry": "main_hurry" if main else "hurry", "callee_complaint": "angry",
-               "callee_refused_call": "reception_sales" if self.phase == "calling" else "main_refusal" if main else "early_refusal"}.get(reason)
+        # 本題に入ったあと（_main_talk）は本題の行（main_refusal・main_hurry＝分身 K2。確認の電話の型の値は序盤の行と同じ今の道）。受付の方（お呼びする段・顧客獲得型の受付の方の
+        # Yes の質問の段＝_at_reception）は受付の方の行（reception_sales・reception_hurry＝伺い92 の分身 U1。確認の電話の型の値は今の道＝お呼びする段の今の hurry と同じ hurry_ask）
+        at = self._at_reception()
+        main = reason in ("callee_hurry", "callee_refused_call") and not at and self._main_talk()
+        row = {"callee_hurry": "reception_hurry" if at else "main_hurry" if main else "hurry", "callee_complaint": "angry",
+               "callee_refused_call": "reception_sales" if at else "main_refusal" if main else "early_refusal"}.get(reason)
         return self._scale(row) if row else None
 
     def _yes_open(self) -> bool:
@@ -14921,12 +14979,12 @@ class Flow:
             self.yes["got"] += 1
             return self._yes_done(prefix) if self.yes["got"] >= YES_NEEDED else self._yes_ask(prefix, "next")
         if cond == "いいえ":
-            return self._yes_ask(prefix, "next", ack="shitsurei")
+            return self._yes_ask(prefix, "next", told=self._told_ack("yes", False))
         if said_elsewhere(self._judged_now().values()):
             return self._yes_again("elsewhere", prefix=prefix)
         if it.state == "refused":
             return self._yes_again("refused", prefix=prefix)
-        return self._yes_ask(prefix, "next")
+        return self._yes_ask(prefix, "next", told=self._told_ack("yes", None))   # わからない・聞き取れないまま＝今の相づちの決まり（担当 W の控えの 3 の (5)・伺い90 の決め）
 
     def _yes_again(self, kind: str, heard: bool | None = None, prefix: str = "") -> dict:
         """顧客獲得型の Yes の質問の段の、用件の前のお断り・急いでいる・「手短に」に応える唯一の場所（尺度の表の yes_again・yes_brief＝_op_request_end・_refusal_confirm・
@@ -14939,14 +14997,15 @@ class Flow:
         決まらない断り・答えたくない・判定が届かなかったときは None（発信の拒否を聞いたとはしない）。"""
         if heard is not None:
             self._end_heard("callee_refused_call", heard)
-        if kind != "brief":
-            self._refusal_note(kind, "yes")
         y = self.yes
+        if kind != "brief":
+            self._refusal_note(kind, y["at"])   # 段の名前（ご本人＝yes・受付の方＝reception＝伺い88）
         if kind in ("brief", "busy"):
             rid = "yes_brief" if kind == "brief" else "yes_received_busy"
             plays, lead = [line_play(rid, RECORDED[rid])], "first"
         elif y["refused"] == 0:
-            plays, lead = [line_play("yes_received_refused", RECORDED["yes_received_refused"])], "first"
+            rid = FIRST_RECEIVE[y["at"]]   # 1回目の受け止め（受付の方には営業のお電話だと認める言葉を言わない＝FIRST_RECEIVE の1か所）
+            plays, lead = [line_play(rid, RECORDED[rid])], "first"
         else:
             plays = [line_play("yes_received_again", RECORDED["yes_received_again"])] + (self._part_plays("yes_received") if self._target_named("yes_received") else [])
             lead = "again"
@@ -14954,22 +15013,24 @@ class Flow:
             y["refused"] += 1
         return self._yes_ask(prefix, lead, plays)
 
-    def _yes_ask(self, prefix: str, lead: str, plays: list | None = None, ack: str | None = None) -> dict:
+    def _yes_ask(self, prefix: str, lead: str, plays: list | None = None, told: dict | None = None) -> dict:
         """次の Yes の質問を伺う唯一の場所（_yes_decided・_yes_again）：業務設定の材料の次の1つ（並びの順＝伺い79「角度を変えて伺うのは必須の質問やこちらがアピールしたい
         内容に繋がるものがベスト」は材料の並びの頭＝CL-2 の 4-207 の (b)）を、頭 lead（phrases.YES_LEADS の鍵）で依頼者の単位の録音から流す。前に流す一言 plays（受け止め）・
-        頭の相づち ack（いいえ＝「失礼いたしました。」）。材料を使い切ったら、会話AIに中身だけを書いていただく番（伺い82 ア＝_yes_written。受け止めは先に流す）。"""
+        頭の相づち told（答えへの受けの1か所 _told_ack の返す形＝{"yes_ack": 録音の名前か None}。空なら今の相づちの決まり。無ければ相づち無し＝受け止め・「ちなみに」が受け）。
+        材料を使い切ったら、会話AIに中身だけを書いていただく番（伺い82 ア＝_yes_written。受け止めは先に流す）。"""
         y, plays = self.yes, list(plays or [])
+        told = {"yes_ack": None} if told is None else told
         if y["used"] < len(self.yes_asks):
             y["used"] += 1
             self._yes_put(yes_question(self.yes_asks[y["used"] - 1], lead, y["used"]))
             r = self._advance(prefix, handled=True)
-            return (self._led(plays, "", r) if plays else r) | {"yes_ack": ack}
+            return (self._led(plays, "", r) if plays else r) | told
         y["write"] = (self.callee_turns, lead)
         self.current = None
         texts = "".join(p["text"] for p in plays)
         note = YES_WRITE_NOTE.format(answer=ARG_LABEL["answer"], part=PART_LABEL["yes"])
-        r = {"result": "yes_write", "silent": True, "yes_ack": ack,
-             "message": f"{prefix}{played_note(texts) + '続けて、' if plays else ''}{note}"}
+        r = {"result": "yes_write", "silent": True,
+             "message": f"{prefix}{played_note(texts) + '続けて、' if plays else ''}{note}"} | told
         return r | ({"play": plays} if plays else {})
 
     def _yes_written(self, words: str | None) -> dict:
@@ -15003,20 +15064,31 @@ class Flow:
         お電話させていただいております。」」）：共通の一言 acquire_glad_lead「あっでしたよね、」＋お呼びした方ご本人には名前の録音の台帳 acquire_glad「じゃあ（お名前）様ちょうど
         良かったです！」（お名前の分からない方は名前の文を省く）＋業務設定の特別感の文（依頼者の単位の録音 acquire_special）＋最初の悩みの伺い（_main_ask）。ここから本題
         （_main_talk＝尺度の表の yes_done）。⛔ 分身 K1 では仮に今の作りの業務の質問へ進んでいた（分身 K2）"""
+        glad = [line_play("acquire_glad_lead", RECORDED["acquire_glad_lead"]), *(self._part_plays("acquire_glad") if self._target_named("acquire_glad") else [])]
+        if self._reception_yes_on():
+            # 受付の方に Yes が2つ取れた（伺い88）：「あっでしたよね、」（受付の方のお名前は分からない＝名前の文を省く）のあと、お取り次ぎのお願い（受付の方への一文＋お呼びする一言）
+            return self._reception_call(prefix, glad)
         self.yes["done"] = True
-        plays = [line_play("acquire_glad_lead", RECORDED["acquire_glad_lead"]), *(self._part_plays("acquire_glad") if self._target_named("acquire_glad") else []),
-                 line_play("acquire_special", self.main_lines["acquire_special"])]
-        return self._main_ask(prefix, plays)
+        return self._main_ask(prefix, glad + [line_play("acquire_special", self.main_lines["acquire_special"])])
 
     # ── 顧客獲得型の本題の段（本書 9-9 の (4)〜(9)）・本題のお断り（(8)）・受付の方の営業のお断り（伺い85）。分身 K2
-    def _main_ask(self, prefix: str, plays: list) -> dict:
+    def _main_ask(self, prefix: str, plays: list, told: dict | None = None) -> dict:
         """本題の段の悩みを伺う唯一の場所（_yes_done・_pain_decided。9-9 の (5)「第三者話法…（3つくらい用意）」）：業務設定の次の悩み（並びの順）の文（依頼者の単位の録音
         pain（番号）「これまでお話ししている中で、（悩み）のようなお悩みを…いらっしゃるんですよ。」）＋問いかけ（pain_question＝「（お名前）様はこういうお悩みはございません
         ですか？」）。前に流す一言 plays。頭の相づちは無し（悩みの文の「これまでお話ししている中で、」が受け＝Yes の質問の段と同じ決め方。不快な様子のお返事のあとだけ
-        お詫び「失礼いたしました。」＝10-14）。悩みを使い切った（どれも無い・分からない）＝⏳ 続け方は CL-1 が会話つきで伺う（本書 9-9）＝決まっていない場面は安全側（丁寧に
-        終える＝本書 9-4）：お礼の締めで日を改める（締めた理由 no_pain）。"""
+        お詫び「失礼いたしました。」＝10-14）。前の悩みへのお答えの受け told（_told_ack＝伺い90「ある＝そうだったんですね・無い＝それは何よりです」。分身 U1）。
+        悩みを使い切った（どれも無い・分からない）＝1通話1回、E4「それは何よりです。しかし（句）今は問題が起こっていなくても…懸念されそうですね？」を伺う（伺い89＝CL-1 の読み (89)。
+        句は会話AIが書く番＝_ahead_written。頭の「それは何よりです。」が受け＝相づちを重ねない）。E4 のあと（懸念は無い・はっきりしない・聞き取れない）＝お礼の締めで日を改める
+        （締めた理由 no_pain。⛔ 分身 U1 まで、悩みを使い切ったらすぐこの締めだった）。"""
         ack = "shitsurei" if self._upset_now() else None
         m = self.main
+        if m["pain"] >= len(self.pains) and not m["ahead_done"]:
+            m["ahead"], m["ahead_done"] = self.callee_turns, True
+            self.current = None
+            note = AHEAD_WRITE_NOTE.format(pains="・".join(p for p, _ in self.pains), answer=ARG_LABEL["answer"], part=PART_LABEL["ahead"],
+                                           ask=deepen_ahead_line("（句）"))
+            r = {"result": "ahead_write", "silent": True, "message": f"{prefix}{note}"}
+            return (self._led(plays, "", r) if plays else r) | {"yes_ack": ack}
         if m["pain"] >= len(self.pains):
             return self._led(plays, "", self._close("no_pain", prefix="業務設定の悩みは、どれも無いとのことでした。日を改めます。")) | {"yes_ack": ack}
         n = m["pain"] + 1
@@ -15026,7 +15098,7 @@ class Flow:
         self._put_first(q.id)
         self.pain_q = q.id
         r = self._advance(prefix, handled=True)
-        return self._led(plays + [line_play(f"pain{n}", self.main_lines[f"pain{n}"])], "", r) | {"yes_ack": ack}
+        return self._led(plays + [line_play(f"pain{n}", self.main_lines[f"pain{n}"])], "", r) | ({"yes_ack": ack} if told is None else told)
 
     def _pain_decided(self, prefix: str) -> dict:
         """本題の段の悩みの伺いへの答えが決まった（唯一の入口＝_advance_to）：はい＝その悩みの事例でビフォーアフター＋「聞かせてください」の一続き＋日時の2択（_main_listen）／
@@ -15034,24 +15106,27 @@ class Flow:
         電話を終える言葉の読みで応じる（_main_again）。"""
         qid, self.pain_q = self.pain_q, None
         it = self.items[qid]
-        if (it.condition if it.state in GOT else None) == "はい":
-            return self._main_listen(prefix)
+        cond = it.condition if it.state in GOT else None
+        told = {"はい": True, "いいえ": False}.get(cond)
+        if told:
+            return self._main_listen(prefix, self._told_ack("pain", True))
         self.main["pain"] += 1
-        return self._main_ask(prefix, [])
+        return self._main_ask(prefix, [], self._told_ack("pain", told))
 
-    def _main_listen(self, prefix: str) -> dict:
+    def _main_listen(self, prefix: str, told: dict | None = None) -> dict:
         """悩みがあると言われた（_pain_decided）：その悩みの事例でビフォーアフター（9-9 の (6)。共通の一言 case_lead「とあるサービスがありまして、」＋業務設定の事例＝依頼者の単位の
         録音 case（番号）。何をするかは言わない）→「聞かせてください」の一続き（(7) のお言葉の文のまま＝お名前の入る3つは _who_plays・共通の一言 listen_sure・お時間の文＝依頼者の
         単位の録音 meeting_time）→ すぐ日時の2択（(9)＝今の1か所 ladder_step。アポの日時＝業務の最初の質問 meeting_qid を日時の2択の段で伺う＝Question.ladder の meeting。
-        「いつ空いていますか」とは伺わない）。答えは業務の質問の答え＝依頼者へ渡る。"""
+        「いつ空いていますか」とは伺わない）。答えは業務の質問の答え＝依頼者へ渡る。told＝悩みのお答えへの受け（_told_ack。「そうだったんですね。」＝伺い90）。「その時は…ので」は
+        訪問するかで替わる（_visit_play＝伺い91）。"""
         n = self.main["pain"] + 1
         plays = [line_play("case_lead", RECORDED["case_lead"]), line_play(f"case{n}", self.main_lines[f"case{n}"]),
-                 *self._who_plays("listen_why"), *self._who_plays("listen_reason"), line_play("listen_sure", RECORDED["listen_sure"]),
+                 *self._who_plays("listen_why"), *self._who_plays("listen_reason"), self._visit_play("listen_sure"),
                  *self._who_plays("listen_ask"), line_play("meeting_time", self.main_lines["meeting_time"])]
         self._new_item(dataclasses.replace(self.questions[self.meeting_qid], ladder="meeting"))
         self._put_first(self.meeting_qid)
         r = self._advance(prefix, handled=True)
-        return self._led(plays, "", r) | {"yes_ack": None}
+        return self._led(plays, "", r) | (told or {"yes_ack": None})
 
     def _main_open(self) -> bool:
         """顧客獲得型の本題の段で、こちらの質問・言い直しのお返事を待っているか（唯一の決まり＝尺度の表の本題の段だけの道 MAIN_WAYS＝_scale）：Yes が2つ取れたあと・答えの段・
@@ -15068,6 +15143,8 @@ class Flow:
             return self._yes_again(kind, heard=heard)
         if way == "yes_but":
             return self._main_again(kind, heard=heard)
+        if way == "transfer_short":
+            return self._reception_hurry()   # 受付の方の「急いでいる」（伺い92＝分身 U1）
         return self._reception_again(heard=heard)
 
     def _main_again(self, kind: str, heard: bool | None = None, prefix: str = "") -> dict:
@@ -15112,25 +15189,155 @@ class Flow:
         if rejected is not None:
             return rejected
         m["write"] = None
-        play = [{"kind": "said", "text": f"ただ{got['but']}。"}] if got.get("but") else [line_play("but_safe", RECORDED["but_safe"])]
+        play = [{"kind": "said", "text": f"ただ{got['but']}。"}] if got.get("but") else [self._visit_play("but_safe")]
         return self._continue(play, play[0]["text"]) | {"yes_ack": None}
 
     def _reception_again(self, heard: bool | None = None) -> dict:
         """顧客獲得型の受付の方の営業のお断り（尺度の表の call_again＝_keep_on）に応える唯一の場所（伺い85＝✅ 2026-11-20 日本時間2時18分01秒「営業ではなく、○○様にとって、
-        「大切な話」「役に立つ話」としてかけるので、営業では断られない。」）：もうかけないとせず、受け止めの一言（共通の一言 yes_received_busy「あっ、お忙しいところ突然のお電話、
-        大変申し訳ございません！」＝Yes の質問の段の受け止めと同じ録音。⏳ 受け止めの言い方は CL-1 が会話つきで伺う）＋「（お呼びする方）にとって大切なお話がございまして
-        お電話いたしました。」（名前の録音の台帳 reception_purpose）＋もう一度お呼びする一言（呼ぶ一言の録音 target。回数は決めない＝お客様が切るまで）。断り文句はお客様の
-        言ったまま refusal_said（at＝reception）。heard＝判定が断ったと読んだ（発信の拒否を聞いた＝印は電話の終わりで決める＝伺い80：切られた・怒っていたら付ける）。"""
+        「大切な話」「役に立つ話」としてかけるので、営業では断られない。」）：もうかけないとせず、
+        - 1回目（この電話で受付の方のお断りをまだ受けていない）：受け止めの一言（FIRST_RECEIVE の受付の方＝共通の一言 yes_received_busy「あっ、お忙しいところ突然のお電話、大変
+          申し訳ございません！」＝本書 9-9 の終わり【決まりで決めて入れる】）＋「（お呼びする方）にとって大切なお話がございましてお電話いたしました。」（名前の録音の台帳の
+          受付の方への一文＝reception_part。言葉は業務設定＝伺い87）＋もう一度お呼びする一言（呼ぶ一言の録音 target）
+        - 重ねてのお断り（2回目から・受付の方の Yes の質問の段の途中も）：9-9 の (3) と同じ手法＝心の底から受け止め＋角度を変えた簡単な Yes の質問（受付の方の Yes の質問の段＝
+          _reception_yes。回数は決めない＝伺い79。同じ3つの文をくり返さない＝11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）。本書 9-9 の終わりの CL-1 の
+          読み (88)（✅ 2026-11-20 日本時間16時13分06秒 ユーザー「伺い88：また、「ちなみにですけど、」や「で、それでなんですけど、」と角度を変えて簡単な質問をする。・2つYesがとれたら、
+          「あっ、でしたよね、じゃあ○○様、ちょうど良かったです！と書いてるよね。同じことを言わせるな。」）。分身 U1。⛔ それまでは何回目でも1回目と同じ3つの文
+        断り文句はお客様の言ったまま refusal_said（at＝reception）。heard＝判定が断ったと読んだ（発信の拒否を聞いた＝印は電話の終わりで決める＝伺い80：切られた・怒っていたら付ける）。"""
+        if self._reception_yes_on() or (self.reception_yes is not None and self.reception_yes["refused"]):
+            return self._reception_yes("refused", heard=heard)
         if heard is not None:
             self._end_heard("callee_refused_call", heard)
         self._refusal_note("refused", "reception")
+        self._reception_state()["refused"] += 1
         self.target_called.append(self.callee_turns)
-        plays = [line_play("yes_received_busy", RECORDED["yes_received_busy"]), *self._part_plays("reception_purpose"), *self._part_plays("target")]
-        text = "".join(p["text"] for p in plays)
+        self.reception_told.append(self.callee_turns)
+        rid = FIRST_RECEIVE["reception"]
+        plays = [line_play(rid, RECORDED[rid]), *self._part_plays(self.reception_part), *self._part_plays("target")]
         what = "受付の方に営業のお断りを言われました（もうかけないとせず、お呼びする方にとって大切なお話としてお呼びし直します）。"
+        return self._calling_led(plays, what)
+
+    def _calling_led(self, plays: list[dict], what: str, prefix: str = "") -> dict:
+        """お呼びする段で、受付の方に決まった言葉 plays（お呼びし直す一言・お取り次ぎのお願いで終わる）を流して、受付の方のお返事を待つ返事の唯一の形（_reception_again・
+        _reception_call・_reception_hurry）。頭の相づちは無し（受け止め・「あっでしたよね、」が受け＝yes_ack）。録音で流せない通話は会話AIが言う。"""
+        text = "".join(p["text"] for p in plays)
         if self._plays_recorded(plays):
-            return {"result": "call_target", "silent": True, "play": plays, "yes_ack": None, "message": f"{what}{played_note(text)}何も言わずに、{self._calling_note()}"}
-        return {"result": "call_target", "say": text, "yes_ack": None, "message": f"{what}{say_note(text)}そのあと、{self._calling_note()}"}
+            return {"result": "call_target", "silent": True, "play": plays, "yes_ack": None,
+                    "message": f"{prefix}{what}{played_note(text)}何も言わずに、{self._calling_note()}"}
+        return {"result": "call_target", "say": text, "yes_ack": None, "message": f"{prefix}{what}{say_note(text)}そのあと、{self._calling_note()}"}
+
+    # ── 顧客獲得型の受付の方の Yes の質問の段（伺い88）・受付の方の「急いでいる」（伺い92）・悩みのお答えへの受け（伺い90）・E4（伺い89）・訪問するか（伺い91）。分身 U1
+    def _at_reception(self) -> bool:
+        """いま話しているのが受付の方か（唯一の決まり＝尺度の表の受付の方の行を選ぶ _retreat_way・重ねて用件を聞かれた _op_replay_opening）：お呼びする段か、顧客獲得型の受付の方の
+        Yes の質問の段の途中。"""
+        return self.phase == "calling" or self._reception_yes_on()
+
+    def _reception_yes_on(self) -> bool:
+        """いま受付の方と Yes の質問の段にいるか（唯一の決まり＝段の状態 self.yes の at）。"""
+        return self.yes is not None and self.yes["at"] == "reception"
+
+    def _reception_state(self) -> dict:
+        """受付の方の Yes の質問の段の状態（無ければ作る。1通話に1つ＝受け止めたお断りの数・使った材料の数は回をまたいで続く）。"""
+        if self.reception_yes is None:
+            self.reception_yes = yes_state("reception")
+        return self.reception_yes
+
+    def _reception_told(self) -> bool:
+        """いま電話口にいる受付の方に、受付の方への一文をもう伝えたか（同じ方に2回目からは同じ一文をくり返さない＝_op_replay_opening）。"""
+        return any(t >= self.speaker_from for t in self.reception_told)
+
+    def _reception_yes(self, kind: str, heard: bool | None = None, prefix: str = "") -> dict:
+        """受付の方の Yes の質問の段の唯一の入口（伺い88＝0時38分10秒「手法は同じ」：今の Yes の質問の段の1か所＝_yes_again・_yes_ask・_yes_decided・_yes_written を受付の方にも
+        通す）。お呼びする段から入るときは、段の状態を受付の方のものにし（Yes の数は回ごとに数え直す）、答えの段の形で伺う（いまの質問は Yes の質問。電話口の方はまだお呼びする段の方
+        ＝asking_reception）。kind：refused＝重ねての営業のお断り（受け止め＋角度を変えた Yes の質問＝_yes_again。1回目の受け止めは受付の方の形 FIRST_RECEIVE）／asked＝受付の方への
+        一文を伝えたあとに重ねて用件を聞かれた（「失礼いたしました。」＋次の Yes の質問。段に入るときは「ちなみに、」・段の途中は「ちなみにですけど、」＝担当 W の控えの 3 の (3)）。
+        Yes が2つ取れたら、お取り次ぎのお願いへ（_yes_done → _reception_call）。"""
+        entering = not self._reception_yes_on()
+        if entering:
+            y = self._reception_state()
+            y["got"], y["write"] = 0, None
+            self.yes, self.yes_q = y, None
+            self._drop_pending()
+            self.order, self.recheck_queue = [], []
+            self.phase, self.current, self.callback_held = "asking", None, False
+            self.awaiting_confirm = self.awaiting_say = None
+        if kind == "refused":
+            return self._yes_again("refused", heard=heard, prefix=prefix)
+        return self._yes_ask(prefix, "first" if entering else "next", told={"yes_ack": "shitsurei"})
+
+    def _reception_call(self, prefix: str, glad: list[dict]) -> dict:
+        """受付の方に Yes が2つ取れた（_yes_done）：「あっでしたよね、」（glad）のあと、お取り次ぎのお願い（受付の方への一文＋お呼びする一言）を流して、お呼びする段へ戻る（伺い88）。"""
+        plays = [*glad, *self._part_plays(self.reception_part), *self._part_plays("target")]
+        self._to_calling()
+        self.target_called.append(self.callee_turns)
+        self.reception_told.append(self.callee_turns)
+        return self._calling_led(plays, "受付の方に Yes を2ついただきました（お呼びする方にとって大切なお話として、お取り次ぎをお願いします）。", prefix)
+
+    def _reception_hurry(self) -> dict:
+        """顧客獲得型の受付の方の「急いでいる」（尺度の表の reception_hurry＝transfer_short。受付の方の Yes の質問の段の「手短に」も＝担当 W の控えの 3 の (7)）に応える唯一の場所
+        （伺い92＝本書 9-9 の終わりの CL-1 の読み (92)「伺い84（「手短に」にはすぐ本題へ）と同じ手法で、お詫びのあとお取り次ぎだけを短くお願いする（かけ直しを先に申し出ない）」）：
+        お詫び（受付の方の1回目の受け止めと同じ録音 FIRST_RECEIVE）＋お取り次ぎをお願いし直す一言（target_transfer＝伺い51 イの一言・同じ方に1回＝transfer_asked）。1通話1回
+        （ONCE_WAYS＝重ねて急いでいると言われたら今の道の H1）。「忙しい」は断り文句として残す（at＝reception）。受付の方の Yes の質問の段の途中なら、お呼びする段へ戻る。"""
+        self.ways_used.add("transfer_short")
+        self._refusal_note("busy", "reception")
+        if self._reception_yes_on():
+            self._to_calling()
+        self.transfer_asked.append(self.callee_turns)
+        rid = FIRST_RECEIVE["reception"]
+        plays = [line_play(rid, RECORDED[rid]), *self._part_plays("target_transfer")]
+        return self._calling_led(plays, "受付の方が急いでいらっしゃいます（かけ直しは先に申し出ず、お取り次ぎだけを短くお願いします）。")
+
+    def _to_calling(self) -> None:
+        """受付の方の Yes の質問の段から、お呼びする段へ戻る唯一の場所（_reception_call・_reception_hurry）：ご本人の Yes の質問の段を初めの形に戻し（_yes_back）、お呼びする段で
+        受付の方のお返事を待つ。"""
+        self._yes_back()
+        self.phase, self.current, self.recheck_queue, self.callback_held = "calling", None, [], False
+        self.awaiting_confirm = self.awaiting_say = None
+
+    def _yes_back(self) -> None:
+        """お呼びする段へ戻る所（受付の方の段の終わり＝_to_calling・取り次がれて代わった方に確かめに戻る _target_back）で、お呼びした方ご本人の Yes の質問の段を初めの形に戻す
+        唯一の場所（ご本人に繋がったら、用件の一言のすぐあとに最初の Yes の質問＝__init__ と同じ yes_first）。受付の方の段の状態は受付の方の所（reception_yes）に残す。顧客獲得型でない・
+        お呼びする方のいない電話は何もしない。⛔ 分身 U1 まで、取り次がれて確かめに戻る _target_back は並びを業務の質問だけにし、ご本人に Yes の質問を伺わずにアポの日時を伺いえた"""
+        if not self.yes_asks or not self.target:
+            return
+        self.order = list(self.business_ids)
+        self.yes = yes_state("yes")
+        self.yes["used"] = 1
+        self._yes_put(yes_first(self.yes_asks))
+
+    def _told_ack(self, stage: str, told: bool | None) -> dict:
+        """顧客獲得型の段の答えへの受けの唯一の決まり（返事の頭の相づち＝_ack_choice が読む yes_ack。空なら今の相づちの決まり）：
+        - stage "yes"（Yes の質問の段＝_yes_decided）：はい＝無し（頭の「ちなみにですけど、」が受け＝分身 K1）・いいえ＝「失礼いたしました。」・ほか（わからない・聞き取れないまま）＝
+          今の相づちの決まり（担当 W の控えの 3 の (5)＝10-14 の相づちの決まり。伺い90 と同じ決め）
+        - stage "pain"（本題の段の悩みの伺い＝_pain_decided・悩みがどれも無いときの E4＝_deepen_decided）：不快な様子＝「失礼いたしました。」（10-14）・ある＝「そうだったんですね。」・
+          無い＝「それは何よりです。」（伺い90＝本書 9-9 の終わりの CL-1 の読み (90)。言葉は E3・E4 の頭と同じ1か所 phrases.TOLD_ACK）・ほか＝今の相づちの決まり
+        told：ある（はい）＝True・無い（いいえ）＝False・ほか None。"""
+        if stage == "pain" and self._upset_now():
+            return {"yes_ack": "shitsurei"}
+        if told is None:
+            return {}
+        return {"yes_ack": {("yes", True): None, ("yes", False): "shitsurei", ("pain", True): "soudattan", ("pain", False): "naniyori"}[(stage, told)]}
+
+    def _ahead_written(self, words: str | None) -> dict:
+        """会話AIが書いた E4 の句を受ける唯一の場所（replay_opening の「今後の心配の句」。伺い89）：深める一言の句と同じ確かめ（_proposal_checked の kept＝形「〜と」・中身の判定・
+        書き直しの回数）を通れば句の入る形を会話AIが言い、通らない・書かなかったら句の無い形（共通の一言の録音 callback_deepen_ahead）。伺うのは今の E4 の1か所（_deepen_put）。
+        お返事は E4 の答えの1か所（_deepen_decided の main）。"""
+        m = self.main
+        if m is None or m["ahead"] != self.callee_turns:
+            return self._reject(f"「{PART_LABEL['ahead']}」は、プログラムが E4 の句を書くように知らせた番だけに使います。{self._now()}")
+        text = (words or "").strip()
+        rejected, got, _ = self._proposal_checked({**dict.fromkeys(PROPOSAL_ARGS), "kept": text or None}, ["kept"] if text else [], None, False)
+        if rejected is not None:
+            return rejected
+        m["ahead"] = None
+        kept = got.get("kept")
+        self.deepen_from = {"back": (None, None, None), "main": True}
+        return self._deepen_put("deepen_ahead", deepen_ahead_line(kept), bool(kept)) | {"yes_ack": None}
+
+    def _visit_play(self, rid: str) -> dict:
+        """訪問するかで言い方が替わる共通の一言（「その時はすぐ帰りますので」の入る listen_sure・but_safe）を流す1つ（唯一の場所＝_main_listen・_but_written。録音の名前は
+        phrases.visit_id の1か所。伺い91）。"""
+        rid = visit_id(rid, self.visit)
+        return line_play(rid, RECORDED[rid])
 
     def _main_talk(self) -> bool:
         """本題に入っているか（唯一の決まり＝電話を終える言葉か決まらないときの一言の選び _refusal_confirm）：最初の業務の質問を流した（既定）か、この電話で
@@ -15610,6 +15817,13 @@ class Flow:
         if self.refusal_back is not None and (self.refusal_back == frm["back"] or self.refusal_back[0] == qid):
             self.refusal_back = None   # 深める一言を伺うときに _ask_aside の形で覚えた位置は使わない（戻るのは E2 が覚えた位置）
         cond = it.condition if it.state in GOT else None
+        if frm.get("main"):
+            # 顧客獲得型の本題の段で悩みがどれも無いときに伺った E4（伺い89＝分身 U1）：懸念がある＝悩みがあると同じ続け方（業務設定の最初の悩みの事例・「聞かせてください」・日時の
+            # 2択＝_main_listen。受けは悩みのお答えの1か所 _told_ack）・ほか（懸念は無い・はっきりしない・聞き取れない）＝悩みがどれも無い締め（_main_ask の使い切った枝）
+            if cond == "懸念がある":
+                self.main["pain"] = 0
+                return self._main_listen(prefix, self._told_ack("pain", True))
+            return self._main_ask(prefix, [])
         if role == "elsewhere_point":
             # 決め手を伺った一言（E5）：伺う前の位置へ戻し、決め手を言っていただけたら決め手に応える提案・ほか（無い・分からない・はっきりしない・聞き取れない・
             # 別のお話）は比べる材料をお送りする提案（伺い47 のア）。どちらも困りごとに応える提案と同じ1か所（_trouble_offer_start。言葉が書けなければ今の戻り）。
@@ -18668,7 +18882,8 @@ class Flow:
         （CL-2 の連絡帳 4-182 の (4)）まで、ご本人と繋いだあとの「あとでかけて」（かけ直しの質問）・急いでいる方への伺いでも真になり、ご本人の
         「少々お待ちください」で取り次ぎの印が付いて、そのあと出た方をお呼びした方かを確かめる道（呼んでいる段へ戻る）に入りえた。"""
         reached = any(c.get("who") in ("target", "successor") for c in self.facts.get("connect", ()))
-        return not reached and bool(self.callback_why or self.substitute_q or self.hurry_q or self.close_after == "not_transferred")
+        # 顧客獲得型の受付の方の Yes の質問の段（伺い88＝分身 U1）も、電話口の方はお呼びする段の方
+        return not reached and bool(self.callback_why or self.substitute_q or self.hurry_q or self.close_after == "not_transferred" or self._reception_yes_on())
 
     @property
     def hurried(self) -> bool:

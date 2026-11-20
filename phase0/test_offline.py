@@ -76,7 +76,12 @@ CL2_PENDING = frozenset({
                          "accept_free", "call_free", "listed_contacts",
                          # 分身 P（CL-2 への知らせは分身 P の書き置き＝rv175/P/notes.md。名前はどれも仮）：伺い66 の値の入らない SMS の一言の共通の一言の録音・後任の方の形の受付の方への
                          # 一文の共通の一言の録音・役職の方へ切り替えたあとの受付の方への一文の名乗りの部分（名前の録音の台帳の役職の呼び方＋続く言葉 reception_purpose）
-                         "listed_mobile_dialed", "successor_reception_purpose", "reception_purpose_role"})
+                         "listed_mobile_dialed", "successor_reception_purpose", "reception_purpose_role",
+                         # 顧客獲得型の3つ目（分身 U1。CL-2 への知らせは分身 U1 の書き置き＝rv176/U1/notes.md。名前はどれも仮）：受付の方への一文の「お役に立つお話」の形（名前の録音の台帳の
+                         # 続く言葉・役職の方の部分・後任の方の共通の一言の録音＝伺い87）・訪問しない業務の「聞かせてください」の一続きと本題のお断りの文の共通の一言の録音（伺い91）・悩みの
+                         # お答えへの受けの相づちの録音（伺い90）・悩みがどれも無いときの E4 の句を会話AIが書く部分の名前（中と日本語＝伺い89）
+                         "reception_purpose_useful", "reception_purpose_useful_role", "successor_reception_purpose_useful",
+                         "listen_sure_remote", "but_safe_remote", "soudattan", "naniyori", "ahead", "今後の心配の句"})
 # CL-2 の読み手がまだ受けない値（CL2_PENDING の値の版）：{(通話の事実の種類, 欄): (CL-2 の call_report の組の名前, まだ入っていない値)}。FlowWatch は、読み手に通す前に、
 # その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
 # CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
@@ -1135,7 +1140,7 @@ class AckChoiceTest(unittest.TestCase):
         # 重ねて急かされたときの「承知しました。」（shouchi_hurried＝伺い41）も、言葉の終わりの記号で同じ間（少し焦った感じは録音の読み方で出す）
         # 呼ぶ一言を使い切ったあとのお取り次ぎのお願い直しの頭「大変失礼いたしました。」（taihen_shitsurei＝伺い51）も「。」のあとの間
         self.assertEqual([k for k in ACK if ACK[k].endswith("。")], ["shouchi", "shouchi_hurried", "arigatou", "kashikomari", "shitsurei", "taihen_shitsurei",
-                                                                     "gomottomo", "aizuchi"])
+                                                                     "gomottomo", "aizuchi", "soudattan", "naniyori"])
         f = self.flow()
         f.on_callee()
         out = f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
@@ -41560,7 +41565,7 @@ class AcquireCallTypeTest(unittest.TestCase):
         names = {f.name for f in dataclasses.fields(Business)}
         self.assertLessEqual(set(CL2_ACQUIRE_FIELDS.values()), names)
         # 本題の段の欄（特別感の条件・悩みと事例・お時間＝4-207 の (c)(d)(e)）も同じ表（分身 K2＝AcquireMainStageTest）
-        self.assertEqual(set(CL2_ACQUIRE_FIELDS.values()), {"call_type", "yes_asks", "special", "pains", "meeting_time"})
+        self.assertEqual(set(CL2_ACQUIRE_FIELDS.values()), {"call_type", "yes_asks", "special", "pains", "meeting_time", "reception_talk", "meeting_visit"})
         with self.assertRaises(ValueError):
             dataclasses.replace(BUSINESS, call_type="other")
 
@@ -42526,7 +42531,7 @@ class AcquireMainStageTest(unittest.TestCase):
         from flowctl import Question
         from g22_opening import BUSINESS
         from instruction import CL2_ACQUIRE_FIELDS, Business
-        self.assertEqual(set(CL2_ACQUIRE_FIELDS.values()), {"call_type", "yes_asks", "special", "pains", "meeting_time"})
+        self.assertEqual(set(CL2_ACQUIRE_FIELDS.values()), {"call_type", "yes_asks", "special", "pains", "meeting_time", "reception_talk", "meeting_visit"})
         self.assertLessEqual(set(CL2_ACQUIRE_FIELDS.values()), {x.name for x in dataclasses.fields(Business)})
         acquire_business()
         for bad in (dict(special=""), dict(pains=()), dict(meeting_time=""), dict(pains=ACQUIRE_PAINS * 2),
@@ -42554,20 +42559,17 @@ class AcquireMainStageTest(unittest.TestCase):
         r = self.yes(f)
         self.assertEqual(heard_words(r), self.GLAD + self.GLAD_NAMED + self.SPECIAL + self.PAIN1 + self.ASK_NAMED)
         r = self.pain(f, "はい", "ああ、確かにそれは困ってますね。")
-        self.assertEqual(heard_words(r), self.CASE1 + self.LISTEN_NAMED + self.TIME + self.KIND)
+        self.assertEqual(heard_words(r), "そうだったんですね。" + self.CASE1 + self.LISTEN_NAMED + self.TIME + self.KIND)   # 頭の受けは伺い90（分身 U1）
 
-    def test_pains_in_order_and_none_closes_politely_for_now(self):
-        # 悩みは業務設定の順に（3つまで）。どれも無いと言われたら、⏳ 続け方は CL-1 が会話つきで伺う（本書 9-9）＝決まっていない場面は安全側（丁寧に終える＝本書 9-4）：
-        # お礼の締めで日を改める（締めた理由 no_pain。発信禁止の印は付けない）
-        from phrases import CLOSING
+    def test_pains_in_order_and_none_asks_the_e4(self):
+        # 悩みは業務設定の順に（3つまで）。無いお答えの受けは「それは何よりです。」（伺い90）。どれも無いと言われたら、E4 の句を会話AIが書く番（伺い89。続きは U1PainNoneTest）。
+        # ⛔ 分身 U1 まで、⏳ 伺う間の仮の形＝お礼の締めで日を改めていた（分身 K2）
         f = self.flow()
         self.yes(f); self.yes(f)
         r = self.pain(f, "いいえ", "いや、うちは足りてますね。")
-        self.assertEqual(heard_words(r), self.PAIN2 + self.ASK_CO)
+        self.assertEqual(heard_words(r), "それは何よりです。" + self.PAIN2 + self.ASK_CO)
         r = self.pain(f, "いいえ", "それも特には。")
-        self.assertEqual((heard_words(r), f.end_reason), (CLOSING, "no_pain"))
-        f.on_line_end(ai_speaking=False, callee_speaking=False)
-        self.assertNotIn("do_not_call", f.facts)
+        self.assertEqual((r["result"], heard_words(r), f.end_reason), ("ahead_write", "", None))
 
     def test_a_pain_leads_to_the_case_and_listen_then_the_date_two_choice(self):
         # (6)(7)(9)：その悩みの事例（業務設定の事実だけ）を「とあるサービスがありまして、」で（何をするかは言わない）→ 9-9 の (7) のお言葉の文（お名前・お時間を入れる）→
@@ -42575,7 +42577,7 @@ class AcquireMainStageTest(unittest.TestCase):
         f = self.flow()
         self.yes(f); self.yes(f)
         r = self.pain(f, "はい", "ああ、まさにそれですね。")
-        self.assertEqual(heard_words(r), self.CASE1 + self.LISTEN_CO + self.TIME + self.KIND)
+        self.assertEqual(heard_words(r), "そうだったんですね。" + self.CASE1 + self.LISTEN_CO + self.TIME + self.KIND)   # 頭の受けは伺い90（分身 U1）
         self.assertEqual((r["question_id"], f.items["Q1"].ladder is not None), ("Q1", True))
         for w in ("いつ", "ご都合のいい日時"):
             self.assertNotIn(w, heard_words(r))
@@ -42760,12 +42762,16 @@ class AcquireReceptionTest(unittest.TestCase):
             self.assertNotIn(w, heard_words(r))
 
     def test_sales_refusal_is_received_and_called_again(self):
+        # 1回目は受け止め＋一文＋お呼びする一言。重ねてのお断りは受付の方の Yes の質問の段（伺い88＝U1ReceptionYesTest。⛔ 分身 U1 まで、何回目でも同じ3つの文をくり返した）
         from flowctl import END_REFUSED, UNDECIDED
         f = self.flow()
+        heard = []
         for n in range(3):   # 回数を決めない
             r = self.turn(f, "営業のお電話でしたらお繋ぎできません。", EndJudgedTest.R(UNDECIDED, END_REFUSED))
-            self.assertEqual(heard_words(r), self.RECEIVE + "「おかだ」様にとって大切なお話がございましてお電話いたしました。採用ご担当の「おかだ」様はいらっしゃいますでしょうか？")
+            heard.append(heard_words(r))
             self.assertIsNone(f.end_reason)
+        self.assertEqual(heard[0], self.RECEIVE + "「おかだ」様にとって大切なお話がございましてお電話いたしました。採用ご担当の「おかだ」様はいらっしゃいますでしょうか？")
+        self.assertEqual(len(set(heard)), 3)   # 同じ文をくり返さない
         self.assertEqual([(x["what"], x["at"]) for x in f.facts["refusal_said"]], [("refused", "reception")] * 3)
         self.assertNotIn("do_not_call", f.facts)
         f.on_line_end(ai_speaking=False, callee_speaking=False)   # 切られた＝印を付ける（伺い80）
@@ -42813,7 +42819,7 @@ class AcquireNameHeadTest(unittest.TestCase):
         r = s.yes(f)
         r2 = s.pain(f, "はい", "まさにそれで困ってるんですよ。")
         self.assertEqual(heard_words(r), s.GLAD + s.GLAD_NAMED + s.SPECIAL + s.PAIN1 + s.ASK_NAMED)   # お客様に聞こえる文は前と同じ
-        self.assertEqual(heard_words(r2), s.CASE1 + s.LISTEN_NAMED + s.TIME + s.KIND)
+        self.assertEqual(heard_words(r2), "そうだったんですね。" + s.CASE1 + s.LISTEN_NAMED + s.TIME + s.KIND)   # 頭の受け（相づち）は伺い90（分身 U1）
         plays = [(p["kind"], p.get("id") or p.get("part"), p["text"]) for p in r["play"] + r2["play"]]
         for part, (head, rid) in self.WANT.items():
             i = plays.index(("recorded", rid, head))
@@ -43568,13 +43574,13 @@ class PPainAskAgainTest(unittest.TestCase):
         self.assertEqual((r["result"], heard_words(r), f.current), ("ask_back", DateTimePairsTest.ASK_BACK, p))
         f.on_callee(); f.on_heard("（雑音）")
         r = f.apply("report_unclear", {"question_id": p})
-        self.assertTrue(heard_words(r).startswith(self.PAIN2), heard_words(r))   # 2回目は伺い直さずに次の悩み（今のまま）
+        self.assertTrue(heard_words(r).startswith("はい、" + self.PAIN2), heard_words(r))   # 2回目は伺い直さずに次の悩み（頭の「はい、」は今の相づちの決まり＝伺い90 の分身 U1）
         # 伺い直したあとの「はい」は受け取る（悩みの事例へ）
         f = self.pain()
         f.on_callee(); f.on_heard("（雑音）")
         f.apply("report_unclear", {"question_id": p})
         r = _p_turn(f, "ああ、それはありますね。", _p_rd("はい"), "record_answer", question_id=p, condition_id="はい")
-        self.assertTrue(heard_words(r).startswith("とあるサービスがありまして"), heard_words(r))
+        self.assertTrue(heard_words(r).startswith("そうだったんですね。とあるサービスがありまして"), heard_words(r))   # 頭の受けは伺い90（分身 U1）
 
     def test_another_talk_gets_a_word_and_the_same_pain_once(self):
         from flowctl import AWAY, CALLBACK_IDS
@@ -43596,7 +43602,7 @@ class PPainAskAgainTest(unittest.TestCase):
         from meaning_judge import Reading
         f = self.pain()
         r = _p_turn(f, "うーん、どうなんでしょうね。", _p_rd(UNDECIDED))
-        self.assertTrue(heard_words(r).startswith(self.PAIN2), heard_words(r))
+        self.assertTrue(heard_words(r).startswith("承知しました。" + self.PAIN2), heard_words(r))   # 頭は今の相づちの決まり（伺い90＝分身 U1）
         f = self.pain()
         r = _p_turn(f, "うーん、そうですねえ…。", Reading(THINKING))
         self.assertEqual(heard_words(r), "はい。")
@@ -43863,11 +43869,11 @@ class PAcquireMessageTest(unittest.TestCase):
 
     def test_the_message_has_the_important_talk(self):
         from instruction import Target
-        from phrases import IMPORTANT_TALK, RECEPTION_PURPOSE
+        from phrases import IMPORTANT_TALK, TALK_DEFAULT, reception_form
         t = Target(name="岡田", reading="おかだ", role="採用ご担当")
         self.assertEqual(acquire_business(target=t).replay_parts()["message"], self.MSG)
-        self.assertIn(IMPORTANT_TALK, RECEPTION_PURPOSE)
-        self.assertIn(IMPORTANT_TALK, self.MSG)
+        self.assertIn(IMPORTANT_TALK[TALK_DEFAULT], reception_form(TALK_DEFAULT))   # 既定の言葉（伺い87 の業務設定の表＝分身 U1）
+        self.assertIn(IMPORTANT_TALK[TALK_DEFAULT], self.MSG)
         # 業務が書いた伝言の文は今のまま
         written = "それでは株式会社アオバの佐藤からお電話があったとお伝えください。"
         self.assertEqual(acquire_business(target=t, message=written).replay_parts()["message"], written)
@@ -44289,3 +44295,363 @@ class U2ConcernOnceTest(unittest.TestCase):
             # もう一度取り消された：D2 は伺わずに取り消しを受ける（その申し出の「いいえ」の道）
             Review13RecallTest.turn(f, w.WITHDRAW, Review13RecallTest.rd(kind, WITHDREW))
             self.assertNotEqual(f.current, d2, kind)
+
+
+# ── 顧客獲得型の3つ目（分身 U1）：伺い87〜92 を書いてあることで決めた形（本書 9-9 の終わり「✅ 2026-11-20 日本時間16時13分06秒 ユーザー（伺い86〜88 へ）」の段の
+# CL-1 の読み (87)〜(92)。16時13分55秒「他も書いてることばかりだろ！」＝伺わずに決めた）。今の確認の電話は変わらない（41場面・発信の拒否の印の控えで比べた＝書き置き rv176/U1/notes.md）
+def _u1_reception(target=None, **kw):
+    """顧客獲得型の、お呼びする方のいる電話（受付の方が出て、名乗りと呼ぶ一言を流したところ）。"""
+    import datetime as dt
+    from instruction import Target
+    b = acquire_business(target=target or Target(name="岡田", reading="おかだ", role="採用ご担当"), **kw)
+    f = b.flow(play_recordings=True, today=dt.date(2026, 11, 20))
+    f.use_checks("judge")
+    f.on_connect(); f.on_callee(); f.on_heard("はい、山田商事でございます。")
+    f.apply("report_party", {"party": "person"}); f.on_activity(False)
+    return f
+
+
+def _u1_turn(f, text, reading, op=None, **args):
+    f.on_callee(); f.on_heard(text); f.on_check("judge", reading)
+    return f.apply(op, args) if op else f.judged_turn(voiced=False)
+
+
+class U1TalkWordTest(unittest.TestCase):
+    """伺い87（CL-1 の読み (87)＝「大切なお話」が既定・「お役に立つお話」も業務設定で選べる。「場合により」の使い分けの条件は作らない）：受付の方への一文と顧客獲得型の決まった
+    伝言の用件が、同じ言葉の1か所（phrases.IMPORTANT_TALK を業務設定の値で選ぶ）を読む＝両方が一緒に替わる。業務設定の欄は仮の名前（instruction.CL2_ACQUIRE_FIELDS）。"""
+    USEFUL = "「おかだ」様にとってお役に立つお話がございましてお電話いたしました。"
+
+    def test_default_is_important_and_useful_is_a_business_choice(self):
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import CL2_ACQUIRE_FIELDS, Target
+        from phrases import IMPORTANT_TALK
+        self.assertEqual(IMPORTANT_TALK, {"important": "大切なお話", "useful": "お役に立つお話"})
+        self.assertIn("reception_talk", CL2_ACQUIRE_FIELDS.values())
+        t = Target(name="岡田", reading="おかだ", role="採用ご担当")
+        self.assertEqual(acquire_business(target=t).reception_talk, "important")
+        parts = acquire_business(target=t, reception_talk="useful").replay_parts()
+        self.assertEqual(parts["reception_purpose_useful"], self.USEFUL)
+        self.assertNotIn("reception_purpose", parts)
+        self.assertEqual(parts["reception_purpose_useful_role"], "採用ご担当様にとってお役に立つお話がございましてお電話いたしました。")
+        self.assertEqual(parts["message"], "それでは株式会社「アオバ」の「佐藤」からお役に立つお話でお電話があったとお伝えいただけますでしょうか？")
+        self.assertEqual(acquire_business(target=Target(role="採用ご担当"), reception_talk="useful").replay_parts()["reception_purpose_useful"],
+                         "採用ご担当様にとってお役に立つお話がございましてお電話いたしました。")
+        with self.assertRaises(ValueError):
+            acquire_business(target=t, reception_talk="sales")
+        with self.assertRaises(ValueError):
+            dataclasses.replace(BUSINESS, reception_talk="useful")   # 確認の電話には書かない
+
+    def test_recordings_of_the_useful_talk(self):
+        from phrases import NAME_TAILS, RECORDED, SUCCESSOR_IDS
+        self.assertEqual(NAME_TAILS["reception_purpose"], "にとって大切なお話がございましてお電話いたしました。")
+        self.assertEqual(NAME_TAILS["reception_purpose_useful"], "にとってお役に立つお話がございましてお電話いたしました。")
+        self.assertEqual(RECORDED[SUCCESSOR_IDS["reception_purpose_useful"]], "後任のご担当者様にとってお役に立つお話がございましてお電話いたしました。")
+        self.assertEqual(RECORDED["successor_reception_purpose"], "後任のご担当者様にとって大切なお話がございましてお電話いたしました。")
+
+    def test_in_the_call(self):
+        from flowctl import END_REFUSED, UNDECIDED
+        f = _u1_reception(reception_talk="useful")
+        f.on_callee(); f.on_heard("失礼ですが、どういったご用件でしょうか？")
+        r = f.apply("replay_opening", {"part": "purpose"})
+        self.assertEqual(heard_words(r), "失礼いたしました。" + self.USEFUL + "採用ご担当の「おかだ」様はいらっしゃいますでしょうか？")
+        self.assertEqual([p.get("part") for p in r["play"]], ["reception_purpose_useful", "target"])
+        g = _u1_reception(reception_talk="useful")
+        r = _u1_turn(g, "営業のお電話でしたらお繋ぎできません。", EndJudgedTest.R(UNDECIDED, END_REFUSED))
+        self.assertEqual(heard_words(r), "あっお忙しいところ突然のお電話大変申し訳ございません！" + self.USEFUL + "採用ご担当の「おかだ」様はいらっしゃいますでしょうか？")
+
+    def test_successor_and_role_forms(self):
+        # 後任の方の電話（共通の一言の録音 successor_reception_purpose_useful）・役職の方へ切り替えたあと（名乗りの部分 reception_purpose_useful_role）も、選んだ言葉
+        import dataclasses
+        import datetime as dt
+        from flowctl import ABOUT_DEPARTED
+        from instruction import Target
+        t = Target(name="岡田", reading="おかだ", role="部長")
+        f = acquire_business(target=dataclasses.replace(t, successor=True), reception_talk="useful").flow(play_recordings=True, today=dt.date(2026, 11, 20))
+        f.use_checks("judge")
+        f.on_connect(); f.on_callee(); f.on_heard("はい、山田商事でございます。")
+        f.apply("report_party", {"party": "person"}); f.on_activity(False)
+        f.on_callee(); f.on_heard("失礼ですが、どういったご用件でしょうか？")
+        r = f.apply("replay_opening", {"part": "purpose"})
+        self.assertTrue(heard_words(r).startswith("失礼いたしました。後任のご担当者様にとってお役に立つお話がございましてお電話いたしました。"), heard_words(r))
+        self.assertIn("successor_reception_purpose_useful", [p.get("id") for p in r["play"]])
+        g = _u1_reception(target=t, reception_talk="useful")
+        for w in ("岡田は退職いたしました。", "後任もおりません。"):
+            NoSuchPersonRecallTest.say(g, w, ABOUT_DEPARTED)
+        g.on_callee(); g.on_heard("失礼ですが、どういったご用件でしょうか？")
+        r = g.apply("replay_opening", {"part": "purpose"})
+        self.assertEqual(heard_words(r), "失礼いたしました。部長様にとってお役に立つお話がございましてお電話いたしました。部長様はいらっしゃいますでしょうか？")
+        self.assertIn("reception_purpose_useful_role", [p.get("part") for p in r["play"]])
+
+
+class U1ReceptionYesTest(unittest.TestCase):
+    """伺い88（CL-1 の読み (88)＝0時38分10秒「手法は同じ」）：受付の方に営業のお断りを重ねて言われたら、9-9 の (3) と同じ手法＝心の底から受け止め、「で、それでなんですけど、」
+    「ちなみにですけど、」と角度を変えて簡単な Yes の質問（今の Yes の質問の段の1か所を受付の方にも通す・回数を決めない＝伺い79・発信禁止の印は伺い80 のとおり電話の終わりで）。
+    Yes が2つ取れたら「あっ、でしたよね、」（受付の方のお名前は分からない＝名前の文を省く）のあと、お取り次ぎのお願い（受付の方への一文＋お呼びする一言）。1回目のお断りへの
+    受け止めは今のまま。⛔ それまでは同じ3つの文をくり返した（11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）。
+    担当 W の控えの 3 の (3)（重ねて用件を聞かれると同じ一文をくり返す）も同じ決め（同じ一文をくり返さず、角度を変えた Yes の質問）に当てた。"""
+    RECEIVE = "あっお忙しいところ突然のお電話大変申し訳ございません！"
+    WHO = "「おかだ」様にとって大切なお話がございましてお電話いたしました。"
+    CALL = "採用ご担当の「おかだ」様はいらっしゃいますでしょうか？"
+    AGAIN = "あっそうでしたよね。もうほとんどのお客様は『そういう話は大丈夫』って最初おっしゃっていただけるんですよ。"
+    Y_AGAIN = "でそれでなんですけど御社は今求人でタウンワークにご掲載されててこれお間違いなかったですよね？"
+    Y_NEXT2 = "ちなみにですけど今ご掲載の求人はドライバーさんの募集でこれお間違いなかったですよね？"
+    Y_FIRST = "ちなみに御社は今求人でタウンワークにご掲載されててこれお間違いなかったですよね？"
+    GLAD = "あっでしたよね、"
+
+    def refuse(self, f, text="営業のお電話でしたらお繋ぎできません。"):
+        from flowctl import END_REFUSED, UNDECIDED
+        return _u1_turn(f, text, EndJudgedTest.R(UNDECIDED, END_REFUSED))
+
+    def yes(self, f, text="はい、載せてますけど。"):
+        from flowctl import CALLBACK_IDS, END_NONE
+        return _u1_turn(f, text, EndJudgedTest.R("はい", END_NONE), "record_answer", question_id=CALLBACK_IDS["yes"], condition_id="はい")
+
+    def test_second_refusal_gets_the_yes_questions_not_the_same_sentences(self):
+        from flowctl import CALLBACK_IDS
+        f = _u1_reception()
+        r = self.refuse(f)
+        self.assertEqual(heard_words(r), self.RECEIVE + self.WHO + self.CALL)   # 1回目は今のまま
+        r = self.refuse(f, "ですから、そういうお電話はお繋ぎしてないんです。")
+        self.assertEqual(heard_words(r), self.AGAIN + self.Y_AGAIN)
+        self.assertEqual((f.end_reason, f.current, f.phase), (None, CALLBACK_IDS["yes"], "asking"))
+        self.assertEqual([(x["what"], x["at"]) for x in f.facts["refusal_said"]], [("refused", "reception")] * 2)
+        # 回数を決めない：Yes の質問の途中のお断りも、受け止め＋角度を変えた Yes の質問（同じ文をくり返さない）
+        r = self.refuse(f, "いや、ですから、お繋ぎできませんので。")
+        self.assertTrue(heard_words(r).startswith(self.AGAIN), heard_words(r))
+        self.assertNotIn(self.Y_AGAIN, heard_words(r))
+        self.assertIsNone(f.end_reason)
+        self.assertEqual([x["at"] for x in f.facts["refusal_said"]], ["reception"] * 3)
+
+    def test_two_yes_then_the_transfer_is_asked(self):
+        f = _u1_reception()
+        self.refuse(f)
+        self.refuse(f, "ですから、そういうお電話はお繋ぎしてないんです。")
+        r = self.yes(f)
+        self.assertEqual(heard_words(r), self.Y_NEXT2)
+        r = self.yes(f, "そうですね。")
+        self.assertEqual(heard_words(r), self.GLAD + self.WHO + self.CALL)
+        self.assertEqual([p.get("part", p.get("id")) for p in r["play"]], ["acquire_glad_lead", "reception_purpose", "target"])
+        self.assertEqual((f.phase, f.current, f.end_reason), ("calling", None, None))
+        # お呼びした方ご本人に繋がったら、ご本人の Yes の質問の段は初めから（用件の一言のすぐあとに最初の Yes の質問）
+        self.assertEqual((f.yes["got"], f.yes["refused"], f.yes["done"]), (0, 0, False))
+
+    def test_principal_starts_fresh_after_the_transfer(self):
+        import g59_flow_check as fc
+        f = _u1_reception()
+        self.refuse(f)
+        self.refuse(f, "ですから、そういうお電話はお繋ぎしてないんです。")
+        self.yes(f)
+        self.yes(f, "そうですね。")
+        fc.heard(f, "承知しました。少々お待ちください。", "同受待x")
+        f.judged_turn(voiced=False)
+        fc.heard(f, "お電話代わりました。岡田です。", "違本xx")
+        r = f.apply("report_party", {"party": "target"})
+        self.assertTrue(heard_words(r).endswith("求人広告の掲載の件でお電話しているんですけど、" + self.Y_FIRST), heard_words(r))
+        r = self.refuse(f, "いや、うちはそういうのは結構です。")
+        self.assertTrue(heard_words(r).startswith("あっそうですよねいらなかったですよね突然のお電話大変申し訳ございません！"), heard_words(r))
+
+    def test_cut_while_in_the_yes_questions_is_marked(self):
+        f = _u1_reception()
+        self.refuse(f)
+        self.refuse(f, "ですから、そういうお電話はお繋ぎしてないんです。")
+        f.on_line_end(ai_speaking=False, callee_speaking=False)
+        self.assertEqual([x["turn"] for x in f.facts["do_not_call"]], [2, 3])
+
+    def test_asked_the_purpose_again(self):
+        # 担当 W の控えの 3 の (3)：重ねて用件を聞かれても、同じ一文をくり返さない（伺い88 の決めと同じ手法＝角度を変えた Yes の質問）
+        f = _u1_reception()
+        f.on_callee(); f.on_heard("失礼ですが、どういったご用件でしょうか？")
+        r = f.apply("replay_opening", {"part": "purpose"})
+        self.assertEqual(heard_words(r), "失礼いたしました。" + self.WHO + self.CALL)   # 1回目は今のまま
+        f.on_callee(); f.on_heard("大切なお話というのは、どういったお話でしょうか？")
+        r = f.apply("replay_opening", {"part": "purpose"})
+        self.assertEqual(heard_words(r), "失礼いたしました。" + self.Y_FIRST)
+        self.assertNotIn(self.WHO, heard_words(r))
+
+
+class U1PainNoneTest(unittest.TestCase):
+    """伺い89（CL-1 の読み (89)）：用意した悩みを全部「無い」と言われたら、11-16 日本時間12時48分22秒の形（E4）「それは何よりです。しかし（句）今は問題が起こっていなくても今後大きな
+    問題に発展することが懸念されそうですね？」で1回伺う（今の E4 の1か所＝Flow._deepen_put・句は会話AIが書く＝今の確かめ）。お返事のあとは悩みのお答えと同じ続け方
+    （懸念がある＝その悩みの事例・「聞かせてください」・日時の2択／ほか＝お礼の締めで日を改める）。⛔ それまでは、すぐお礼の締めで日を改めていた。"""
+    CLAUSE = "ドライバーさんの採用が今のままだと"
+
+    def none(self):
+        from flowctl import CALLBACK_IDS
+        s = AcquireMainStageTest()
+        f = s.flow()
+        s.yes(f); s.yes(f)
+        s.pain(f, "いいえ", "いや、うちは足りてますね。")
+        r = s.pain(f, "いいえ", "それも特には。")
+        self.assertEqual((r["result"], heard_words(r), f.end_reason), ("ahead_write", "", None))
+        self.assertNotEqual(f.current, CALLBACK_IDS["pain"])
+        return f
+
+    def written(self, f, words=None, grounded=True):
+        from grounding import GROUNDED, Verdict
+        words = self.CLAUSE if words is None else words
+        if grounded:
+            f.on_grounded(words, Verdict(GROUNDED))
+        return f.apply("replay_opening", {"part": "ahead", "answer": words})
+
+    def test_the_e4_is_asked_once_with_the_clause(self):
+        from flowctl import CALLBACK_IDS
+        f = self.none()
+        r = self.written(f)
+        self.assertEqual(heard_words(r), "それは何よりです。しかし" + self.CLAUSE + "今は問題が起こっていなくても今後大きな問題に発展することが懸念されそうですね？")
+        self.assertEqual((r["question_id"], r.get("ack")), (CALLBACK_IDS["deepen_ahead"], None))
+
+    def test_without_a_checked_clause_the_recorded_e4(self):
+        from phrases import CALLBACK_ASK
+        f = self.none()
+        r = self.written(f, grounded=False)
+        self.assertEqual(heard_words(r), CALLBACK_ASK["deepen_ahead"])
+        self.assertEqual([p.get("id") for p in r["play"]], ["callback_deepen_ahead"])
+
+    def test_concern_leads_to_the_first_case(self):
+        from flowctl import CALLBACK_IDS, END_NONE
+        f = self.none()
+        self.written(f)
+        r = AcquireRefusalMarkTest.turn(f, "まあ、言われてみればそうかもしれないですね。", EndJudgedTest.R("懸念がある", END_NONE), "record_answer",
+                                        question_id=CALLBACK_IDS["deepen_ahead"], condition_id="懸念がある")
+        m = AcquireMainStageTest
+        self.assertEqual(heard_words(r), "そうだったんですね。" + m.CASE1 + m.LISTEN_CO + m.TIME + m.KIND)
+        self.assertEqual(r["question_id"], "Q1")
+
+    def test_no_concern_closes_politely(self):
+        from flowctl import CALLBACK_IDS, END_NONE
+        from phrases import CLOSING
+        f = self.none()
+        self.written(f)
+        r = AcquireRefusalMarkTest.turn(f, "いや、特に心配はしてないですね。", EndJudgedTest.R("懸念は無い", END_NONE), "record_answer",
+                                        question_id=CALLBACK_IDS["deepen_ahead"], condition_id="懸念は無い")
+        self.assertEqual((heard_words(r), f.end_reason), (CLOSING, "no_pain"))
+        f.on_line_end(ai_speaking=False, callee_speaking=False)
+        self.assertNotIn("do_not_call", f.facts)
+
+    def test_the_ahead_part_is_only_for_acquire(self):
+        from flowctl import ARG_LABEL, PART_LABEL, tool_declarations
+        from g22_opening import BUSINESS
+        def parts(b, **kw):
+            d = {x.name: x for x in tool_declarations(b.questions, replay=True, **kw)[0].function_declarations}
+            return d["replay_opening"].parameters.properties[ARG_LABEL["part"]].enum
+        self.assertNotIn(PART_LABEL["ahead"], parts(BUSINESS))
+        self.assertIn(PART_LABEL["ahead"], parts(acquire_business(), yes=True))
+
+
+class U1PainAckTest(unittest.TestCase):
+    """伺い90（CL-1 の読み (90)）：悩みのお答えへの受けは、ある＝「そうだったんですね。」・無い＝「それは何よりです。」（E3・E4 の頭と同じ言葉の1か所＝phrases.TOLD_ACK。相づちの
+    録音 phrases.ACK）。ほかのお返事は今の相づちの決まり（Flow._ack_choice）。担当 W の控えの 3 の (5)（Yes の質問の段の「わからない」に相づちが無い）も同じ決め（今の相づちの決まり）に当てた。"""
+
+    def test_the_words_are_one_place(self):
+        from phrases import ACK, CALLBACK_ASK, DEEPEN_AHEAD_ASK, TOLD_ACK
+        self.assertEqual(TOLD_ACK, {"yes": "そうだったんですね。", "no": "それは何よりです。"})
+        self.assertEqual((ACK["soudattan"], ACK["naniyori"]), (TOLD_ACK["yes"], TOLD_ACK["no"]))
+        self.assertTrue(CALLBACK_ASK["deepen_measures"].startswith(TOLD_ACK["yes"]))
+        self.assertTrue(CALLBACK_ASK["deepen_ahead"].startswith(TOLD_ACK["no"]) and DEEPEN_AHEAD_ASK.startswith(TOLD_ACK["no"]))
+
+    def test_pain_answers(self):
+        m = AcquireMainStageTest
+        s = m()
+        f = s.flow()
+        s.yes(f); s.yes(f)
+        r = s.pain(f, "いいえ", "いや、うちは足りてますね。")
+        self.assertEqual((heard_words(r), r.get("ack")), ("それは何よりです。" + m.PAIN2 + m.ASK_CO, "naniyori"))
+        r = s.pain(f, "はい", "ああ、それはありますね。")
+        self.assertEqual((heard_words(r), r.get("ack")), ("そうだったんですね。" + "とあるサービスがありまして、でこれを導入していただいた運送会社様は半年後なんと辞める方がほとんどいなくなったんです。"
+                                                          + m.LISTEN_CO + m.TIME + m.KIND, "soudattan"))
+        g = s.flow()
+        s.yes(g); s.yes(g)
+        r = s.pain(g, "unknown", "うーん、ちょっと分からないですね。")
+        self.assertEqual(heard_words(r), "承知しました。" + m.PAIN2 + m.ASK_CO)
+
+    def test_yes_stage_dont_know_has_the_ack_rule(self):
+        from flowctl import CALLBACK_IDS, END_NONE
+        s = AcquireMainStageTest()
+        f = s.flow()
+        r = AcquireRefusalMarkTest.turn(f, "うーん、ちょっと分からないですね。", EndJudgedTest.R("unknown", END_NONE), "record_answer",
+                                        question_id=CALLBACK_IDS["yes"], condition_id="unknown")
+        self.assertEqual(heard_words(r), "承知しました。" + U1ReceptionYesTest.Y_NEXT2)
+
+    def test_ack_recordings_have_a_reading(self):
+        from make_ack_clips import HOW, MAX_S
+        for k in ("soudattan", "naniyori"):
+            self.assertIn(k, HOW)
+            self.assertIn(k, MAX_S)
+
+
+class U1VisitTest(unittest.TestCase):
+    """伺い91（CL-1 の読み (91)＝事実でないことは言わない＝9-9 の守り）：訪問しない業務では「聞かせてください」の一続き（と本題のお断りで流す同じ文）の「その時はすぐ帰りますので」を
+    「その時はすぐにお時間をお返ししますので」。訪問するかは業務設定の欄（仮の名前・既定は訪問する＝お言葉の文のまま）。"""
+    REMOTE = "その時はすぐにお時間をお返ししますので"
+
+    def test_field_and_recordings(self):
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import CL2_ACQUIRE_FIELDS
+        from phrases import RECORDED
+        self.assertIn("meeting_visit", CL2_ACQUIRE_FIELDS.values())
+        self.assertTrue(acquire_business().meeting_visit)
+        with self.assertRaises(ValueError):
+            dataclasses.replace(BUSINESS, meeting_visit=False)   # 確認の電話には書かない
+        self.assertIn("その時はすぐ帰りますので", RECORDED["listen_sure"])
+        self.assertIn(self.REMOTE, RECORDED["listen_sure_remote"])
+        self.assertIn(self.REMOTE, RECORDED["but_safe_remote"])
+        self.assertNotIn("帰ります", RECORDED["listen_sure_remote"] + RECORDED["but_safe_remote"])
+
+    def test_listen_words_without_a_visit(self):
+        m = AcquireMainStageTest
+        s = m()
+        f = s.flow(acquire_business(meeting_visit=False))
+        s.yes(f); s.yes(f)
+        r = s.pain(f, "はい", "ああ、まさにそれですね。")
+        self.assertIn(m.LISTEN_CO.replace("その時はすぐ帰りますので", self.REMOTE), heard_words(r))
+        self.assertIn("listen_sure_remote", [p.get("id") for p in r["play"]])
+        # 本題のお断りで、会話AIの中身が使えないときの文も同じ
+        a = AcquireMainRefusalTest()
+        a.refuse(f)
+        r = a.written(f, grounded=False)
+        self.assertTrue(heard_words(r).startswith(AcquireMainRefusalTest.SAFE.replace("その時はすぐ帰りますので", self.REMOTE)), heard_words(r))
+        self.assertIn("but_safe_remote", [p.get("id") for p in r["play"]])
+
+
+class U1ReceptionHurryTest(unittest.TestCase):
+    """伺い92（CL-1 の読み (92)＝伺い84 と同じ手法）：受付の方の「急いでいる」には、お詫びのあとお取り次ぎだけを短くお願いする（かけ直しを先に申し出ない＝尺度の表の1行
+    reception_hurry）。重ねて急いでいると言われたら今の「それではまた改めてお掛けしてもよろしいでしょうか？」。担当 W の控えの 3 の (7)（受付の方の「手短に」）も同じ1行に当てた。
+    確認の電話は今のまま。"""
+    SHORT = "あっお忙しいところ突然のお電話大変申し訳ございません！恐れ入りますが採用ご担当の「おかだ」様のお取り次ぎをお願いできますでしょうか？"
+    H1 = "はい、それではまた改めてお掛けしてもよろしいでしょうか？"
+
+    def busy(self, f, text="申し訳ございません、今ちょっとバタバタしておりまして。"):
+        from flowctl import END_HURRY, UNDECIDED
+        return _u1_turn(f, text, EndJudgedTest.R(UNDECIDED, END_HURRY))
+
+    def test_first_hurry_asks_only_the_transfer(self):
+        from flowctl import CALL_ACQUIRE, CALL_CONFIRM, SCALES
+        self.assertEqual(SCALES["reception_hurry"], {CALL_CONFIRM: "hurry_ask", CALL_ACQUIRE: "transfer_short"})
+        f = _u1_reception()
+        r = self.busy(f)
+        self.assertEqual(heard_words(r), self.SHORT)
+        self.assertEqual((f.phase, f.end_reason), ("calling", None))
+        self.assertEqual([(x["what"], x["at"]) for x in f.facts["refusal_said"]], [("busy", "reception")])
+        r = self.busy(f, "ですから、今ちょっと手が離せないんですよ。")
+        self.assertEqual(heard_words(r), self.H1)
+
+    def test_brief_in_the_reception_yes_questions(self):
+        from flowctl import END_BRIEF, UNDECIDED
+        t = U1ReceptionYesTest()
+        f = _u1_reception()
+        t.refuse(f)
+        t.refuse(f, "ですから、そういうお電話はお繋ぎしてないんです。")
+        r = _u1_turn(f, "手短にお願いできますか。", EndJudgedTest.R(UNDECIDED, END_BRIEF))
+        self.assertEqual(heard_words(r), self.SHORT)
+        self.assertEqual(f.phase, "calling")
+
+    def test_confirm_type_as_before(self):
+        from flowctl import END_HURRY, Flow, UNDECIDED
+        b = TargetTest().business()
+        parts = b.replay_parts()
+        g = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
+        g.use_checks("judge")
+        r = _u1_turn(g, "申し訳ございません、今ちょっとバタバタしておりまして。", EndJudgedTest.R(UNDECIDED, END_HURRY))
+        self.assertEqual(heard_words(r), self.H1)
