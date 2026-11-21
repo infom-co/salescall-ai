@@ -1073,7 +1073,7 @@ def ladder_time_words(s: dict) -> str:
     return clock or s.get("band") or s.get("half") or ""
 
 
-LADDER_DAY_KEYS =("kind", "day", "date", "today", "week", "span")   # 伺えた所のうち日の所（ladder_read が入れる日の言葉・その日・日を言わない今日・週・頃）
+LADDER_DAY_KEYS = ("kind", "day", "date", "today", "week", "span")   # 伺えた所のうち日の所（ladder_read が入れる日の言葉・その日・日を言わない今日・週・頃）
 
 
 def ladder_mend(value: str | None, s: dict, ctx: LadderCtx) -> tuple:
