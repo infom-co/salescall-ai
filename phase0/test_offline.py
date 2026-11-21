@@ -41003,7 +41003,12 @@ class RereadRowsTest(unittest.TestCase):
              # 分身 U の (3)：何の日時かの一文を見せる日時の2択のうち、行の無かった3つの場面（review_words.PAIR_ROWS）
              "お客様から折り返していただく日の2択（「平日の4時までには折り返します。」のあとの「本日と明日」）": ("C1", "それでは本日と明日ではどちらになりますでしょうか？", ""),
              "依頼者の日時の質問の2つ目の2択（ご来店は平日と答えたあとの曜日の2択）": ("R14", "金曜日と火曜日ではどちらがよろしいでしょうか？", ""),
-             "顧客獲得型のアポの日時のはじめの2択（悩みがあると言われ、お時間の文のあとの平日と土日）": ("R15", "それでは平日と土日のどちらがよろしいでしょうか？", "")}
+             "顧客獲得型のアポの日時のはじめの2択（悩みがあると言われ、お時間の文のあとの平日と土日）": ("R15", "それでは平日と土日のどちらがよろしいでしょうか？", ""),
+             # 分身 W の (5)：並べ直した2回目の2択（review_words.AGAIN_ROWS）
+             "お客様から折り返していただく日の2回目の2択（「本日はちょっと難しいですね。」のあとの「明日と火曜日」）": ("C1", "それでは明日と火曜日ではどちらになりますでしょうか？", ""),
+             "お客様から折り返していただく日の2回目の2択（「どちらもちょっと難しいですね。」のあとの「火曜日と水曜日」）": ("C1", "それでは火曜日と水曜日ではどちらになりますでしょうか？", ""),
+             "日時の2択の段の言い直しに日だけ直されたあとの時刻の2択（「いえ、水曜日でお願いします。」・水曜日の4時は空いている予定に無い＝「水曜日でしたら2時と3時」）": (
+                 "C1", "それでは水曜日でしたら2時と3時ではどちらがよろしいでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -41020,13 +41025,13 @@ class RereadRowsTest(unittest.TestCase):
     def test_1_new_scenes_are_built_by_the_one_count(self):
         import g53_meaning as g
         from flowctl import AWAY, AWAY_NO, PROMPT_REPLY, PROMPT_REPLY_YES, VALUE_CHOICE, WRONG, WRONG_NOT_SAID
-        from review_words import NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
+        from review_words import AGAIN_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
         qs = questions()
         rows = [it for it in answer_words() if it.get("scene") in NEW_SCENES]
         self.assertEqual({it["scene"] for it in rows}, set(NEW_SCENES))
         self.assertEqual(set(self.SHOWN), set(NEW_SCENES))
-        # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行
-        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS) if it.get("scene") in NEW_SCENES])
+        # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行
+        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS) if it.get("scene") in NEW_SCENES])
         for it in rows:
             with self.subTest(text=it["text"], scene=it["scene"]):
                 q = qs[it["qid"]]
@@ -48865,3 +48870,65 @@ class TheirsKeptCountTest(unittest.TestCase):
             return {**it, "j": choice, "j言い切り": True, f"j{g.SIDE_SUFFIX[LADDER_OTHER]}": other, f"j{g.SIDE_SUFFIX[CYCLE]}": CYCLE_NOT_SAID}
         self.assertIsNone(g.flow_miss(rec(ok, today, OK), q, "j"))
         self.assertIsNotNone(g.flow_miss(rec(ok, tomorrow, OK), q, "j"))   # 避けなかった方の読み違え（本日で言い直す）
+
+
+class AgainSceneRowsTest(unittest.TestCase):
+    """分身 W（CL-1 の頼み rv184/W の (5)＝分身 V の書き置き rv184/V/notes.md の (6-5)）：並べ直した2回目の2択（お客様から折り返していただく日の2択に片方だけ合わない・2つとも合わないと言われた
+    あとの「明日と火曜日」「火曜日と水曜日」＝分身 V の (1)(2)・日時の2択の言い直しに日だけ直され、伺えた時刻にその日はかけられないときの「水曜日でしたら2時と3時」＝分身 W の (1)）を伺って
+    いるときの判定に見せる文に、試しの言葉の行を足した（review_words.AGAIN_ROWS。場面は測りの数えの1か所 g53_meaning._new_scene が本番の流れの制御で組む）。測りの前に正解の表まで整える決まり
+    （帳面 0-3・分身 U の (3) と同じ形）。⛔ f395df54 まで、この3つの場面は判定がどう読むかを測っていなかった"""
+
+    def scenes(self):
+        from review_words import LADDER_REDO_SCENE, THEIRS_NEITHER_AGAIN_SCENE, THEIRS_SIDE_AGAIN_SCENE
+        return {THEIRS_SIDE_AGAIN_SCENE: "それでは明日と火曜日ではどちらになりますでしょうか？", THEIRS_NEITHER_AGAIN_SCENE: "それでは火曜日と水曜日ではどちらになりますでしょうか？",
+                LADDER_REDO_SCENE: "それでは水曜日でしたら2時と3時ではどちらがよろしいでしょうか？"}
+
+    def rows(self, scene):
+        from review_words import answer_words
+        return [i for i in answer_words() if i.get("scene") == scene]
+
+    def test_every_row_is_built_on_the_second_pair(self):
+        import g53_meaning as G
+        from flowctl import ladder_sides
+        from meaning_judge import prompt
+        from review_words import questions
+        qmap = G.question_map() | questions()
+        for scene, text in self.scenes().items():
+            rows = self.rows(scene)
+            self.assertEqual(len(rows), 6, scene)
+            for it in rows:
+                q, asked, before = G.judge_inputs(it, qmap[it["qid"]])
+                self.assertEqual(q.text, text, it["text"])
+                self.assertEqual(len(ladder_sides(q)), 2, it["text"])
+                self.assertIn(f"質問：「{text}」\n", prompt(q, it["text"], asked, before), it["text"])
+
+    def test_the_items_the_judge_reads_have_truths(self):
+        from flowctl import CYCLE, LADDER_OTHER, MISGIVING, UNTIL_WHY
+        from review_words import LADDER_REDO_SCENE
+        for scene in self.scenes():
+            for it in self.rows(scene):
+                self.assertIn(LADDER_OTHER, it["label"], it["text"])
+                self.assertIn(CYCLE, it["label"], it["text"])
+                if scene == LADDER_REDO_SCENE:
+                    self.assertIn(MISGIVING, it["label"], it["text"])
+                    self.assertIn(UNTIL_WHY, it["label"], it["text"])
+
+    def test_the_wanted_acts(self):
+        # 数える1か所（g53_meaning.step_act と同じ act_of）で、正しい読みの組み合わせから決まる動き（流れの制御に通して確かめた形＝rv184/W/probe/w5/rows_acts.py）
+        import g53_meaning as G
+        from review_words import LADDER_REDO_SCENE, THEIRS_NEITHER_AGAIN_SCENE, THEIRS_SIDE_AGAIN_SCENE, questions
+        qmap = G.question_map() | questions()
+        want = {
+            (THEIRS_SIDE_AGAIN_SCENE, "火曜日になります。"): {"念のため確かめる：答えた（火曜日の午後4時まで）"},
+            (THEIRS_SIDE_AGAIN_SCENE, "明日もちょっと難しいですね。"): {f"{G.LADDER_ONE_ACT}：それでは火曜日と水曜日ではどちらになりますでしょうか？"},
+            (THEIRS_SIDE_AGAIN_SCENE, "明日は無理ですけど、火曜日なら大丈夫です。"): {"念のため確かめる：答えた（火曜日の午後4時まで）"},
+            (THEIRS_SIDE_AGAIN_SCENE, "どちらもちょっと難しいですね。"): {G.LADDER_NEITHER_ACT},
+            (THEIRS_NEITHER_AGAIN_SCENE, "火曜日はちょっと難しいですね。"): {f"{G.LADDER_ONE_ACT}：それでは来週の水曜日と来週の木曜日ではどちらになりますでしょうか？"},
+            (THEIRS_NEITHER_AGAIN_SCENE, "火曜日は無理ですけど、水曜日なら大丈夫です。"): {"念のため確かめる：答えた（水曜日の午後4時まで）"},
+            (LADDER_REDO_SCENE, "3時でお願いします。"): {"念のため確かめる：答えた（水曜日の午後3時）"},
+            (LADDER_REDO_SCENE, "2時はちょっと…。3時なら空いてるかな。"): {"念のため確かめる：答えた（水曜日の午後3時）"},
+            (LADDER_REDO_SCENE, "いやあ最近は暑くてねえ。"): {"別のお話にひとこと応えて伺い直す"},
+        }
+        for (scene, text), acts in want.items():
+            it = next(i for i in self.rows(scene) if i["text"] == text)
+            self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), acts, text)
