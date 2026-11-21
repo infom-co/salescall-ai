@@ -50626,7 +50626,7 @@ class AFTheirsRangeMendTest(unittest.TestCase):
         self.assertEqual((r["result"], heard_words(r)), ("replayed", "失礼いたしました。それでは12月1日の火曜日と12月2日の水曜日ではどちらになりますでしょうか？"))
         r = self.pick(o, f, "1日になります。", "1日")
         self.assertIn("12月1日の火曜日の16時まで、午後4時まで", heard_words(r))
-        # 頃の中に並べる日が無い：今のまま（こちらの空きのお詫び＝伺い100 アは、お客様からお電話いただく日には当たらない）
+        # 頃の中に並べる日が無い：こちらの空きのお詫び（伺い100 ア）は、お客様からお電話いただく日には当たらない（伺えた時刻を残して直された頃で言い直す＝分身 AG の (3)＝AGTheirsNoRoomTest）
         o, f, r = self.redo("いえ、来月の頭になります。", "来月の頭")
         self.assertEqual(r["result"], "confirm_required", heard_words(r))
         self.assertNotIn("空きがございません", heard_words(r))
@@ -50638,6 +50638,36 @@ class AFTheirsRangeMendTest(unittest.TestCase):
         r = f.apply("record_answer", {"question_id": "C1", "condition_id": "unknown"})
         self.assertIn("来週の平日の16時まで、午後4時まで", heard_words(r))
         self.assertEqual(self.m.done(o, f), "来週の平日の午後4時まで")
+
+
+class AGTheirsNoRoomTest(unittest.TestCase):
+    """分身 AG の (3)（分身 AF の書き置き rv187/AF/notes.md の (6-3)）：お客様から折り返していただく日の言い直しに週・頃だけ直され、その週・頃の中に並べる日が2つ無いときも、伺えた時刻（と
+    日の種類）を残し、直された週・頃で言い直す（値は、日の伺えない2択と同じ1か所 flowctl.theirs_value＝言い直しの文も記録も同じ値）。日は伺わずに決めない（お客様の決めていることをこちらで
+    決めない＝_theirs_begin と同じ決まり）。CL-1 が書いてある決まりで決めた（本書 9-4 の分身 W の段の【決まりで決めた】(a)「日が1つに決まらない直しも、伺えた時刻を残し」・9-3）。
+    ⛔ 3ccaced6 まで「失礼いたしました。改めまして来月の頭で大丈夫でしょうか？」・記録「来月の頭」＝伺えた時刻が抜けた。並べる日が1つだけのときは、日を伺わずに入れて、もとの時刻の質問を
+    流し直した"""
+    m = TheirsDayMendTest()
+
+    def fixed(self, words, value, days):
+        import datetime as dt
+        o, f, _ = self.m.at()
+        f.call_days = tuple(f.today + dt.timedelta(days=i) for i in range(1, days + 1) if f.today + dt.timedelta(days=i) != dt.date(2026, 11, 23))
+        return o, f, self.m.fix(o, f, words, value)
+
+    def test_no_day_in_the_range_keeps_the_time(self):
+        for words, value, days, head in (("いえ、来月の頭になります。", "来月の頭", 11, "来月の頭"), ("いえ、来週になります。", "来週", 3, "来週"),
+                                         ("いえ、再来週になります。", "再来週", 11, "再来週")):   # 再来週＝並べる日が1つ（30日）だけ
+            with self.subTest(words=words, days=days):
+                o, f, r = self.fixed(words, value, days)
+                self.assertEqual((r["result"], heard_words(r)),
+                                 ("confirm_required", f"失礼いたしました。改めまして{head}の平日の16時まで、午後4時までということで大丈夫でしょうか？"))
+                self.assertEqual(self.m.done(o, f), f"{head}の平日の午後4時まで")
+
+    def test_two_days_in_the_range_are_asked(self):
+        # 並べる日が2つあれば、今の2択（分身 AF の (3)＝AFTheirsRangeMendTest）
+        o, f, r = self.fixed("いえ、来週になります。", "来週", 11)
+        self.assertEqual((r["result"], heard_words(r)), ("replayed", "失礼いたしました。それでは来週の火曜日と来週の水曜日ではどちらになりますでしょうか？"))
+
 
 class LadderNeitherOnePlaceTest(unittest.TestCase):
     """分身 W（CL-1 の頼み rv184/W の (3)＝分身 V の書き置き rv184/V/notes.md の (6-3)）：日時の2択の判定の選べるものに「どちらも合わない」（LADDER_NEITHER＝伺い60）を足すのは、段を始める
