@@ -13,7 +13,7 @@ import unittest
 from datetime import date, timedelta
 from unittest import mock
 
-from salescall.core import answer_rate, attempts
+from salescall.core import answer_rate, attempts, line_names
 from salescall.core.access import Rejected
 from tests.support import OPERATOR, SYSTEM, World
 
@@ -111,6 +111,12 @@ class Watch(unittest.TestCase):
             "SELECT summary FROM salescall.notification_events WHERE kind = 'answer_rate_drop'"))
         self.assertEqual(len(notes), 1)                                  # 1回線1日1回
         self.assertIn("40本中 3本", notes[0]["summary"])
+        # どの回線かは、知らせの入口（notify.emit）が回線の名指し（名前と発信番号＝line_names の1か所）を頭に付ける。文に名前を二重に書かない
+        # （CL-3 のお願い 71。⛔ それまで：名前だけで、同じ名前の回線を見分けられなかった）
+        label = w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: line_names.of(tx, s["line"]))
+        self.assertRegex(label, r"（0[0-9-]+）$")
+        self.assertTrue(notes[0]["summary"].startswith(f"回線「{label}」：今日お客様に"), notes[0]["summary"])
+        self.assertEqual(notes[0]["summary"].count(label.split("（")[0]), 1)
         stops = w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all("SELECT 1 FROM salescall.open_stop_events"))
         self.assertEqual(stops, [])                                      # 止めない（お客様に影響しない）
 

@@ -90,13 +90,13 @@ def watch(tx: Tx, tenant_id: UUID, *, today: date | None = None) -> dict[UUID, D
     """その契約者の、使っている回線すべてを見て、落ちた回線を知らせる（見守り役が呼ぶ。1回線1日1回）。落ちた回線を返す。"""
     today = today or tx.today()
     dropped = {}
-    for line in tx.all("SELECT line_id, name FROM salescall.lines WHERE retired_at IS NULL ORDER BY line_id"):
+    for line in tx.all("SELECT line_id FROM salescall.lines WHERE retired_at IS NULL ORDER BY line_id"):
         got = check(tx, tenant_id, line["line_id"], today=today)
         if got is None:
             continue
         dropped[line["line_id"]] = got
         notify.emit(tx, "answer_rate_drop", key=f"answer_drop:{line['line_id']}:{today}",
-                    summary=f"回線「{line['name']}」で、今日お客様に出てもらえた割合が、いつもの同じ時間帯より大きく下がっています"
+                    summary=f"今日お客様に出てもらえた割合が、いつもの同じ時間帯より大きく下がっています"   # どの回線かは知らせの入口が頭に付ける
                             f"（今日 {got.dials}本中 {got.answers}本＝{got.observed:.0%}・いつもなら約 {got.expected:.0%}）。"
                             "この番号が迷惑電話として扱われているおそれがあります。発信は止めていません。",
                     refs={"line_id": line["line_id"], "dials": got.dials, "answers": got.answers,

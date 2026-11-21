@@ -3296,6 +3296,25 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("管理者あての写しに、急ぎの印を残さない（salescall.notify_admin）",
      _edited(_M219, "CREATE FUNCTION salescall.notify_admin(", "true, salescall.cur_tenant(), p_urgent)", "true, salescall.cur_tenant(), false)"),
      (_URGENT_KINDS,)),
+    ("まとまりの無い設定の定義を入れられる（画面で、どのまとまりにも出ない）",
+     "ALTER TABLE salescall.setting_definitions ALTER COLUMN screen_group DROP NOT NULL",
+     ("tests.test_help_texts.Explain.test_every_setting_is_in_one_screen_group_and_the_confirm_window_follows_one_rule",)),
+    ("空の確かめの文を入れられる（画面が中身の無い確かめの窓を出す）",
+     "ALTER TABLE salescall.setting_definitions DROP CONSTRAINT setting_definitions_confirm_text",
+     ("tests.test_help_texts.Explain.test_every_setting_is_in_one_screen_group_and_the_confirm_window_follows_one_rule",)),
+    ("断られたお客様の扱いの1つを、名前の頭のまとまりに戻す（0279 の前の分かれ方）",
+     "ALTER TABLE salescall.setting_definitions DISABLE TRIGGER USER;"
+     " UPDATE salescall.setting_definitions SET screen_group = 'calling' WHERE key = 'calling.call_after_refusal';"
+     " ALTER TABLE salescall.setting_definitions ENABLE TRIGGER USER",
+     ("tests.test_help_texts.Explain.test_every_setting_is_in_one_screen_group_and_the_confirm_window_follows_one_rule",)),
+    ("契約者の承認を待たずに決める設定から、確かめの文を外す",
+     "ALTER TABLE salescall.setting_definitions DISABLE TRIGGER USER;"
+     " UPDATE salescall.setting_definitions SET confirm_text = NULL WHERE key = 'decision.undecided_as_decided';"
+     " ALTER TABLE salescall.setting_definitions ENABLE TRIGGER USER",
+     ("tests.test_help_texts.Explain.test_every_setting_is_in_one_screen_group_and_the_confirm_window_follows_one_rule",)),
+    ("設定の1つも無い、空のまとまりを作れる",
+     "ALTER TYPE salescall.setting_group ADD VALUE 'business'",
+     ("tests.test_help_texts.Explain.test_every_setting_is_in_one_screen_group_and_the_confirm_window_follows_one_rule",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -8854,6 +8873,18 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
                                                                           self.wish_state, self.via))''',
      '''        return self.before_ways is not None''',
      ("tests.test_call_report_cl1.OtherWish1103.test_the_wish_said_before_the_ways_were_listed_is_received_and_returned",)),
+    ('回線の印のある知らせに、どの回線かを付けない', 'src/salescall/core/notify.py',
+     '''    if line_id is not None:
+        summary = f"回線「{line_names.of(tx, line_id)}」：{summary}"''',
+     '''    if False:
+        summary = f"回線「{line_names.of(tx, line_id)}」：{summary}"''',
+     ("tests.test_answer_rate.Watch.test_a_drop_is_told_to_the_contractor_once_a_day_and_nothing_stops", "tests.test_supervisor.Blame.test_the_last_row_waits_for_the_test_number_and_an_earlier_ring_decides_nothing")),
+    ('回線を名前だけで名指す（発信番号を添えない）', 'src/salescall/core/line_names.py',
+     '''    return f"{name}（{number.display or caller_e164}）"''', '''    return name''',
+     ("tests.test_phone.KindsAndSpecials.test_a_line_is_named_with_its_caller_number", "tests.test_answer_rate.Watch.test_a_drop_is_told_to_the_contractor_once_a_day_and_nothing_stops")),
+    ('回線の発信番号を、見せる形でなく国際の形のまま添える', 'src/salescall/core/line_names.py',
+     '''    return f"{name}（{number.display or caller_e164}）"''', '''    return f"{name}（{caller_e164}）"''',
+     ("tests.test_phone.KindsAndSpecials.test_a_line_is_named_with_its_caller_number",)),
 )
 
 

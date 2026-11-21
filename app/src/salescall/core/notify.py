@@ -24,6 +24,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from salescall.core import line_names
 from salescall.core.access import Tx
 
 # 依頼者の解決策の確かめ待ちのあいだ、止める電話の範囲の文（文の正本はここだけ：門の理由 gate.REASONS["solutions_unconfirmed"] と、下の知らせの
@@ -133,11 +134,16 @@ def emit(tx: Tx, kind: str, *, key: str, summary: str, refs: dict[str, Any] | No
     """出来事を台帳に入れる（取引の契約者・依頼者の出来事）。admin＝管理者あての写しも入れる。contractor=False＝契約者の台帳には
     入れない（管理者あてだけ。admin と組で使う）。新しく入れたら True、同じ出来事がもうあれば False。同じ出来事かは、鍵と契約者で
     決まる（管理者あての写しは、鍵と出どころの契約者。データベースの一意の約束の1か所＝0064。鍵に契約者を入れなくてよい）。
-    緊急の知らせか（台帳の列 urgent）は、種類で決まる（`URGENT` の1か所。呼ぶ側は渡さない。0219）。"""
+    緊急の知らせか（台帳の列 urgent）は、種類で決まる（`URGENT` の1か所。呼ぶ側は渡さない。0219）。
+    回線のことを知らせる文（差し込む値に回線の印 line_id がある）は、頭にどの回線かを必ず付ける（「回線「名前（発信番号）」：」＝名指しは
+    `line_names` の1か所。呼ぶ側は文に回線の名前を書かない。CL-3 のお願い 71）。"""
     if kind not in KINDS:
         raise UnknownKind(kind)
     if not (admin or contractor):
         raise ValueError("あて先がありません（管理者か契約者のどちらか）")
+    line_id = (refs or {}).get("line_id")
+    if line_id is not None:
+        summary = f"回線「{line_names.of(tx, line_id)}」：{summary}"
     if admin:
         got = tx.one("SELECT salescall.notify_admin(%s, %s, %s, %s, %s) AS new",
                      (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str), kind in URGENT))["new"]
