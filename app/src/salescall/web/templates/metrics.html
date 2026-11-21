@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "parts.html" import empty %}
+{% set active = "client" %}
+{% block title %}電話の様子と指標{% endblock %}
+{% block crumb %}電話の様子と指標{% endblock %}
+{% block main %}
+{#- 計画書 9-8：声の型ごとに記録・比較する指標。数えるのは core の metrics.business の1か所（業務全体と声の型ごと）。画面は並べるだけ -#}
+<div class="title-row"><div class="titles"><h1>電話の様子と指標：{{ business.name }}</h1>
+  <p class="lead">この業務の電話の数と割合です。声の型ごとに横に並べて比べられます。「まだ数えていません」「まだありません」は、0 とは別のものです。</p></div>
+  <nav class="filters" aria-label="期間">{% for d in day_choices %}<a class="chip" href="?days={{ d }}" {% if d == days %}aria-current="true"{% endif %}>直近{{ d }}日</a>{% endfor %}</nav>
+</div>
+{% set total = columns[0][1] %}
+{% if not total.dialed %}
+<div class="card">{{ empty("この期間にかけた電話はありません", "電話をかけ始めると、ここに数と割合が出ます。期間を長くすると、前の電話も数えます。") }}</div>
+{% else %}
+<div class="table-scroll"><table class="list metrics">
+  <thead><tr><th>指標</th>{% for name, _ in columns %}<th class="num">{{ name }}</th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for key, label, kind in words.METRIC_ROWS %}
+    <tr><td>{{ label }}</td>{% for _, m in columns %}<td class="num">{{ words.metric_text(kind, m[key]) }}{% if key == "yen_per_call" and m.unpriced %}<div class="muted">単価の無い電話 {{ m.unpriced }}本は入っていません</div>{% endif %}</td>{% endfor %}</tr>
+  {% endfor %}
+  {% for k, label in words.AI_VOICE_WORDS.items() %}
+    <tr><td>{{ label }}</td>{% for _, m in columns %}<td class="num">{{ words.metric_text("rate", m.ai_voice[k]) }}</td>{% endfor %}</tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+<p class="muted">割合の横の（　／　）は、数えた本数です。会話AIの声の率は、通話のあとの確かめで数えます（数えた通話が無ければ「まだ数えていません」）。</p>
+{% endif %}
+{% endblock %}

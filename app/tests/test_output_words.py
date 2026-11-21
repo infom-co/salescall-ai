@@ -110,6 +110,21 @@ class EveryNameHasAWord(unittest.TestCase):
         self.assertEqual(set(words.TARGET_PERSON_WORDS), set(business_settings.TARGET_PERSON_KINDS))
         self.assertEqual(set(words.CALL_TYPE_WORDS), set(business_settings.CALL_TYPES))   # 電話の型（計画書 9-9）
 
+    def test_every_metric_has_a_word_and_a_shape(self):   # 計画書 9-8 の指標（数えるのは core の metrics.business の1か所）
+        from datetime import datetime, timedelta, timezone
+        from salescall.core import attempts, metrics
+        from tests.support import OPERATOR, World
+        s = World().setup()
+        now = datetime.now(timezone.utc)
+        got = app_access().in_client(OPERATOR, s["tenant"], s["client"],
+                                     lambda tx: metrics.business(tx, s["business"], since=now - timedelta(days=30), until=now))
+        self.assertEqual({k for k, _, _ in words.METRIC_ROWS}, set(got) - {"unpriced", "ai_voice"})
+        self.assertEqual(set(words.AI_VOICE_WORDS), set(attempts.VOICE_KINDS))
+        self.assertEqual(words.metric_text("rate", None), "まだ数えていません")              # 0 と書かない（原則10）
+        self.assertEqual(words.metric_text("rate", {"hits": 0, "total": 0, "value": None}), "まだありません（0件）")
+        self.assertEqual(words.metric_text("rate", {"hits": 1, "total": 4, "value": 0.25}), "25.0%（1／4）")
+        self.assertEqual(words.metric_text("seconds", 65), "1分05秒")
+
     def test_every_dnc_reason_has_a_word(self):
         import typing
         from salescall.core import dnc

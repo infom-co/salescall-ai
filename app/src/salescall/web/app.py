@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -1393,6 +1393,33 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         return handle(request, render)
 
     # ── 誤判定率と抜き取り（計画書 16-3。docs/DASHBOARD.md 5-8b。割合は core の measure.rates、抜き取りは measure.draw の記録を読むだけ）
+    METRIC_DAYS = (7, 30, 90)   # 指標の期間の選び（日。初めは30日）
+
+    @app.get("/c/{client_id}/b/{business_id}/metrics")
+    def metrics_page(request: Request, client_id: UUID, business_id: UUID, days: int = 30) -> HTMLResponse:
+        """業務の指標（計画書 9-8：声の型ごとに記録・比較する）。数えるのは core の metrics.business の1か所（業務全体と、その期間に使った
+        声の型ごと）。画面は並べるだけ（割合を計算し直さない）。"""
+        from salescall.core import metrics
+        span = days if days in METRIC_DAYS else 30
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                b = context.business(tx, business_id)
+                until = datetime.now(timezone.utc)
+                since = until - timedelta(days=span)
+                voices = tx.all(
+                    "SELECT v.code, v.voice_name, v.note FROM salescall.voice_types v WHERE v.code IN ("
+                    " SELECT DISTINCT a.voice_type FROM salescall.attempts a JOIN salescall.tasks t ON t.task_id = a.task_id"
+                    " JOIN salescall.runs r ON r.run_id = t.run_id WHERE r.business_id = %s AND a.claimed_at >= %s AND a.claimed_at < %s)"
+                    " ORDER BY v.code", (business_id, since, until))
+                columns = [("すべて", metrics.business(tx, business_id, since=since, until=until))]
+                columns += [(f"{v['voice_name']}・{words.plain(v['note'])}", metrics.business(tx, business_id, since=since, until=until,
+                                                                                          voice_type=v["code"])) for v in voices]
+                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "business": b, "businesses": context.businesses(tx), "columns": columns}
+            return page(request, "metrics.html", person, ctx, days=span, day_choices=METRIC_DAYS,
+                        **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
     @app.get("/c/{client_id}/b/{business_id}/samples")
     def samples_page(request: Request, client_id: UUID, business_id: UUID) -> HTMLResponse:
         """その業務の誤判定率（出どころごと＝検証モード・抜き取り。本番で気づいて直したものは数だけ）と、抜き取った電話の一覧。"""

@@ -756,6 +756,26 @@ class Web(_World):
             odd += [f"{f.name}: {m.group(0)}" for m in re.finditer(r"解[くけい]", text)]
         self.assertEqual(odd, [])
 
+    def test_the_metrics_page_opens_for_each_span_and_says_what_comes_next(self):   # 計画書 9-8（数えるのは core の metrics.business）
+        base = f"/c/{self.a['client']}/b/{self.a['business']}/metrics"
+        for q in ("", "?days=7", "?days=90", "?days=5"):                       # 選びに無い日数は30日
+            with self.subTest(q=q):
+                r = self.get("A", base + q)
+                self.assertEqual(r.status_code, 200, r.text[:300])
+                self.assertIn("電話の様子と指標", r.text)
+        self.assertEqual(self.get("B", base).status_code, 404)                 # ほかの契約者の業務は見えない
+        from unittest import mock
+        from salescall.core import attempts, metrics
+        from salescall.output import words as w
+        rate = {"hits": 1, "total": 4, "value": 0.25}
+        fake = {k: (rate if kind == "rate" else 3) for k, _, kind in w.METRIC_ROWS}
+        fake.update(unpriced=1, ai_voice={k: None for k in attempts.VOICE_KINDS})
+        with mock.patch.object(metrics, "business", return_value=fake):
+            page = self.get("A", base).text
+        self.assertIn("25.0%（1／4）", page)
+        self.assertIn("単価の無い電話 1本は入っていません", page)
+        self.assertIn("まだ数えていません", page)                              # 会話AIの声の率は、数えていなければ 0 と書かない
+
     def test_every_time_cell_has_one_shape(self):
         """表の時刻の升は、どの表も .when の1つの形（数字の幅はそろえ、左寄せ・折らない）。数量の右寄せ（num）では書かない
         （2026-11-20 の見直し：時刻を右寄せにした表と左寄せの表が混ざり、「いつから」の見出しと値がずれていた）。"""

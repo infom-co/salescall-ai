@@ -336,6 +336,40 @@ RECORDING_UNIT_WORDS: dict[str, str] = {"business": "業務の録音", "name_rol
                                         "name": "名前の録音（お名前の部分）", "name_tail": "名前の録音（続く言葉）"}
 
 
+# 業務・期間・声の型の指標（計画書 9-8。数えるのは core の metrics.business の1か所＝画面は並べるだけ）の、画面の名前と形。
+# 鍵は metrics.business の答えのすべて（unpriced と ai_voice は別の扱い。試験が突き合わせる）。形：count＝本数・件数／rate＝{hits, total, value}／
+# seconds＝秒／yen＝円
+METRIC_ROWS: tuple[tuple[str, str, str], ...] = (
+    ("dialed", "かけた電話", "count"), ("answered", "電話に出た", "count"), ("talked", "お客様と話した", "count"),
+    ("reached", "目的のお客様と話せた", "count"), ("completion", "業務完了率", "rate"), ("required_taken", "必須の質問の取得率", "rate"),
+    ("cut", "途中で切られた率", "rate"), ("average_talk_seconds", "平均通話時間", "seconds"), ("redial", "再発信率", "rate"),
+    ("yen_per_call", "1本あたりの費用", "yen"), ("technical_error", "音声の問題・こちらの不具合の率", "rate"),
+    ("ear_disagreement", "聞き取りが食い違った率", "rate"), ("forbidden_speech", "言ってはいけないことを言った件数", "count"),
+    ("complaint", "苦情の率", "rate"),
+)
+# 会話AIの声の率の種類（core の attempts.VOICE_KINDS のすべて。試験が突き合わせる）
+AI_VOICE_WORDS: dict[str, str] = {"silent": "会話AIが黙った率", "cut_off": "会話AIの声が途切れた率", "words_missing": "会話AIの言葉が抜けた率",
+                                  "too_long": "会話AIが同じ文を2回言った率", "wrong_language": "会話AIが英語を話した率"}
+
+
+def metric_text(kind: str, v: Any) -> str:
+    """指標の値の書き方（1か所）。「まだ数えていない」「まだ無い」を 0 と書かない（原則10）。"""
+    if kind == "rate":
+        if v is None:
+            return "まだ数えていません"
+        if not v.get("total"):
+            return "まだありません（0件）"
+        return f"{v['value'] * 100:.1f}%（{v['hits']}／{v['total']}）"
+    if v is None:
+        return "まだありません"
+    if kind == "seconds":
+        m, sec = divmod(int(round(float(v))), 60)
+        return f"{m}分{sec:02d}秒" if m else f"{sec}秒"
+    if kind == "yen":
+        return f"{float(v):,.1f}円"
+    return f"{v:,}"
+
+
 # 電話の型の、画面の名前（型の正本は core の business_settings.CALL_TYPES。そのすべてを書く＝試験が突き合わせる。計画書 9-9・
 # ✅ 2026-11-20 管理者「伺い78：…ア」＝業務ごとに選ぶ電話の型）
 CALL_TYPE_WORDS: dict[str, str] = {
@@ -395,7 +429,7 @@ ADMIN_PAGES: dict[str, tuple[str, str]] = {"admin_tenants": ("契約者を選ぶ
 # 依頼者・業務の中の画面（左の道しるべの「依頼者『○○』」「業務『○○』」のまとまりと、ページの上の行き先が、同じ名前をここから引く。
 # 鍵は、依頼者・業務の住所のあとに付く部分）
 CLIENT_NAV: dict[str, str] = {"": "概要（全業務）", "/dnc": "発信禁止", "/destinations": "結果の送り先", "/settings": "この依頼者の設定"}
-BUSINESS_NAV: dict[str, str] = {"": "業務の概要", "/reward": "報酬の決まり", "/samples": "誤判定率と抜き取り", "/settings": "この業務の設定"}
+BUSINESS_NAV: dict[str, str] = {"": "業務の概要", "/metrics": "電話の様子と指標", "/samples": "誤判定率と抜き取り", "/reward": "報酬の決まり", "/settings": "この業務の設定"}
 
 
 def page(key: str) -> str:
