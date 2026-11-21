@@ -712,7 +712,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             shown = (None if got is None else words.choice_word(d["choice_words"], got["value"]) if d["value_type"] == "choice"
                      else words.yes_no(d["key"], got["value"]) if d["value_type"] == "boolean"
                      else setting_forms.show(d["value_type"], got["value"], words.SETTING_UNITS.get(d["key"], "")))
-            rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": d["help"],
+            rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": words.plain(d["help"]),
                          "got": got, "shown": shown,
                          "own": got is not None and got["from"] == level, "group": d["key"].split(".")[0],
                          "merge": _merge_words(d["merge_kind"], d["finest_scope"]), "unit": words.SETTING_UNITS.get(d["key"], "")})
