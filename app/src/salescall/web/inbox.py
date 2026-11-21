@@ -4,7 +4,7 @@
 なにを決めるか・根拠・決めないと何が起きるか・ボタン（承認する／差し戻す）。並び順は緊急 → 期限 → 古い順（`ordered`）。
 
 この表に無い承認を、別の画面に作らない。種類を足すときは、ここに1行足す（docs/DASHBOARD.md 4-2 の表と同じ並び）。
-⏳ まだ入れていない種類：録音の承認・名前の録音の審査（どちらも録音を聞く仕組みが要る）。
+⏳ まだ入れていない種類：録音の承認・名前の録音の審査（録音を聞く仕組みはできた＝CL-2 の 4-460。お詫びの電話の承認と同じ部品で作る）。
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ class Item:
     business_id: UUID | None = None   # どの業務のものか（業務のタブで絞る。依頼者全体のもの＝赤字の確認などは None）
     business_name: str = ""          # 業務の名前（取り消せない操作は、どの業務のものかを名前つきで見せる＝Intent.md 5-1）
     link: str = ""                   # 決める前に見る画面（例：お客様リスト・お客様の行）
+    audio: tuple[tuple[str, str], ...] = ()   # 聞いて決める録音（見出し, "録音の組/部分"。音は /c/{依頼者}/recordings/… の1つの受け口から）
 
 
 @dataclass(frozen=True)
@@ -97,9 +98,35 @@ def _deficit(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
                  at=n["warned_at"], deadline=n["deadline"], buttons=(Button("confirm", words.DEFICIT_CONFIRM, main=True),), link="/t/costs")]
 
 
-# 録音を聞く仕組み（録音の置き場の参照 audio_ref から音を読み出す部品）は、まだ無い（CL-2・CL-1 へのお願い）。お詫びの電話は「承認のときに
-# 録音を一緒に聞いていただく」と決まっている（2026-10-24）ので、聞けるようになるまで承認のボタンを出さない（聞かずに承認できる形を作らない）。
-CAN_PLAY_RECORDINGS = False
+# 録音を聞いて決める承認（お詫びの電話＝2026-10-24「承認のときに録音を一緒に聞いていただく」）。音は core の recording_audio の1か所（CL-2 の 4-460）。
+# 承認のボタンは、録音が置き場にそろっているときだけ出し、押したときは、押した方がすべての部分を聞いた記録（recording_listens）があるかを確かめる
+# （ボタンを隠すだけでは、古い画面などから押せてしまう。聞かずに承認できる形を作らない）。
+def playable_parts(tx: Tx, set_id: Any) -> list[str] | None:
+    """その録音の組の部分（順に）。どれかの音が置き場に無ければ None（聞けない＝承認のボタンを出さない）。"""
+    rows = tx.all("SELECT r.part, EXISTS (SELECT 1 FROM salescall.recording_audio x WHERE x.audio_sha256 = r.audio_sha256) AS stored"
+                  " FROM salescall.recordings r WHERE r.set_id = %s ORDER BY r.part", (set_id,))
+    if not rows or not all(r["stored"] for r in rows):
+        return None
+    return [r["part"] for r in rows]
+
+
+def unheard_parts(tx: Tx, set_id: Any) -> list[str]:
+    """その録音の組のうち、いま操作している方（取引の方）がまだ聞いていない部分（聞いた記録は core の recording_audio.listen が残す）。"""
+    return [r["part"] for r in tx.all(
+        "SELECT r.part FROM salescall.recordings r WHERE r.set_id = %s AND NOT EXISTS (SELECT 1 FROM salescall.recording_listens l"
+        " WHERE l.set_id = r.set_id AND l.part = r.part AND l.listened_by = salescall.cur_actor()) ORDER BY r.part", (set_id,))]
+
+
+def _audio(set_id: Any, parts: list[str]) -> tuple[tuple[str, str], ...]:
+    return tuple((f"録音 {n}", f"{set_id}/{p}") for n, p in enumerate(parts, start=1))
+
+
+def _approve_apology(tx: Tx, k: dict[str, str]) -> Any:
+    from salescall.web.actions import Refused
+    left = unheard_parts(tx, UUID(k["set_id"]))
+    if left:
+        raise Refused(f"お詫びの録音をすべて聞いてから承認してください（まだ聞いていない録音が {len(left)} つあります）")
+    return apology.approve(tx, int(k["order_id"]), UUID(k["set_id"]))
 
 
 def _apologies(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
@@ -114,15 +141,17 @@ def _apologies(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
         ev = [("お詫びで伝える文", o["text_same_day"])]
         ev += [("誤って伝えたこと → 正しい案内", f"{p['wrong']} → {p['correct']}") for p in (o["pairs"] or [])]
         ev += [("失礼な言葉", w) for w in (o["improper"] or [])]
-        ready = o["set_id"] is not None and CAN_PLAY_RECORDINGS
+        parts = playable_parts(tx, o["set_id"]) if o["set_id"] is not None else None
+        ready = parts is not None
         why = ("お詫びの録音を作っています" if o["set_id"] is None
-               else "録音を聞く仕組みを準備しています（聞いてから承認する決まりのため）")
+               else "お詫びの録音の音がまだそろっていません（聞いてから承認する決まりのため）")
         items.append(Item(
             kind="apology", key={"task_id": str(o["task_id"]), "order_id": str(o["order_id"]), "set_id": str(o["set_id"] or "")},
             title="お詫びの電話の承認", decide="この文と録音で、お客様にお詫びの電話をかけてよいか",
             evidence=ev, if_not="承認するまで、このお客様へは、お約束の電話もかけません。", at=o["prepared_at"],
             **_business_of(tx, o["task_id"]),
-            buttons=(Button("approve", "承認する", main=True),) if ready else (), waiting_why="" if ready else why))
+            buttons=(Button("approve", "録音を聞いたので承認する", main=True),) if ready else (), waiting_why="" if ready else why,
+            audio=_audio(o["set_id"], parts) if ready else ()))
     return items
 
 
@@ -380,7 +409,7 @@ def _fixes(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
 
 KINDS: dict[str, Kind] = {
     "apology": Kind("お詫びの電話の承認", _apologies, {
-        "approve": (lambda tx, k: apology.approve(tx, int(k["order_id"]), UUID(k["set_id"])), "承認しました。お詫びの電話をかけます。"),
+        "approve": (_approve_apology, "承認しました。お詫びの電話をかけます。"),
     }),
     "decision": Kind("取り消せない決定の確かめ", _decisions, {
         "approve": (lambda tx, k: approval.approve_decision(tx, UUID(k["attempt_id"]), int(k["seq"])), "承認しました。"),

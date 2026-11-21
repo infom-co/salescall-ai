@@ -1675,6 +1675,19 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                                      "Cache-Control": "no-store"})
         return handle(request, render)
 
+    @app.get("/c/{client_id}/recordings/{set_id}/{part}.wav")
+    def recording_listen(request: Request, client_id: UUID, set_id: UUID, part: str) -> Response:
+        """承認・審査の画面で録音の1つの部分を聞く（音を読むのも聞いた記録を残すのも core の recording_audio.listen の1か所＝CL-2 の 4-460）。
+        見えない組・置き場に無い音は「見つかりません」（依頼者の取引の守りで、ほかの依頼者・契約者の録音は読めない）。"""
+        from salescall.core import recording_audio
+        def render(person: Person, ctx: Ctx) -> Response:
+            try:
+                data = ctx.client(client_id, lambda tx: recording_audio.listen(tx, set_id, part))
+            except recording_audio.AudioMissing:
+                return problem(request, 404, "見つかりません", "その録音は、いま聞けません。")
+            return Response(data, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+        return handle(request, render)
+
     # ── お客様リストの取込（docs/DASHBOARD.md 5-8）：ファイル → 列と欄の対応付け → プレビュー（行ごとの合否）→ 登録 ──────
     def _run_in(tx: Any, business_id: UUID, run_id: UUID) -> dict[str, Any]:
         """住所の業務・実施回が、住所の依頼者の中でつながっているか（違えば NotFound）。実施回を返す。"""

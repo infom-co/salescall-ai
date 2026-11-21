@@ -60,6 +60,13 @@
       {% for h, v in i.evidence %}<dt>{{ h }}</dt><dd>{% if v %}{{ v }}{% else %}<span class="muted">（空欄）</span>{% endif %}</dd>{% endfor %}
     </dl>
     {% endif %}
+    {#- 聞いて決める録音（音の受け口は1つ。聞くと記録が残り、承認はすべて聞いてから＝inbox の1か所が確かめる） -#}
+    {% if i.audio %}
+    <div class="listen-list">
+      <p class="muted">承認する前に、録音をすべて聞いてください（聞いた記録が残ります）。</p>
+      {% for label, ref in i.audio %}<div class="listen"><span>{{ label }}</span><audio controls preload="none" src="/c/{{ place.client_id }}/recordings/{{ ref }}.wav"></audio></div>{% endfor %}
+    </div>
+    {% endif %}
     {% if i.if_not %}<div class="if-not">{{ i.if_not }}</div>{% endif %}
     {% if i.link and not back %}<a class="go see" href="{{ i.link }}">決める前に見る</a>{% endif %}
     <div class="actions">
