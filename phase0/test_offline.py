@@ -30107,6 +30107,48 @@ class MatterItemsTest(unittest.TestCase):
         self.assertEqual(accepted_line(q)[1], "それではキャンセルや変更の件はご了承ということでよろしかったでしょうか？")
 
 
+class ItemsLinkTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L19 の (d)（分身 AE の (4)・分身 AA の書き置きの (6-3)）：並びの見分け（announces.keeps_items の1か所＝名詞 matter_fits・句 clause_fits）は、
+    並べた事柄（事柄の名前を「や」「と」「・」「および」「または」でつないだもの）の一部だけを言わない決まり。つなぐ言葉のあとが事柄の名前でなく、送り仮名で続く言葉の頭
+    （漢字1字のすぐあとに、事柄のあとに付く言葉＝助詞でないひらがなが続く＝「前日と同じ」の「同」・「山田と申します」の「申」）なら、そこは並びではない（「と」は比べる・
+    引く言葉）。⛔ それまで、「前日と同じ」も「前日」「同」の並びと読み、説明のどこかに「前日と同じ」があると、「前日」を言う句（「前日を過ぎた…」）がどれも通らなかった
+    （通さない側＝名詞の形）。今の試しの業務・束 aa1・ac1 の言葉には無く、作った例で起きた（分身 AE の書き置きの 2 章）。事柄の名前が2字より長い言葉の頭
+    （「キャンセルと同時に」の「同時」）は、言葉の形では事柄の名前と分けられないので、今までどおり並びと読む（通さない側）"""
+    ASK = UnheardCautionClauseTest.ASK
+
+    def test_a_word_that_goes_on_with_kana_is_not_a_listed_item(self):
+        import announces
+        for text, words in (("キャンセルは前日までにご連絡いただく決まりになっております。変更も前日と同じく承ります。", "キャンセルは前日までにご連絡いただく必要がある"),
+                            ("当日のキャンセルは通常料金と異なりキャンセル料がかかる決まりになっております。", "通常料金"),
+                            ("お支払いは18時と致します。", "お支払いは18時となる"),
+                            ("担当の山田と申します。キャンセルは前日までです。", "山田")):
+            self.assertTrue(announces.keeps_items(text, words), text)
+            self.assertEqual(announces._ITEMS.findall(text), [], text)
+
+    def test_listed_items_are_still_lists(self):
+        # 並べた事柄は今までどおり（つなぐ言葉は問わない・2字からの漢字の事柄の名前は「する」が続いても事柄・漢字1字の事柄の名前のあとに助詞が続く）
+        import announces
+        for text, part in (("キャンセルと変更は前日までにご連絡いただく決まりになっております。", "キャンセル"),
+                           ("キャンセルと変更される場合は前日までにご連絡いただく決まりになっております。", "キャンセル"),
+                           ("キャンセルや変更しますと料金がかかる決まりになっております。", "キャンセル"),
+                           ("朝と夜は料金が変わる決まりになっております。", "朝"),
+                           ("朝と夜まで受け付けております。", "朝"),
+                           ("朝と夜しか受け付けておりません。", "朝"),
+                           ("キャンセル料や変更料がかかる決まりになっております。", "キャンセル料"),
+                           ("キャンセルと同時にご返金いたします。", "キャンセル")):
+            self.assertFalse(announces.keeps_items(text, part), text)
+
+    def test_the_clause_with_the_deadline_passes_when_the_explanation_compares(self):
+        # 説明のどこかに「前日と同じ」があっても、「前日」を言う句（伺い96 アの形）が通る（前は通らず名詞の形）
+        import announces
+        expl = ("キャンセルは前日までのご連絡でしたら料金はかからない決まりになっております。それ以降のご連絡ですとキャンセル料がかかる決まりになっております。"
+                "変更も前日と同じ扱いになっております。")
+        line = "キャンセルは前日までにご連絡いただければ料金はかかりません。それ以降になってしまいますとキャンセル料がかかってしまうのでお気を付けください。"
+        self.assertTrue(announces.fits(expl, self.ASK, line))
+        self.assertTrue(announces.clause_fits(expl, self.ASK, "前日を過ぎたキャンセルはキャンセル料がかかる", line))
+        self.assertTrue(announces.matter_fits(expl, self.ASK, "キャンセル"))
+
+
 class CautionClauseFactsTest(unittest.TestCase):
     """帳面 1 の (6) の (i) の L18 の (1)（分身 AA の書き置きの (6-1)）：良い点と気をつけていただくことの2つの文のお知らせの句に求める数と期限の言葉は、気をつけて
     いただく文と、それが「それ以降」で指す良い点の文の期限（「（期限）まで」の言葉）だけ（伺い96 ア「確かめの句は気をつけていただくことの文だけから作る」＝✅ 2026-11-21
@@ -30223,15 +30265,16 @@ class CautionBackWordsTest(unittest.TestCase):
     def test_the_words_are_in_one_place_with_their_meaning(self):
         # 見分けの並びは1か所（BACK）＝意味（BACK_MEANING）の例。取込の問い合わせも同じ並びと意味を言う（言い方ごとの決まりを別に書かない）
         import announces
-        self.assertEqual(announces.BACK_MEANING, "良い点の文の期限より後を指す言い方")
-        self.assertEqual(announces.BACK, ("それ以降", "それ以後", "それより後", "それを過ぎ"))
+        self.assertIn("期限より後を言う言い方", announces.BACK_MEANING)
+        self.assertEqual(announces.BACK[:4], ("それ以降", "それ以後", "それより後", "それを過ぎ"))
         p = announces.MATTER_PROMPT
         self.assertIn(f"その文で{announces.BACK_MEANING}（{''.join(f'「{w}」' for w in announces.BACK)}で始まるもの）は、良い点の文の期限の言葉を使って"
                       f"「（期限）{announces.PAST}」と言います", p)
         self.assertEqual(p.count("「それ以後」"), 1)
-        # 並びに無い言い方（「その後」）は今までどおり全部持つ句の確かめ（説明と違う期限を通さない側＝「を過ぎた」は「過」が出どころに無く通らない）
-        expl = "キャンセルは前日までのご連絡でしたら料金はかからない決まりになっております。その後のご連絡ですとキャンセル料がかかる決まりになっております。"
-        line = "キャンセルは前日までにご連絡いただければ料金はかかりません。その後になってしまいますとキャンセル料がかかってしまうのでお気を付けください。"
+        # 並びに無い言い方（「それより遅く」）は今までどおり全部持つ句の確かめ（説明と違う期限を通さない側＝「を過ぎた」は「過」が出どころに無く通らない）。
+        # 「その後」は L19 の (c) で並びに足した（CautionBackWordsMoreTest）
+        expl = "キャンセルは前日までのご連絡でしたら料金はかからない決まりになっております。それより遅くのご連絡ですとキャンセル料がかかる決まりになっております。"
+        line = "キャンセルは前日までにご連絡いただければ料金はかかりません。それより遅くなってしまいますとキャンセル料がかかってしまうのでお気を付けください。"
         self.assertTrue(announces.fits(expl, self.ASK, line))
         self.assertFalse(announces.clause_fits(expl, self.ASK, "前日を過ぎたキャンセルはキャンセル料がかかる", line))
 
@@ -30255,6 +30298,66 @@ class CautionBackWordsTest(unittest.TestCase):
         q = Question("Q2", self.ASK, "yes_no", conditions=("はい", "いいえ"), approval=True, intro=expl, announce=line, matter="キャンセルや変更",
                      matter_clause=clause)
         self.assertEqual(ACK["arigatou"] + ACK["moushiwake_heavy"] + accepted_line(q, heard=False)[1], UnheardCautionClauseTest.USER)
+
+
+class CautionBackWordsMoreTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L19 の (c)（分身 AE の (3)・分身 AC の書き置きの (6-2)）：並び announces.BACK に無かった「その後」「それを超えますと」も、良い点の文の
+    「（期限）まで」を指して、その期限より後を言うときは「それ以降」と同じ形（「（期限）を過ぎた」・2つの文の中身を全部持つ句は通さない）＝10-19「同じ理由が当たる場面すべて
+    に当てる」。見分けは意味（BACK_MEANING＝「それ」「その」が良い点の文の「（期限）まで」を指すときだけ＝「その後ご予算は…」のように期限を指さない「その後」は入らない）
+    のまま、並びはその例として、確かめ（clause_fits）と問い合わせ（MATTER_PROMPT）が同じ並びを読む1か所に足した。⛔ それまで、「その後」「それを超えますと」のお知らせは
+    今までの全部持つ句の確かめ（「前日を過ぎた」の句は「過」が出どころに無く通らない＝名詞の形）"""
+    ASK = UnheardCautionClauseTest.ASK
+    # (説明, お知らせの文, 伺い96 アの形の句, 2つの文の中身を全部持つ句, 「を過ぎた」と言わない句)
+    CASES = [
+        ("キャンセルは前日までのご連絡でしたら料金はかからない決まりになっております。その後のご連絡ですとキャンセル料がかかる決まりになっております。",
+         "キャンセルは前日までにご連絡いただければ料金はかかりません。その後になってしまいますとキャンセル料がかかってしまうのでお気を付けください。",
+         "前日を過ぎたキャンセルはキャンセル料がかかる",
+         "キャンセルは前日までにご連絡いただければ料金がかからずその後はキャンセル料がかかる",
+         "前日の後のキャンセルはキャンセル料がかかる"),
+        ("ご予約の変更は3日前までのご連絡でしたら料金はかからない決まりになっております。それを超えてのご連絡ですと変更料がかかる決まりになっております。",
+         "ご予約の変更は3日前までにご連絡いただければ料金はかかりません。それを超えますと変更料がかかってしまうのでお気を付けください。",
+         "3日前を過ぎたご予約の変更は変更料がかかる",
+         "ご予約の変更は3日前までにご連絡いただければ料金がかからずそれを超えると変更料がかかる",
+         "3日前を超えるとご予約の変更は変更料がかかる"),
+    ]
+
+    def test_the_more_words_take_the_same_clause(self):
+        import announces
+        for expl, line, clause, whole, unsaid in self.CASES:
+            self.assertTrue(announces.fits(expl, self.ASK, line), line)   # お知らせの文は今の取込の形の確かめを通る
+            self.assertTrue(announces.clause_fits(expl, self.ASK, clause, line), line)
+            for bad in (whole, unsaid, f"{clause}{clause}"):
+                self.assertFalse(announces.clause_fits(expl, self.ASK, bad, line), bad)
+
+    def test_the_list_and_the_meaning_are_one_place(self):
+        # 並びは1か所（BACK）＝意味（BACK_MEANING）の例。意味は「それ」「その」が良い点の文の「（期限）まで」を指すときだけ。問い合わせも同じ並びと意味を1回だけ言う
+        import announces
+        self.assertEqual(announces.BACK, ("それ以降", "それ以後", "それより後", "それを過ぎ", "その後", "それを超え"))
+        self.assertIn("「それ」「その」が良い点の文の「（期限）まで」を指して", announces.BACK_MEANING)
+        p = announces.MATTER_PROMPT
+        self.assertEqual(p.count(announces.BACK_MEANING), 1)
+        for w in ("「その後」", "「それを超え」"):
+            self.assertEqual(p.count(w), 1, w)
+
+    def test_the_import_takes_the_clause(self):
+        import json
+        from types import SimpleNamespace
+        import import_ai
+        from flowctl import Question, accepted_line
+
+        def gemini(got):
+            class Models:
+                def generate_content(self, model, contents, config):
+                    return SimpleNamespace(text=json.dumps({"items": got}))
+            return SimpleNamespace(models=Models())
+
+        expl, line, clause, whole, _ = self.CASES[0]
+        for answer, want in ((clause, clause), (whole, "")):
+            got = [{"no": 1, "matter": "キャンセル", "clause": answer}]
+            self.assertEqual(import_ai.decide_matters([(gemini(got), "m1"), (gemini(got), "m2")], [(expl, self.ASK, line)]), [("キャンセル", want)])
+        q = Question("Q2", self.ASK, "yes_no", conditions=("はい", "いいえ"), approval=True, intro=expl, announce=line, matter="キャンセル", matter_clause=clause)
+        self.assertEqual(accepted_line(q, heard=False)[1],
+                         "前日を過ぎたキャンセルはキャンセル料がかかる件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？")
 
 
 class MatterPromptWordsTest(unittest.TestCase):
@@ -30304,6 +30407,67 @@ class MatterPromptWordsTest(unittest.TestCase):
         self.assertTrue(announces.matter_fits(month, self.ASK, "料金"))
         self.assertTrue(announces.clause_fits(month, self.ASK, "料金は月額3,000円となる"))
         self.assertTrue(announces.matter_fits("ご利用日の変更は前日までにご連絡いただく決まりになっております。", self.ASK, "ご利用日の変更"))
+
+
+class MatterPromptPrefaceTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L19 の (a)（分身 AE の (1)）：束 ac1 で答えを伏せた読み手 A・B が2人とも挙げた取込の問い合わせ（announces.MATTER_PROMPT）の言葉を、
+    帳面 0-3 の決まり（初めて読む人がそのまま分かる言葉で・(a) 境目の決まりは1か所だけに書く）で直した：(1-a) 前置きの中の事柄の言葉を使うのは、前置きのあとの文に
+    事柄の言葉が無いときだけ＝名詞と句が同じ1つの決まり（announces.PREFACE）を読む（名詞の決まり MATTER_NOT と句の主語の決まり SUBJECT には書かない）(1-b) 数の中の
+    「,」は文を区切る「、」とは別で、書いてあるとおりに入れる＝問い合わせが入れないと言う字は、句の形の確かめ（clause_fits の読点の見方＝askitems.noun_fits）が通さない字と
+    同じ（全角の「，」も）(1-c) 名詞に入れない時期や値は、句には数と期限の言葉の決まりのとおり入れる（名詞の決まりから句の決まりを指す）。⛔ それまで、名詞の決まりは
+    「前置きの中の事柄の言葉は入れます」とだけ書き、句の主語の決まりだけが「前置きの中にしか無ければ」と限っていた（前置き「ご予約の内容ですが」の「ご予約」も入れるのか
+    迷う＝束 ac1 の #1・#4）・「「、」「。」「？」は入れません」と「書いてあるとおりに入れます」が「3,000円」の「,」でどちらに当たるか書いていなかった（#7）"""
+    ASK = UnheardCautionClauseTest.ASK
+
+    def test_the_preface_rule_is_one_place_for_both_items(self):
+        import announces
+        p = announces.MATTER_PROMPT
+        self.assertEqual(p.count(announces.PREFACE), 1)
+        self.assertIn(f"- matter も clause も、{announces.PREFACE}。", p)
+        self.assertIn("前置きのあとの文に事柄の言葉が無いときだけ", announces.PREFACE)
+        # 境目（前置きの中の言葉を使うときの限り）は PREFACE の1か所だけ：名詞の決まりと句の主語の決まりには書かない
+        for rule in (announces.MATTER_NOT, announces.SUBJECT):
+            self.assertNotIn("前置きの中", rule, rule)
+        self.assertEqual(p.count("前置きの中"), announces.PREFACE.count("前置きの中"))
+
+    def test_the_preface_answers_pass_the_import_checks(self):
+        # 決まりどおりの答え（前置きのあとに事柄の言葉があればそれ・無ければ前置きの中の言葉）が、本番の形の確かめを通る。前置きのあとに事柄の言葉があるのに前置きの
+        # 中の言葉を使った答えも形は通る（確かめは中身の違いだけを止める＝帳面 0-2）＝どちらに揃うかは問い合わせの文で決まる
+        import announces
+        fee = "送料のご案内ですが一律800円となります。"
+        self.assertIn(f"「{fee}」なら、matter に「送料」、clause に「送料は一律800円となる」と答えます", announces.PREFACE)
+        self.assertTrue(announces.matter_fits(fee, self.ASK, "送料") and announces.clause_fits(fee, self.ASK, "送料は一律800円となる"))
+        pay = "お申し込みの内容ですがお支払いは前日までにお済ませいただく決まりになっております。"
+        self.assertIn("「お申し込みの内容ですがお支払いは…」なら", announces.PREFACE)
+        self.assertTrue(announces.matter_fits(pay, self.ASK, "お支払い"))
+        self.assertTrue(announces.matter_fits(pay, self.ASK, "お申し込み"))
+
+    def test_the_comma_in_a_number_and_the_marks_agree_with_the_clause_check(self):
+        # 問い合わせが句に入れないと言う字は、句の形の確かめが通さない字と同じ。数の中の「,」は書いてあるとおりに入れる（確かめも通す）
+        import announces
+        p = announces.MATTER_PROMPT
+        self.assertIn(announces.CLAUSE_MARKS, p)
+        self.assertEqual(p.count("数の中の「,」"), 1)
+        month = "料金のご案内ですが月額3,000円となります。"
+        self.assertTrue(announces.clause_fits(month, self.ASK, "料金は月額3,000円となる"))
+        for mark in ("、", "，", "。", "？"):
+            self.assertIn(f"「{mark}」", announces.CLAUSE_MARKS)
+            self.assertFalse(announces.clause_fits(month, self.ASK, f"料金は月額3{mark}000円となる"), mark)
+        # 全角の数の「，」は入れない字（確かめが通さない）＝数を「,」で書いても、区切りを外しても、数の確かめは通る（数は区切りを除いて比べる）
+        wide = "料金のご案内ですが月額３，０００円となります。"
+        self.assertFalse(announces.clause_fits(wide, self.ASK, "料金は月額３，０００円となる"))
+        self.assertTrue(announces.clause_fits(wide, self.ASK, "料金は月額３,０００円となる"))
+        self.assertTrue(announces.clause_fits(wide, self.ASK, "料金は月額３０００円となる"))
+
+    def test_the_matter_rule_points_to_the_clause_rule_for_times_and_values(self):
+        # 名詞に入れない時期や値（「当日の」）は、句には数と期限の言葉の決まりのとおり入れる（名詞の決まりから句の決まりを指す。句の決まりは1か所のまま）
+        import announces
+        self.assertIn("clause には、下の「数・金額・日にち・期限・回数は…」の決まりのとおり入れます", announces.MATTER_NOT)
+        self.assertIn("数・金額・日にち・期限・回数は、お客様が聞いた文にあるものを全部", announces.MATTER_PROMPT)
+        rule = HeardLineClauseTest
+        self.assertTrue(announces.matter_fits(rule.RULE, rule.ASK, "キャンセル"))
+        self.assertTrue(announces.clause_fits(rule.RULE, rule.ASK, "当日のキャンセルは前日までにご連絡いただく必要がある", rule.LINE))
+        self.assertFalse(announces.clause_fits(rule.RULE, rule.ASK, "キャンセルは前日までにご連絡いただく必要がある", rule.LINE))
 
 
 class ImportFormsReviewTest(unittest.TestCase):
