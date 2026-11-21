@@ -224,6 +224,8 @@ class ClaimAndDial(Base):
         due(later)
         self.assertEqual(self.reason(s), "not_due")
         self.assertEqual(self.tx(s, lambda tx: gate.denied_now(tx)), {"not_due": 1})
+        self.assertEqual(self.tx(s, lambda tx: gate.denied_now(tx, business_id=s["business"])), {"not_due": 1})   # その業務のタブ（CL-3 の 63 の (1)）
+        self.assertEqual(self.tx(s, lambda tx: gate.denied_now(tx, business_id=uuid.uuid4())), {})               # ほかの業務の行は数えない
         due(now)
         c = self.claim(s)                                             # 門が通した
         self.assertEqual(self.tx(s, lambda tx: gate.denied_now(tx)), {})

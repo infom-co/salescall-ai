@@ -133,8 +133,11 @@ class NoticeSender(Protocol):
     notify.*。読むのは output/notices.py の1か所＝checks/rules.py の SETTING_READERS）は、すべて部品の中の1か所。見守り役は設定を読まず、
     回数も渡さない。送れなくても止めない（例外は、その回の仕事の失敗として記録し、次の回にまた呼ぶ）。"""
 
-    def deliver(self, access: Access, actor: Actor, tenant_id: UUID | None) -> Any:
-        """actor＝見守り役（ほかの部品と同じ1つの名前）。tenant_id＝その契約者あての知らせ（契約者の取引で）・None＝管理者あての知らせ（全体の
+    def deliver(self, access: Access, actor: Actor, tenant_id: UUID | None, *, links: Any = None, sms_owner: UUID | None = None) -> Any:
+        """links＝PC とのつながり（`supervisor.links.Links`。ショートメールを回線のスマホから送る＝`AgentDriver.send_sms`）。sms_owner＝ショートメールを送る
+        回線の持ち主の契約者（契約者あては、その契約者・管理者あては見守り役の設定 admin_tenant＝決めるのは見守り役の仕事 jobs.notices・admin_notices の
+        1か所。部品は links の中身から探さない。None＝ショートメールでは送らない）。CL-3 の 67。
+        actor＝見守り役（ほかの部品と同じ1つの名前）。tenant_id＝その契約者あての知らせ（契約者の取引で）・None＝管理者あての知らせ（全体の
         取引で）。"""
         ...
 

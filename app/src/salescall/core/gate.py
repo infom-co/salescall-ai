@@ -892,15 +892,18 @@ _DENIAL_STARTS = (
     "            WHERE l.reason = %s AND NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = %s AND a.claimed_at > l.denied_at))")
 
 
-def denied_now(tx: Tx) -> dict[str, int]:
+def denied_now(tx: Tx, *, business_id: UUID | None = None) -> dict[str, int]:
     """門がいま止めている行の数（理由ごと。取引の依頼者の行。画面が読む1か所＝CL-3 の 43）：終わっていない行のうち、いちばん新しい断りのあとに門が通した電話の
-    無いもの（門が最後に見たときの理由。記録は止め始めの1か所＝`_DENIAL_STARTS`）。"""
+    無いもの（門が最後に見たときの理由。記録は止め始めの1か所＝`_DENIAL_STARTS`）。business_id＝その業務の行だけ（画面の業務のタブ。CL-3 の 63 の (1)。
+    行の業務は、その行のお客様リストの業務＝runs.business_id。None＝依頼者の行すべて）。"""
     return {r["reason"]: r["n"] for r in tx.all(
         "SELECT l.reason, count(*) AS n FROM (SELECT DISTINCT ON (d.task_id) d.task_id, d.reason, d.denied_at FROM salescall.gate_denials d"
         "                                     ORDER BY d.task_id, d.denial_id DESC) l"
+        " JOIN salescall.tasks t ON t.task_id = l.task_id JOIN salescall.runs r ON r.run_id = t.run_id"
         " WHERE NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = l.task_id AND a.claimed_at > l.denied_at)"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.current_next_actions n WHERE n.task_id = l.task_id AND n.kind = 'end')"
-        " GROUP BY l.reason ORDER BY l.reason")}
+        "   AND (%s::uuid IS NULL OR r.business_id = %s::uuid)"
+        " GROUP BY l.reason ORDER BY l.reason", (business_id, business_id))}
 
 
 def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim | Denied:

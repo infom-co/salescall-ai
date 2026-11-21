@@ -270,9 +270,10 @@ class Agent:
     async def _receive(self, message: str | bytes) -> None:
         if isinstance(message, bytes):
             kind, ident, payload = p.unframe(message)
-            if kind == p.AUDIO and ident in self.lines and ident in self.phones:
+            if kind == p.VOICE and ident in self.lines and ident in self.phones:
+                ref, audio = p.voice_of(payload)
                 try:
-                    self.phones[ident].play(payload)
+                    self.phones[ident].play(audio, ref=ref)
                 except Exception:  # noqa: BLE001 電話の部品の誤りで、ほかの回線の声を止めない
                     pass
             elif kind == p.BACKUP and (receiving := self._incoming.get(ident)) is not None:
@@ -291,6 +292,9 @@ class Agent:
                 receiving.put(None)
         elif kind == "prune":
             self._spawn(self._prune(msg))
+        elif kind == "stop_playing":
+            if (line := p.uuid_of(msg.get("line"))) in self.lines and line in self.phones:
+                self.phones[line].stop_playing()   # 答えない（止めたことは、電話の部品が出来事 stopped で返す）
         elif kind == "emergency_state":
             event = p.event_of(msg.get("event"))
             if msg.get("open") is False:

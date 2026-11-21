@@ -131,8 +131,8 @@ SENT_TO: list = []   # 知らせを送る部品の代わりが呼ばれた先（
 class NoticeSender:
     """知らせを送る部品の代わり（CL-3 の output/notices。呼ばれた先を残すだけ）。"""
 
-    def deliver(self, access, actor, tenant_id):
-        SENT_TO.append((actor.name, actor.kind, tenant_id))
+    def deliver(self, access, actor, tenant_id, *, links=None, sms_owner=None):
+        SENT_TO.append((actor.name, actor.kind, tenant_id, links, sms_owner))
 
 
 def make_notice_sender():
@@ -2799,11 +2799,14 @@ class AIVersions(SupervisorBase):
         """知らせを送る仕事（CL-3 の 4）：部品があれば、契約者ごとに1回（その契約者）と、管理者あてに1回（None）、部品を呼ぶだけ。部品が無ければ
         仕事にしない（送る順・文・送り直し・記録は部品の中の1か所）。"""
         s = self.ready()
-        cfg = self.cfg(s, SALESCALL_NOTICE_SENDER="tests.test_supervisor:make_notice_sender")
+        admin = uuid.uuid4()
+        cfg = self.cfg(s, SALESCALL_NOTICE_SENDER="tests.test_supervisor:make_notice_sender", SALESCALL_ADMIN_TENANT=str(admin))
         SENT_TO.clear()
-        jobs.notices(jobs.Context(self.w.a, cfg, HOLDER, NoLinks(), tenant_id=s["tenant"]))
-        jobs.admin_notices(jobs.Context(self.w.a, cfg, HOLDER, NoLinks()))
-        self.assertEqual(SENT_TO, [(jobs.ACTOR.name, "system", s["tenant"]), (jobs.ACTOR.name, "system", None)])
+        links = NoLinks()
+        jobs.notices(jobs.Context(self.w.a, cfg, HOLDER, links, tenant_id=s["tenant"]))
+        jobs.admin_notices(jobs.Context(self.w.a, cfg, HOLDER, links))
+        # ショートメールを送る回線の持ち主（CL-3 の 67）：契約者あては、その契約者・管理者あては設定の管理者自身の契約者（決めるのは見守り役の1か所）
+        self.assertEqual(SENT_TO, [(jobs.ACTOR.name, "system", s["tenant"], links, s["tenant"]), (jobs.ACTOR.name, "system", None, links, admin)])
         wanted = {j.name: j.wanted for j in jobs.JOBS if j.name in ("notices", "admin_notices")}
         self.assertEqual({n: (w(cfg), w(self.cfg(s))) for n, w in wanted.items()},
                          {"notices": (True, False), "admin_notices": (True, False)})

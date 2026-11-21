@@ -155,13 +155,15 @@ def verify_pending(ctx: Context) -> None:
 
 
 def notices(ctx: Context) -> None:
-    """契約者あての知らせを送る（CL-3 の部品。送る順・文・送り直し・記録は部品の中の1か所。CL-3 の 4）。"""
-    ctx.part(ctx.cfg.notice_sender).deliver(ctx.access, ACTOR, ctx.tenant_id)
+    """契約者あての知らせを送る（CL-3 の部品。送る順・文・送り直し・記録は部品の中の1か所。CL-3 の 4）。ショートメールは、その契約者の回線から
+    （PC とのつながり links と回線の持ち主 sms_owner を渡す。CL-3 の 67）。"""
+    ctx.part(ctx.cfg.notice_sender).deliver(ctx.access, ACTOR, ctx.tenant_id, links=ctx.links, sms_owner=ctx.tenant_id)
 
 
 def admin_notices(ctx: Context) -> None:
-    """管理者あての知らせを送る（全体の取引で。部品は契約者あてと同じ）。"""
-    ctx.part(ctx.cfg.notice_sender).deliver(ctx.access, ACTOR, None)
+    """管理者あての知らせを送る（全体の取引で。部品は契約者あてと同じ）。ショートメールは、管理者自身の契約者（見守り役の設定 admin_tenant）の回線から
+    （CL-3 の 67。設定が無ければ None＝ショートメールでは送らない）。"""
+    ctx.part(ctx.cfg.notice_sender).deliver(ctx.access, ACTOR, None, links=ctx.links, sms_owner=ctx.cfg.admin_tenant)
 
 
 def verify_watch(ctx: Context) -> None:
