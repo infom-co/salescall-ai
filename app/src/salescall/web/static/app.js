@@ -75,12 +75,6 @@
       }
     });
   });
-  // 探す欄を開いたら、すぐ打てるようにする
-  document.addEventListener("toggle", function (e) {
-    if (e.target.matches && e.target.matches(".finder") && e.target.open) {
-      var i = e.target.querySelector("input"); if (i) i.focus();
-    }
-  }, true);
   // 依頼者のタブが横に入りきらないとき、いま開いている依頼者のタブを見える所へ送る
   document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll("[data-scroll-current]").forEach(function (s) {
@@ -145,20 +139,6 @@
   });
   document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll("form[data-needs-reason], .bulk-form").forEach(submitState);
-    // 狭い画面では、表の1行を「見出し：値」の札に並べ替える（CSS）。見出しは表の見出しから付ける（画面ごとに書かない）
-    document.querySelectorAll("table.list").forEach(function (table) {
-      var heads = Array.prototype.map.call(table.querySelectorAll("thead th"), function (th) { return th.textContent.trim(); });
-      table.querySelectorAll("tbody tr").forEach(function (tr) {
-        Array.prototype.forEach.call(tr.children, function (td, i) {
-          if (heads[i]) td.setAttribute("data-label", heads[i]);
-          var t = td.textContent.trim();
-          if (t.length <= 8) td.classList.add("short");   // 短い値は途中で折らない（「対応 / 中」と折れていた）
-          // スマホの札の形では、0 の数の段を出さない（CSS）。単位つきの 0（「0円」「0本」「0件」）も同じ（2026-11-20 の見直し：「0円」の段が並んでいた）。
-          // 「0.5」「0:30」のような 0 で始まる別の値は当てない
-          if (td.classList.contains("num") && /^0[^\d.,:]*$/.test(t)) td.classList.add("zero");
-        });
-      });
-    });
   });
   // 選ぶとすぐ絞る（ボタンを押さなくてよい）
   document.addEventListener("change", function (e) {
@@ -216,6 +196,12 @@
         Array.prototype.forEach.call(tr.children, function (td) {
           if (td.tagName === "TD" && !td.hasAttribute("data-label") && heads[col]) td.setAttribute("data-label", heads[col]);
           col += parseInt(td.getAttribute("colspan") || "1", 10);
+          if (td.tagName !== "TD") return;
+          var t = td.textContent.trim();
+          if (t.length <= 8) td.classList.add("short");   // 短い値は途中で折らない（「対応 / 中」と折れていた）
+          // スマホの札の形では、0 の数の段を出さない（CSS）。単位つきの 0（「0円」「0本」「0件」）も同じ（2026-11-20 の見直し）。
+          // 「0.5」「0:30」のような 0 で始まる別の値は当てない
+          if (td.classList.contains("num") && /^0[^\d.,:]*$/.test(t)) td.classList.add("zero");
         });
       });
     });
