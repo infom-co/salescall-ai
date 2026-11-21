@@ -55,16 +55,16 @@ class Reason(NamedTuple):
 
 REASONS: dict[str, Reason] = {
     "no_schedule": Reason("次の予定がありません", "cannot_judge", "plan"),
-    "task_ended": Reason("この行は処理済みです", "permanent", "plan"),
+    "task_ended": Reason("このお客様は済んでいます", "permanent", "plan"),
     "judge_pending": Reason("前の通話が判定できず、判定し直しを待っています", "wait", "plan"),
     "not_due": Reason("次の予定の時刻より前です", "wait", "plan"),
     "awaiting_decision": Reason("前の発信の判定と次の予定が、まだ済んでいません", "wait", "plan"),
     # 声が聞き取れずに終えた行（行の欄が「声のかけ直し待ち」＝DESIGN.md 17-1-2。2026-10-29 管理者：「回線が整えば、案Aでいい」・(4) 案A）：
     # 声が通ると分かっている回線が空いたら、その回線からお詫びとともにかけ直す（R-12）。来なければ、声が聞き取れなかった電話から並びの
     # 1つ目（15分）で同じ回線から（R-13）。⛔ 4段目の前：同じ回線ですぐ（1秒のうちに）かけ直した
-    "voice_redial": Reason("声が聞き取れずに終えた行です。声が通ると分かっている回線が空くのを待っています（声が聞き取れなかった電話から"
+    "voice_redial": Reason("声が聞き取れずに電話を終えたお客様です。声が通ると分かっている回線が空くのを待っています（声が聞き取れなかった電話から"
                            "15分たっても来なければ、同じ回線でお詫びとともにかけ直します）", "wait", "unoffered"),
-    "awaiting_approval": Reason("契約者の承認を使う業務で、この行がまだ承認されていません", "wait", "unoffered"),
+    "awaiting_approval": Reason("契約者の承認を使う業務で、このお客様がまだ承認されていません", "wait", "unoffered"),
     # 契約者が直した結果でかける電話で、直した契約者が「かけてよい」と確かめていない（✅ 2026-11-18 ユーザー：伺い2。0240。approval.uncleared の1か所）
     "correction_unconfirmed": Reason("契約者が直した結果でかける電話で、かけてよいかの確かめがまだです", "wait", "unoffered"),
     # 言ってはいけないことを言った通話で、お客様がかけ直しを約束していた：お詫びは約束の時刻の電話の頭で伝える（✅ 2026-11-08 ユーザー＝計画書
@@ -84,7 +84,7 @@ REASONS: dict[str, Reason] = {
     "dnc_client": Reason("発信禁止です", "permanent", "plan"),
     "dnc_contractor": Reason("契約者の共通の発信禁止です", "permanent", "plan"),
     "other_contractor_called": Reason("ほかの契約者がかけた番号です（契約者の設定で、かけない）", "permanent", "plan"),
-    "other_client_promise_never": Reason("同じ番号へ、ほかの約束の電話がかかります（契約者の設定で、この行はかけない）", "permanent", "plan"),
+    "other_client_promise_never": Reason("同じ番号へ、ほかの約束の電話がかかります（契約者の設定で、このお客様にはかけない）", "permanent", "plan"),
     "dnc_client_ref": Reason("この管理番号のお客様は発信禁止です", "permanent", "plan"),
     # 同じ業務で、用件・最終目的を断られたお客様（業務の設定で、次の実施回でもかけない＝2026-11-01 管理者：伺い8。決まりは
     # target_policy.block_reason の1か所。行を終える＝待っても変わらない）
@@ -93,15 +93,15 @@ REASONS: dict[str, Reason] = {
     # ✅ 2026-11-08 ユーザー＝計画書 7-3 (1)。決まりは target_policy.block_reason の1か所。0216）
     "declined_in_client": Reason("同じ依頼者のほかの業務で、用件を断られた・苦情があったお客様です（依頼者の設定で、その依頼者からはかけない）",
                                  "permanent", "plan"),
-    "max_attempts": Reason("この行に発信してよい回数を使い切りました", "permanent", "plan"),
-    "no_version": Reason("実施回に業務設定の版が割り当てられていません", "cannot_judge", "run"),
+    "max_attempts": Reason("このお客様に発信してよい回数を使い切りました", "permanent", "plan"),
+    "no_version": Reason("お客様リストに業務設定の版が割り当てられていません", "cannot_judge", "run"),
     "rules_missing": Reason("この版の業務の決まり（断りの答え・理由×扱い・再発信の方針）がありません", "cannot_judge", "run"),
     "settings_missing": Reason("この版の業務設定（名乗り・質問・目的のお客様など）が無いか、確かめに通りません", "cannot_judge", "run"),
-    "target_name_missing": Reason("この業務は目的のお客様を名前で呼びますが、この行に目的のお客様の名前がありません", "cannot_judge", "unoffered"),
-    "target_role_missing": Reason("この業務は目的のお客様を役職で呼びますが、この行に目的のお客様の役職がありません", "cannot_judge", "unoffered"),
+    "target_name_missing": Reason("この業務は目的のお客様を名前で呼びますが、お客様リストのこのお客様に、目的のお客様の名前がありません", "cannot_judge", "unoffered"),
+    "target_role_missing": Reason("この業務は目的のお客様を役職で呼びますが、お客様リストのこのお客様に、目的のお客様の役職がありません", "cannot_judge", "unoffered"),
     # 行の役職が「ご担当者」だけ（何の担当か無い）。理由の文は業務設定の1か所（business_settings.ROLE_UNCLEAR＝role_problem と同じ）。
     # ⛔ 2026-11-07 の第三者の見直し (2) の7：前は target_role_missing（「役職がありません」）で断り、何を直せばよいかが契約者に伝わらなかった
-    "target_role_unclear": Reason("この業務は目的のお客様を役職で呼びますが、この行の役職は、" + business_settings.ROLE_UNCLEAR,
+    "target_role_unclear": Reason("この業務は目的のお客様を役職で呼びますが、お客様リストのこのお客様の役職は、" + business_settings.ROLE_UNCLEAR,
                                   "cannot_judge", "unoffered"),
     "version_not_ready": Reason("この版は、まだかけられる段に入っていません（模擬通話・最初の段の前）", "wait", "stage"),
     "stage_full": Reason("いまの段の件数に達しました（次の段へ進むのを待っています）", "wait", "stage"),
@@ -109,19 +109,19 @@ REASONS: dict[str, Reason] = {
     # （✅ 2026-11-07 ユーザー「契約者が承認をしないと自動で入らず、新規の電話もかけられません、ダッシュボードに承認ボタンを分かりやすく
     # 表示」。止めるのは新しい電話＝お客様と約束したかけ直し・続きの電話・お詫びの電話・番号の聞き直しのほか＝`unconfirmed_solutions` の1か所。
     # 候補にも出さない。範囲の文は notify.SOLUTIONS_WAIT の1か所＝知らせの種類の説明と同じ）
-    "solutions_unconfirmed": Reason("この実施回の業務設定は、依頼者の解決策の入っていない版です。入っていない解決策を、ダッシュボードで"
+    "solutions_unconfirmed": Reason("このお客様リストの業務設定は、依頼者の解決策の入っていない版です。入っていない解決策を、ダッシュボードで"
                                     "「入れる」か「入れない」かを選んで承認してください（承認するまで、" + notify.SOLUTIONS_WAIT + "）",
                                     "wait", "unoffered"),
     # 「担当の方は違う」を選んで番号を直し、前の担当の方との約束も守ると選んだ行で、前の担当の方が新しいかけ直しの約束をした（✅ 2026-11-07
     # ユーザー＝計画書 7-1 (23)「契約者に知らせて選んでもらう」・選ぶまで、その行はかけない。決まりは tasks.old_promise_waiting の1か所。
     # 選ぶ入口は core/row_fixes.choose_old_promise）
     "old_promise_choice": Reason("番号を直す前の担当の方が、新しいかけ直しの約束をしました。ダッシュボードで、前の担当の方との約束を守るか、"
-                                 "新しい担当の方へかけるかを選んでください（選ぶまで、この行にはかけません）", "wait", "unoffered"),
+                                 "新しい担当の方へかけるかを選んでください（選ぶまで、このお客様にはかけません）", "wait", "unoffered"),
     # ⛔ 0217 の month_ahead_approval（1か月以上先のかけ直しで、契約者がまだ認めていない）は外した（0219）：契約者の答えを待つのは約束の時刻より前
     # だけになり（✅ 2026-11-12 ユーザー＝計画書 7-3 (3)「契約者に緊急の通知をして、約束の時間にかける」）、時刻より前の予定は門がもともと not_due で
     # かけないので、この理由で断る場面が無くなった。答えの無いまま約束の時刻が来た電話は通す（緊急の知らせは約束の時刻の5分前＝`month_ahead_unanswered`）
     "stopped": Reason("止まっています", "wait", "unoffered"),
-    "line_stopped": Reason("この回線が止まっています（回線の異常など。行は、ほかの回線でかけられる）", "wait", "line"),   # 回線の欄の休み・回線の停止
+    "line_stopped": Reason("この回線が止まっています（回線の異常など。お客様へは、ほかの回線でかけられる）", "wait", "line"),   # 回線の欄の休み・回線の停止
     "client_inactive": Reason("この依頼者は無効にしています", "wait", "client"),
     "line_retired": Reason("使わなくなった回線です", "wait", "line"),   # 回線の状態（行は、ほかの回線でかけられる）
     "outside_hours": Reason("かけてよい時間帯の外です", "wait", "plan"),
@@ -139,34 +139,34 @@ REASONS: dict[str, Reason] = {
     # 同じ番号へ、ほかの行（同じ依頼者のほかの業務・ほかの実施回・同じ契約者のほかの依頼者）の電話がかかったあと、依頼者ごとの設定
     # gate.same_number_gap（初め「その日はかけない」）の間が空いていない（✅ 2026-11-08 ユーザー＝計画書 7-3 (1)。⛔ 0215 まで：理由の名前は
     # cross_client_interval_same_tenant で、ほかの依頼者だけを3日で見ていた）
-    "same_number_interval": Reason("同じ番号へ、ほかの業務・実施回・依頼者の電話がかかったばかりです（依頼者ごとの設定の間をあけます）",
+    "same_number_interval": Reason("同じ番号へ、ほかの業務・お客様リスト・依頼者の電話がかかったばかりです（依頼者ごとの設定の間をあけます）",
                                    "wait", "plan"),
     "cross_client_interval_other_tenant": Reason("同じ番号へかけたばかりです", "wait", "plan"),   # 契約者の外は、中身を出さない
     # 顧客獲得型で、同じ業務の前の実施回にアポ（最終目的）を断られたお客様：前の電話から業務の設定 business.declined_wait_days の日数をあける（✅ 2026-11-20
     # ユーザー（計画書 9-9）「伺い83：…切られたり起こっていなかったらウ（間をあけてかける。30日）」。待つ時刻は core/target_policy.declined_wait_until の1か所。0263）
-    "declined_wait": Reason("同じ業務の前の実施回で、アポを断られたお客様です（業務の設定の日数をあけてかけます）", "wait", "plan"),
+    "declined_wait": Reason("同じ業務の前のお客様リストで、アポを断られたお客様です（業務の設定の日数をあけてかけます）", "wait", "plan"),
     "other_client_promise": Reason("同じ番号へ、ほかの約束の電話がかかります（契約者の設定で、その電話が済むまで待ちます）", "wait", "plan_if_known"),
     "number_promise_soon": Reason("同じ番号へ、お客様が時刻を指定した約束の電話が、もうすぐかかります（その電話が済むまで待ちます）", "wait", "plan_if_known"),
     "line_unknown": Reason("その回線はありません", "cannot_judge", "line"),
     "line_not_leased": Reason("回線を借りていません（または、借用の期限が予約証より先に切れます）", "wait", "line"),
     "line_daily_limit": Reason("この回線の、今日の発信の上限に達しました", "wait", "line"),
     "promise_soon": Reason("お客様が時刻を指定した約束が近いので、この回線では、この業務の電話（平均の長さでは約束までに終わらない）を始めません", "wait", "business"),
-    "excluded": Reason("「かけない」か「強制かけない」にしている行です（依頼者・契約者の都合。ダッシュボードで戻せます）", "wait", "unoffered"),
+    "excluded": Reason("「かけない」か「強制かけない」にしているお客様です（依頼者・契約者の都合。ダッシュボードで戻せます）", "wait", "unoffered"),
     # こちらのプログラムの不具合で、同じ行の電話が続けて終わった（2026-10-25 ユーザー：「2回続いたら、次の行へ」。行の欄が「休み」＝
     # DESIGN.md 17-1-2。候補を出す処理も同じ欄で出さない＝`TASK_STAGE_REASONS`）
-    "task_resting": Reason("こちらのプログラムの不具合で、この行の電話が続けて終わったので、休ませています（直す担当がその不具合を直したと"
+    "task_resting": Reason("こちらのプログラムの不具合で、このお客様への電話が続けて終わったので、休ませています（直す担当がその不具合を直したと"
                            "記録し、そのあとプログラムが替わるか、管理者・契約者が戻すと、またかけます）", "wait", "unoffered"),
     # こちらのプログラムの不具合で終えた電話のあと、復旧を待つ（2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さないといけない
     # でしょ！」。行の欄が「復旧待ち」＝DESIGN.md 17-1-2。候補を出す処理も同じ欄で出さない＝`TASK_STAGE_REASONS`）
-    "awaiting_recovery": Reason(f"こちらのプログラムの不具合でこの行の電話を終えたので、復旧を待っています（{errors.RECOVERY_WAIT}）",
+    "awaiting_recovery": Reason(f"こちらのプログラムの不具合でこのお客様への電話を終えたので、復旧を待っています（{errors.RECOVERY_WAIT}）",
                                 "wait", "unoffered"),
     "business_daily_limit": Reason("この業務の、今日の発信の上限に達しました（業務ごとの設定）", "wait", "business"),
     "line_other_client": Reason("この回線は、ほかの依頼者に割り当てた発信番号です", "wait", "line"),
-    "line_used_by_other_client": Reason("この発信番号で、ほかの依頼者がこの番号へかけたことがあるか、この依頼者のほかの業務・実施回がこの番号へ"
-                                        "いちばん新しくかけました（依頼者・業務・実施回が替わったら発信番号を替える）", "wait", "unoffered"),
+    "line_used_by_other_client": Reason("この発信番号で、ほかの依頼者がこの番号へかけたことがあるか、この依頼者のほかの業務・お客様リストがこの番号へ"
+                                        "いちばん新しくかけました（依頼者・業務・お客様リストが替わったら発信番号を替える）", "wait", "unoffered"),
     "line_busy": Reason("回線が使用中です", "wait", "line"),
     "voice_not_ready": Reason("この業務の、承認した録音のある声がありません", "wait", "run"),
-    "name_recording_missing": Reason("この行のお客様のお名前の録音（名前の録音の台帳の名前の部分・続く言葉）が、どの声でもまだ承認されて"
+    "name_recording_missing": Reason("このお客様のお名前の録音（名前の録音の台帳の名前の部分・続く言葉）が、どの声でもまだ承認されて"
                                      "いません", "wait", "unoffered"),
     # お詫びを伝える電話（core/apology.carries）で、お詫びの録音の声が、いま話してよい声でない（その声の共通の一言・業務の録音の録り直しがまだ など。
     # 2026-11-15 の見直し）。その声がそろうまで待つ（お詫びの録音はその声でしか流せない＝0131）
@@ -176,11 +176,11 @@ REASONS: dict[str, Reason] = {
     # 断り、回線の処理が実施回のほかの行もその回は飛ばした＝その行が毎回先頭に出て、実施回全体がかからなかった）
     "business_voice_not_ready": Reason("この番号へ同じ業務で前に話した声が、いま話してよい声ではありません（その声の録音がそろうまで待ちます）",
                                        "wait", "unoffered"),
-    "voice_used_by_other_client": Reason("ほかの依頼者・この依頼者のほかの業務や実施回が、この番号へ同じ声でかけています（別の声の録音が"
+    "voice_used_by_other_client": Reason("ほかの依頼者・この依頼者のほかの業務やお客様リストが、この番号へ同じ声でかけています（別の声の録音が"
                                          "ありません）", "wait", "unoffered"),
     "client_concurrency": Reason("この依頼者の同時の本数の上限です", "wait", "client"),
-    "contact_active": Reason("同じ番号のお客様（この依頼者の別の行を含む）に、進行中の発信があります", "wait", "task"),
-    "task_active": Reason("この行（ほかの番号を含む）に、進行中の発信があります", "wait", "task"),
+    "contact_active": Reason("同じ番号のお客様（この依頼者のほかのお客様リストのお客様を含む）に、進行中の発信があります", "wait", "task"),
+    "task_active": Reason("このお客様（ほかの番号を含む）に、進行中の発信があります", "wait", "task"),
     "number_active_same_client": Reason("同じ番号に、進行中の発信があります", "wait", "task"),
     "number_active_same_tenant": Reason("同じ番号に、ほかの依頼者の進行中の発信があります", "wait", "task"),
     "number_active_other_tenant": Reason("同じ番号に、進行中の発信があります", "wait", "task"),   # 契約者の外は、中身を出さない
@@ -739,7 +739,7 @@ def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str, number: UUID | None = 
 # 注意には短い文だけ。詳しい説明は、登録画面の i マーク（core/help_texts.py の "line.client"。2026-10-17 ユーザー）
 OWN_LINE_MISSING = "この依頼者に専用の発信番号がありません。発信番号を依頼者タブの「回線（発信番号）」で設定してください。"
 # 依頼者の使える回線がどれも、同じ番号へのほかの行の電話でお客様が見た発信番号のときの注意（`_no_line_to_switch`。注意には短い文だけ）
-LINE_NONE_TO_SWITCH = ("この依頼者の回線では、発信番号を替えられないため待っている電話があります（同じ番号へ、ほかの業務・実施回が前に"
+LINE_NONE_TO_SWITCH = ("この依頼者の回線では、発信番号を替えられないため待っている電話があります（同じ番号へ、ほかの業務・お客様リストが前に"
                        "かけています）。回線（発信番号）を依頼者タブの「回線（発信番号）」で足してください。")
 
 
@@ -748,13 +748,13 @@ VOICE_LIST_MISSING = ("この業務設定の版の、録音の部分の一覧が
                       "（それまで、この版ではかけません）。")
 VOICE_PARTS_MISSING = ("システムの録音（どの契約者にも同じ、共通の一言・標準の想定問答の答え）に、足りない録音があります（{}）。管理者が足りない"
                        "録音を入れた組を作り、聞いて承認するまで、その声ではかけません。")
-NAME_RECORDING_MISSING = ("お名前の録音（名前の録音の台帳）がそろっていない行があります（例：{}）。台帳の録音を作り、聞いて承認して"
-                          "ください（それまで、その行はかけません）。")
+NAME_RECORDING_MISSING = ("お名前の録音（名前の録音の台帳）がそろっていないお客様がいます（例：{}）。台帳の録音を作り、聞いて承認して"
+                          "ください（それまで、そのお客様にはかけません）。")
 APOLOGY_VOICE_NOT_READY = ("お詫びを伝える電話（お詫びだけの電話・約束の電話の頭のお詫び）は、お詫びの録音の声（{}）で話しますが、その声がいま話してよい声"
-                           "ではありません（その声の共通の一言・業務の録音の録り直しや承認がまだ など）。その声の録音がそろうまで、この行にはかけません。")
+                           "ではありません（その声の共通の一言・業務の録音の録り直しや承認がまだ など）。その声の録音がそろうまで、このお客様にはかけません。")
 SAME_VOICE_NOT_READY = ("この番号へ同じ業務で前に話した声（{}）が、いまの業務設定の版では話せません（その声の録音がまだ承認されていない など）。同じ業務は"
-                        "同じ声でかけるので、その声の録音を承認するまで、この行にはかけません。")
-OTHER_VOICE_MISSING = ("別の声の録音がありません。ほかの依頼者や、この依頼者のほかの業務・実施回がかけた番号へは、同じ声ではかけません。"
+                        "同じ声でかけるので、その声の録音を承認するまで、このお客様にはかけません。")
+OTHER_VOICE_MISSING = ("別の声の録音がありません。ほかの依頼者や、この依頼者のほかの業務・お客様リストがかけた番号へは、同じ声ではかけません。"
                        "別の声の録音を承認してください。")
 
 
@@ -1004,7 +1004,7 @@ PLAN_KEPT = frozenset(REASONS) - _handled("plan") - _handled("plan_if_known")
 
 # 門が設定の抜けで待たせる理由と、契約者への注意の短い文（2026-10-17 の見直し：前は黙って待たせていた）
 SETTING_GAPS: dict[str, str] = {
-    "no_version": "実施回に業務設定の版が割り当てられていません。業務設定の版を割り当ててください。",
+    "no_version": "お客様リストに業務設定の版が割り当てられていません。業務設定の版を割り当ててください。",
     "rules_missing": "業務設定の版に、業務の決まり（断りの答え・理由ごとの扱い・かけ直し）がありません。業務設定を直してください。",
     "settings_missing": "業務設定の版が確かめに通りません。業務設定を直してください。",
     "setting_missing": "設定の値が決まっていない項目があります。設定を確かめてください。",

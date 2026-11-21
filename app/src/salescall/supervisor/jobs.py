@@ -108,7 +108,7 @@ def rejudge_held(ctx: Context) -> None:
 def reopen_revoked(ctx: Context) -> None:
     """発信禁止で門が終えた行のうち、そのあと登録が取り消されたものを、終える前の予定に戻す（依頼者ごと。契約者の共通の台帳の取り消しは、
     すべての依頼者の行に効くので、ここで戻す。どの行を戻すかは core/next_action.reopen_revoked の1か所。2026-10-30 管理者のご決定 (7)）。"""
-    _each(ctx, "発信禁止の取り消しで行を戻す", _clients(ctx),
+    _each(ctx, "発信禁止の取り消しでお客様を戻す", _clients(ctx),
           lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, lambda tx: next_action.reopen_revoked(
               tx, cause="発信禁止の取り消し：終える前の予定に戻す")))
 
@@ -180,7 +180,7 @@ def _probe(ctx: Context, run: Callable[[Callable[[Any], Any]], Any]) -> None:
         begun = run(watch.check_begins)   # 確かめを始めた時刻（このあとに止まったAIがあれば解かない・解いたらここから数え直す。0159）
         ok, evidence = prober.probe(stop)
         run(lambda tx: watch.record_check(tx, stop["event_id"], ok, evidence=evidence, begun_at=begun))
-    _each(ctx, "停止を解く確かめ",
+    _each(ctx, "止めた発信を再開する確かめ",
           run(watch.due_checks), one)
 
 
@@ -231,7 +231,7 @@ def month_ahead_notices(ctx: Context) -> None:
 def quality_production(ctx: Context) -> None:
     """本番になった業務の品質の停止を解く（依頼者ごと。決めるのは core/quality_stage.release_production の1か所。品質の門は検証モードの業務
     だけ＝原則9）。依頼者ごとに別の取引（1つの依頼者の誤りで、ほかの依頼者を止めない）。"""
-    _each(ctx, "本番になった業務の品質の停止を解く", _clients(ctx),
+    _each(ctx, "本番になった業務の、品質で止めた発信を再開する", _clients(ctx),
           lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, quality_stage.release_production))
 
 

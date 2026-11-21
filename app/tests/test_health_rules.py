@@ -772,7 +772,7 @@ class Decisions(unittest.TestCase):
         back = ok(self, h.apply(first.state, ev("E11", T0 + MIN), R)).state
         second = ok(self, h.apply(back, ev("E3", T0 + 2 * MIN), R))
         self.assertEqual((second.state.stage, second.rows), (TS.RESTING, ("R-8",)))   # 2回続いたら次の行へ
-        self.assertIn("次の行へ進みます", second.actions[-1].get("about"))
+        self.assertIn("次のお客様へ進みます", second.actions[-1].get("about"))
         ten = Tenant(CS.NORMAL)
         for i, task in enumerate(("t1", "t1", "t2")):
             ten = ok(self, h.apply(ten, ev("E3", task=task), R)).state

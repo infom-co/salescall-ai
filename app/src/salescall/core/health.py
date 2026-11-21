@@ -334,7 +334,7 @@ def _stop_calls(run: _Run, g: _Given) -> int | None:
     if stops.open_same(run.tx, scope="tenant", cause=STOP_CAUSE, tenant_id=run.tenant) is not None:
         return None
     kinds = "・".join(sorted(g.box.state.stopped)) if isinstance(g.box.state, hr.Tenant) else ""
-    return stops.stop(run.tx, scope="tenant", cause=STOP_CAUSE, reason=f"こちらのプログラムの同じ不具合が違う行で続いた（{kinds}。17章の C-1）",
+    return stops.stop(run.tx, scope="tenant", cause=STOP_CAUSE, reason=f"こちらのプログラムの同じ不具合が違うお客様で続いた（{kinds}。17章の C-1）",
                       evidence=f"状態の欄：{g.event.code}", tenant_id=run.tenant, admin=True, notify=False)["event_id"]
 
 

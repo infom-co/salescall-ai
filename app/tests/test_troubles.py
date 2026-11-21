@@ -194,7 +194,7 @@ class OurTroubles(SupervisorBase):
             "SELECT summary FROM salescall.notification_events WHERE kind = 'error_notice'"
             " AND tenant_id = salescall.cur_tenant()")])   # この契約者の知らせだけ（全体の知らせは、どの契約者からも見える）
         for summary in summaries:                                              # その行が何を待っているか（0143。新しい知らせは増やさない）
-            self.assertIn("この行は復旧を待っています", summary)
+            self.assertIn("このお客様は復旧を待っています", summary)
             self.assertIn("その不具合を直したと記録され、そのあとプログラムが替わったら", summary)
         self.assertEqual(self.notices(s, "task_resting"), (1, 1))
         self.assertIn(len(self.requests("CL-1", "call_ai_malfunction")), range(max(1, asked_before), asked_before + 2))   # 電話ごとに重ねない

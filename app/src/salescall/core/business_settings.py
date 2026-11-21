@@ -2066,7 +2066,7 @@ def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
     t = tx.one("SELECT t.*, salescall.run_current_version(t.run_id) AS version_id, salescall.task_call_period(t.task_id) AS period"
                " FROM salescall.task_call_values(%s) t", (task_id,))
     if t is None:
-        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+        raise LookupError(f"そのお客様は無い（または、取引の範囲の外）：{task_id}")
     # 会話の中で確かめた読みは、その名前を直したより後に確かめたものだけ（直す前の名前の読みを、直したあとの名前に付けない）。お呼びする方の
     # 名前の読みは、同じ担当の期の通話で確かめたものだけ（ほかの担当の方の通話で確かめた読みを付けない。会社名は、担当の方によらない）
     said = {r["which"]: r["reading"] for r in tx.all(
@@ -2125,7 +2125,7 @@ def who_unclear_blanks(tx: Tx, task_id: UUID, *, before: datetime | None = None)
     core/next_action.answer_still_ends が読む。0213）。"""
     t = tx.one("SELECT target_full_name, target_department FROM salescall.task_values(%s, %s::timestamptz)", (task_id, before))
     if t is None:
-        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+        raise LookupError(f"そのお客様は無い（または、取引の範囲の外）：{task_id}")
     have = {"full_name": t["target_full_name"], "department": t["target_department"]}
     return tuple(f for f in WHO_UNCLEAR_FIELDS if not have[f])
 
@@ -2168,8 +2168,8 @@ def assign_problems(tx: Tx, run_id: UUID, version_id: UUID) -> list[str]:
     （⛔ 2026-11-15 の見直しまで：「ご担当者」だけの役職の行も「その列がありません」と言い、行はダッシュボードで直せるのに「取り込み直しても足せません」と言った）。"""
     s = load(tx, version_id)                         # 中身・業務の決まりが確かめに通る版だけ
     missing = _open_tasks_missing(tx, run_id, s.target_needs())
-    return [f"この実施回のまだ終えていない行のうち {n} 行：{why}。ダッシュボードで行を直すか、この版は、目的のお客様を呼ぶ材料のある一覧を取り込んだ"
-            "新しい実施回に割り当ててください" for why, n in missing.items()]
+    return [f"このお客様リストのまだ終えていないお客様のうち {n} 件：{why}。ダッシュボードでお客様の情報を直すか、この版は、目的のお客様を呼ぶ材料のある一覧を取り込んだ"
+            "新しいお客様リストに割り当ててください" for why, n in missing.items()]
 
 
 # ── 版を足して、そろったら自動で替える（1か所。DESIGN.md 3-8-3 の (5)・0183）
@@ -2344,7 +2344,7 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = 
         "        %s, salescall.cur_actor(), %s, %s FROM salescall.runs r WHERE r.run_id = %s RETURNING seq",
         (version_id, reason, auto, run_id))
     if row is None:
-        raise LookupError(f"その実施回は無い（または、取引の範囲の外）：{run_id}")
+        raise LookupError(f"そのお客様リストは無い（または、取引の範囲の外）：{run_id}")
     # 手で版を替えた・実施回を作るときに古い版を選んだ：その流れにあって、この版に無い依頼者の解決策を「手で外した」と残す（取り込み直しでも
     # 自動では入れない・契約者が確かめるまで、まだかけていない行へかけない＝✅ 2026-11-07 ユーザー）。印を付けるのは、割り当てと同じ取引で
     # データベースの1か所（0201 の salescall.hand_removals。自動の割り当ては除く）。ここは、その印を契約者に知らせる

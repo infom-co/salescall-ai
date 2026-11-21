@@ -65,7 +65,7 @@ def stop(reason: str) -> Path:
 def ask_release(reason: str) -> bool:
     """解いてほしいことを印に書く（PC の部品がサーバーに届け、解けたら印を消す）。止めていなければ False。"""
     if not reason.strip():
-        raise ValueError("解く理由を書いてください")
+        raise ValueError("再開する理由を書いてください")
     now = engaged()
     if now is None:
         return False
@@ -111,5 +111,5 @@ def main(argv: list[str]) -> int:
     if not ask_release(reason):
         print("止めていません（この PC の印はありません）")
         return 1
-    print("解いてほしいことを印に書きました。PC の部品がサーバーに届けて、解けたら印を消します（届かないうちは止めたままです）")
+    print("再開してほしいことを印に書きました。PC の部品がサーバーに届けて、再開できたら印を消します（届かないうちは止めたままです）")
     return 0

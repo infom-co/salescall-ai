@@ -125,7 +125,7 @@ def _changes_note(tx: Tx, task_id: UUID, found: dict[str, Any], columns: dict[st
     diffs = [f"{columns[mine]}（一覧：{found[mine] or '空'}／いま：{now[theirs] or '空'}）"
              for mine, theirs in _COMPARED if mine in columns and not _same(tx, found[mine] or None, now[theirs] or None)]   # 一覧に無い欄は比べない
     since = next_action.person_now(tx, task_id)
-    out = f"（一覧と違う所。行は変えません：{'・'.join(diffs)}）" if diffs else ""
+    out = f"（一覧と違う所。登録済みのお客様の値は変えません：{'・'.join(diffs)}）" if diffs else ""
     if since is not None:
         whose = "一覧の方（前の担当の方）の連絡先として残します（いまの方へのご案内には使いません）" if _list_owner(tx, task_id, found) \
             else "いまの方の連絡先として足します"
@@ -335,7 +335,7 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
     run = tx.one("SELECT tenant_id, client_id, business_id, salescall.run_current_version(run_id) AS version_id"
                  " FROM salescall.runs WHERE run_id = %s", (run_id,))
     if run is None:
-        raise ImportRejected("その実施回はありません")
+        raise ImportRejected("そのお客様リストはありません")
     cols = _columns(sheet, mapping)
     # 目的のお客様に要る列（実施回に版があれば、その版の業務設定の1か所で決まる。版が無ければ、割り当てるときに確かめる）
     needs = None
@@ -344,7 +344,7 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
             needs = business_settings.load(tx, run["version_id"]).target_needs()
         except (LookupError, business_settings.SettingsInvalid, business_settings.business_rules.RulesMissing,
                 business_settings.business_rules.RulesInvalid) as e:
-            raise ImportRejected(f"この実施回の業務設定の版が、確かめに通りません（{e}）。版を直してから取り込んでください") from None
+            raise ImportRejected(f"このお客様リストの業務設定の版が、確かめに通りません（{e}）。版を直してから取り込んでください") from None
     if needs is not None and needs.name and "person_name" not in cols:
         raise ImportRejected("この業務は目的のお客様を名前で呼ぶので、目的のお客様の名前の列を選んでください")
     if needs is not None and needs.role and "person_role" not in cols:
@@ -479,18 +479,18 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
             new_values = tuple(v for v in found["contact_values"]
                                if (v[0], v[2].strip() if v[2] else None, v[1].strip()) not in ever)
             added = [title(fields[x.e164]) for x, _ in new_records] + [title({kind: f for f, kind in _CONTACT_FIELDS.items()}[k]) for k, _, _ in new_values]
-            note = "この実施回に、もう登録されています" + (f"（一覧で増えた連絡先を足します：{'・'.join(added)}）" if added else "") \
+            note = "このお客様リストに、もう登録されています" + (f"（一覧で増えた連絡先を足します：{'・'.join(added)}）" if added else "") \
                 + _changes_note(tx, existing["task_id"], found, {f: title(f) for f, _ in _COMPARED if f in cols})
             if dial != number.e164:   # ダッシュボードで直した、かける番号（行は変えない＝直したあとはダッシュボードが正）
                 note += f"（かける番号は、ダッシュボードで直した番号のままです：一覧 {number.e164}／いま {dial}）"
             now_level = exclusions.level(tx, existing["task_id"])
             if exclusions.LEVELS.index(found["exclusion"]) > exclusions.LEVELS.index(now_level):   # 取込は印を強めるだけ（exclusions.mark）
-                note += f"（一覧の「かけない」の列で、この行を「{exclusions.LEVEL_NAMES[found['exclusion']]}」にします。いまは"\
+                note += f"（一覧の「かけない」の列で、このお客様を「{exclusions.LEVEL_NAMES[found['exclusion']]}」にします。いまは"\
                         f"「{exclusions.LEVEL_NAMES[now_level]}」）"
             if bad_record is not None:
                 note += f"（{bad_record[1]}。その番号は足しません）"
             if blocked is not None:
-                note += f"（{blocked[1]}。この行には、門がかけません）"
+                note += f"（{blocked[1]}。このお客様には、門がかけません）"
             rows.append(RowPlan(row.row_no, "already", "already_in_run", note, task_id=existing["task_id"],
                                 **dict(found, record_numbers=new_records, contact_values=new_values,
                                        owner_period=owner)))
@@ -508,7 +508,7 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
         found["record_numbers"] = tuple(records)
         e164 = number.e164
         if e164 in taken_number:
-            rows.append(stop("duplicate_number_in_file", f"行 {taken_number[e164]} と同じ番号です（1つの番号は1行だけ登録します）",
+            rows.append(stop("duplicate_number_in_file", f"行 {taken_number[e164]} と同じ番号です（1つの番号で登録するお客様は1件だけです）",
                              **found))
             continue
         if ref is not None and ref in taken_ref:
@@ -516,10 +516,10 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
             continue
         # 同じ番号・同じ管理番号の登録済みの行は、上の1か所（一覧で増えた連絡先を足す）で決めた。ここに来る登録済みの番号は、別の管理番号のもの
         if in_run_by_number.get(e164) is not None:
-            rows.append(stop("number_in_run_other_ref", "この番号は、この実施回に、別の管理番号で登録されています", **found))
+            rows.append(stop("number_in_run_other_ref", "この番号は、このお客様リストに、別の管理番号で登録されています", **found))
             continue
         if ref is not None and ref in in_run_by_ref:
-            rows.append(stop("ref_in_run", "この管理番号は、この実施回に、別の番号で登録されています", **found))
+            rows.append(stop("ref_in_run", "この管理番号は、このお客様リストに、別の番号で登録されています", **found))
             continue
         else:
             short = needs.missing(name=person_name, role=person_role) if needs is not None else None

@@ -384,7 +384,7 @@ def watch_stuck_verifications(tx: Tx) -> int:
                  " WHERE verification = 'pending' AND ended_at < now() - %s", (wait,))
     if row["n"]:
         fix_requests.request(tx, "CL-1", "verification_stuck", key="verification_stuck",
-                             summary="通話後の検証が終わらない通話があります。その行とお客様は、検証が済むまでかけられません",
+                             summary="通話後の検証が終わらない通話があります。そのお客様には（ほかのお客様リストの同じお客様にも）、検証が済むまでかけられません",
                              refs={"count": row["n"], "oldest_ended_at": row["oldest"]})
     return row["n"]
 
