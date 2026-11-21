@@ -24,7 +24,7 @@ from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
-from phrases import LISTED_ASK, LISTED_DIALED_ID, UNTIL_ASK, brief_sorry_text, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
+from phrases import LISTED_ASK, LISTED_DIALED_ID, UNTIL_ASK, UNTIL_LEAN_ASK, brief_sorry_text, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
 from phrases import YES_LEADS, YES_RECEIVE, fixed_words, yes_line
 from phrases import ACQUIRE_SPECIAL, LISTEN_TIME, NAME_FORMS, PAIN_TOLD, RECEPTION_PARTS, visit_id
 from phrases import AGAIN_LEAD, LEAD_PIECES, OTHERS_HEAD, again_fit, back_fit, closes, drop_receipt, head_join, head_word, heads_said
@@ -2956,12 +2956,15 @@ UNTIL_TAIL = ("までに", "まで", "より前", "前")
 _UNTIL = re.compile(rf"\d{{1,2}}時半?(?:{'|'.join(UNTIL_TAIL[:-1])}|前(?!後))|\d{{1,2}}(?:時\d{{1,2}}分|日)(?:{'|'.join(UNTIL_TAIL[:-1])})")
 
 
-def until_ask_line(value: str | None) -> str:
+def until_ask_line(value: str | None, lean: str | None = None) -> str:
     """「〇時まで」の理由を伺い直す一言（phrases.UNTIL_ASK）を作る唯一の場所（Flow._ask_until）：{t}＝お客様の言った「〇時まで」の時刻・日（_UNTIL の当たりから終わりの
-    言葉 UNTIL_TAIL を外した所＝「3時までなら」⇒「3時」・「15時までに」⇒「15時」）。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い63：ア」"""
+    言葉 UNTIL_TAIL を外した所＝「3時までなら」⇒「3時」・「15時までに」⇒「15時」）。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い63：ア」。
+    lean＝判定の読みが割れたときの具体的な理由（UNTIL_LABEL の鍵＝Flow._until_lean の1か所）：その向きの一言（phrases.UNTIL_LEAN_ASK＝伺い63 と同じ「〜ということでしょうか？」の形）。
+    「それまでは出られる（それ以降は難しい）」の向き・向きの読みが無い（None）ときは伺い63 の一言のまま。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、
+    進めてください」（伺い98 ア）"""
     m = _UNTIL.search(value or "")
     t = re.sub("(?:" + "|".join(UNTIL_TAIL) + ")$", "", m.group()) if m else (value or "")
-    return UNTIL_ASK.format(t=t)
+    return UNTIL_LEAN_ASK.get(lean or "", UNTIL_ASK).format(t=t)
 # ✅ 2026-10-25 日本時間の夕方 ユーザー：お休みは長期の不在から分ける（「本日は休み・出張 → 「いつごろお戻りのご予定かお分かりでしょうか？」
 # 出張ならいいが、お休みだとおかしい⇒ 「次のご出社はいつかお分かりになりますでしょうか？」」）。違うのは伺う一言だけ（CALLBACK_PLAN）
 CALLBACK_LABEL = {"absent": "不在", "day_off": "お休み", "long_absent": "長期の不在", "other_number": "別の番号へ", "later": "あとで",
@@ -10697,6 +10700,17 @@ class Flow:
             now = {"cycle": judged_item(readings, CYCLE, CYCLE_OF), "until_why": judged_item(readings, UNTIL_WHY, UNTIL_OF)}
         return {k: (v if k in keys else None) or it.pending_reasons.get(k) for k, v in now.items()}   # 鍵の名前は項目の名前（CYCLE・UNTIL_WHY）と同じ
 
+    def _until_lean(self) -> str | None:
+        """「〇時まで」の理由が _reasons_of で決まらない（判定の組の読みが割れた・届かない・言っていない）ときに、伺い直す一言（_ask_until＝until_ask_line）の向きにする具体的な理由
+        （UNTIL_LABEL の鍵。唯一の読み＝_reasons_of と同じ、答えを当てる言葉 heard_check への判定の読みの項目 UNTIL_WHY）：届いた順に読み、最初の具体的な理由（UNTIL_OF にある＝
+        言っていない・決められないでない）。2つの読みが別々の具体的な理由なら先に届いた読みの理由（伺わずに受け取るのは、そろった読み・届いた1つが具体的な理由のとき＝_reasons_of
+        のまま）。具体的な理由の読みが1つも無い・判定を使わない通話は None（伺い63 の一言のまま）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めて
+        ください」（伺い98 ア）。⛔ 21263a4a まで、割れた読みのどちらでも伺い63 の一言（お客様のおっしゃった向きと逆の向き）"""
+        if not self.judging:
+            return None
+        got = (getattr(v, UNTIL_WHY, None) for k, v in self.heard_check.items() if k in JUDGMENTS and v is not None)   # dict の並び＝届いた順（on_check）
+        return next((UNTIL_OF[w] for w in got if w in UNTIL_OF), None)
+
     @staticmethod
     def _hold_reasons(it: "Item", reasons: dict, reply: dict) -> dict:
         """答えを受け取って次の段を伺う返事 reply（日時の2択の次の2択・お客様から折り返していただく日の2択・午前と午後・「〇時まで」の理由の伺い直し）の前に、その答えと一緒に
@@ -17832,11 +17846,12 @@ class Flow:
         """「あとで」のかけ直しの「〇時まで」で、いま電話を続けられない理由が分からない：1回だけ「恐れ入ります。（時刻）までということはそれ以降はお電話が難しいと
         いうことでしょうか？」（phrases.UNTIL_ASK・文は until_ask_line の1か所。時刻の入る文＝会話AIの声）で伺い直す。聞き返しの回数には数えない。お返事を待つ間は、
         判定に見せる質問・聞き返し・別のお話のあとの戻りも、この一言（質問の文を置き換える＝日時の2択の段の文と同じ形 _ladder_set）。お返事は _until_take の1か所。
-        ✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い63：ア」。⛔ f1c0af7e まで、その時刻の質問を伺ったときと同じ一言をもう一度流した（2択の段では伺い直さなかった）"""
+        ✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い63：ア」。⛔ f1c0af7e まで、その時刻の質問を伺ったときと同じ一言をもう一度流した（2択の段では伺い直さなかった）。
+        判定の読みが割れて具体的な理由の読みがあれば、その向きの一言（_until_lean＝伺い98 ア。✅ 2026-11-21 日本時間14時59分44秒）"""
         it, q = self.items[qid], self.questions[qid]
         it.until_asked, it.until_held = True, (value, q)
         it.set("unclear", f"「{value}」の、いま電話を続けられない理由が分からない（理由で、かけてよい時間が決まる）")
-        say = until_ask_line(value)
+        say = until_ask_line(value, self._until_lean())   # 判定の読みが割れたら、具体的な理由の向きで（伺い98 ア）
         self.questions[qid] = dataclasses.replace(q, text=say, recording="", voiced=True, plain=None)
         hint = (f"相手の答えに、いま電話を続けられない理由（{'・'.join(UNTIL_LABEL.values())}）があれば「{ARG_LABEL['until_why']}」も選んで、"
                 f"record_answer で報告します（値は、相手が時刻を言い直さなければ「{value}」のまま）。")

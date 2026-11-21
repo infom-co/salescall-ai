@@ -41269,7 +41269,10 @@ class RereadRowsTest(unittest.TestCase):
              "お客様から折り返していただく日の2回目の2択（「本日はちょっと難しいですね。」のあとの「明日と火曜日」）": ("C1", "それでは明日と火曜日ではどちらになりますでしょうか？", ""),
              "お客様から折り返していただく日の2回目の2択（「どちらもちょっと難しいですね。」のあとの「火曜日と水曜日」）": ("C1", "それでは火曜日と水曜日ではどちらになりますでしょうか？", ""),
              "日時の2択の段の言い直しに日だけ直されたあとの時刻の2択（「いえ、水曜日でお願いします。」・水曜日の4時は空いている予定に無い＝「水曜日でしたら2時と3時」）": (
-                 "C1", "それでは水曜日でしたら2時と3時ではどちらがよろしいでしょうか？", "")}
+                 "C1", "それでは水曜日でしたら2時と3時ではどちらがよろしいでしょうか？", ""),
+             # 分身 AB の (1)：「〇時まで」の理由の読みが割れ、具体的な理由の向きで伺い直した一言のあと（review_words.ASK_ROWS）
+             "「〇時まで」の理由を向きのある一言で伺い直したあと（時刻の2択に「3時までには戻ってます。」・判定の読みが割れた）": (
+                 "C1", "恐れ入ります。3時まではお電話が難しいということでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -41286,13 +41289,13 @@ class RereadRowsTest(unittest.TestCase):
     def test_1_new_scenes_are_built_by_the_one_count(self):
         import g53_meaning as g
         from flowctl import AWAY, AWAY_NO, PROMPT_REPLY, PROMPT_REPLY_YES, VALUE_CHOICE, WRONG, WRONG_NOT_SAID
-        from review_words import AGAIN_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
+        from review_words import AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
         qs = questions()
         rows = [it for it in answer_words() if it.get("scene") in NEW_SCENES]
         self.assertEqual({it["scene"] for it in rows}, set(NEW_SCENES))
         self.assertEqual(set(self.SHOWN), set(NEW_SCENES))
-        # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行
-        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS) if it.get("scene") in NEW_SCENES])
+        # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行・ASK_ROWS＝分身 AB が足した行
+        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS) if it.get("scene") in NEW_SCENES])
         for it in rows:
             with self.subTest(text=it["text"], scene=it["scene"]):
                 q = qs[it["qid"]]
@@ -43844,6 +43847,134 @@ class UntilAskAgainTest(unittest.TestCase):
         self.assertEqual(until_ask_line("火曜日の15時までに"), "恐れ入ります。15時までということはそれ以降はお電話が難しいということでしょうか？")
         self.assertEqual(until_ask_line("3時半まで"), "恐れ入ります。3時半までということはそれ以降はお電話が難しいということでしょうか？")
         self.assertNotIn("、", until_ask_line("3時まで").removeprefix("恐れ入ります。"))   # 決まった言い方の途中に読点を入れない（10-15）
+
+
+class UntilLeanTest(unittest.TestCase):
+    """伺い98 ア（✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」）：「〇時まで」の理由の判定の読みが割れたとき、具体的な理由の読みが
+    あれば、その向きで伺い63 と同じ形で確かめる（それまでは出られない＝「恐れ入ります。3時まではお電話が難しいということでしょうか？」・それまでに確認・準備＝「恐れ入ります。
+    3時までにご確認いただけるということでしょうか？」・別の番号・別の方へ＝「恐れ入ります。3時までは別のお電話番号へおかけするということでしょうか？」）。2つの読みが別々の
+    具体的な理由なら先に届いた読みの理由・向きの読みが1つも無ければ伺い63 の一言のまま・2つの読みがそろったとき・届いた1つが具体的な理由のときは今のまま伺い直さずに受け取る。
+    理由を決める1か所（Flow._reasons_of の読み＝Flow._until_lean）と、伺い直しの一言の1か所（until_ask_line）に乗せた。⛔ 21263a4a まで、割れた読みのどちらの向きでも伺い63 の
+    一言（「…それ以降はお電話が難しいということでしょうか？」）＝お客様のおっしゃった向き（3時以降なら出られる）と逆を伺った（伺いの文 rv184/T/asks98_100.md の伺い98）"""
+    WORDS = "3時までには戻ってます。"
+    LEAN = {"unavailable": "恐れ入ります。3時まではお電話が難しいということでしょうか？",
+            "preparing": "恐れ入ります。3時までにご確認いただけるということでしょうか？",
+            "other_party": "恐れ入ります。3時までは別のお電話番号へおかけするということでしょうか？"}
+
+    @staticmethod
+    def said(f, words, value, whys, cond="答えた"):
+        """判定2つの「〇時まで」の理由の読み whys（届いた順＝(受け持ち, 読み)。読み None＝届かない）で、時刻の2択の答えを報告する。"""
+        from flowctl import CALLBACK_IDS, UNTIL_WHY
+        f.on_callee(); f.on_heard(words)
+        for k, why in whys:
+            if why is None:
+                continue
+            rd = CallbackTimeAheadTest.rd(cond)
+            setattr(rd, UNTIL_WHY, why)
+            f.on_check(k, rd)
+        f.on_decided()
+        return f.apply("record_answer", {"question_id": CALLBACK_IDS["time"], "condition_id": cond, "value": value})
+
+    def asked(self, whys):
+        d, f = UntilAskAgainTest().at_hours()
+        r = self.said(f, self.WORDS, "3時まで", whys)
+        return d, f, r
+
+    def test_split_reading_leans_to_the_concrete_reason(self):
+        from flowctl import UNTIL_LABEL as U, UNTIL_WHY_NOT_SAID as NS, UNDECIDED
+        for whys, want in (((("judge", U["unavailable"]), ("judge2", NS)), "unavailable"),
+                           ((("judge", NS), ("judge2", U["unavailable"])), "unavailable"),
+                           ((("judge", U["preparing"]), ("judge2", NS)), "preparing"),
+                           ((("judge2", U["other_party"]), ("judge", UNDECIDED)), "other_party"),
+                           # 2つの読みが別々の具体的な理由：先に届いた読みの理由
+                           ((("judge2", U["preparing"]), ("judge", U["unavailable"])), "preparing"),
+                           ((("judge", U["unavailable"]), ("judge2", U["other_party"])), "unavailable")):
+            d, f, r = self.asked(whys)
+            self.assertEqual((r["result"], d.heard(r)), ("ask_back", self.LEAN[want]), whys)
+            self.assertEqual([p["kind"] for p in r["play"]], ["said"])   # 時刻の入る文＝会話AIの声
+            self.assertNotIn("、", d.heard(r).removeprefix("恐れ入ります。"))   # 決まった言い方の途中に読点は無い（10-15）
+
+    def test_no_concrete_reading_keeps_the_line_of_ask63(self):
+        from flowctl import UNTIL_LABEL as U, UNTIL_WHY_NOT_SAID as NS, UNDECIDED
+        for whys in ((("judge", NS), ("judge2", None)), (("judge", NS), ("judge2", NS)), (("judge", UNDECIDED), ("judge2", NS)),
+                     # 「それまでは出られる（それ以降は難しい）」の向きは、伺い63 の一言そのもの
+                     (("judge", U["available_until"]), ("judge2", NS))):
+            d, f, r = self.asked(whys)
+            self.assertEqual((r["result"], d.heard(r)), ("ask_back", UntilAskAgainTest.ASK), whys)
+
+    def test_agreeing_or_one_concrete_reading_is_taken_as_now(self):
+        from flowctl import CALLBACK_IDS, UNTIL_LABEL as U
+        c1 = CALLBACK_IDS["time"]
+        for whys in ((("judge", U["unavailable"]), ("judge2", U["unavailable"])), (("judge", U["unavailable"]), ("judge2", None))):
+            d, f, r = self.asked(whys)
+            self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", c1), (whys, d.heard(r)))
+            self.assertEqual(f.items[c1].until_why, "unavailable")
+
+    def test_the_reply_to_the_leaning_line_gives_its_reason(self):
+        from flowctl import CALLBACK_IDS, JUDGMENTS, UNTIL_LABEL as U, UNTIL_WHY_NOT_SAID as NS
+        c1 = CALLBACK_IDS["time"]
+        for reply, why in (("はい、3時以降なら大丈夫です。", "unavailable"), ("いえ、そういうわけではないです。", None)):
+            d, f, r = self.asked((("judge", U["unavailable"]), ("judge2", NS)))
+            r = self.said(f, reply, "3時まで", [(k, U[why] if why else NS) for k in JUDGMENTS])
+            self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", c1), (reply, d.heard(r)))
+            self.assertEqual((f.items[c1].value, f.items[c1].until_why), ("火曜日の午後3時まで", why), reply)
+            # 伺い直しは1回まで（10-24）：言い直しのあとに伺い直さない
+            self.assertFalse(d.heard(r).startswith("恐れ入ります。"), d.heard(r))
+
+    def test_the_line_says_the_customers_time_in_each_direction(self):
+        from flowctl import until_ask_line
+        self.assertEqual(until_ask_line("3時までには", "unavailable"), self.LEAN["unavailable"])
+        self.assertEqual(until_ask_line("火曜日の15時までに", "preparing"), "恐れ入ります。15時までにご確認いただけるということでしょうか？")
+        self.assertEqual(until_ask_line("3時まで", None), UntilAskAgainTest.ASK)
+        self.assertEqual(until_ask_line("3時まで", "available_until"), UntilAskAgainTest.ASK)
+
+
+class AskRowsTest(unittest.TestCase):
+    """分身 AB：日時の2択の途中で伺い直した一言のうち、判定が読む文の新しい場面（(1)「〇時まで」の理由の判定の読みが割れたときの向きのある一言＝伺い98 ア）に、試しの言葉の行を足した
+    （review_words.ASK_ROWS。場面は測りの数えの1か所 g53_meaning._new_scene が本番の流れの制御で組む）。測りの前に正解の表まで整える（帳面 0-3・分身 W の (5) と同じ形）。
+    ⛔ 21263a4a まで、この場面は無かった（向きのある一言は作りに無かった）"""
+
+    def scenes(self):
+        from review_words import UNTIL_LEAN_SCENE
+        return {UNTIL_LEAN_SCENE: "恐れ入ります。3時まではお電話が難しいということでしょうか？"}
+
+    def rows(self, scene):
+        from review_words import answer_words
+        return [i for i in answer_words() if i.get("scene") == scene]
+
+    def test_every_row_is_built_on_the_line(self):
+        import g53_meaning as G
+        from meaning_judge import prompt
+        from review_words import questions
+        qmap = G.question_map() | questions()
+        for scene, text in self.scenes().items():
+            rows = self.rows(scene)
+            self.assertEqual(len(rows), 4, scene)
+            for it in rows:
+                q, asked, before = G.judge_inputs(it, qmap[it["qid"]])
+                self.assertEqual(q.text, text, it["text"])
+                self.assertIn(f"質問：「{text}」\n", prompt(q, it["text"], asked, before), it["text"])
+
+    def test_the_items_the_judge_reads_have_truths(self):
+        from flowctl import CYCLE, MISGIVING, UNTIL_WHY
+        for scene in self.scenes():
+            for it in self.rows(scene):
+                for k in (CYCLE, MISGIVING, UNTIL_WHY):
+                    self.assertIn(k, it["label"], (it["text"], k))
+
+    def test_the_wanted_acts(self):
+        # 数える1か所（g53_meaning.step_act と同じ act_of）で、正しい読みの組み合わせから決まる動き（流れの制御に通して確かめた形＝rv186/AB/probe）
+        import g53_meaning as G
+        from review_words import UNTIL_LEAN_SCENE, questions
+        qmap = G.question_map() | questions()
+        said = "念のため確かめる：答えた（火曜日の午後3時まで）"
+        want = {(UNTIL_LEAN_SCENE, "はい、そうです。"): {f"{said}〔理由：それまでは出られない〕"},
+                (UNTIL_LEAN_SCENE, "はい、3時以降なら大丈夫です。"): {f"{said}〔理由：それまでは出られない〕"},
+                (UNTIL_LEAN_SCENE, "いえ、そういうわけではないです。"): {said},
+                (UNTIL_LEAN_SCENE, "いえ、3時までに社内で確認しておくので、そのあとでお願いします。"): {f"{said}〔理由：それまでに確認・準備〕"}}
+        for (scene, text), acts in want.items():
+            it = next(i for i in self.rows(scene) if i["text"] == text)
+            self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), acts, text)
 
 
 class NightClockTest(unittest.TestCase):
