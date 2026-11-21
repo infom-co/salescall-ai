@@ -180,6 +180,12 @@ class Web(_World):
         self.assertIn('<summary aria-label="「業務の目的」の説明">i</summary>', ok.text)
         self.assertIn(str(escape(help_texts.FIELDS["business.purpose"])), ok.text)
         self.assertIn(str(escape(help_texts.FIELDS["business.retry"])), ok.text)
+        # 電話の中での応じ方・扱い・言ってはいけないこと（計画書 6-2 の項目を版の画面に。値の言葉は取り込みと同じ business_import.LABELS の1か所）
+        for heading in ("電話の中での応じ方", "「わからない」「答えたくない」の扱い", "言ってはいけないこと"):
+            self.assertIn(heading, ok.text)
+        from salescall.output import words as w
+        self.assertIn(w.sheet_word("substitute_policy", "decision_maker"), ok.text)
+        self.assertNotIn(w.NO_WORD, ok.text[ok.text.index("電話の中での応じ方"):ok.text.index("「わからない」「答えたくない」の扱い")])
         from salescall.core import business_rules
         from salescall.output import words
         rules = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: business_rules.load(tx, self.a["version"]))

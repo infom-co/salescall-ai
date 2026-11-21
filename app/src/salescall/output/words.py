@@ -649,6 +649,25 @@ def exclusion_level(name: str | None) -> str:
     return EXCLUSION_WORDS.get(name or "call", NO_WORD)
 
 
+# 声の型（計画書 18-3 の 2026-10-13：Sadachbia「前向き＋会社員」S2・「にこやかな受付」S4、Leda「謙虚な会社員」L4。声の型を決めるのは CL-1）。
+# 表に無い型は、型の名前のまま出す（黙って空にしない）。
+VOICE_TYPE_WORDS: dict[str, str] = {"S2": "前向きな会社員の声（男性）", "S4": "にこやかな受付の声（男性）", "L4": "謙虚な会社員の声（女性）"}
+
+
+def voice_type(name: str | None) -> str:
+    if not name:
+        return NO_WORD
+    return f"{VOICE_TYPE_WORDS[name]}（{name}）" if name in VOICE_TYPE_WORDS else name
+
+
+def sheet_word(field: str, value: Any) -> str:
+    """業務設定の選び肢の値を、契約者がシートに書く言葉で（正本は core の business_import.LABELS の1か所＝取り込みと画面が同じ言葉。
+    画面に別の言い方を作らない）。無い値は NO_WORD（試験が、版の画面に出す欄の値がすべてあることを見張る）。"""
+    from salescall.core import business_import
+    back = {v: k for k, v in business_import.LABELS.get(field, {}).items()}
+    return back.get(value, NO_WORD)
+
+
 def word(table: dict[str, Word], name: str | None) -> Word:
     """表から言葉を引く。名前が無い・表に無いときは「言葉が無い」を返す（英字を出さない。試験で落とす）。"""
     if name is None:

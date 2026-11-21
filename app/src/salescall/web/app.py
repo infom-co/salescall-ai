@@ -1671,7 +1671,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 return {"client": context.client(tx, client_id),
                         "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem, "missing": missing, "latest": latest,
                         "policies": [(k, rules.retry[k]) for k in business_rules.POLICY_KEYS] if rules else [],
-                        "system_policies": [(k, rules.retry[k]) for k in business_rules.SYSTEM_POLICIES] if rules else []}
+                        "system_policies": [(k, rules.retry[k]) for k in business_rules.SYSTEM_POLICIES] if rules else [],
+                        # 言ってはいけないこと・「わからない」「答えたくない」の扱い（計画書 6-2・6-3。読むのは同じ business_rules.load の1か所）
+                        "forbidden": sorted(rules.forbidden.values(), key=lambda f: f.say_not) if rules else [],
+                        "handling": sorted(rules.handling.items()) if rules else []}
             return page(request, "version.html", person, ctx, done=request.query_params.get("done"), ok=request.query_params.get("ok", "1") == "1",
                         units=business_rules.INTERVAL_UNITS, **ctx.client(client_id, read, read_only=True))
         return handle(request, render)

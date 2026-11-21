@@ -289,3 +289,14 @@ class PlainCoreTexts(unittest.TestCase):
         self.assertNotIn("実施回", got)
         self.assertIn("お客様リストの電話の台本の版", got)
 
+
+
+class SheetWords(unittest.TestCase):
+    def test_every_choice_of_the_business_settings_has_the_sheet_word(self):
+        """版の画面に出す選び肢の値は、どれも取り込みの言葉の表（core の business_import.LABELS）にある（words.sheet_word が「―」にならない）。"""
+        from salescall.core import business_settings
+        from salescall.output import words
+        for field, values in business_settings.POLICIES.items():
+            for v in values:
+                with self.subTest(field=field, value=v):
+                    self.assertNotEqual(words.sheet_word(field, v), words.NO_WORD)

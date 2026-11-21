@@ -24,6 +24,22 @@
     {% if s.info %}<ul class="need-list">{% for i in s.info %}<li>{{ i }}</li>{% endfor %}</ul>{% else %}{{ empty("業務の情報はありません", "お客様に質問されたとき、AI が答える材料になる情報です。業務の資料を取り込み直すと入ります。") }}{% endif %}
   </section>
 </div>
+{#- 電話の中での応じ方（計画書 6-2 の項目のうち、上の札に無いもの。値の言葉は契約者がシートに書く言葉のまま＝words.sheet_word の1か所。
+    説明は i マーク＝core の help_texts の1か所） -#}
+<section class="card" style="margin-top:12px"><h2>電話の中での応じ方</h2>
+  <dl class="facts">
+    <dt>お客様の区分{{ info("business.target_class", "お客様の区分") }}</dt><dd>{{ words.sheet_word("target_class", s.target_class) }}</dd>
+    <dt>声の型{{ info("business.voice", "声の型") }}</dt><dd>{{ words.voice_type(s.voice) }}</dd>
+    <dt>「AIですか」と聞かれたら{{ info("business.ai_answer", "「AIですか」と聞かれたら") }}</dt><dd>{{ s.ai_answer or "（決まった答えの文）" }}</dd>
+    <dt>代わりの方への応じ方{{ info("business.substitute_policy", "代わりの方への応じ方") }}</dt><dd>{{ words.sheet_word("substitute_policy", s.substitute_policy) }}</dd>
+    <dt>伝言への応じ方{{ info("business.message_policy", "伝言への応じ方") }}</dt><dd>{{ words.sheet_word("message_policy", s.message_policy) }}{% if s.message %}<div class="muted">伝言の文：{{ s.message }}</div>{% endif %}</dd>
+    <dt>在籍していないとき{{ info("business.departed_policy", "在籍していないとき") }}</dt><dd>{{ words.sheet_word("departed_policy", s.departed_policy) }}</dd>
+    <dt>本題の始まり{{ info("business.main_talk_policy", "本題の始まり") }}</dt><dd>{{ words.sheet_word("main_talk_policy", s.main_talk_policy) }}</dd>
+    <dt>担当から改めて連絡すると申し出るか{{ info("business.follow_up", "担当から改めて連絡すると申し出るか") }}</dt><dd>{{ words.sheet_word("follow_up", s.follow_up) }}</dd>
+    <dt>詳しい者からのお話の方法{{ info("business.handoff_ways", "詳しい者からのお話の方法") }}</dt><dd>{{ s.handoff_ways|join("・") if s.handoff_ways else "（営業に引き継がない）" }}</dd>
+    <dt>締める前の申し出{{ info("business.close_offer", "締める前の申し出") }}</dt><dd>{{ s.close_offer.text if s.close_offer else "（なし）" }}</dd>
+  </dl>
+</section>
 {#- 顧客獲得型の材料（計画書 9-9。読むのは core の business_settings.load の1か所。どれも依頼者の業務の事実だけ＝事実でない特別感・事例は言わない）。
     確認の電話の業務には無いので出さない -#}
 {% if s.call_type == "acquire" %}
@@ -48,6 +64,19 @@
 <div class="table-scroll"><table class="list"><thead><tr><th>お客様の問い</th><th>答え</th></tr></thead>
   <tbody>{% for name, text in s.answers %}<tr><td>{{ name }}</td><td>{{ text }}</td></tr>{% endfor %}</tbody></table></div>
 {% else %}<div class="card">{{ empty("この版で書いた想定問答はありません", "システムの標準の想定問答を使います。") }}</div>{% endif %}
+<h2>「わからない」「答えたくない」の扱い{{ info("business.handling", "「わからない」「答えたくない」の扱い") }}</h2>
+{% if handling %}
+<div class="table-scroll"><table class="list"><thead><tr><th>質問</th><th>お答え</th><th>理由</th><th class="wide">扱い</th></tr></thead>
+  <tbody>{% set seen = namespace(q=none) %}{% for (qid, state, reason), h in handling %}{% set q = s.questions|selectattr("id", "equalto", qid)|first %}
+    {#- 同じ質問の行が続くときは、質問の文を最初の行にだけ出す（くり返さない） -#}
+    <tr><td>{% if qid != seen.q %}{{ q.text if q else qid }}{% endif %}{% set seen.q = qid %}</td><td class="nowrap">{{ words.sheet_word("state", state) }}</td><td>{{ words.sheet_word("reason", reason) }}</td>
+      <td class="wide">{{ words.sheet_word("kind", h.kind) }}{% if h.conclusion %}<span class="muted">（結論：{{ h.conclusion }}）</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<div class="card">{{ empty("この版に、扱いの決まりはありません", "業務の決まりが入ると、ここに質問ごとの扱いが出ます。") }}</div>{% endif %}
+<h2>言ってはいけないこと{{ info("business.forbidden", "言ってはいけないこと") }}</h2>
+{% if forbidden %}
+<div class="table-scroll"><table class="list"><thead><tr><th>言ってはいけないこと</th><th class="wide">誤って言ったときの正しい案内</th></tr></thead>
+  <tbody>{% for f in forbidden %}<tr><td>{{ f.say_not }}</td><td class="wide">{{ f.correct or "（正しい案内なし＝別の文面でお詫びします）" }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<div class="card">{{ empty("この版で書いた言ってはいけないことはありません", "業務の資料に書かれていれば、取り込みで入ります。") }}</div>{% endif %}
 {% endif %}
 {% if policies %}
 <h2 id="retry">結果ごとのかけ直し{{ info("business.retry", "結果ごとのかけ直し") }}</h2>
