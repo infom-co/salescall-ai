@@ -47,7 +47,9 @@
 {% macro csrf(token) -%}<input type="hidden" name="{{ token_field }}" value="{{ token }}">{%- endmacro %}
 
 {# 承認待ち1件（受け箱とお客様の行の画面で同じ部品。鍵は受け箱の1か所 inbox.Item.key をそのまま送り返す＝inbox.perform が今の中身と照らす） #}
-{% macro inbox_item(place, i, token, back="", show_place=True) -%}
+{#- lead＝この札の決めるボタンを主のボタン（藍の塗り）にするか。承認待ちは急ぐ順に並ぶので、主にするのはいちばん上の札だけ（主のボタンは1画面に1つ。
+    2026-11-21 の見直し：札ごとに主のボタンで、件数ぶん藍が並んだ。同じ赤字の確かめが、承認待ちでは藍・費用と報酬では白い枠だった） -#}
+{% macro inbox_item(place, i, token, back="", show_place=True, lead=True) -%}
   <article class="card item {{ 'urgent' if i.urgent }}">
     <div class="item-head">
       {{ tag(i.title, "stop" if i.urgent else "wait") }}
@@ -77,7 +79,7 @@
           {{ csrf(token) }}
           {% for k, v in i.key.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
           {% if back %}<input type="hidden" name="back" value="{{ back }}">{% endif %}
-          <button class="btn {{ 'main' if b.main }}" type="submit">{{ b.label }}</button>
+          <button class="btn {{ 'main' if b.main and lead }}" type="submit">{{ b.label }}</button>
         </form>{% endif %}
         {% endfor %}
       {% endif %}

@@ -15,7 +15,7 @@
 {{ flash(done, ok) }}
 {% if pending %}
 <section class="stack row-pending" aria-label="このお客様の承認待ち">
-  {% for i in pending %}{{ inbox_item(client, i, token, back=base ~ "/rows/" ~ row.task_id, show_place=False) }}{% endfor %}
+  {% for i in pending %}{{ inbox_item(client, i, token, back=base ~ "/rows/" ~ row.task_id, show_place=False, lead=loop.first) }}{% endfor %}
 </section>
 {% endif %}
 <div class="grid cols-2 row-grid">

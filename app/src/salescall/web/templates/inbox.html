@@ -22,7 +22,7 @@
 </div>
 <div class="stack">
 {% for c, i in rows %}
-  {{ inbox_item(c, i, token) }}
+  {{ inbox_item(c, i, token, lead=loop.first) }}
 {% else %}
   <div class="card">{% if pick_kind or pick_client %}{{ empty("この絞り方では、承認待ちはありません", "上の「すべて」で、ほかの承認待ちを見られます。") }}{% else %}{{ empty("承認待ちはありません", "新しく決めることができたら、ここに並び、知らせも届きます。") }}{% endif %}</div>
 {% endfor %}

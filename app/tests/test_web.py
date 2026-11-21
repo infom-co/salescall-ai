@@ -894,6 +894,18 @@ class Web(_World):
         business = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}").text
         self.assertRegex(business, r"<h1>[^<]*<span class=\"tag info\">(検証モード|フルオート)</span></h1>")   # 進め方は見出しの横に
 
+    def test_only_the_top_inbox_card_has_the_primary_button(self):   # 主のボタンは1画面に1つ（承認待ちは急ぐ順。4回目の見直し「中」の7）
+        from uuid import uuid4
+        from salescall.web import inbox
+        from salescall.web.app import _templates
+        env = _templates().env
+        cards = [inbox.Item("deficit", {"warning_id": str(n)}, "赤字の確認", "確かめてください", buttons=(inbox.Button("confirm", "確かめた", main=True),))
+                 for n in range(3)]
+        page = env.from_string('{% from "parts.html" import inbox_item %}{% for i in items %}{{ inbox_item(place, i, "t", lead=loop.first) }}{% endfor %}').render(
+            items=cards, place={"client_id": uuid4(), "name": "依頼者X"})
+        self.assertEqual(visible_primary_buttons(page), ["確かめた"])
+        self.assertEqual(page.count("確かめた"), 3)                              # ほかの札のボタンも出ている（白い枠で）
+
     def test_a_line_is_named_with_its_caller_number(self):   # 同じ名前の回線を見分ける（web/names の1か所。2026-11-21 の見直し）
         from salescall.web import names
         self.assertEqual(names.line_label("スマホ1", "+819000000000"), "スマホ1（09000000000）")
