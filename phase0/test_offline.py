@@ -48197,13 +48197,8 @@ class PairAsksAboutTest(unittest.TestCase):
         self.assertEqual(f.questions["Q2"].asks_about, "")
 
     def test_the_meeting_and_other_questions_as_before(self):
-        # 顧客獲得型のアポの日時（meeting）・お戻りの時刻など（質問の文で分かる）は今のまま。こちらからかけ直す日時は分身 R の一文のまま
+        # お戻りの時刻など（質問の文で分かる）は今のまま。こちらからかけ直す日時は分身 R の一文のまま（顧客獲得型のアポの日時（meeting）は分身 U の (2)＝MeetingAsksAboutTest）
         from meaning_judge import prompt
-        f = _p_acquire()
-        _p_to_meeting(f)
-        f.on_callee()
-        q, asked, before = f.judge_context()
-        self.assertNotIn("を伺っています）", prompt(q, "平日で。", asked, before))
         d, g = UntilAskAgainTest().at_hours()
         g.on_callee()
         q, asked, before = g.judge_context()
@@ -48398,3 +48393,40 @@ class LadderBoundaryAnsweredTest(unittest.TestCase):
             wants = G.flow_wants(it, q)
             self.assertEqual(wants, ({act} if text != "3時までなら大丈夫です。" else set()) | ({G.UNTIL_ASK_ACT} if text in ("3時までなら大丈夫です。", "3時まではこの番号で大丈夫です。") else set()), text)
             self.assertFalse(any(G.LADDER_ONE_ACT in a for a in wants), text)   # 避けた時刻だけを外す2択（会議中の3時など）は伺わない
+
+
+class MeetingAsksAboutTest(unittest.TestCase):
+    """分身 U（CL-1 の頼み rv184/U の (2)＝分身 S の書き置きの (6-1)）：顧客獲得型のアポの日時の2択（meeting＝「それでは平日と土日のどちらがよろしいでしょうか？」「月曜日と火曜日では…」）
+    にも、判定に見せる質問の文のすぐあとに何の日時かの一文を見せる（中身は同じ1か所＝flowctl.asks_about に役目ごとの一文）。質問の文はお客様が聞いた文のまま（本書 9-5 の (6)）・
+    添えるのはお客様がもう知っている事柄だけ（すぐ前に聞いた「一度お話を聞かせてください。そのためのお時間、（お時間）だけよろしくお願いします。」＝本書 9-9 の (7)）。CL-1 が決めた理由：
+    10-19「いただいた理由は、言われた場面だけでなく、同じ理由が当たる場面すべてに当てる」（2択の文が何の日時かを言わない＝こちらからかけ直す日時・お客様から折り返していただく日・
+    依頼者の日時の2つ目からの2択と同じ穴）。⛔ d7d64450 まで見せていなかった（判定は「平日と土日の…」を何の日時の2択か知らずに読んだ）"""
+
+    LINE = "（この質問は、この電話とは別に、お客様のお話を一度詳しくお聞かせいただくお時間の日時を伺っています）"
+
+    def test_the_meeting_pairs_show_what_they_ask(self):
+        from flowctl import MEETING_ASKS_ABOUT
+        from meaning_judge import ASKS_ABOUT, prompt, scene
+        f = _p_acquire()
+        r = _p_to_meeting(f)
+        self.assertTrue(heard_words(r).endswith("そのためのお時間1時間だけよろしくお願いします。それでは平日と土日のどちらがよろしいでしょうか？"))   # お客様に聞こえる言葉は今のまま
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertEqual(q.text, "それでは平日と土日のどちらがよろしいでしょうか？")   # 質問の文はお客様が聞いた文のまま
+        self.assertIn(f"質問：「{q.text}」\n{self.LINE}\n", prompt(q, "平日で。", asked, before))
+        self.assertEqual(scene(q, "平日で。", asked, before)[ASKS_ABOUT], MEETING_ASKS_ABOUT)   # Jev の場面も同じ1か所
+        self.assertEqual(f.questions[q.id].asks_about, "")   # 流れの制御の質問は空のまま（判定に見せるときだけ）
+        _p_turn(f, "平日でお願いします。", _p_rd("答えた"), "record_answer", question_id=q.id, condition_id="答えた", value="平日")
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertEqual(q.text, "月曜日と火曜日ではどちらがよろしいでしょうか？")   # 2つ目からの2択も
+        self.assertIn(f"質問：「{q.text}」\n{self.LINE}\n", prompt(q, "月曜日で。", asked, before))
+
+    def test_the_other_business_question_does_not(self):
+        # 依頼者の日時の質問のはじめの2択（聞くことの頭「ご来店は」がある）は今のまま・アポの一文はアポの日時の質問だけ
+        from meaning_judge import prompt
+        t = PLadderOpeningTest()
+        f, r = t.first(t.WEEKEND)
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertNotIn("を伺っています）", prompt(q, "平日で。", asked, before))
