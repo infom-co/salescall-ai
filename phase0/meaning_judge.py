@@ -25,7 +25,7 @@ from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, 
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices, LADDER_OTHER, LADDER_SIDE_TAIL, ladder_choice_desc, ladder_other_choices, ladder_sides,
                      NEAR, near_choices, near_fits, MISGIVING, misgiving_choices, misgiving_fits,
-                     UNTIL_WHY, until_choices, until_fits, CYCLE, cycle_choices, cycle_fits, VALUE_CHOICE)
+                     UNTIL_WHY, until_choices, until_fits, CYCLE, CYCLE_WHY_OF, cycle_choices, cycle_fits, VALUE_CHOICE, reason_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -698,8 +698,8 @@ def scene(q, text: str, asked: str | None = None, before: str | None = None) -> 
             | ({"こちらが言い直して確かめた言葉": asked} if asked else {}) | ({PROMPTED: prompted} if prompted else {}) | {"お客様の言葉": text})
 
 
-# 何を伺っている質問か（判定に見せる質問の asks_about＝flowctl.asks_about の1か所。こちらからかけ直す日時を伺う質問だけ）の見出し（Jev の場面 scene の名前）と、問い合わせの文の
-# 質問のすぐあとの一文（asks_about_line の1か所）。分身 R の (4)
+# 何を伺っている質問か（判定に見せる質問の asks_about＝flowctl.asks_about の1か所。日時の2択のうち、2択の文が何の日時かを言わない質問だけ）の見出し（Jev の場面 scene の名前）と、問い合わせの文の
+# 質問のすぐあとの一文（asks_about_line の1か所）。分身 R の (4)・分身 S の (1)
 ASKS_ABOUT = "質問で伺っていること"
 
 
@@ -804,13 +804,14 @@ def used_sure(confs: dict | None, cond: str, away: bool = False) -> float | None
     お呼びする段の相手の申し出（OFFER）はいつも使う（申し出があれば応じ方が替わる＝電話を終える言葉かと同じ）・お呼びした方が出られない理由（ABSENT_WHY）は、
     その読みがお呼びした方は出られない・ご本人がいまは話せないと読んだとき（away＝読みの印 Reading.away）だけ使う（流れの制御が理由を読むのはそのときだけ＝
     Flow._absent_why）。迷っている点を言ったか（MISGIVING）は、答えが「迷っている」のときだけ使う（流れの制御が読むのはそのときだけ＝Flow._hesitation。分身 P の (4)）。
-    「〇時まで」の理由（UNTIL_WHY）・月単位の理由（CYCLE）は、答えが時刻・日を答えた（VALUE_CHOICE）か決められない（「〇時まで」の理由を伺い直した一言へのお返事）のときだけ使う
-    （流れの制御が理由を読むのは、答えを受け取るときだけ＝Flow._op_record_answer。分身 Q の (4)＝n9）。"""
+    「〇時まで」の理由（UNTIL_WHY）・月単位の理由（CYCLE）は、流れの制御がその答えで受け取る項目だけ使う（唯一の決まり＝flowctl.reason_items：時刻・日を答えた（VALUE_CHOICE）か
+    決められない（「〇時まで」の理由を伺い直した一言へのお返事）は両方・日時の2択に2つとも・片方だけ合わないは月単位の理由だけ。流れの制御が理由を読むのは、答えを受け取るときだけ＝
+    Flow._op_record_answer・_reasons_of。分身 Q の (4)＝n9・分身 S の (2)。⛔ f2ded9f4 まで、ここに答えの名前を写していた＝流れの制御の受け取りと2か所）。"""
     if not confs:
         return None
     vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)
             and (k != ABSENT_WHY or away) and (k != LADDER_OTHER or str(cond).endswith(LADDER_SIDE_TAIL)) and (k != NEAR or cond == UNDECIDED)
-            and (k != MISGIVING or cond == HESITATING) and (k not in (UNTIL_WHY, CYCLE) or cond in (VALUE_CHOICE, UNDECIDED))]
+            and (k != MISGIVING or cond == HESITATING) and (k not in (UNTIL_WHY, CYCLE) or k in reason_items(cond))]
     return min(vals) if vals and all(isinstance(c, (int, float)) for c in vals) else None
 
 
@@ -1388,8 +1389,8 @@ JEV_ITEMS[MISGIVING] = ("お客様が、どの答えにするか迷っている�
                         + NOW_ONLY + "）")
 # かけ直しの時刻を伺う質問だけ（flowctl.UNTIL_WHY・CYCLE・Flow._reasons_of＝分身 Q の (4)＝n9）
 JEV_ITEMS[UNTIL_WHY] = ("お客様が「（時刻）まで」と言ったなら、その時刻までと言った理由（いま電話を続けられない理由）はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）")
-JEV_ITEMS[CYCLE] = ("お客様は、その日・頃にしてほしいわけに、月ごとにくり返す都合（月ぎめの業務・締め・振り込みや入金の日 など）を言いましたか？（答えとは別に読みます。"
-                    + NOW_ONLY + "）")
+JEV_ITEMS[CYCLE] = (f"お客様は、{CYCLE_WHY_OF}に、月ごとにくり返す都合（月ぎめの業務・締め・振り込みや入金の日 など）を言いましたか？（答えとは別に読みます。"
+                    + NOW_ONLY + "）")   # どのわけを読むかは flowctl.CYCLE_WHY_OF の1か所（説明の文と同じ＝分身 S の (2)）
 # 答えの段だけ（flowctl.wrong_choices・wrong_said。お呼びする段は「お呼びした方の事情」の項目が読む。分身 AC）
 JEV_ITEMS[WRONG] = "お客様は、こちらがかけた電話番号が違うと伝えましたか？（答えとは別に読みます。" + NOW_ONLY + "）"
 assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
