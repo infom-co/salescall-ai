@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import struct
 import unittest
+import uuid
 
 from salescall.core import common_phrases, recording_audio, recordings
 from salescall.core.access import Rejected
@@ -49,6 +50,39 @@ class RecordingAudio(unittest.TestCase):
             "SELECT part, listened_by FROM salescall.recording_listens WHERE set_id = %s", (set_id,)))
         self.assertEqual([r["part"] for r in log], ["target"])                    # ほかの契約者の聞いた記録は見えない
         self.assertTrue(log[0]["listened_by"])
+
+    def test_the_admin_hears_a_name_recording_waiting_for_review(self):
+        """名前の録音の審査（CL-3 の 68。表の作り 0277）：管理者はシステムの取引で、審査を待っている組（契約者が作って承認した業務の名前の録音）の音を
+        聞ける（音の置き場は契約者・依頼者の範囲の守りなので、`review_listen` の1か所だけが、その組の範囲の音を読む）。聞いた記録が残る。審査を待って
+        いない組（決めたあと）・置き場に無い音は聞かせない。管理者でない・システムの取引でないときは、審査の守りと同じく断る。"""
+        data = wav(seed=11)
+        role = f"審{uuid.uuid4().hex[:6]}"
+
+        def make(tx):
+            stored = recording_audio.put(tx, data)
+            set_id = recordings.add_name_part(tx, voice_name="Leda", key=recordings.NameKey(role=role),
+                                              part=recordings.Part("name", f"{role}様", stored.audio_ref, stored.audio_sha256),
+                                              business_id=self.s["business"])
+            recordings.approve(tx, set_id)
+            return set_id
+        set_id = self.w.a.in_client(OPERATOR, self.s["tenant"], self.s["client"], make)
+        with self.assertRaises(recording_audio.AudioMissing):               # 契約者の範囲の音は、ふつうの聞き方ではシステムの取引から読めない
+            self.w.a.in_system(ADMIN, lambda tx: recording_audio.listen(tx, set_id, "name"))
+        heard = self.w.a.in_system(ADMIN, lambda tx: recording_audio.review_listen(tx, set_id, "name"))
+        self.assertEqual(heard, data)
+        who = self.w.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT tenant_id, listened_by FROM salescall.recording_listens WHERE set_id = %s AND part = 'name'", (set_id,)))
+        self.assertEqual([(r["tenant_id"], r["listened_by"]) for r in who], [(None, ADMIN.name)])   # 聞いた記録（管理者の取引で）
+        with self.assertRaises(recording_audio.AudioMissing):               # その組に無い部分
+            self.w.a.in_system(ADMIN, lambda tx: recording_audio.review_listen(tx, set_id, "target"))
+        for why, run in (("契約者", lambda w: self.w.a.in_client(OPERATOR, self.s["tenant"], self.s["client"], w)),
+                         ("契約者の取引の管理者", lambda w: self.w.a.in_tenant(ADMIN, self.s["tenant"], w))):
+            with self.subTest(why=why), self.assertRaises(Rejected) as e:
+                run(lambda tx: recording_audio.review_listen(tx, set_id, "name"))
+            self.assertEqual(e.exception.constraint, "name_review_by_admin")
+        self.w.a.in_system(ADMIN, lambda tx: recordings.review_names(tx, [set_id], [], marks="admit"))   # 除外した＝もう審査を待っていない
+        with self.assertRaises(recording_audio.AudioMissing):
+            self.w.a.in_system(ADMIN, lambda tx: recording_audio.review_listen(tx, set_id, "name"))
 
     def test_a_contractor_recording_is_not_readable_by_another_contractor(self):
         """契約者の取引で置いた音は、その契約者からだけ読める（ほかの契約者には「置き場に無い」）。システムの録音として置けるのは管理者のシステムの取引だけ。"""

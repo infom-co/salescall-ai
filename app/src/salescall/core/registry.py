@@ -174,7 +174,7 @@ def create_run(tx: Tx, business_id: UUID, name: str, version_id: UUID, *, reason
 
 def rename_run(tx: Tx, run_id: UUID, name: str) -> None:
     _one(tx.one("UPDATE salescall.runs SET name = %s WHERE run_id = %s RETURNING run_id", (_name(name), run_id)),
-         "実施回", run_id)
+         "お客様リスト", run_id)
 
 
 # ═════════ 回線（契約者の取引で） ═════════

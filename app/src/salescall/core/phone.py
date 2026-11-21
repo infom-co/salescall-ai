@@ -46,6 +46,15 @@ _RULES: tuple[tuple[str, int, str], ...] = (
     ("090", 11, "mobile"),
 )
 SYSTEM_FORBIDDEN_KINDS = frozenset({"special", "premium", "m2m", "international", "unknown"})
+# 画面に見せる区切り（CL-3 の 63 の (2)。見せる形を作るのは `PhoneNumber.display` の1か所）：上の表の頭の数字ごとの、区切りの桁の並び。区切りが1つに決まる
+# 種類だけ（携帯・FMC・IP 電話は 3-4-4、フリーダイヤル・ナビダイヤルは 4-3-3／4-3-4）。固定電話（市外局番の長さで区切りが変わる）と、書き方の決まって
+# いない有料の情報番号・機械どうしの番号は区切らない（推し量って誤った区切りを見せない）。頭の数字は上の表のどれか・桁の合計は表の桁数（下で確かめる）
+_GROUPS: dict[str, tuple[int, ...]] = {
+    "0120": (4, 3, 3), "0800": (4, 3, 4), "0570": (4, 3, 3),
+    "050": (3, 4, 4), "060": (3, 4, 4), "070": (3, 4, 4), "080": (3, 4, 4), "090": (3, 4, 4),
+}
+if any(sum(g) != dict((p, n) for p, n, _ in _RULES).get(p) for p, g in _GROUPS.items()):
+    raise RuntimeError("区切りの表 _GROUPS の頭の数字か桁の合計が、種類の表 _RULES と合いません")
 
 # 区切りとして取り除く、種類で決まらない文字（ほかは Unicode の分類で決める：下の _is_separator）
 _EXTRA_SEPARATORS = frozenset("−ー─━・.()")   # マイナス記号・長音・罫線・中黒・点・かっこ（NFKC のあと）
@@ -84,6 +93,20 @@ class PhoneNumber:
     @property
     def system_forbidden(self) -> bool:
         return self.kind in SYSTEM_FORBIDDEN_KINDS
+
+    @property
+    def display(self) -> str | None:
+        """画面に見せる形（1か所。CL-3 の 63 の (2)）：国内の形（national）を、区切りが1つに決まる種類だけ「-」で区切る（`_GROUPS`。例 "070-0000-0001"・
+        "0120-000-001"）。固定電話などは国内の形のまま。そろえられなかった番号は None（見せる番号が無い）。種類の表の引き方は、そろえるときと同じ
+        （頭の数字の、上から最初に当たったもの＝「080-0…」は 0800 のフリーダイヤル）。"""
+        if self.national is None:
+            return None
+        prefix = next((p for p, _, _ in _RULES if self.national.startswith(p)), None)
+        groups = _GROUPS.get(prefix) if prefix is not None else None
+        if groups is None or len(self.national) != sum(groups):
+            return self.national
+        cuts = [sum(groups[:i]) for i in range(len(groups) + 1)]
+        return "-".join(self.national[a:b] for a, b in zip(cuts, cuts[1:]))
 
 
 def _unknown(reason: str) -> PhoneNumber:

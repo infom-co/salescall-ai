@@ -482,7 +482,7 @@ def _healthy(line: Line) -> Line:
 # testcallは環境設定に追加」＝管理者がシステムの初めの値に仮の番号を入れ、契約者が自分の番号を入れたら、そちらを使う
 NO_NUMBER_ABOUT = ("テスト番号が無いので、この回線の確かめ（回線のせいか番号のせいか・休んだ回線を再開してよいか）を決められません。"
                    "管理者か契約者がテスト番号を入れてください（管理者が初めの値として入れた番号を、契約者が自分の番号を入れるまで使います）。"
-                   "入るまで、この回線の確かめは待ちます（まだ分からない電話の行は、番号の回数にも回線の異常にも数えません）。")
+                   "入るまで、この回線の確かめは待ちます（まだ分からない電話のお客様は、番号の回数にも回線の異常にも数えません）。")
 
 
 def _choose_wait(line: Line, ev: Event, rules: Rules) -> tuple[Wait | None, datetime | None, tuple[Do, ...], frozenset[str]]:
@@ -750,7 +750,7 @@ def _per_call(ev: Event) -> tuple[Do, ...]:
     """こちらの不具合で終えた電話ごとの、記録・知らせ・修正依頼（R-5・R-8 の1か所。修正依頼は同じ不具合で1つ＝受け手が束ねる）。"""
     return (_do(RECORD, call=ev.attempt, kind=ev.kind, about=f"こちらのプログラムの不具合で電話を終えた（{ev.kind}）"),
             _do(NOTIFY, to=BOTH, call=ev.attempt, note="error_notice",
-                about="こちらのプログラムの不具合で電話を終えました。この行は復旧を待っています"),
+                about="こちらのプログラムの不具合で電話を終えました。このお客様は復旧を待っています"),
             _do(FIX, fixer=f"種類 {ev.kind} の直す担当", call=ev.attempt, kind=ev.kind, about="こちらのプログラムの不具合で電話を終えた"))
 
 
@@ -802,7 +802,7 @@ def _r7(task: Task, ev: Event, rules: Rules) -> _Step:
 
 def _r8(task: Task, ev: Event, rules: Rules) -> _Step:
     rest = (_do(NOTIFY, to=BOTH, note="task_resting",
-                about="こちらのプログラムの不具合で、同じ行の電話が続けて終わりました。この行は休ませ、次の行へ進みます"
+                about="こちらのプログラムの不具合で、同じお客様への電話が続けて終わりました。このお客様は休ませ、次のお客様へ進みます"
                       "（その不具合を直したと記録され、そのあとプログラムが替わったら、自動で戻ります。管理者・契約者が戻すこともできます）。"),)
     return _Step(replace(_back(task), stage=TaskStage.RESTING, kinds=frozenset({task.n_kind, ev.kind}), attempt=ev.attempt,
                          answered=bool(ev.answered), since=ev.at), _per_call(ev) + rest)
@@ -937,7 +937,7 @@ def _c1(ten: Tenant, ev: Event, rules: Rules) -> _Step:
     return _Step(Tenant(TenantStage.STOPPED, rows=rows, stopped=frozenset({ev.kind}), since=ev.at),
                  (_do(STOP_CALLS), _do(RECORD, about=f"こちらの不具合（{ev.kind}）が違う行で続いたので、新しい電話を止めた"),
                   _do(NOTIFY, to=BOTH, note="stopped", cause="program_trouble",
-                      about="こちらのプログラムの同じ不具合が違う行で続いたので、新しい電話を止めました")))
+                      about="こちらのプログラムの同じ不具合が違うお客様で続いたので、新しい電話を止めました")))
 
 
 def _c3_c7(ten: Tenant, ev: Event, rules: Rules) -> _Step:
@@ -952,7 +952,7 @@ def _c5(ten: Tenant, ev: Event, rules: Rules) -> _Step:
     left = ten.stopped - {ev.kind}
     rows = ten.with_r(ev.kind, frozenset())
     acts = (_do(RECORD, about=f"こちらの不具合（{ev.kind}）を直した版になったので、その止めを解いた"),
-            _do(NOTIFY, to=BOTH, note="resumed", cause="program_trouble", about="不具合を直した版になったので、止めを解きました"))
+            _do(NOTIFY, to=BOTH, note="resumed", cause="program_trouble", about="不具合を直した版になったので、止めていた電話を再開しました"))
     if left:
         return _Step(replace(ten, rows=rows, stopped=left), acts)
     return _Step(Tenant(TenantStage.NORMAL, rows=rows), (_do(RESUME_CALLS),) + acts)
@@ -973,7 +973,7 @@ def _c8(ten: Tenant, ev: Event, rules: Rules) -> _Step:
         return _Step(replace(ten, rows=rows))
     return _Step(replace(ten, rows=rows, stopped=ten.stopped | {ev.kind}),
                  (_do(RECORD, about=f"こちらの不具合（{ev.kind}）も違う行で続いたので、止める種類に足した"),
-                  _do(NOTIFY, to=BOTH, note="stopped", cause="program_trouble", about="こちらのプログラムの別の不具合も違う行で続きました")))
+                  _do(NOTIFY, to=BOTH, note="stopped", cause="program_trouble", about="こちらのプログラムの別の不具合も違うお客様で続きました")))
 
 
 # ── 試行のせい ──

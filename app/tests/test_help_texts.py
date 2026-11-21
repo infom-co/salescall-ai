@@ -40,10 +40,14 @@ class Explain(unittest.TestCase):
         dev = re.compile(r"(?<![A-Za-z])[a-z_]+\.[a-z_]+|Intent|DESIGN|✅|⏳|⛔|20\d\d-\d|CL-\d|計画書|設計書|ユーザー")
         texts = {r["key"]: [r["help"], *(r["choice_words"] or {}).values()] for r in rows}
         texts.update({k: [v] for k, v in help_texts.FIELDS.items()})
+        # 画面の呼び方（CL-3 の 64・65。✅ 2026-11-20 管理者「イ」・2026-11-21 管理者「伺い1：ア」）：「実施回」でなく「お客様リスト」・お客様の1件を
+        # 「行」と呼ばない（ファイルの「1行に」「3行目」のように数のあとの行と、ほかの言葉の一部は除く）・止めたものを動かすのは「解く」でなく「再開する」
+        old_names = re.compile(r"実施回|(?<![0-9０-９実銀発進並移旅執施運代流慣修苦興急刊挙一改通試])行(?=[にをのではが（])|解(?:く|か|き|け|いた|いて)")
         for key, words in texts.items():
             for text in words:
                 with self.subTest(key=key, text=text[:30]):
                     self.assertIsNone(dev.search(text))
+                    self.assertIsNone(old_names.search(text))
         for r in rows:
             with self.subTest(key=r["key"]):
                 choices = set(r["choices"] or ())

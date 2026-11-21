@@ -467,12 +467,14 @@ class Question:
     # そろわなければ考える Sonnet・中身の判定（CL-1 の import_ai.decide_rewords。人は書かない）。空＝「ところで」＋元の質問の文。
     # ✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」
     reworded: str = ""
-    # ご承認のお知らせの中身を表す名詞（「キャンセル」。会話の側の Question.matter。CL-1 の連絡帳 4-154）。ご承認を伺う質問だけ（`APPROVAL_ONLY_KEYS`）。
+    # ご承認のお知らせの中身を表す名詞（会話の側の Question.matter。CL-1 の連絡帳 4-154。形＝事柄の言葉・並べた事柄を全部、は句と同じ MATTER_PROMPT の1か所）。ご承認を伺う質問だけ（`APPROVAL_ONLY_KEYS`）。
     # お知らせのあとの最終の確かめ「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」に入る（組むのは会話の側の flowctl.accepted_line。
     # 依頼主の単位の録音「番号_accepted」）。決めるのは取込のときの文字の AI 2つ・そろわなければ考える Sonnet（CL-1 の import_ai.decide_matters。人は書かない）。
     # 空＝「それでは先ほどの内容は…」（共通の一言 announce_recheck）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10」
     matter: str = ""
-    # ご承認のお知らせの中身を常体にした句（「キャンセルは前日までにご連絡いただく必要がある」。会話の側の Question.matter_clause。CL-1 の連絡帳 4-162）。ご承認を
+    # ご承認のお知らせの中身を常体にした句（会話の側の Question.matter_clause。CL-1 の連絡帳 4-162。句の形＝並べた事柄・言い切り・「（期限）を過ぎた…」などは
+    # CL-1 の取込の問い合わせの文 announces.MATTER_PROMPT の1か所が決める＝ここに例を写さない。⛔ 前は「キャンセルは前日までに…必要がある」の例を写していて、
+    # 2026-11-21 の形の変わり（CL-1 の連絡帳 4-238 の (3)・4-240）で古くなった）。ご承認を
     # 伺う質問だけ（`APPROVAL_ONLY_KEYS`）。聞き取れないまま「-」にしたお知らせの、締めの前の確かめ「（句）件のお返事のお声が聞き取れなかったのですがご了承という
     # ことでよろしかったでしょうか？」に入る（組むのは会話の側の flowctl.accepted_line。依頼主の単位の録音「番号_accepted_unheard」）。決めるのは名詞と同じ1回の
     # 問い合わせ（CL-1 の import_ai.decide_matters の答えの組の2つ目。人は書かない）。空＝名詞の形（名詞も空なら「先ほどの件の…」＝共通の一言
@@ -2064,7 +2066,7 @@ def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
     t = tx.one("SELECT t.*, salescall.run_current_version(t.run_id) AS version_id, salescall.task_call_period(t.task_id) AS period"
                " FROM salescall.task_call_values(%s) t", (task_id,))
     if t is None:
-        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+        raise LookupError(f"そのお客様は無い（または、取引の範囲の外）：{task_id}")
     # 会話の中で確かめた読みは、その名前を直したより後に確かめたものだけ（直す前の名前の読みを、直したあとの名前に付けない）。お呼びする方の
     # 名前の読みは、同じ担当の期の通話で確かめたものだけ（ほかの担当の方の通話で確かめた読みを付けない。会社名は、担当の方によらない）
     said = {r["which"]: r["reading"] for r in tx.all(
@@ -2123,7 +2125,7 @@ def who_unclear_blanks(tx: Tx, task_id: UUID, *, before: datetime | None = None)
     core/next_action.answer_still_ends が読む。0213）。"""
     t = tx.one("SELECT target_full_name, target_department FROM salescall.task_values(%s, %s::timestamptz)", (task_id, before))
     if t is None:
-        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+        raise LookupError(f"そのお客様は無い（または、取引の範囲の外）：{task_id}")
     have = {"full_name": t["target_full_name"], "department": t["target_department"]}
     return tuple(f for f in WHO_UNCLEAR_FIELDS if not have[f])
 
@@ -2166,8 +2168,8 @@ def assign_problems(tx: Tx, run_id: UUID, version_id: UUID) -> list[str]:
     （⛔ 2026-11-15 の見直しまで：「ご担当者」だけの役職の行も「その列がありません」と言い、行はダッシュボードで直せるのに「取り込み直しても足せません」と言った）。"""
     s = load(tx, version_id)                         # 中身・業務の決まりが確かめに通る版だけ
     missing = _open_tasks_missing(tx, run_id, s.target_needs())
-    return [f"この実施回のまだ終えていない行のうち {n} 行：{why}。ダッシュボードで行を直すか、この版は、目的のお客様を呼ぶ材料のある一覧を取り込んだ"
-            "新しい実施回に割り当ててください" for why, n in missing.items()]
+    return [f"このお客様リストのまだ終えていないお客様のうち {n} 件：{why}。ダッシュボードでお客様の情報を直すか、この版は、目的のお客様を呼ぶ材料のある一覧を取り込んだ"
+            "新しいお客様リストに割り当ててください" for why, n in missing.items()]
 
 
 # ── 版を足して、そろったら自動で替える（1か所。DESIGN.md 3-8-3 の (5)・0183）
@@ -2342,7 +2344,7 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = 
         "        %s, salescall.cur_actor(), %s, %s FROM salescall.runs r WHERE r.run_id = %s RETURNING seq",
         (version_id, reason, auto, run_id))
     if row is None:
-        raise LookupError(f"その実施回は無い（または、取引の範囲の外）：{run_id}")
+        raise LookupError(f"そのお客様リストは無い（または、取引の範囲の外）：{run_id}")
     # 手で版を替えた・実施回を作るときに古い版を選んだ：その流れにあって、この版に無い依頼者の解決策を「手で外した」と残す（取り込み直しでも
     # 自動では入れない・契約者が確かめるまで、まだかけていない行へかけない＝✅ 2026-11-07 ユーザー）。印を付けるのは、割り当てと同じ取引で
     # データベースの1か所（0201 の salescall.hand_removals。自動の割り当ては除く）。ここは、その印を契約者に知らせる

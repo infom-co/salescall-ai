@@ -94,7 +94,7 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
             business = tx.one("SELECT r.business_id FROM salescall.tasks t JOIN salescall.runs r ON r.run_id = t.run_id"
                               " WHERE t.task_id = %s", (task_id,))
             if business is None:
-                raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+                raise LookupError(f"そのお客様は無い（または、取引の範囲の外）：{task_id}")
             if approval.human_for_business(tx, business["business_id"]):
                 raise FixInvalid(f"検証モードの業務では、{FIELD_NAMES[field]}の読みも入れてください（AI の読みは契約者が確かめる決まり）")
             r = readings.resolve(text, None, confirmed={}, ai=readings.ask([text], suggest))
@@ -108,7 +108,7 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
         # 役職を直すと「業務設定の中身がありません：None」で落ち、「ご担当者」の行を直せず、版も割り当てられず行き詰まった）
         version = tx.one("SELECT salescall.run_current_version(t.run_id) AS v FROM salescall.tasks t WHERE t.task_id = %s", (task_id,))
         if version is None:
-            raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+            raise LookupError(f"そのお客様は無い（または、取引の範囲の外）：{task_id}")
         why = None if version["v"] is None else business_settings.load(tx, version["v"]).target_needs().role_unclear(text)
         if why is not None:
             raise FixInvalid(why)
@@ -124,7 +124,7 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
         (field, text, r.reading, r.by if r.reading else None, list(r.candidates), r.likely, same_person, keep_old_promise, back, task_id))
     row = tx.one(f"SELECT {field} AS value FROM salescall.tasks_now WHERE task_id = %s", (task_id,))
     if row is None:
-        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+        raise LookupError(f"そのお客様は無い（または、取引の範囲の外）：{task_id}")
     if same_person is not None:   # 値が本当に変わる直し（「同じ」でも、依頼者に埋めていただく欄を埋めた行は戻す＝計画書 7-1 (29)）
         next_action.after_person_fix(tx, task_id, same_person=same_person, back=back is not None,
                                      cause=f"ダッシュボードで、{FIELD_NAMES[field]}を直した（担当の方は"
@@ -148,7 +148,7 @@ def back_choices(tx: Tx, task_id: UUID) -> list[dict[str, Any]]:
     値 values（名前・フルネーム・役職・部署＝その期の終わりの直前の値。データベースの salescall.task_person_values の1か所）。決めるのは
     データベースの salescall.task_back_periods の1か所（直す入口の確かめ `_back` と守りも同じ）。"""
     if tx.one("SELECT 1 AS x FROM salescall.tasks WHERE task_id = %s", (task_id,)) is None:
-        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+        raise LookupError(f"そのお客様は無い（または、取引の範囲の外）：{task_id}")
     return [{"back_to": FIRST_PERIOD if p["since"] is None else p["since"].isoformat(), **p} for p in former_periods(tx, task_id)]
 
 
@@ -180,7 +180,7 @@ def _back(tx: Tx, task_id: UUID, back_to: str | None, same_person: bool | None) 
             raise FixInvalid(f"戻す先の期の鍵として読めません（{back_to!r}。画面の入口 back_choices の back_to を渡してください）") from None
         value = at.isoformat()
     if not tx.one("SELECT salescall.task_back_ok(%s, %s::timestamptz) AS ok", (task_id, value))["ok"]:
-        raise FixInvalid("戻せるのは、その行の前の担当の方の期だけです（いまの期・まだ無い期には戻せません）")
+        raise FixInvalid("戻せるのは、そのお客様の前の担当の方の期だけです（いまの期・まだ無い期には戻せません）")
     return value
 
 
@@ -246,7 +246,7 @@ def _known(tx: Tx, task_id: UUID, field: str) -> None:
     if field not in FIELDS:
         raise FixInvalid(f"直せる欄は {[FIELD_NAMES[f] for f in FIELDS]} です（{field!r}）")
     if tx.one("SELECT 1 AS x FROM salescall.tasks WHERE task_id = %s", (task_id,)) is None:
-        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+        raise LookupError(f"そのお客様は無い（または、取引の範囲の外）：{task_id}")
 
 
 def _text(value: str | None) -> str | None:
@@ -303,7 +303,7 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool, kee
         raise FixInvalid(f"電話番号として読めません（{number.reason or '番号が不明です'}）")
     t = tx.one("SELECT client_ref FROM salescall.tasks WHERE task_id = %s", (task_id,))
     if t is None:
-        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+        raise LookupError(f"そのお客様は無い（または、取引の範囲の外）：{task_id}")
     now = tasks.dial_number(tx, task_id)
     back = _back(tx, task_id, back_to, same_person)
     if now["phone_e164"] == number.e164:
@@ -322,8 +322,8 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool, kee
     except Rejected as e:
         if e.constraint != "task_dial_fix_one_row_per_number":   # 同じ実施回のほかの行がかけうる番号（データベースの1か所＝0193 の task_dialable）
             raise
-        raise FixInvalid("その番号は、同じ実施回のほかの行がかけうる番号です（取り込んだ番号・いまかける番号・サブ・まだかけていない予定の番号・"
-                         "お客様が指定した番号。1つの実施回で、同じお客様は1行）") from e
+        raise FixInvalid("その番号は、同じお客様リストのほかのお客様へかけうる番号です（取り込んだ番号・いまかける番号・サブ・まだかけていない予定の番号・"
+                         "お客様が指定した番号。1つのお客様リストで、同じお客様は1件だけです）") from e
     next_action.after_dial_fix(tx, task_id, back=back is not None,
                                cause="ダッシュボードで、かける番号を直した" + ("（前の担当の方に戻す）" if back else ""))
     return tasks.dial_number(tx, task_id)
@@ -339,7 +339,7 @@ def choose_old_promise(tx: Tx, task_id: UUID, *, keep_old_promise: bool) -> dict
     next_action.after_old_promise_choice の1か所が決める。選んだものと、そのあとの予定を返す。"""
     waiting = tasks.old_promise_waiting(tx, task_id)
     if waiting is None:
-        raise FixInvalid("この行は、前の担当の方との約束を守るかの選びを待っていません（前の担当の方が新しいかけ直しの約束をした行だけ選べます）")
+        raise FixInvalid("このお客様は、前の担当の方との約束を守るかの選びを待っていません（前の担当の方が新しいかけ直しの約束をしたお客様だけ選べます）")
     if keep_old_promise and not old_promise_keepable(tx, task_id):
         raise FixInvalid("その約束の番号は、新しい担当の方の番号です。前の担当の方へかける道が無いので、「約束も守る」は選べません"
                          "（新しい担当の方へかけるを選んでください）")
@@ -361,9 +361,9 @@ def answer_month_ahead(tx: Tx, task_id: UUID, *, approve: bool) -> dict[str, Any
     waiting = tasks.month_ahead_answerable(tx, task_id)
     if waiting is None:
         if tasks.month_ahead_asking(tx, task_id) is not None:   # 伺っていたが、答えの無いまま約束の時刻が来て、もうかけた・かけている
-            raise FixInvalid("この行の1か月以上先のかけ直しは、お答えが無いまま約束の時刻になったので、もうおかけしています（かけた・かけている"
+            raise FixInvalid("このお客様の1か月以上先のかけ直しは、お答えが無いまま約束の時刻になったので、もうおかけしています（かけた・かけている"
                              "予定には答えられません）")
-        raise FixInvalid("この行は、1か月以上先のかけ直しの答えを待っていません（1か月以上先のかけ直しの予定で伺っている行だけ答えられます。"
+        raise FixInvalid("このお客様は、1か月以上先のかけ直しの答えを待っていません（1か月以上先のかけ直しの予定で伺っているお客様だけ答えられます。"
                          "お答えが無いまま約束の時刻になって、もうかけた予定には答えられません）")
     tx.execute("INSERT INTO salescall.task_month_ahead_answers (tenant_id, client_id, task_id, call_at, approved, answered_by)"
                " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, salescall.cur_actor() FROM salescall.tasks t WHERE t.task_id = %s",

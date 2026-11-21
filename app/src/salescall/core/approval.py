@@ -91,7 +91,7 @@ def uncleared_in_run(tx: Tx, run_id: UUID) -> dict[UUID, str]:
     1か所。終えた行は門がもう見ないので、承認を待っていない）。無い実施回は LookupError。"""
     run = tx.one("SELECT business_id FROM salescall.runs WHERE run_id = %s", (run_id,))
     if run is None:
-        raise LookupError(f"その実施回は無い（または、取引の範囲の外）：{run_id}")
+        raise LookupError(f"そのお客様リストは無い（または、取引の範囲の外）：{run_id}")
     rows = tx.all(f"SELECT x.task_id, x.reason FROM ({_UNCLEARED} WHERE t.run_id = %s AND salescall.task_open(t.task_id)"
                   " ORDER BY t.created_at, t.task_id) x WHERE x.reason IS NOT NULL",
                   (human_for_business(tx, run["business_id"]), run_id))
@@ -103,7 +103,7 @@ def confirm_correction_call(tx: Tx, task_id: UUID) -> int:
     確かめた直しの版を返す。確かめ待ちが無ければ LookupError（何も書かない）。"""
     version = tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (task_id,))["v"]
     if version is None:
-        raise LookupError(f"この行は、直した結果でかける電話の確かめを待っていません：{task_id}")
+        raise LookupError(f"このお客様は、直した結果でかける電話の確かめを待っていません：{task_id}")
     tx.execute("INSERT INTO salescall.correction_call_confirms (tenant_id, client_id, task_id, version_no, confirmed_by)"
                " SELECT tenant_id, client_id, task_id, %s, salescall.cur_actor() FROM salescall.tasks WHERE task_id = %s", (version, task_id))
     return version
@@ -118,7 +118,7 @@ def more_calls(tx: Tx, task_id: UUID) -> int:
     tasks.lock(tx, task_id)
     end_seq = next_action.more_calls_offered(tx, task_id)
     if end_seq is None:
-        raise LookupError("その行は、さらにかける承認を待っていません")
+        raise LookupError("そのお客様は、さらにかける承認を待っていません")
     tx.execute("INSERT INTO salescall.more_call_approvals (tenant_id, client_id, task_id, end_seq, approved_by)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (task_id, end_seq))
     return next_action.after_more_calls(tx, task_id, cause="契約者が「さらにかける」を承認した")
@@ -144,7 +144,7 @@ def correction_decided(tx: Tx, task_id: UUID, origin: dict[str, Any], version_no
     when = "すぐ" if plan is None or plan["call_at"] is None else f"{calling_hours.label(plan['call_at'])}から"
     admin = origin["kind"] == "admin"
     notify.emit(tx, "correction_call", key=f"correction_call:{task_id}:{version}", refs={"task_id": task_id, "version_no": version, "by": origin["by"]},
-                summary=f"{origin['by']}様が直した結果に従うと、この行のお客様に{when}おかけします。本当におかけしてよいかを、直した方がダッシュボードで"
+                summary=f"{origin['by']}様が直した結果に従うと、このお客様に{when}おかけします。本当におかけしてよいかを、直した方がダッシュボードで"
                         "確かめてください（確かめていただくまで、おかけしません）。", admin=admin, contractor=not admin)
 
 
