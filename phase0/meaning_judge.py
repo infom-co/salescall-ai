@@ -698,8 +698,8 @@ def scene(q, text: str, asked: str | None = None, before: str | None = None) -> 
             | ({"こちらが言い直して確かめた言葉": asked} if asked else {}) | ({PROMPTED: prompted} if prompted else {}) | {"お客様の言葉": text})
 
 
-# 何を伺っている質問か（判定に見せる質問の asks_about＝flowctl.asks_about の1か所。こちらからかけ直す日時を伺う質問だけ）の見出し（Jev の場面 scene の名前）と、問い合わせの文の
-# 質問のすぐあとの一文（asks_about_line の1か所）。分身 R の (4)
+# 何を伺っている質問か（判定に見せる質問の asks_about＝flowctl.asks_about の1か所。日時の2択のうち、2択の文が何の日時かを言わない質問だけ）の見出し（Jev の場面 scene の名前）と、問い合わせの文の
+# 質問のすぐあとの一文（asks_about_line の1か所）。分身 R の (4)・分身 S の (1)
 ASKS_ABOUT = "質問で伺っていること"
 
 

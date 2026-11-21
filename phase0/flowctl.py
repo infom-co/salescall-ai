@@ -3771,18 +3771,36 @@ def until_fits(q: "Question") -> bool:
     return getattr(q, "callback", "") == "later_time"
 
 
-# 判定に見せる質問に添える、何の日時を伺っているかの一文の中身（唯一の場所＝asks_about）。分身 R の (4)
+# 判定に見せる質問に添える、何の日時を伺っているかの一文の中身（唯一の場所＝asks_about）。分身 R の (4)・お客様から折り返していただく日の2択は分身 S の (1)
 CALLBACK_ASKS_ABOUT = "この電話を終えたあとに、こちらからお客様へかけ直す日時"
+THEIRS_ASKS_ABOUT = "この電話を終えたあとに、お客様の側からこちらへ折り返しのお電話をいただく日時"
 
 
-def asks_about(q: "Question") -> str:
+def asks_about(q: "Question", ladder: dict | None = None) -> str:
     """判定に見せる質問に添える、何を伺っている質問かの中身（唯一の決まり＝判定に見せる質問の1か所 Flow.for_judge が Question.asks_about に入れ、meaning_judge.prompt_parts・
-    scene が質問の文のすぐあとに見せる）：こちらからかけ直す日時を伺う質問（LADDER_ROLES＝「あとで」の時刻・急いでいる方の H1 のあとの時刻。日時の2択の段の2択・「〇時まで」の理由の
-    伺い直しも同じ質問）だけ CALLBACK_ASKS_ABOUT・ほかは ""（質問の文で分かる＝今のまま）。2択の文（「2時と4時ではどちらがよろしいでしょうか？」）は何の日時かを言わないので、名乗りの
-    用件（「ご予約の確認」）から依頼者の日時とも読めた（答えを伏せた読み手 A・B が2人とも書いた＝束 rv183/Q/readers の n9）。質問の文はお客様が聞いた文のまま（本書 9-5 の (6)）・添える
-    のは、お客様がもう知っている事柄（頼んだ・受けていただいたかけ直し）だけ（お客様の言葉は渡さない）。CL-1 が決まりで決めた（10-21 G-59「判定が何へのお返事かを知らずに読むと
-    読み違える」・11-12 まとめ役の (2)・後任の方をお呼びしている一文 Question.called と同じ形）。⛔ 20109859 まで見せていなかった"""
-    return CALLBACK_ASKS_ABOUT if getattr(q, "callback", "") in LADDER_ROLES else ""
+    scene が質問の文のすぐあとに見せる）。ladder＝その質問の項目の、日時の2択の段でもう伺えた所（Item.ladder。段で伺っていなければ None）。役目ごとの一文：
+    - こちらからかけ直す日時を伺う質問（LADDER_ROLES＝「あとで」の時刻・急いでいる方の H1 のあとの時刻。日時の2択の段の2択・「〇時まで」の理由の伺い直しも同じ質問）＝CALLBACK_ASKS_ABOUT
+      （分身 R の (4)）
+    - お客様から折り返していただく日の2択（THEIRS_ROLES の質問を2択で伺っている間＝Flow._theirs_begin〜_theirs_take の ladder の theirs。伺い67「それでは本日と明日ではどちらになります
+      でしょうか？」）＝THEIRS_ASKS_ABOUT（分身 S の (1)。折り返しはお客様の側が申し出たこと＝電話口の方が「戻りましたら折り返させます」と言ったときも同じ。2択の前・あとの質問の文
+      「お電話をいただいた際に…」は何の日時かを言う＝今のまま）
+    - 依頼者の日時の質問（伺い62＝Question.ladder の accept）の2つ目からの2択（「金曜日と火曜日では…」＝はじめの2択 ladder_opening の文には聞くことの頭「ご来店は」がある＝今のまま）＝
+      その質問の聞くこと（Question.topic「ご来店の日時」＝お客様がはじめの2択で聞いた言葉。聞くことの無い業務は、はじめの2択も頭を付けない＝""。分身 S の (1)）
+    - ほかは ""（質問の文で分かる＝今のまま。顧客獲得型のアポの日時 meeting は今のまま）
+    2択の文（「2時と4時ではどちらがよろしいでしょうか？」）は何の日時かを言わないので、名乗りの用件（「ご予約の確認」）から依頼者の日時とも読めた（答えを伏せた読み手 A・B が2人とも
+    書いた＝束 rv183/Q/readers の n9）。質問の文はお客様が聞いた文のまま（本書 9-5 の (6)）・添えるのは、お客様がもう知っている事柄（頼んだ・受けていただいた・申し出ていただいた
+    かけ直し・はじめの2択で聞いた聞くこと）だけ（お客様の言葉は渡さない）。CL-1 が決まりで決めた（10-21 G-59「判定が何へのお返事かを知らずに読むと読み違える」・11-12 まとめ役の (2)・
+    後任の方をお呼びしている一文 Question.called と同じ形・10-19「いただいた理由は、言われた場面だけでなく、同じ理由が当たる場面すべてに当てる」）。⛔ 20109859 まで見せていなかった・
+    ⛔ f2ded9f4 まで、こちらからかけ直す日時の質問だけに見せていた（お客様から折り返していただく日の2択・依頼者の日時の2つ目からの2択は、判定が何の日時かを読めなかった＝分身 R の (6-4)）"""
+    if getattr(q, "callback", "") in LADDER_ROLES:
+        return CALLBACK_ASKS_ABOUT
+    if ladder is None:
+        return ""
+    if ladder.get("theirs") and getattr(q, "callback", "") in THEIRS_ROLES:
+        return THEIRS_ASKS_ABOUT
+    if getattr(q, "ladder", "") == "accept" and not in_ladder_opening(q):
+        return getattr(q, "topic", "") or ""
+    return ""
 
 
 def cycle_fits(q: "Question") -> bool:
@@ -4524,7 +4542,7 @@ class Question:
     # 判定に見せるだけ：かけた番号が、お呼びした方ご本人の電話か（Flow._own_phone の1か所。入れるのは Flow.for_judge の1か所＝流れの制御の質問は偽のまま）。読むのは、
     # 答えの段の項目「こちらがかけた電話番号が違うと伝えたか」の説明だけ（meaning_judge.answer_items＝wrong_choices。お呼びする段は項目ごとの説明 target_facets が読む）
     own_phone: bool = False
-    # 判定に見せるだけ：何を伺っている質問か（asks_about の1か所＝こちらからかけ直す日時を伺う質問だけ。入れるのは Flow.for_judge の1か所＝流れの制御の質問は空のまま）。
+    # 判定に見せるだけ：何を伺っている質問か（asks_about の1か所＝日時の2択のうち、2択の文が何の日時かを言わない質問だけ。入れるのは Flow.for_judge の1か所＝流れの制御の質問は空のまま）。
     # 読むのは、問い合わせの文の質問のすぐあとの一文（meaning_judge.prompt_parts・Jev の場面 scene）だけ。分身 R の (4)
     asks_about: str = ""
     # 一度受けていただいたこちらの申し出から始まった質問として判定に見せるとき、その申し出の言葉（「改めてお掛けさせていただく」。Flow.judge_context が入れる＝
@@ -7869,8 +7887,9 @@ class Flow:
         # 答えとは別に読む項目（お呼びする段のかけ直しの質問も）：かけた番号がご本人の電話か（読むのは番号違いの説明だけ＝Question.own_phone。項目ごとに答える質問は
         # target_facets が同じ1か所 _own_phone から作る）
         own = not getattr(q, "facets", ()) and self._own_phone()
-        # 何を伺っている質問か（こちらからかけ直す日時を伺う質問だけ＝asks_about の1か所。質問の文は変えない）
-        about = asks_about(q)
+        # 何を伺っている質問か（日時の2択のうち、2択の文が何の日時かを言わない質問だけ＝asks_about の1か所。質問の文は変えない。段でもう伺えた所は、その質問の項目のもの）
+        item = self.items.get(q.id)
+        about = asks_about(q, None if item is None else item.ladder)
         if (text, called, purpose, own, about) == (q.text, getattr(q, "called", ""), getattr(q, "heard_purpose", ""), getattr(q, "own_phone", False),
                                                    getattr(q, "asks_about", "")):
             return q

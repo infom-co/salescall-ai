@@ -48141,3 +48141,66 @@ class CallbackAsksAboutTest(unittest.TestCase):
             it = next(i for i in answer_words() if i["text"] == text and i["qid"] == "C1")
             q, asked, before = G.judge_inputs(it, qmap[it["qid"]])
             self.assertIn(f"質問：「{q.text}」\n{self.LINE}\n", prompt(q, text, asked, before), text)
+
+
+class PairAsksAboutTest(unittest.TestCase):
+    """分身 S（CL-1 の頼み rv184/S の (1)＝分身 R の書き置きの (6-4)）：分身 R の (4) の何の日時かの一文（判定に見せる質問の文のすぐあと）を、同じ穴のあるほかの日時の2択にも見せる＝
+    お客様から折り返していただく日の2択（伺い67「それでは本日と明日ではどちらになりますでしょうか？」）と、依頼者の日時の質問（伺い62）の2つ目からの2択（「金曜日と火曜日では…」＝はじめの2択は
+    聞くことの頭「ご来店は」がある＝今のまま）。どちらも2択の文が何の日時かを言わない＝判定が何の日時かを読めない。中身は同じ1か所（flowctl.asks_about に役目ごとの一文）・質問の文はお客様が
+    聞いた文のまま（本書 9-5 の (6)）・添えるのはお客様がもう知っている事柄だけ（折り返しはお客様が申し出たこと・聞くことははじめの2択で聞いた言葉）。CL-1 が決めた理由：10-19「いただいた
+    理由は、言われた場面だけでなく、同じ理由が当たる場面すべてに当てる」。⛔ f2ded9f4 まで見せていなかった"""
+
+    THEIRS_LINE = "（この質問は、この電話を終えたあとに、お客様の側からこちらへ折り返しのお電話をいただく日時を伺っています）"
+
+    def test_the_theirs_pair_shows_what_it_asks(self):
+        from flowctl import THEIRS_ASKS_ABOUT
+        from meaning_judge import ASKS_ABOUT, prompt, scene
+        o, f, r = TheirsDayPairTest().asked()
+        self.assertEqual(heard_words(r), TheirsDayPairTest.ASK)
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertEqual(q.text, "それでは本日と明日ではどちらになりますでしょうか？")   # 質問の文はお客様が聞いた文のまま
+        self.assertIn(f"質問：「{q.text}」\n{self.THEIRS_LINE}\n", prompt(q, "明日になります。", asked, before))
+        self.assertEqual(scene(q, "明日になります。", asked, before)[ASKS_ABOUT], THEIRS_ASKS_ABOUT)   # Jev の場面も同じ1か所
+        self.assertEqual(f.questions[q.id].asks_about, "")   # 流れの制御の質問は空のまま（判定に見せるときだけ）
+
+    def test_the_theirs_question_itself_does_not(self):
+        # 2択を伺う前・伺い終えたあとの質問（「お電話をいただいた際に出られないことがないように…」）は、質問の文で分かる＝今のまま
+        from meaning_judge import prompt
+        o, f, _ = TheirsDayPairTest().asked()
+        o.heard(f, "明日になります。")
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "明日"})
+        self.assertEqual(r["result"], "confirm_required")
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertNotIn("を伺っています）", prompt(q, "はい。", asked, before))
+
+    def test_the_client_pair_after_the_first_shows_the_topic(self):
+        from meaning_judge import ASKS_ABOUT, prompt, scene
+        t = PLadderOpeningTest()
+        f, r = t.first(t.WEEKEND)
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertEqual(q.text, "ご来店は平日と土日のどちらがよろしいでしょうか？")
+        self.assertNotIn("を伺っています）", prompt(q, "平日で。", asked, before))   # はじめの2択は聞くことの頭がある＝今のまま
+        r = _p_turn(f, "平日でお願いします。", _p_rd("答えた"), "record_answer", question_id="Q2", condition_id="答えた", value="平日")
+        self.assertEqual(DateTimePairsTest().asked(r), "金曜日と火曜日ではどちらがよろしいでしょうか？")   # お客様に聞こえる言葉は今のまま
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertEqual(q.text, "金曜日と火曜日ではどちらがよろしいでしょうか？")
+        self.assertIn(f"質問：「{q.text}」\n（この質問は、ご来店の日時を伺っています）\n", prompt(q, "金曜日で。", asked, before))
+        self.assertEqual(scene(q, "金曜日で。", asked, before)[ASKS_ABOUT], "ご来店の日時")
+        self.assertEqual(f.questions["Q2"].asks_about, "")
+
+    def test_the_meeting_and_other_questions_as_before(self):
+        # 顧客獲得型のアポの日時（meeting）・お戻りの時刻など（質問の文で分かる）は今のまま。こちらからかけ直す日時は分身 R の一文のまま
+        from meaning_judge import prompt
+        f = _p_acquire()
+        _p_to_meeting(f)
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertNotIn("を伺っています）", prompt(q, "平日で。", asked, before))
+        d, g = UntilAskAgainTest().at_hours()
+        g.on_callee()
+        q, asked, before = g.judge_context()
+        self.assertIn(CallbackAsksAboutTest.LINE, prompt(q, "4時で。", asked, before))
