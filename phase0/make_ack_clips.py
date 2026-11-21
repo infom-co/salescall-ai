@@ -326,6 +326,9 @@ HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST} | {f"apol
 HOW_OF.update({**{f"apology_cut_end_{k}": "apology_first" for k in ("same_day", "later")},
                **{f"told_again_{k}_{w}": "own_fallback" for k in ("question", "request", "opinion") for w in ("same_day", "later")},
                "told_follow_up": "own_fallback"})
+# 2つ目からのお詫び（頭に「また」＝phrases.APOLOGY_ALSO_IDS の1か所。伺い97 ア）：もとのお詫びと同じ読み方
+from phrases import APOLOGY_ALSO_IDS  # noqa: E402
+HOW_OF.update({also: HOW_OF[rid] for rid, also in APOLOGY_ALSO_IDS.items()})
 HOW_OF.update({f"line_trouble_{k}": "line_trouble" for k in LINE_TROUBLE})
 HOW_OF.update({f"number_again_{k}": "number_again" for k in NUMBER_AGAIN})
 HOW_OF["hold_timeout"] = "closing"   # 保留で待ちきったときの締め：締めの読み方

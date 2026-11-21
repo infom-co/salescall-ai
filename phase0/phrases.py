@@ -1388,6 +1388,18 @@ APOLOGY_PURPOSE = {"same_day": "先ほどのお電話の件でご連絡いたし
 # いただきますね。」と言って、最後の挨拶で締めくくる。」
 APOLOGY_CUT_END = {"same_day": "先ほどはお話の最後に通信が悪くお電話が切れてしまい申し訳ございませんでした。",
                    "later": "前回はお話の最後に通信が悪くお電話が切れてしまい申し訳ございませんでした。"}
+# 前の電話のことのお詫びが2つ以上続くときの、2つ目からのお詫びの頭の言葉と、頭に付けた共通の一言の録音（唯一の表＝もとの録音の名前 → 頭に付けた録音の名前・
+# その名前 → 文。並べるのは flowctl.sorry_plan の1か所＝流れの制御と名乗りの録音の文・録音の表 RECORDED・読み方 make_ack_clips.HOW_OF）。もとの録音は、途中で
+# 切れたお詫び（前回・先ほど＝APOLOGY_FIRST・APOLOGY_SAME_DAY）・約束の時間のお詫び・お話の最後に切れたお詫び（APOLOGY_CUT_END）の5本。言ってはいけないことの
+# お詫び（契約者が承認した文の録音）はいつも1つ目なので頭に付けない（並べる順は flowctl.apology_order の1か所）。決まった言い方なので「また」のあとに読点は入れない
+# （10-15）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」＝伺い97 ア「前回はお電話が途中で切れてしまい大変失礼
+# いたしました。またお約束の時間にお電話ができず誠に申し訳ございませんでした。」（3つのときは「また」が2回続く・ご承認いただいた文は1文字も変えない）
+APOLOGY_ALSO = "また"
+APOLOGY_ALSO_IDS = {rid: f"{rid}_also" for rid in (*(f"apology_{k}" for k in APOLOGY_FIRST), *(f"apology_{k}_same_day" for k in APOLOGY_SAME_DAY),
+                                                  *(f"apology_cut_end_{k}" for k in APOLOGY_CUT_END))}
+APOLOGY_ALSO_TEXTS = {APOLOGY_ALSO_IDS[f"apology_{k}"]: APOLOGY_ALSO + v for k, v in APOLOGY_FIRST.items()} | \
+                     {APOLOGY_ALSO_IDS[f"apology_{k}_same_day"]: APOLOGY_ALSO + v for k, v in APOLOGY_SAME_DAY.items()} | \
+                     {APOLOGY_ALSO_IDS[f"apology_cut_end_{k}"]: APOLOGY_ALSO + v for k, v in APOLOGY_CUT_END.items()}
 TOLD_FOLLOW_UP = "折り返し担当の者よりご連絡させていただきますね。"
 # こちらの仕組みの都合で、通話をどうしても途中で切るときに流す2つ（共通の一言の録音）。✅ 2026-10-22 夜 ユーザー決定（CL-2 の 4-137）：
 # 「恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか？」→ お客様の返事を待つ（AIはいないので
@@ -1652,6 +1664,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},
+            **APOLOGY_ALSO_TEXTS,   # 2つ目からのお詫び（頭に「また」＝伺い97 ア）
             "told_follow_up": TOLD_FOLLOW_UP,
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,

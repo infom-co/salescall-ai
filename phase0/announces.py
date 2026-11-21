@@ -29,7 +29,8 @@ flowctl.at_hand の1か所）。「ご確認ください。」の文は、お知
 - 資料が届いているかを伺う質問：unclear と同じ形（2つがそろって「伺う質問」で同じ選択肢を挙げ、その選択肢が質問の選択肢にあるときだけ。ほかは空＝「ご了承ください。」）。
 - お知らせの中身の名詞（flowctl.Question.matter。最終の確かめ「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」＝flowctl.accepted_line の1か所）：
   用件の名詞（purposes）と同じ形＝2つの文字のAIがそろい、説明と質問の文の中の言葉のときだけ、その言葉。そろわない・文に無いときは考える Sonnet
-  （import_ai.decide_matters の referee）に、その文だけを聞き、文の中の言葉ならその言葉（考える Sonnet に聞く所は import_ai._settled の1か所）。ほかは空＝
+  （import_ai.decide_matters の referee）に、その文だけを聞き、文の中の言葉ならその言葉（考える Sonnet に聞く所は import_ai._settled の1か所）。名詞も句も、
+  説明で並べた事柄（「キャンセルや変更」）の一部だけを言わない（keeps_items の1か所＝matter_fits・clause_fits。問い合わせの例の名詞も「キャンセルや変更」）。ほかは空＝
   「先ほどの内容」（違う中身を言うことはない側へ倒す）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承という
   ことでよろしかったでしょうか？」」
 - お知らせの中身を常体にした句（flowctl.Question.matter_clause。聞き取れないまま「-」にしたお知らせの締めの前の確かめ「（句）件のお返事のお声が聞き取れなかった
@@ -41,7 +42,10 @@ flowctl.at_hand の1か所）。「ご確認ください。」の文は、お知
   規則として言わない形で作る（11-16 0時42分38秒のお言葉を句の問い合わせにも当てた＝NOT_A_RULE。句の言葉の出どころ clause_fits にお客様が聞いた文を入れる。
   説明と質問の文にもお客様が聞いた文にも無い言葉は足さない）。取込は、お知らせの文を決めてから（import_ai.decide_announces）、その答えを渡して句を決める
   （import_ai.decide_matters の受け口＝(説明, 質問の文, お知らせの文)）。⛔ bcdf81a4 まで、句の問いの例が「…ご連絡いただく決まりになっている」で、説明が
-  「決まりになっております」だけの業務では決まりとして言わない句（「…必要がある」）を作れなかった（「必要」が説明に無い）
+  「決まりになっております」だけの業務では決まりとして言わない句（「…必要がある」）を作れなかった（「必要」が説明に無い）。
+  良い点と気をつけていただくことの2つの文のお知らせの句は、気をつけていただく文の中身だけから作り、「それ以降」は良い点の文の期限の言葉で「（期限）を過ぎた」と
+  言う（BACK・PAST・確かめは clause_fits の1か所＝「前日以降」は通さない）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めて
+  ください」＝伺い96 ア「…前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる件のお返事の…」。⛔ それまで、2つの文の中身を全部持つ句（一言が112字）
 """
 from __future__ import annotations
 
@@ -198,7 +202,15 @@ def decide_hand(conditions: tuple, model_rows: list[dict | None]) -> str:
 # お知らせの中身の名詞と、中身を常体にした句を聞く問い（1回の問い合わせで2つの項目。例の確かめの文は、言い方の表の1か所 phrases.ANNOUNCE_ACCEPTED・
 # phrases.unheard_form から作る）。句は、お客様が聞いた文（heard）から作る＝並びは「番号：説明／質問の文／お客様が聞いた文」。決まり・規則として言わない形は
 # お知らせの文の問い PROMPT と同じ1か所の言葉（NOT_A_RULE）・例も同じ文（EXAMPLE_EXPL・EXAMPLE_ASK・EXAMPLE_LINE）。言葉の形では止めない（fits と同じ方針＝問い合わせが頼む）
-EXAMPLE_CLAUSE = "キャンセルや変更は前日までにご連絡いただければ料金がかからずそれ以降はキャンセル料がかかる"   # 期限の言葉（前日・以降）を落とさない（clause_fits）
+# 良い点と気をつけていただくことの2つの文のお知らせの句は、気をつけていただく文の中身だけから作り、その文が良い点の文の期限を指す言葉（BACK）は、その期限の
+# 言葉で「（期限）を過ぎた」（PAST）と言う（唯一の言葉＝句の問い MATTER_PROMPT・句の確かめ clause_fits）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：
+# すべてアでOK、進めてください」＝伺い96 ア「ありがとうございます。申し訳ございません、前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる件のお返事のお声が
+# 聞き取れなかったのですがご了承ということでよろしかったでしょうか？」（期限の言葉と料金は残す・「前日以降」とは言わない＝前日も入ってしまい、説明と違う）
+BACK, PAST = "それ以降", "を過ぎた"
+EXAMPLE_CLAUSE = "前日を過ぎたキャンセルや変更はキャンセル料がかかる"   # 期限（前日）と料金を落とさない・「それ以降」は「前日を過ぎた」（clause_fits）
+# 例の名詞は、説明で並べた事柄を全部（「キャンセル」だけにすると、最終の確かめ「それではキャンセルの件は…」が「変更」を落とす＝matter_fits・keeps_items の1か所。L12）
+EXAMPLE_MATTER = "キャンセルや変更"
+KEEP_ITEMS = "「キャンセルや変更」のように並べた事柄は、一部だけにせず全部を書きます（「キャンセル」だけにしません）"
 MATTER_PROMPT = (
     "電話でお客様に、こちらの決まり（説明）の内容をお伝えしてから、その内容でよいかを伺う質問の一覧です。お客様には、質問ごとの「お客様が聞いた文」をお伝え"
     f"しています。お伝えしたあと、最後に「{ANNOUNCE_ACCEPTED.format(t='（中身）の')}」と確かめます。お返事が聞き取れなかったときは"
@@ -209,11 +221,16 @@ MATTER_PROMPT = (
     "決まり：\n"
     f"- clause は、{NOT_A_RULE}書きます（言い切りの形でも「決まりになっている」とは書きません）。お客様が聞いた文が決まり・規則としての言い方のままで、"
     "そう言わない1つの句にできなければ、clause は空にします。\n"
-    f"- 例：説明「{EXAMPLE_EXPL}」・質問「{EXAMPLE_ASK}」で、お客様が聞いた文が「{EXAMPLE_LINE}」なら、matter は「キャンセル」、"
+    f"- お客様が聞いた文が、良い点の文と「{ANNOUNCE_CAUTION_END}」で終える気をつけていただくことの文の2つのときは、clause は気をつけていただくことの文の"
+    f"中身だけを1つの句にします。その文の「{BACK}」は、良い点の文の期限の言葉を使って「（期限）{PAST}」と言います（「前日まで」なら「前日{PAST}」。"
+    "「前日以降」とは書きません＝前日も入ってしまい、説明と違います）。お客様が聞いた文がほかの形のときは、その文の内容を全部1つの句にします。\n"
+    f"- 例：説明「{EXAMPLE_EXPL}」・質問「{EXAMPLE_ASK}」で、お客様が聞いた文が「{EXAMPLE_LINE}」なら、matter は「{EXAMPLE_MATTER}」、"
     f"clause は「{EXAMPLE_CLAUSE}」。\n"
     "- matter に「の件」は入れません。説明と質問の文の中に無い言葉・言い換えた言葉は書きません。中身を短い言葉で表せなければ空にします。\n"
+    f"- matter も clause も、{KEEP_ITEMS}。\n"
     "- clause には、頭の「（何々）の内容ですが」のような前置きと「件」を入れません。数・金額・日にち・期限・回数は、お客様が聞いた文にあるものを全部、書いてある"
-    "とおりに入れます。説明と質問の文にも、お客様が聞いた文にも無い言葉・事実は足しません。「、」「。」「？」は入れません。1つの句にできなければ空にします。\n"
+    f"とおりに入れます（2つの文のときの「{BACK}」は、上のとおり期限の言葉で言います）。説明と質問の文にも、お客様が聞いた文にも無い言葉・事実は足しません"
+    f"（足すのは、2つの文のときの「{PAST}」だけです）。「、」「。」「？」は入れません。1つの句にできなければ空にします。\n"
     f"- clause も、{NO_BRACKETS}。\n"
     "質問（番号：説明／質問の文／お客様が聞いた文）：\n"
 )
@@ -227,6 +244,8 @@ CLAUSE_ENDS = (*"うくぐすつぬぶむる", "ない", "た")
 POLITE_ENDS = ("ます", "です", "ました", "でした", "ません", "でしょう", "ましょう", "ください")
 # 句の中の言葉（漢字・カタカナ・英字のまとまり）：どれも説明か質問の文にあること（説明に無い言葉・事実を足さない）
 _WORDS = re.compile(r"[一-鿿々〆]+|[ァ-ヺー]+|[A-Za-zＡ-Ｚａ-ｚ]+")
+# 句の「（期限）を過ぎた」の期限の言葉（PAST のすぐ前の、数・漢字・カタカナのまとまり＝「前日」「18時」「3日前」。clause_fits が良い点の文の「（期限）まで」と比べる）
+_DEADLINE = re.compile(r"[0-9０-９一-鿿々〆ァ-ヺー]+$")
 
 
 def heard(intro: str, text: str, announce: str = "") -> str:
@@ -250,10 +269,32 @@ def matter_by_model(client, model: str, items: list[tuple[str, str, str]], think
 
 
 def matter_fits(intro: str, text: str, matter: str | None) -> bool:
-    """お知らせの中身の名詞として使えるか（唯一の決まり＝用件の名詞 purposes.fits と同じ考え）：空でない・説明か質問の文の中の言葉・文の終わりや問いを含まない。"""
+    """お知らせの中身の名詞として使えるか（唯一の決まり＝用件の名詞 purposes.fits と同じ考え）：空でない・説明か質問の文の中の言葉・文の終わりや問いを含まない・
+    説明と質問の文で並べた事柄（「キャンセルや変更」）の一部だけを言わない（keeps_items の1か所＝句 clause_fits と同じ決まり。「キャンセルや変更は…」の説明に
+    「キャンセル」だけを当てると、最終の確かめ「それではキャンセルの件は…」が「変更」を落とす）。数と期限の言葉は名詞に入れなくてよい（名詞は中身を表す短い言葉＝
+    ✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承ということでよろしかったでしょうか？」」）。"""
     from askitems import noun_fits
 
-    return noun_fits(matter, (intro, text))
+    return noun_fits(matter, (intro, text)) and keeps_items(f"{intro}\n{text}", matter)
+
+
+# 並べた事柄の言葉（言葉のまとまりを「や」「と」「・」「および」「または」でつないだ並び＝「キャンセルや変更」「キャンセル料や変更料」）。まとまりは数・漢字・カタカナ・
+# 英字の続き（ひらがなと「・」で切れる＝「キャンセル料」は1つ）
+_ITEM = r"[0-9０-９一-鿿々〆ァ-ヺーA-Za-zＡ-Ｚａ-ｚ]+"
+_ITEMS = re.compile(rf"{_ITEM}(?:(?:や|と|・|および|または){_ITEM})+")
+
+
+def keeps_items(source: str, words: str) -> bool:
+    """取込で作った名詞・句 words が、もとの文 source で並べた事柄の一部だけを言っていないか（唯一の決まり＝お知らせの中身の名詞 matter_fits・句 clause_fits）：
+    並びの言葉（まとまり）を1つでも言うなら、並びの言葉を全部言う（つなぐ言葉は問わない）。「キャンセルや変更」を「キャンセル」だけ・「キャンセル料や変更料」を
+    「キャンセル料」だけにしない（説明と違う中身＝11-15 日本時間11時59分07秒の句の確かめの数と期限の言葉を落とさないのと同じ理由。L12）。並びの言葉を1つも
+    言わない名詞・句は見ない（「料金」）。"""
+    have = set(re.findall(_ITEM, words or ""))
+    for chain in _ITEMS.findall(source or ""):
+        members = set(re.findall(_ITEM, chain))
+        if have & members and not members <= have:
+            return False
+    return True
 
 
 def clause_fits(intro: str, text: str, clause: str | None, announce: str = "") -> bool:
@@ -261,14 +302,33 @@ def clause_fits(intro: str, text: str, clause: str | None, announce: str = "") -
     句点も問いも含まない（askitems.noun_fits の1か所）・かっこを含まない（spoken の1か所＝お知らせの文と同じ決まり）・常体（終わりが POLITE_ENDS でない）・「件」の前に置ける終わり（CLAUSE_ENDS）・言葉の出どころの数と期限の
     言葉を落とさない・出どころに無い数と期限の言葉を足さない（どちらも keeps_facts の1か所を両向きに）・出どころに無い言葉（漢字・カタカナ・英字のまとまり）を
     足さない。言葉の出どころ＝説明と質問の文と、お客様が聞いた文（heard の1か所＝取込で決まったお知らせの文 announce・無ければ入る一言＋質問の文。お知らせの文は
-    説明に無い事実を足さない中身の判定を通った文）。決まり・規則として言わない形は問い合わせ（MATTER_PROMPT）が頼む（言葉の形では止めない＝fits と同じ）。"""
+    説明に無い事実を足さない中身の判定を通った文）。決まり・規則として言わない形は問い合わせ（MATTER_PROMPT）が頼む（言葉の形では止めない＝fits と同じ）。
+    良い点と気をつけていただくことの2つの文のお知らせで、気をつけていただく文（caution の1か所）が良い点の文の期限を「それ以降」（BACK）で指すときは、句はその
+    期限を「（期限）を過ぎた」（PAST）で1回だけ言う（伺い96 ア）：「を過ぎた」のすぐ前の言葉が、良い点の文で「（その言葉）まで」と言った期限であること・
+    数と期限の言葉と出どころの確かめ（from_source の1か所）は、句の「を過ぎた」を「それ以降」を言ったものとして数える（「を過ぎた」の「過」は足してよい言葉。
+    「前日以降」は「を過ぎた」が無いので通さない＝前日も入ってしまい、説明と違う。2つの文の中身を全部持つ句も「を過ぎた」が無いので通さない）。ほかの形の
+    お知らせ（1つの文・良い点だけ・お知らせの文が無い）は今のまま。"""
     from askitems import spoken_noun_fits
 
     # 名詞の形・常体・かっこを使わない（声で言う句＝spoken_noun_fits の1か所。かっこは ✅ 2026-11-16 日本時間12時48分22秒「・伺い33：…」）
     if not spoken_noun_fits(clause) or not clause.endswith(CLAUSE_ENDS):
         return False
     source = "\n".join((intro, text, heard(intro, text, announce)))   # お知らせの文が無いとき heard は入る一言＋質問の文（重なりは確かめに効かない）
-    return from_source(source, clause)
+    if BACK in caution(announce):
+        head, past, rest = clause.partition(PAST)
+        deadline = _DEADLINE.search(head)
+        if not past or PAST in rest or deadline is None or f"{deadline.group()}まで" not in announce.split("。")[0]:
+            return False
+        clause = f"{head}・{BACK}・{rest}"   # 「・」は言葉のまとまりの切れ目（_WORDS に入らない）
+    return from_source(source, clause) and keeps_items(source, clause)
+
+
+def caution(announce: str) -> str:
+    """良い点と気をつけていただくことの2つの文のお知らせ（終わりが ANNOUNCE_CAUTION_END・文の数は phrases.ANNOUNCE_ENDS の1か所）の、気をつけていただく文
+    （唯一の見分け＝句の確かめ clause_fits）。ほかの形（1つの文・良い点だけ・お知らせの文が無い）は空。"""
+    if not (announce or "").endswith(ANNOUNCE_CAUTION_END) or announce.count("。") != ANNOUNCE_ENDS[ANNOUNCE_CAUTION_END]:
+        return ""
+    return announce.split("。")[1] + "。"
 
 
 def from_source(source: str, words: str) -> bool:
