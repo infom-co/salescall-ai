@@ -603,4 +603,8 @@ ul.done-steps span { color: var(--ok); margin-right: 4px; }
 /* 設定の段（契約者 › 依頼者 › 業務） */
 .setting-levels { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; }
 @media (max-width: 380px) { .top .menu-toggle .menu-word { display: none; } }
+/* 取り込みの札のいちばん上の、何に効くかの説明 */
+.import-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: var(--info-soft); color: var(--text); font-size: 13px; }
+/* 左の道しるべと同じ行き先（狭い幅でだけ出す。道しるべが見えている幅では重ねない） */
+@media (min-width: 901px) { .nav-dup { display: none; } }   /* 道しるべは 900px 以下で ≡ の中にたたまれる（上の @media と同じ境目） */
 

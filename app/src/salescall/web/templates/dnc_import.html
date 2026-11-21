@@ -15,8 +15,9 @@
 {% if error %}<div class="flash ng" role="alert">{{ error }}</div>{% endif %}
 
 {% if stage == "upload" %}
-{{ imp.upload(base, "依頼者から受け取った一覧（Excel か CSV）", encodings, token) }}
-<p class="muted" style="margin-top:12px">{% if client %}一覧の番号か管理番号を持つお客様には、断ったお客様と同じく、もうおかけしません（この依頼者の中だけ。ほかの依頼者には効きません）。{% else %}この契約者のすべての依頼者で、一覧の番号へはかけません（番号だけで止めます）。{% endif %}</p>
+{{ imp.upload(base, "依頼者から受け取った一覧（Excel か CSV）", encodings, token,
+              "一覧の番号か管理番号を持つお客様には、断ったお客様と同じく、もうおかけしません（この依頼者の中だけ。ほかの依頼者には効きません）。" if client
+              else "この契約者のすべての依頼者で、一覧の番号へはかけません（番号だけで止めます）。") }}
 
 {% elif stage == "map" %}
 <p class="lead">ファイル：{{ file_name }}。どの列がどの欄かを選んでください（見出しから案を入れています）。{% if client %}番号か管理番号の、どちらかがあれば止められます。{% endif %}</p>

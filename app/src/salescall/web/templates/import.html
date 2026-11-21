@@ -9,6 +9,6 @@
 <h1>お客様を取り込む</h1>
 {{ imp.steps("upload", ibase) }}
 {{ flash(done, ok) }}
-{{ imp.upload(ibase, "取り込むファイル（Excel か CSV）", encodings, token) }}
-<p class="muted" style="margin-top:12px">同じお客様リストに何度取り込んでも、同じお客様が2人になることはありません（管理番号・番号で見分けます）。登録できない行は、理由を見せてから登録します。</p>
+{{ imp.upload(ibase, "取り込むファイル（Excel か CSV）", encodings, token,
+              "同じお客様リストに何度取り込んでも、同じお客様が2人になることはありません（管理番号・番号で見分けます）。登録できない行は、理由を見せてから登録します。") }}
 {% endblock %}

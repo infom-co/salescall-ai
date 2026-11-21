@@ -17,9 +17,11 @@
 {%- endmacro %}
 
 {#- 1つ目：ファイルを選ぶ -#}
-{% macro upload(ibase, label, encodings, token) -%}
+{#- note＝この取り込みが何に効くか（大事な説明はファイルを選ぶ前に読めるよう、札のいちばん上に。2026-11-21 の見直し：ボタンの下にあった） -#}
+{% macro upload(ibase, label, encodings, token, note="") -%}
 <form class="card import-card" method="post" action="{{ ibase }}" enctype="multipart/form-data">
   {{ csrf(token) }}
+  {% if note %}<p class="import-note">{{ note }}</p>{% endif %}
   {{ file_pick(label, "10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。") }}
   <details class="more">
     <summary>シートや文字の決まりを指定する（ふつうは要りません）</summary>

@@ -11,7 +11,8 @@
   {% else %}{{ rename("/c/" ~ client.client_id ~ "/name", "依頼者", client.name, token) }}{% endif %}
   <form class="search-inline" method="get" action="/c/{{ client.client_id }}/search"><input type="search" name="q" placeholder="お客様を探す（会社名・管理番号・電話番号）" aria-label="お客様を探す"></form>
   </span>
-  <nav class="go-links" aria-label="{{ 'この業務' if business else 'この依頼者' }}の画面">
+  {#- 左の道しるべと同じ行き先なので、道しるべが見えている幅では出さない（狭い幅では道しるべが ≡ の中にたたまれるので出す。2026-11-21 の見直し） -#}
+  <nav class="go-links nav-dup" aria-label="{{ 'この業務' if business else 'この依頼者' }}の画面">
   {% if not business %}{{ go("/c/" ~ client.client_id ~ "/dnc", words.CLIENT_NAV["/dnc"]) }}{% endif %}
   {{ go("/c/" ~ client.client_id ~ "/destinations" ~ ("#b-" ~ business.business_id if business else ""), words.CLIENT_NAV["/destinations"]) }}
   {{ go("/c/" ~ client.client_id ~ ("/b/" ~ business.business_id if business else "") ~ "/settings", words.BUSINESS_NAV["/settings"] if business else words.CLIENT_NAV["/settings"]) }}
@@ -104,7 +105,8 @@
       <td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}/runs/{{ r.run_id }}">{{ r.name }}</a></td>
       {% if not business %}<td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}">{{ r.business }}</a></td>{% endif %}
       {% set rb = "/c/" ~ client.client_id ~ "/b/" ~ r.business_id ~ "/runs/" ~ r.run_id %}
-      <td><span class="go-links">{{ go(rb, words.LIST_GO_WORDS.rows) }}{{ go(rb ~ "/results", words.LIST_GO_WORDS.results) }}</span></td>
+      {#- 名前のリンクがお客様リストへ行くので、同じ行き先を2つ並べない（2026-11-21 の見直し） -#}
+      <td><span class="go-links">{{ go(rb ~ "/results", words.LIST_GO_WORDS.results) }}</span></td>
     </tr>
   {% endfor %}
   </tbody>
