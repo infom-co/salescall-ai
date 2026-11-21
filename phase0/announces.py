@@ -29,7 +29,8 @@ flowctl.at_hand の1か所）。「ご確認ください。」の文は、お知
 - 資料が届いているかを伺う質問：unclear と同じ形（2つがそろって「伺う質問」で同じ選択肢を挙げ、その選択肢が質問の選択肢にあるときだけ。ほかは空＝「ご了承ください。」）。
 - お知らせの中身の名詞（flowctl.Question.matter。最終の確かめ「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」＝flowctl.accepted_line の1か所）：
   用件の名詞（purposes）と同じ形＝2つの文字のAIがそろい、説明と質問の文の中の言葉のときだけ、その言葉。そろわない・文に無いときは考える Sonnet
-  （import_ai.decide_matters の referee）に、その文だけを聞き、文の中の言葉ならその言葉（考える Sonnet に聞く所は import_ai._settled の1か所）。ほかは空＝
+  （import_ai.decide_matters の referee）に、その文だけを聞き、文の中の言葉ならその言葉（考える Sonnet に聞く所は import_ai._settled の1か所）。名詞も句も、
+  説明で並べた事柄（「キャンセルや変更」）の一部だけを言わない（keeps_items の1か所＝matter_fits・clause_fits。問い合わせの例の名詞も「キャンセルや変更」）。ほかは空＝
   「先ほどの内容」（違う中身を言うことはない側へ倒す）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承という
   ことでよろしかったでしょうか？」」
 - お知らせの中身を常体にした句（flowctl.Question.matter_clause。聞き取れないまま「-」にしたお知らせの締めの前の確かめ「（句）件のお返事のお声が聞き取れなかった
@@ -207,6 +208,9 @@ def decide_hand(conditions: tuple, model_rows: list[dict | None]) -> str:
 # 聞き取れなかったのですがご了承ということでよろしかったでしょうか？」（期限の言葉と料金は残す・「前日以降」とは言わない＝前日も入ってしまい、説明と違う）
 BACK, PAST = "それ以降", "を過ぎた"
 EXAMPLE_CLAUSE = "前日を過ぎたキャンセルや変更はキャンセル料がかかる"   # 期限（前日）と料金を落とさない・「それ以降」は「前日を過ぎた」（clause_fits）
+# 例の名詞は、説明で並べた事柄を全部（「キャンセル」だけにすると、最終の確かめ「それではキャンセルの件は…」が「変更」を落とす＝matter_fits・keeps_items の1か所。L12）
+EXAMPLE_MATTER = "キャンセルや変更"
+KEEP_ITEMS = "「キャンセルや変更」のように並べた事柄は、一部だけにせず全部を書きます（「キャンセル」だけにしません）"
 MATTER_PROMPT = (
     "電話でお客様に、こちらの決まり（説明）の内容をお伝えしてから、その内容でよいかを伺う質問の一覧です。お客様には、質問ごとの「お客様が聞いた文」をお伝え"
     f"しています。お伝えしたあと、最後に「{ANNOUNCE_ACCEPTED.format(t='（中身）の')}」と確かめます。お返事が聞き取れなかったときは"
@@ -220,9 +224,10 @@ MATTER_PROMPT = (
     f"- お客様が聞いた文が、良い点の文と「{ANNOUNCE_CAUTION_END}」で終える気をつけていただくことの文の2つのときは、clause は気をつけていただくことの文の"
     f"中身だけを1つの句にします。その文の「{BACK}」は、良い点の文の期限の言葉を使って「（期限）{PAST}」と言います（「前日まで」なら「前日{PAST}」。"
     "「前日以降」とは書きません＝前日も入ってしまい、説明と違います）。お客様が聞いた文がほかの形のときは、その文の内容を全部1つの句にします。\n"
-    f"- 例：説明「{EXAMPLE_EXPL}」・質問「{EXAMPLE_ASK}」で、お客様が聞いた文が「{EXAMPLE_LINE}」なら、matter は「キャンセル」、"
+    f"- 例：説明「{EXAMPLE_EXPL}」・質問「{EXAMPLE_ASK}」で、お客様が聞いた文が「{EXAMPLE_LINE}」なら、matter は「{EXAMPLE_MATTER}」、"
     f"clause は「{EXAMPLE_CLAUSE}」。\n"
     "- matter に「の件」は入れません。説明と質問の文の中に無い言葉・言い換えた言葉は書きません。中身を短い言葉で表せなければ空にします。\n"
+    f"- matter も clause も、{KEEP_ITEMS}。\n"
     "- clause には、頭の「（何々）の内容ですが」のような前置きと「件」を入れません。数・金額・日にち・期限・回数は、お客様が聞いた文にあるものを全部、書いてある"
     f"とおりに入れます（2つの文のときの「{BACK}」は、上のとおり期限の言葉で言います）。説明と質問の文にも、お客様が聞いた文にも無い言葉・事実は足しません"
     f"（足すのは、2つの文のときの「{PAST}」だけです）。「、」「。」「？」は入れません。1つの句にできなければ空にします。\n"
@@ -264,10 +269,32 @@ def matter_by_model(client, model: str, items: list[tuple[str, str, str]], think
 
 
 def matter_fits(intro: str, text: str, matter: str | None) -> bool:
-    """お知らせの中身の名詞として使えるか（唯一の決まり＝用件の名詞 purposes.fits と同じ考え）：空でない・説明か質問の文の中の言葉・文の終わりや問いを含まない。"""
+    """お知らせの中身の名詞として使えるか（唯一の決まり＝用件の名詞 purposes.fits と同じ考え）：空でない・説明か質問の文の中の言葉・文の終わりや問いを含まない・
+    説明と質問の文で並べた事柄（「キャンセルや変更」）の一部だけを言わない（keeps_items の1か所＝句 clause_fits と同じ決まり。「キャンセルや変更は…」の説明に
+    「キャンセル」だけを当てると、最終の確かめ「それではキャンセルの件は…」が「変更」を落とす）。数と期限の言葉は名詞に入れなくてよい（名詞は中身を表す短い言葉＝
+    ✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承ということでよろしかったでしょうか？」」）。"""
     from askitems import noun_fits
 
-    return noun_fits(matter, (intro, text))
+    return noun_fits(matter, (intro, text)) and keeps_items(f"{intro}\n{text}", matter)
+
+
+# 並べた事柄の言葉（言葉のまとまりを「や」「と」「・」「および」「または」でつないだ並び＝「キャンセルや変更」「キャンセル料や変更料」）。まとまりは数・漢字・カタカナ・
+# 英字の続き（ひらがなと「・」で切れる＝「キャンセル料」は1つ）
+_ITEM = r"[0-9０-９一-鿿々〆ァ-ヺーA-Za-zＡ-Ｚａ-ｚ]+"
+_ITEMS = re.compile(rf"{_ITEM}(?:(?:や|と|・|および|または){_ITEM})+")
+
+
+def keeps_items(source: str, words: str) -> bool:
+    """取込で作った名詞・句 words が、もとの文 source で並べた事柄の一部だけを言っていないか（唯一の決まり＝お知らせの中身の名詞 matter_fits・句 clause_fits）：
+    並びの言葉（まとまり）を1つでも言うなら、並びの言葉を全部言う（つなぐ言葉は問わない）。「キャンセルや変更」を「キャンセル」だけ・「キャンセル料や変更料」を
+    「キャンセル料」だけにしない（説明と違う中身＝11-15 日本時間11時59分07秒の句の確かめの数と期限の言葉を落とさないのと同じ理由。L12）。並びの言葉を1つも
+    言わない名詞・句は見ない（「料金」）。"""
+    have = set(re.findall(_ITEM, words or ""))
+    for chain in _ITEMS.findall(source or ""):
+        members = set(re.findall(_ITEM, chain))
+        if have & members and not members <= have:
+            return False
+    return True
 
 
 def clause_fits(intro: str, text: str, clause: str | None, announce: str = "") -> bool:
@@ -293,7 +320,7 @@ def clause_fits(intro: str, text: str, clause: str | None, announce: str = "") -
         if not past or PAST in rest or deadline is None or f"{deadline.group()}まで" not in announce.split("。")[0]:
             return False
         clause = f"{head}・{BACK}・{rest}"   # 「・」は言葉のまとまりの切れ目（_WORDS に入らない）
-    return from_source(source, clause)
+    return from_source(source, clause) and keeps_items(source, clause)
 
 
 def caution(announce: str) -> str:

@@ -29647,6 +29647,65 @@ class UnheardCautionClauseTest(unittest.TestCase):
         self.assertEqual(len(self.USER), 92)   # 伺いの文の数（「ありがとうございます。」から「？」まで）
 
 
+class MatterItemsTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L12：お知らせの中身の名詞も、説明と質問の文で並べた事柄（「キャンセルや変更」）の一部だけを言わない（11-15 日本時間11時59分07秒の
+    句の確かめで数と期限の言葉を落とさないのと同じ理由＝説明と違う中身を言わない）。決まりは1か所（announces.keeps_items）で、名詞（announces.matter_fits）と句
+    （announces.clause_fits）の両方に当てる。取込の問い合わせ（announces.MATTER_PROMPT）の例の名詞も「キャンセルや変更」。⛔ それまで、例が「キャンセルや変更は…」の
+    説明に名詞「キャンセル」を当て、聞き取れていたときの最終の確かめ「それではキャンセルの件はご了承ということで…」が「変更」を落としえた（担当 Q の書き置きの 1）"""
+    EXPL, ASK, LINE = UnheardCautionClauseTest.EXPL, UnheardCautionClauseTest.ASK, UnheardCautionClauseTest.LINE
+
+    def test_the_matter_keeps_every_listed_item(self):
+        import announces
+        self.assertTrue(announces.matter_fits(self.EXPL, self.ASK, "キャンセルや変更"))
+        for bad in ("キャンセル", "変更"):
+            self.assertFalse(announces.matter_fits(self.EXPL, self.ASK, bad), bad)
+        # 並びの言葉を1つも言わない名詞は見ない・並びの無い説明は今のまま（伺い10 のお言葉の「キャンセルの件」）
+        self.assertTrue(announces.matter_fits(self.EXPL, self.ASK, "料金"))
+        self.assertTrue(announces.matter_fits(HeardLineClauseTest.RULE, self.ASK, "キャンセル"))
+        # 決まりは1か所（keeps_items）：つなぐ言葉は問わない（「・」「と」で並べた説明に「や」の名詞）・まとまりで見る（「キャンセル料」は「キャンセル」と別の言葉）
+        self.assertTrue(announces.keeps_items("キャンセル・変更は前日までです。", "キャンセルや変更"))
+        self.assertFalse(announces.keeps_items("キャンセルと変更は前日までです。", "キャンセル"))
+        self.assertTrue(announces.keeps_items("キャンセルや変更は前日までです。", "キャンセル料"))
+        self.assertTrue(announces.keeps_items("料金は月額3,000円となります。", "料金"))
+
+    def test_the_clause_keeps_every_listed_item_too(self):
+        import announces
+        self.assertTrue(announces.clause_fits(self.EXPL, self.ASK, UnheardCautionClauseTest.CLAUSE, self.LINE))
+        for bad in ("前日を過ぎたキャンセルや変更はキャンセル料がかかる", "前日を過ぎたキャンセルはキャンセル料や変更料がかかる"):
+            self.assertFalse(announces.clause_fits(self.EXPL, self.ASK, bad, self.LINE), bad)
+        # 1つの文のお知らせも同じ1か所
+        one = "キャンセルや変更は前日までにご連絡いただく必要がございますのでご了承ください。"
+        self.assertTrue(announces.clause_fits(one, self.ASK, "キャンセルや変更は前日までにご連絡いただく必要がある", one))
+        self.assertFalse(announces.clause_fits(one, self.ASK, "キャンセルは前日までにご連絡いただく必要がある", one))
+
+    def test_the_import_example_and_the_import_take_the_whole_items(self):
+        import json
+        from types import SimpleNamespace
+        import announces
+        import import_ai
+        from flowctl import Question, accepted_line
+        p = announces.MATTER_PROMPT
+        self.assertIn(f"matter は「{announces.EXAMPLE_MATTER}」", p)
+        self.assertEqual(announces.EXAMPLE_MATTER, "キャンセルや変更")
+        self.assertNotIn("matter は「キャンセル」", p)
+        self.assertEqual(p.count(announces.KEEP_ITEMS), 1)
+        self.assertTrue(announces.matter_fits(announces.EXAMPLE_EXPL, announces.EXAMPLE_ASK, announces.EXAMPLE_MATTER))
+        self.assertFalse(announces.matter_fits(announces.EXAMPLE_EXPL, announces.EXAMPLE_ASK, "キャンセル"))
+
+        def gemini(got):
+            class Models:
+                def generate_content(self, model, contents, config):
+                    return SimpleNamespace(text=json.dumps({"items": got}))
+            return SimpleNamespace(models=Models())
+
+        items = [(self.EXPL, self.ASK, self.LINE)]
+        for matter, want in (("キャンセルや変更", "キャンセルや変更"), ("キャンセル", "")):
+            got = [{"no": 1, "matter": matter, "clause": UnheardCautionClauseTest.CLAUSE}]
+            self.assertEqual(import_ai.decide_matters([(gemini(got), "m1"), (gemini(got), "m2")], items)[0][0], want, matter)
+        q = Question("Q2", self.ASK, "yes_no", conditions=("はい", "いいえ"), approval=True, intro=self.EXPL, announce=self.LINE, matter="キャンセルや変更")
+        self.assertEqual(accepted_line(q)[1], "それではキャンセルや変更の件はご了承ということでよろしかったでしょうか？")
+
+
 class ImportFormsReviewTest(unittest.TestCase):
     """見直し (12) の組 Q（取込で決めた文・録音の一覧）：C-1 事実を伺う質問に選択肢を並べた文を作らない・C-2／C-3 {最短の日} を声に出す文のすべてで1か所で
     置き換え、流す録音の名前と録音の表の名前を同じ1つから作る・C-4 取込の中身の判定で同じことを伺っているかを読む・C-5 形の確かめの1か所・C-6 先に並べた文は
@@ -29843,7 +29902,9 @@ class ImportFormsReviewTest(unittest.TestCase):
         self.assertTrue(since.fits("ご予算はおいくらほどでしょうか？", "ご予算はおいくらほど"))
         self.assertFalse(since.fits("ご予算はおいくらほどでしょうか？", "ご予算は、おいくらほど"))
         intro = "ご予約の内容ですが、キャンセルや変更は前日までにご連絡いただければ料金はかかりません。それ以降になってしまいますとキャンセル料や変更料がかかってしまうのでお気を付けください"
-        self.assertTrue(announces.matter_fits(intro, "ご承認いただけますでしょうか？", "キャンセル"))
+        # 並べた事柄（「キャンセルや変更」）は全部（L12＝MatterItemsTest・announces.keeps_items の1か所）。⛔ L12 の前は「キャンセル」だけを通した
+        self.assertTrue(announces.matter_fits(intro, "ご承認いただけますでしょうか？", "キャンセルや変更"))
+        self.assertFalse(announces.matter_fits(intro, "ご承認いただけますでしょうか？", "キャンセル"))
         self.assertFalse(announces.matter_fits(intro, "ご承認いただけますでしょうか？", "ご予約の内容ですが、キャンセル"))
 
     def test_the_word_notice_says_what_the_program_does_next(self):
