@@ -8885,6 +8885,13 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ('回線の発信番号を、見せる形でなく国際の形のまま添える', 'src/salescall/core/line_names.py',
      '''    return f"{name}（{number.display or caller_e164}）"''', '''    return f"{name}（{caller_e164}）"''',
      ("tests.test_phone.KindsAndSpecials.test_a_line_is_named_with_its_caller_number",)),
+    ('依頼者を指す門の知らせに、かけようとした回線を、知らせが指す回線（line_id）として入れる（頭に回線の名指しが付き、回線の知らせに見える）', 'src/salescall/core/gate.py',
+     '''summary=OWN_LINE_MISSING, refs={"client_id": task["client_id"], "tried_line_id": line_id})''',
+     '''summary=OWN_LINE_MISSING, refs={"client_id": task["client_id"], "line_id": line_id})''',
+     ("tests.test_gate.CallerNumberAndVoice.test_caller_number_changes_with_the_client",)),
+    ('替えられる回線が無い知らせに、かけようとした回線を、知らせが指す回線（line_id）として入れる', 'src/salescall/core/gate.py',
+     '''"task_id": task["task_id"], "tried_line_id": line_id})''', '''"task_id": task["task_id"], "line_id": line_id})''',
+     ("tests.test_unwelcome.SameNumberOtherRows.test_a_client_whose_lines_all_were_seen_tells_the_contractor_and_a_new_line_calls",)),
 )
 
 

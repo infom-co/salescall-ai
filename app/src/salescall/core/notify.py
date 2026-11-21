@@ -136,7 +136,8 @@ def emit(tx: Tx, kind: str, *, key: str, summary: str, refs: dict[str, Any] | No
     決まる（管理者あての写しは、鍵と出どころの契約者。データベースの一意の約束の1か所＝0064。鍵に契約者を入れなくてよい）。
     緊急の知らせか（台帳の列 urgent）は、種類で決まる（`URGENT` の1か所。呼ぶ側は渡さない。0219）。
     回線のことを知らせる文（差し込む値に回線の印 line_id がある）は、頭にどの回線かを必ず付ける（「回線「名前（発信番号）」：」＝名指しは
-    `line_names` の1か所。呼ぶ側は文に回線の名前を書かない。CL-3 のお願い 71）。"""
+    `line_names` の1か所。呼ぶ側は文に回線の名前を書かない。CL-3 のお願い 71）。差し込む値の line_id は、知らせが指す回線だけに使う
+    （ほかのものを指す知らせが回線にも触れるときは別の名前＝門の tried_line_id。知らせはすべてこの入口を通る＝データベースの中から出る知らせは無い）。"""
     if kind not in KINDS:
         raise UnknownKind(kind)
     if not (admin or contractor):

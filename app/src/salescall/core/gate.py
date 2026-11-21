@@ -608,17 +608,18 @@ def _no_line_to_switch(tx: Tx, task: dict[str, Any], line_id: UUID, today: Any) 
     (1) その依頼者の専用の回線がまだ無い ⇒ 専用の発信番号が無い（設定の抜け setting_missing。いままでどおり）。
     (2) 専用の回線はあるが、その依頼者が使える回線（専用・共有。使わなくなった回線は除く）のどれも、お客様がもう見た発信番号 ⇒ 替えられる回線が
         無い（line_none_to_switch。回線を足すまで、その行は待ったまま）。使える回線のどれかが替えられるなら知らせない（その回線が空けばかける）。
-    ⛔ 0216 まで：(1) だけ知らせ、依頼者の専用の回線が1本だけで共有の回線も無いと、同じ番号へのほかの業務の行が、知らせの無いまま待ち続けた。"""
+    ⛔ 0216 まで：(1) だけ知らせ、依頼者の専用の回線が1本だけで共有の回線も無いと、同じ番号へのほかの業務の行が、知らせの無いまま待ち続けた。
+    知らせが指すのは依頼者（回線ではない）。その電話がかけようとした回線は tried_line_id に入れる（line_id は知らせが指す回線だけ＝`notify.emit` の決まり）。"""
     if tx.one("SELECT 1 FROM salescall.lines WHERE client_id = %s LIMIT 1", (task["client_id"],)) is None:
         notify.emit(tx, "setting_missing", key=f"own_line:{task['client_id']}:{today}",
-                    summary=OWN_LINE_MISSING, refs={"client_id": task["client_id"], "line_id": line_id})
+                    summary=OWN_LINE_MISSING, refs={"client_id": task["client_id"], "tried_line_id": line_id})
         return
     usable = [r["line_id"] for r in tx.all("SELECT line_id FROM salescall.lines WHERE retired_at IS NULL"
                                            " AND salescall.line_serves(client_id, %s)", (task["client_id"],))]
     if any(not _number_seen_on(tx, task, other) for other in usable):
         return
     notify.emit(tx, "line_none_to_switch", key=f"line_none_to_switch:{task['client_id']}:{today}",
-                summary=LINE_NONE_TO_SWITCH, refs={"client_id": task["client_id"], "task_id": task["task_id"], "line_id": line_id})
+                summary=LINE_NONE_TO_SWITCH, refs={"client_id": task["client_id"], "task_id": task["task_id"], "tried_line_id": line_id})
 
 
 def apology_unapproved(tx: Tx, task_id: UUID) -> bool:
