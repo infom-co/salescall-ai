@@ -44279,6 +44279,47 @@ class LadderRangeMendTest(unittest.TestCase):
         self.assertFalse(ladder_fill({}, "half", "午後").get("picked"))
 
 
+class LadderDayNoRoomTest(unittest.TestCase):
+    """分身 AB の (6)（CL-1 が決まりで決めた＝伺い100 アと同じ理由＝その日は電話をかけられない・10-19「同じ理由が当たる場面すべてに当てる」）：言い直しに日だけ直された日に空いている予定が
+    1つも無いときは、伺い100 ア（LadderNoRoomTest）と同じ1か所（ladder_no_room・_ladder_day_cands）で、空きが無いことをお詫びしてお伝えし、そのすぐあとの空いている予定から2択（「申し訳
+    ございません、あいにく水曜日は空きがございませんので木曜日と金曜日ではどちらがよろしいでしょうか？」）。日が決まったら、残した時刻をその日にかけられるか確かめる（ladder_recheck＝(5) と
+    同じ）。⛔ 21263a4a まで、伺えた時刻を足した値のまま言い直した（「改めまして水曜日の16時、午後4時で大丈夫でしょうか？」＝分身 W の書き置き rv184/W/notes.md の (6-2)）"""
+    # 11-19（木曜日）の電話：木曜日（26日）・金曜日（27日）は7日以上先＝週と日の言葉（ladder_label の1か所。1〜6日先なら「木曜日と金曜日」＝rv186/AB/probe/ab/talks.py の 11-16 の電話）
+    WANT = "申し訳ございません、あいにく水曜日は空きがございませんので来週の木曜日と来週の金曜日ではどちらがよろしいでしょうか？"
+
+    def setUp(self):
+        self.m = LadderMendTest()
+
+    def test_a_day_without_room_offers_the_days_right_after(self):
+        f, _ = self.m.at_clock()
+        f.call_free = (("2026-11-24", "13:00", "17:00"), ("2026-11-26", "13:00", "17:00"), ("2026-11-27", "13:00", "17:00"))
+        r = self.m.reply(f, "いえ、水曜日でお願いします。", "corrected", "水曜日")
+        self.assertEqual((r["result"], r.get("ack"), self.m.d.heard(r)), ("ask_back", "moushiwake_heavy", self.WANT))
+        r = self.m.d.answer(f, "木曜日でお願いします。", "木曜日")
+        self.assertEqual(r["result"], "confirm_required", self.m.d.heard(r))
+        self.assertIn("来週の木曜日の16時、午後4時", self.m.d.heard(r))
+        self.assertEqual(self.m.done(f), "来週の木曜日の午後4時")
+
+    def test_the_kept_time_is_checked_on_the_chosen_day(self):
+        f, _ = self.m.at_clock()
+        f.call_free = (("2026-11-24", "13:00", "17:00"), ("2026-11-26", "13:00", "15:30"), ("2026-11-27", "13:00", "17:00"))
+        self.m.reply(f, "いえ、水曜日でお願いします。", "corrected", "水曜日")
+        r = self.m.d.answer(f, "木曜日でお願いします。", "木曜日")
+        self.assertTrue(self.m.d.heard(r).endswith("それでは来週の木曜日でしたら2時と3時ではどちらがよろしいでしょうか？"), self.m.d.heard(r))
+
+    def test_without_the_free_slots_a_named_day_is_as_now(self):
+        # 空いている予定を受けていない（暦だけ）：名指しの日は依頼者の休みの日でもかける（2026-10-31 伺い4「案1」）＝今のまま（11-23 は祝日）
+        f, _ = self.m.at_clock()
+        r = self.m.reply(f, "いえ、来週の月曜日でお願いします。", "corrected", "来週の月曜日")
+        self.assertTrue(self.m.d.heard(r).endswith("失礼いたしました。改めまして来週の月曜日の16時、午後4時で大丈夫でしょうか？"), self.m.d.heard(r))
+
+    def test_the_customer_misspeaking_hears_the_same(self):
+        f, _ = self.m.at_clock()
+        f.call_free = (("2026-11-24", "13:00", "17:00"), ("2026-11-26", "13:00", "17:00"), ("2026-11-27", "13:00", "17:00"))
+        r = self.m.reply(f, "あ、すみません、間違えました。水曜日でお願いします。", "corrected", "水曜日")
+        self.assertEqual(self.m.d.heard(r), self.WANT)
+
+
 class NightClockTest(unittest.TestCase):
     """伺い68（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い68：ア」）：時刻と合わない時間帯の言葉（「夜1時」「深夜2時」）は時間帯の言葉で読み（夜の0〜4時台・深夜／夜中の
     0〜5時台は日付が変わったあとの時刻）、日付まで言い直して確かめる（「明日の夜1時」⇒「21日の午前1時でよろしいでしょうか？」＝電話の日が19日）。「夕方2時」は時間帯の言葉

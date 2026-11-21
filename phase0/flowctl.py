@@ -920,10 +920,14 @@ def _ladder_day_cands(s: dict, ctx: LadderCtx) -> tuple:
     import datetime as dt
     if ctx.today is None:
         return (), None
-    days = tuple(d for d, _, _ in ctx.free) if ctx.free else ctx.days or tuple(ctx.today + dt.timedelta(days=i) for i in range(1, 22))
+    days = ladder_open_days(ctx)
     shown = s.get("shown_day", ())
     words = None
-    if s.get("week"):
+    if s.get("asked_day") is not None:
+        # 言い直しに日だけ直された日に空いている予定が無い（_ladder_day_mend の asked_day＝分身 AB の (6)）：その日の範囲＝そのすぐあとから
+        lo = hi = s["asked_day"]
+        words = s.get("asked_words")
+    elif s.get("week"):
         lo = ctx.today - dt.timedelta(days=ctx.today.weekday()) + dt.timedelta(weeks=_LADDER_WEEKS[s["week"]])
         hi, words = lo + dt.timedelta(days=6), s["week"]
     elif (span := ladder_span(s.get("span"), ctx.today)) is not None:
@@ -1182,8 +1186,26 @@ def _ladder_day_mend(s: dict, known: dict, ctx: LadderCtx) -> tuple:
     if not (time or s.get("any")):
         return None, known, False   # 伺えた時刻が無い（日の段までで直された）＝お客様の言葉のまま
     value = ladder_value(known) if not s.get("frame") else f"{ladder_day_words(known)}の{time}" if time else None
+    if not s.get("theirs") and ctx.free and (date := known.get("date")) is not None and date not in ladder_open_days(ctx):
+        # その日に空いている予定（CL-2 から受ける電話をかけられる日時の空き＝ladder_open と同じ材料）が1つも無い（その日は電話をかけられない）：伺い100 アと同じ1か所（_ladder_day_cands の
+        # asked_day＝その日の範囲・ladder_no_room＝お伝えする言葉）で、そのすぐあとの空いている予定から2択（伺えた時刻と印 picked は残す＝日が決まったら ladder_recheck）。CL-1 が決まりで
+        # 決めた＝分身 AB の (6)。空いている予定を受けていないとき（暦だけ）は今のまま（名指しの日は依頼者の休みの日でもかける＝2026-10-31 伺い4「案1」・ladder_open と同じ）。⛔ 21263a4a まで、
+        # 伺えた時刻を足した値のまま言い直した（分身 W の書き置き rv184/W/notes.md の (6-2)）
+        asked = {k: v for k, v in known.items() if k not in ("day", "date", "today", "week", "span", "shown_day", "no_room_told")}
+        asked.update(asked_day=date, asked_words=known.get("day"))
+        if (step := ladder_step(asked, ctx)) is not None and step[0] == "day":
+            return None, asked, True
     redo = ladder_recheck(known, ctx)
     return (value, known, False) if redo is None else (None, redo, True)
+
+
+def ladder_open_days(ctx: LadderCtx) -> tuple:
+    """電話をかけられる日の並び（唯一の作り＝曜日の2択の候補 _ladder_day_cands・日だけ直された日に空いている予定があるか _ladder_day_mend）：空いている予定があればその日・無ければ暦
+    （CL-2 の電話をかけられる日）・暦も無ければ明日から21日。"""
+    import datetime as dt
+    if ctx.free:
+        return tuple(d for d, _, _ in ctx.free)
+    return ctx.days or (tuple(ctx.today + dt.timedelta(days=i) for i in range(1, 22)) if ctx.today is not None else ())
 
 
 def ladder_recheck(s: dict, ctx: LadderCtx) -> dict | None:
@@ -17949,7 +17971,10 @@ class Flow:
         it.condition = it.value = it.tentative = it.approx = it.hedged = None
         it.ladder, it.ask_backs = s, 0
         self._ladder_set(qid, since=before)
-        it.set("empty", f"言い直しに日だけ直された（{ladder_day_words(s)}）・伺えた時刻にその日は電話をかけられない：その日の空いている予定から2択")
+        it.set("empty", f"言い直しに日・頃を直された（{ladder_day_words(s) or s.get('asked_words')}）：直された所から先の2択・その日の空いている予定から2択")
+        if it.no_room_now:
+            # 直された日・頃に空いている予定が無い（_ladder_set の印＝伺い100 アと同じ1か所）：頭はお詫び（「申し訳ございません、あいにく（その日）は空きがございませんので…」＝分身 AB の (6)）
+            return self._ladder_ask(qid)
         if correction_kind(self.callee_said) == "restated":
             return self._ladder_ask(qid, again=True)
         return self._continue([], "", repeat=True) | {"repeat": True}
