@@ -48313,11 +48313,8 @@ class ReaderAgreedRowsTest(unittest.TestCase):
     よい日や時刻を言った）に当たらない。⚠️ その行の「不安そう」の読みは、避けた2時だけを外して会議中の3時を伺う（お客様の言葉と逆の向き）＝説明の文の境目を直す案は rv184/S/notes.md の
     7 章（作っていない）"""
 
+    # 「〇時まで」の4行は、分身 U の (1) で説明の文に区切りの時刻の見分けを足して「答えた」に当て直した＝見張りは LadderBoundaryAnsweredTest の1か所（ここには写さない）
     ROWS = {
-        "3時までには戻ってます。": ({"答えた", "2時だけ合わない", "決められない"}, {"片方だけ合わないとは言っていない", "大丈夫そう"}),
-        "3時まではこの番号で大丈夫です。": ({"答えた", "4時だけ合わない", "決められない"}, {"片方だけ合わないとは言っていない", "大丈夫そう"}),
-        "3時までなら大丈夫です。": ({"答えた", "4時だけ合わない"}, {"片方だけ合わないとは言っていない", "大丈夫そう"}),
-        "4時まで会議なんです。": ({"2時だけ合わない"}, {"大丈夫そう", "不安そう・大丈夫とは言っていない"}),
         "給料日のあとでお願いします。": ({"答えた", "決められない"}, {"片方だけ合わないとは言っていない"}),
     }
 
@@ -48340,13 +48337,7 @@ class ReaderAgreedRowsTest(unittest.TestCase):
         import g53_meaning as G
         from review_words import questions
         q = questions()["C1"]
-        ask = lambda pair: f"{G.LADDER_ONE_ACT}：{pair}ではどちらがよろしいでしょうか？"
         want = {
-            "3時までには戻ってます。": {"念のため確かめる：答えた（火曜日の午後3時まで）〔理由：それまでは出られない〕", "念のため確かめる：答えた（火曜日の午後4時）", ask("3時と4時"), G.ASK_AGAIN},
-            "3時まではこの番号で大丈夫です。": {"念のため確かめる：答えた（火曜日の午後3時まで）〔理由：それまでは出られる（それ以降は難しい）〕", G.UNTIL_ASK_ACT,
-                                       "念のため確かめる：答えた（火曜日の午後2時）", ask("2時と3時"), G.ASK_AGAIN},
-            "3時までなら大丈夫です。": {G.UNTIL_ASK_ACT, "念のため確かめる：答えた（火曜日の午後2時）", ask("2時と3時")},
-            "4時まで会議なんです。": {"念のため確かめる：答えた（火曜日の午後4時）", ask("3時と4時")},
             "給料日のあとでお願いします。": {G.ASK_AGAIN},
         }
         for text, it, _ in self.rows():
@@ -48358,3 +48349,52 @@ class ReaderAgreedRowsTest(unittest.TestCase):
         for text, it, (answers, _) in self.rows():
             if "決められない" in answers:
                 self.assertEqual(tuple(it["label"].get("reason") or ()), WHY_OTHER, text)
+
+
+class LadderBoundaryAnsweredTest(unittest.TestCase):
+    """分身 U（CL-1 の頼み rv184/U の (1)＝分身 S の書き置きの (7-5) のア・CL-1 が決まりで決めた）：日時の2択に、その時刻まで・その時刻から、と区切りの時刻を言った言葉（「4時まで
+    会議なんです。」）は「答えた」（片方を避ける言葉ではない）。境目は答えの選べるものの見分けの1か所（flowctl.ladder_choice_desc の「（避けた方）だけ合わない」の説明の終わり）だけに書く
+    （「答えた」の説明には書かない）。理由：✅ 2026-10-24「「あとで」で「〇時まで」と言われたら、いま電話を続けられない理由…を記録し、分からなければ時刻を1回だけ伺い直す」・10-23「3時まで
+    出られないなら、3時以降になる」＝「〇時まで」は区切りの時刻を答える言葉。⛔ 1つ前（main の d7d64450）まで書いておらず、答えを伏せた読み手4人（束 n9・r3）が「〇時まで」の行を「片方だけ
+    合わない」とも読み、「4時まで会議なんです。」の「2時だけ合わない」・もう一方で「不安そう」の読みでは、避けた2時だけを外して会議中の3時を伺った（分身 S の (7-5)）"""
+
+    CLAUSE = "その時刻まで・その時刻から、と区切りの時刻を言ったなら、並べた片方がその区切りで合わなくなるときも「答えた」"
+    # 「〇時まで」の4行の答え・もう一方の正解と、数える1か所（act_of）で決まる正解の動き（答えたの読みの動きだけ）
+    ROWS = {
+        "3時までなら大丈夫です。": None,
+        "4時まで会議なんです。": "念のため確かめる：答えた（火曜日の午後4時まで）〔理由：それまでは出られない〕",
+        "3時までには戻ってます。": "念のため確かめる：答えた（火曜日の午後3時まで）〔理由：それまでは出られない〕",
+        "3時まではこの番号で大丈夫です。": "念のため確かめる：答えた（火曜日の午後3時まで）〔理由：それまでは出られる（それ以降は難しい）〕",
+    }
+
+    def test_the_boundary_is_in_the_side_description_only(self):
+        from flowctl import LADDER_NEITHER, LADDER_SIDE_TAIL, VALUE_CHOICE, Question, ladder_choice_desc
+        q = Question("C1", "2時と4時ではどちらがよろしいでしょうか？", "datetime", conditions=(VALUE_CHOICE, LADDER_NEITHER, "2時" + LADDER_SIDE_TAIL, "4時" + LADDER_SIDE_TAIL))
+        for side in ("2時", "4時"):
+            self.assertIn(self.CLAUSE, ladder_choice_desc(q, side + LADDER_SIDE_TAIL))
+        for c in (VALUE_CHOICE, LADDER_NEITHER):
+            self.assertNotIn("区切りの時刻", ladder_choice_desc(q, c))   # 境目は1か所
+
+    def test_the_judge_sees_it_in_the_clock_pair(self):
+        import g53_meaning as G
+        from meaning_judge import prompt
+        from review_words import LADDER_CLOCK_SCENE, answer_words, questions
+        qmap = G.question_map() | questions()
+        it = next(i for i in answer_words() if i["text"] == "4時まで会議なんです。" and i.get("scene") == LADDER_CLOCK_SCENE)
+        q, asked, before = G.judge_inputs(it, qmap[it["qid"]])
+        self.assertEqual(q.text, "2時と4時ではどちらがよろしいでしょうか？")
+        self.assertIn(self.CLAUSE, prompt(q, it["text"], asked, before))
+
+    def test_the_until_rows_are_answered(self):
+        import g53_meaning as G
+        from flowctl import LADDER_OTHER, LADDER_OTHER_NOT, VALUE_CHOICE
+        from review_words import LADDER_CLOCK_SCENE, answer_words, questions
+        q = questions()["C1"]
+        for text, act in self.ROWS.items():
+            it = next(i for i in answer_words() if i["text"] == text and i.get("scene") == LADDER_CLOCK_SCENE)
+            self.assertEqual(it["label"]["accept"], [VALUE_CHOICE], text)
+            self.assertEqual(it["label"][LADDER_OTHER], [LADDER_OTHER_NOT], text)
+            self.assertNotIn("reason", it["label"], text)   # 「決められない」の読みは無い＝わからない理由の正解も持たない
+            wants = G.flow_wants(it, q)
+            self.assertEqual(wants, ({act} if text != "3時までなら大丈夫です。" else set()) | ({G.UNTIL_ASK_ACT} if text in ("3時までなら大丈夫です。", "3時まではこの番号で大丈夫です。") else set()), text)
+            self.assertFalse(any(G.LADDER_ONE_ACT in a for a in wants), text)   # 避けた時刻だけを外す2択（会議中の3時など）は伺わない
