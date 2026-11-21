@@ -369,6 +369,7 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "review_name_recordings": frozenset({_CORE + "recordings.py"}),   # 管理者が業務の名前の録音をシステムの共通の録音に入れるか決める（0173）
     "admit_unreviewed_name_recordings": frozenset({_CORE + "recordings.py"}),   # 管理者のチェック不要の契約者の録音を入れる（0173）
     "set_name_review_skip": frozenset({_CORE + "recordings.py"}),     # 管理者のチェックを要らないとするか（0173）
+    "review_listen": frozenset({_CORE + "recording_audio.py"}),       # 管理者が審査を待つ名前の録音を聞く（聞いた記録を残す。0277）
 }
 _CALL = re.compile(r"\bsalescall\." + _NAME + r"\s*\(")
 

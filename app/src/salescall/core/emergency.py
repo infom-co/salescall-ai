@@ -61,7 +61,7 @@ def is_open(app: Access, tenant_id: UUID, event_id: int) -> bool:
 def release(app: Access, tenant_id: UUID, pc_id: UUID, pc_label: str, reason: str) -> list[int]:
     """PC で解く：その PC がこの道で記録した、まだ解かれていない緊急停止を解く（解いた停止の番号を返す）。"""
     if not reason.strip():
-        raise ValueError("解く理由を書いてください")
+        raise ValueError("再開する理由を書いてください")
     def work(tx: Tx) -> list[int]:
         opened = [r["event_id"] for r in tx.all(
             "SELECT s.event_id FROM salescall.open_stop_events s WHERE s.cause = 'manual' AND starts_with(s.evidence, %s)"

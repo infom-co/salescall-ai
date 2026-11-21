@@ -469,7 +469,7 @@ class CustomerContacts(Base):
         self.tx(lambda tx: dnc.register(tx, refused, "manual", note="試験：手で入れた"))
         data = csv_file([("A", "架空商事", company, None, refused, None, None, None, None, None, None)], header=self.HEADER)
         sheet, plan = self.preview(data, self.MAP)
-        self.assertIn("この行には、門がかけません", plan.rows[0].reason)
+        self.assertIn("このお客様には、門がかけません", plan.rows[0].reason)
         self.register(data, mapping=self.MAP)
         self.assertIn((normalize(refused).e164, "record", "mobile"), self.numbers(task))
         dial = self.tx(lambda tx: tasks.dial_number(tx, task))["phone_e164"]
@@ -579,11 +579,11 @@ class Targets(Base):
         data = csv_file([("A", "架空商事", fictional_jp_fixed(), "岡田", "おかだ", "部長")], header=self.HEADER)
         task = self.register(data, mapping=self.MAP, run=run)["rows"][0]["task_id"]
         _, plan = self.preview(data, self.MAP, run=run)
-        self.assertEqual(plan.rows[0].reason, "この実施回に、もう登録されています")                # 違いも替わりも無い
+        self.assertEqual(plan.rows[0].reason, "このお客様リストに、もう登録されています")                # 違いも替わりも無い
         self.tx(lambda tx: row_fixes.fix(tx, task, "target_name", "佐藤", reading="さとう", same_person=False))
         _, plan = self.preview(data, self.MAP, run=run)
         reason = plan.rows[0].reason
-        self.assertIn("一覧と違う所。行は変えません：担当者名（一覧：岡田／いま：佐藤）", reason)
+        self.assertIn("一覧と違う所。登録済みのお客様の値は変えません：担当者名（一覧：岡田／いま：佐藤）", reason)
         self.assertIn("「別の方に替わった」で直しています。いまの方：佐藤様", reason)
         self.assertNotIn("役職（", reason)                                                    # 同じ欄は出さない
         self.register(data, mapping=self.MAP, run=run)
@@ -731,7 +731,7 @@ class Targets(Base):
         vid, _ = self.run_with({"kind": "name", "role": None})
         with self.assertRaises(business_settings.SettingsInvalid) as e:
             self.tx(lambda tx: business_settings.assign(tx, self.s["run"], vid, reason="試験：名前を使う版へ"))
-        self.assertIn("2 行：目的のお客様の名前がありません", e.exception.problems[0])   # setup の行と取り込んだ行
+        self.assertIn("2 件：目的のお客様の名前がありません", e.exception.problems[0])   # setup の行と取り込んだ行
 
     def test_an_undecided_reading_is_registered_and_confirmed_in_the_call(self):
         """読みが決まらない名前でも止めない（2026-10-16 ユーザー：会話の中で確かめる）。考えられる読みとまず言ってみる読みを持って
@@ -872,7 +872,7 @@ class RowFixes(Targets):
         with self.assertRaises(business_settings.SettingsInvalid) as e:
             self.tx(lambda tx: business_settings.assign(tx, rid, vid, reason="試験：役職でお呼びする版"))
         self.assertIn(business_settings.ROLE_UNCLEAR, e.exception.problems[0])
-        self.assertIn("ダッシュボードで行を直す", e.exception.problems[0])
+        self.assertIn("ダッシュボードでお客様の情報を直す", e.exception.problems[0])
         self.tx(lambda tx: row_fix(tx, task, "target_role", "経理のご担当者様"))
         self.tx(lambda tx: business_settings.assign(tx, rid, vid, reason="試験：役職でお呼びする版"))
 
@@ -914,7 +914,7 @@ class RowFixes(Targets):
         self.assertEqual(self.tx(lambda tx: gate._target_short(tx, gate._task(tx, task), "normal", content)), "target_role_unclear")
         self.assertIn("何の担当かを書いてください", gate.denied("target_role_unclear").message)
         self.assertEqual(gate.REASONS["target_role_unclear"].message,
-                         "この業務は目的のお客様を役職で呼びますが、この行の役職は、" + business_settings.ROLE_UNCLEAR)
+                         "この業務は目的のお客様を役職で呼びますが、お客様リストのこのお客様の役職は、" + business_settings.ROLE_UNCLEAR)
 
     def test_fixes_are_by_a_person_with_the_same_reading_rules(self):
         """直せるのは管理者か契約者だけ（データベースが守る）。読みはひらがなかカタカナ・読みを持つのは名前の欄だけ・直せる欄は決まった5つ。

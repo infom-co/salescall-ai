@@ -1551,7 +1551,7 @@ class Versions(unittest.TestCase):
             self.tx(lambda tx: bs.day_of_call(tx, v, datetime(2099, 12, 30, 3, 0, tzinfo=timezone.utc)))   # 2100年の暦が無い
 
     def test_call_days_are_the_days_the_business_can_call(self):
-        """会話の側の日時の2択の段が、お客様に伺う日の候補を作る材料（CL-1 の連絡帳 4-192 の (d) の (2)。`gate.call_days` の1か所）：電話の日の次の日から14日の間で、
+        """会話の側の日時の2択の段が、お客様に伺う日の候補を作る材料（CL-1 の連絡帳 4-192 の (d) の (2)。`gate.call_days` の1か所）：電話の日の次の日から半年（`spoken_time.FAR`。CL-1 の連絡帳 4-232）の間で、
         その業務のかけてよい時間帯（初めの値は平日の9時〜18時・土日祝はかけない）が空でない日。祝日は暦の1か所。暦の無い日の手前で止める。"""
         from datetime import date, datetime, timezone
         from salescall.core import calendar, gate
@@ -1561,13 +1561,14 @@ class Versions(unittest.TestCase):
         days = lambda at: self.tx(lambda tx: gate.call_days(tx, at, tenant_id=self.s["tenant"], client_id=self.s["client"],   # noqa: E731
                                                             business_id=self.s["business"]))
         at = datetime(2098, 11, 2, 15, 30, tzinfo=timezone.utc)            # 日本時間では 11月3日（月曜日）の0時30分
-        self.assertEqual(days(at), tuple(date(2098, 11, d) for d in (5, 6, 7, 10, 11, 12, 13, 14, 17)))   # 4日は祝日・土日はかけない
+        self.assertEqual(days(at)[:9], tuple(date(2098, 11, d) for d in (5, 6, 7, 10, 11, 12, 13, 14, 17)))   # 4日は祝日・土日はかけない
+        self.assertEqual(days(at)[-1], date(2099, 5, 5))   # 半年先（183日後の火曜日）まで。お客様の言った頃（「来月の半ば」など）の日を、この中から伺う
         self.assertEqual(days(datetime(2099, 12, 24, 3, 0, tzinfo=timezone.utc)),                      # 2100年の暦が無い：その手前まで
                          tuple(date(2099, 12, d) for d in (25, 28, 29, 30, 31)))
 
     def test_call_free_is_the_calling_hours_of_the_days_from_the_call(self):
         """かけ直しの日時の2択の材料＝電話をかけられる日時の空き（`gate.call_free` の1か所。✅ 2026-11-20 ユーザー（計画書 9-4・伺い60）「空スケジュールの中から2つ」
-        ＝CL-1 の連絡帳 4-212 の call_free）：電話の日（かけた時刻より後の分だけ）から14日後までの、かけてよい時間帯（初めの値は平日の9時〜18時から NG時間の12時〜13時を引いた残り・土日祝はかけない）。
+        ＝CL-1 の連絡帳 4-212 の call_free）：電話の日（かけた時刻より後の分だけ）から半年後（`spoken_time.FAR`＝お客様の言った月・頃を読むいちばん先と同じ。CL-1 の連絡帳 4-232）までの、かけてよい時間帯（初めの値は平日の9時〜18時から NG時間の12時〜13時を引いた残り・土日祝はかけない）。
         かけられる日（`gate.call_days`）は、その次の日からの、空きのある日（同じ1か所から読む）。"""
         from datetime import date, datetime, timezone
         from salescall.core import calendar, gate
@@ -1578,6 +1579,7 @@ class Versions(unittest.TestCase):
                                                             business_id=self.s["business"]))
         early = free(datetime(2098, 11, 2, 15, 30, tzinfo=timezone.utc))   # 日本時間 11月3日（月曜日）の0時30分
         self.assertEqual(early[:3], [["2098-11-03", "09:00", "12:00"], ["2098-11-03", "13:00", "18:00"], ["2098-11-05", "09:00", "12:00"]])
+        self.assertEqual(early[-2:], [["2099-05-05", "09:00", "12:00"], ["2099-05-05", "13:00", "18:00"]])   # 183日後（半年）の日まで（その次の日は入れない）
         self.assertEqual(free(datetime(2098, 11, 3, 1, 15, 20, tzinfo=timezone.utc))[0], ["2098-11-03", "10:16", "12:00"])   # 10時15分20秒＝次の分から
         self.assertEqual(free(datetime(2098, 11, 3, 9, 0, tzinfo=timezone.utc))[0], ["2098-11-05", "09:00", "12:00"])        # 18時を過ぎた日は入れない
         days = self.tx(lambda tx: gate.call_days(tx, datetime(2098, 11, 2, 15, 30, tzinfo=timezone.utc), tenant_id=self.s["tenant"],

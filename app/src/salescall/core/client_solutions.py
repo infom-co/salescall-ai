@@ -147,7 +147,7 @@ def add(tx: Tx, attempt_id: UUID, point_index: int, solution: str, *, origin: st
                     if business_settings.successor_tip(tx, _run_version(tx, r)) == tip]
             notify.emit(tx, "solution_earlier", key=f"solution_earlier:{sid}:{line.base}",
                         summary=f"依頼者の解決策（問い「{name}」）を足した業務の版の流れに、入っていない前の解決策が {len(earlier)} 件あります"
-                                "（前の版に戻す前に足したもの など）。入れるものを、実施回ごとにダッシュボードで選んでください（自動では入れません）。",
+                                "（前の版に戻す前に足したもの など）。入れるものを、お客様リストごとにダッシュボードで選んでください（自動では入れません）。",
                         refs={"solution_id": str(sid), "version_id": str(tip), "runs": runs,
                               "earlier": [str(e["solution_id"]) for e in earlier]})
     return Added(sid, name, tuple(lines))
@@ -385,7 +385,7 @@ def leave_out(tx: Tx, run_id: UUID, solution_ids: list[UUID]) -> None:
     取り込み直しでも入れないまま（`held_back`）。✅ 2026-11-07 ユーザー「契約者が承認をしないと自動で入らず、新規の電話もかけられません」。"""
     offered = {r["solution_id"] for r in unconfirmed(tx, run_id)}
     _picked(solution_ids, offered, "入れない解決策が選ばれていません",
-            "その実施回の、まだ確かめていない手で外した解決策の一覧に無いものが選ばれています")
+            "そのお客様リストの、まだ確かめていない手で外した解決策の一覧に無いものが選ばれています")
     for sid in solution_ids:
         tx.execute("INSERT INTO salescall.client_solution_leave_outs (tenant_id, client_id, solution_id, run_id, recorded_by)"
                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (sid, run_id))
@@ -435,8 +435,8 @@ def keep_in(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> tuple[dict[str, A
         if name in own or name in off:
             continue
         if r["solution_id"] in held:   # 契約者が実施回で手で外した解決策は入れない（その実施回の承認で選んでいただく＝`not_in_line`）
-            notes.append(f"依頼者の解決策で足した想定問答「{name}」は、実施回で手で前の版にして外したものなので入れていません"
-                         "（入れるときは、その実施回のダッシュボードの「入っていない前の解決策」から選んでください）")
+            notes.append(f"依頼者の解決策で足した想定問答「{name}」は、お客様リストで手で前の版にして外したものなので入れていません"
+                         "（入れるときは、そのお客様リストのダッシュボードの「入っていない前の解決策」から選んでください）")
             continue
         raw = business_settings.with_answer(raw, name, text)
         notes.append(f"依頼者の解決策で足した想定問答「{name}」を残しました（取り込んだ中身に、この問いがありません）")
@@ -461,8 +461,8 @@ def removed_by_hand(tx: Tx, run_id: UUID, version_id: UUID) -> None:
     if out:
         names = "・".join(f"「{r['answer_name']}」" for r in out)
         notify.emit(tx, "solution_unconfirmed", key=f"solution_unconfirmed:{out[0]['seq']}",
-                    summary=f"実施回の業務設定を、依頼者の解決策の入っていない版にしたので、解決策 {len(out)} 件（問い{names}）が入っていません。"
-                            "ダッシュボードで、解決策ごとに「入れる」か「入れない」かを選んで承認してください。承認するまで、この実施回では、"
+                    summary=f"お客様リストの業務設定を、依頼者の解決策の入っていない版にしたので、解決策 {len(out)} 件（問い{names}）が入っていません。"
+                            "ダッシュボードで、解決策ごとに「入れる」か「入れない」かを選んで承認してください。承認するまで、このお客様リストでは、"
                             "お客様と約束したかけ直し・続きの電話・お詫びの電話のほかは、電話をかけません。",
                     refs={"run_id": str(run_id), "version_id": str(version_id), "solutions": [str(r["solution_id"]) for r in out]})
 

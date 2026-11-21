@@ -136,6 +136,19 @@ class KindsAndSpecials(unittest.TestCase):
                 n = normalize(raw)
                 self.assertEqual((n.kind, n.e164), (kind, e164))
 
+    def test_display_is_separated_only_when_the_kind_fixes_it(self):
+        """画面に見せる形（`PhoneNumber.display` の1か所。CL-3 の 63 の (2)）：区切りが1つに決まる種類だけ区切る。固定電話は市外局番の長さで区切りが
+        変わるので区切らない（推し量らない）。種類はそろえるときと同じ引き方（「080-0…」は 0800 のフリーダイヤル）。"""
+        for raw, shown in [("07000000001", "070-0000-0001"), ("090 0000 0001", "090-0000-0001"), ("060-0000-0001", "060-0000-0001"),
+                           ("05000000001", "050-0000-0001"), ("0120000001", "0120-000-001"), ("08000000001", "0800-000-0001"),
+                           ("080-0000-0001", "0800-000-0001"), ("0570-000-001", "0570-000-001"),
+                           ("011-000-0001", "0110000001"), ("04-0000-0001", "0400000001"), ("+81 3 0000 0001", "0300000001"),
+                           ("0180-000-001", "0180000001")]:
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize(raw).display, shown)
+        self.assertIsNone(normalize("110").display)        # そろえられない番号は、見せる番号が無い
+        self.assertIsNone(normalize("あいう").display)
+
     def test_system_forbidden_kinds(self):
         for raw, kind in [("110", "special"), ("119", "special"), ("１１９", "special"), ("104", "special"),
                           ("#7119", "special"), ("＃７１１９", "special"),

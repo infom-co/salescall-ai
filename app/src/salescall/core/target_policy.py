@@ -109,7 +109,7 @@ def customer_block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None
         }[hit["ledger"]]
     if business_id is not None and _declined_in_business(tx, number, client_ref=client_ref, tenant_id=tenant_id, task_id=task_id,
                                                          client_id=client_id, business_id=business_id):
-        return ("declined_in_business", "同じ業務で、用件か最終目的を断られたお客様です（業務の設定で、次の実施回でもかけない）")
+        return ("declined_in_business", "同じ業務で、用件か最終目的を断られたお客様です（業務の設定で、次のお客様リストでもかけない）")
     if business_id is not None and _declined_in_client(tx, number, client_ref=client_ref, tenant_id=tenant_id, client_id=client_id, task_id=task_id,
                                                        business_id=business_id):
         return ("declined_in_client", "同じ依頼者のほかの業務で、用件を断られた・苦情があったお客様です（依頼者の設定で、その依頼者からはかけない）")

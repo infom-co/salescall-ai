@@ -4885,9 +4885,13 @@ class CutOffCalls(SettleBase):
         s = self.ready()
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         local = calling_hours.local(now)
-        if local.hour == 0 or local.hour >= 23:
-            self.skipTest("日をまたぐ時刻は飛ばす（試験の歯止め時間は1日じゅう）")
-        day_end = calling_hours.from_local(datetime.combine(local.date(), datetime.min.time()) + timedelta(days=1))
+        long_lifetime = 2400   # 下の「予約の期限を長くして作る」ときの予約証の期限（秒）：5分前の約束の回の残り（30分）より長く、飛ばす時刻は短く
+        # 日をまたぐ時刻は飛ばす（試験の歯止め時間は1日じゅう）。今日の残りに長い予約証が入らないと、延ばさないのが正しい（_today_guard）ので、
+        # その時刻も飛ばす（⛔ 2026-11-21 まで：23時より前だけを見ていて、22時台に流すと、長い予約証が入らず延ばさない正しい動きで落ちた）
+        midnight = datetime.combine(local.date(), datetime.min.time())
+        if local.hour == 0 or local.replace(tzinfo=None) + timedelta(seconds=long_lifetime, minutes=10) > midnight + timedelta(days=1):
+            self.skipTest("日をまたぐ時刻・今日の残りに長い予約証が入らない時刻は飛ばす（試験の歯止め時間は1日じゅう）")
+        day_end = calling_hours.from_local(midnight + timedelta(days=1))
         window = lambda ago: self.tx(s, lambda tx: next_action._exact_window(   # noqa: E731
             tx, s["task"], (now - timedelta(minutes=ago)).replace(second=0, microsecond=0), day_said=True, beyond_ok=False))
         ended, running = window(40), window(5)
@@ -4896,7 +4900,7 @@ class CutOffCalls(SettleBase):
         # 締めの流れの中でも、この1か所を通る（回の中でかけた電話のあと、回の残りが予約の期限より短いとき＝予約の期限を長くして作る）
         cut = ("dialing", "ringing", "answered", "in_conversation", "technical_error")
         real = settings.resolve
-        long_claim = lambda tx, key, **kw: 7200 if key == "gate.claim_lifetime" else real(tx, key, **kw)   # noqa: E731
+        long_claim = lambda tx, key, **kw: long_lifetime if key == "gate.claim_lifetime" else real(tx, key, **kw)   # noqa: E731
         for longer, extended, exact in ((False, False, True), (True, True, True), (True, True, False)):
             with self.subTest(longer=longer, exact=exact):   # 時刻の無い幅の約束でも延ばせる（0244。⛔ 8回目の見直しまで：データベースの守りで締めが落ちた）
                 t = self.ready()

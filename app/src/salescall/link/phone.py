@@ -90,6 +90,13 @@ class Phone(Protocol):
         部品は、試行を conversation_io.notice_work で終える（終わり方を決めるのはサーバーの1か所＝core/attempts.end_by_notice）。"""
         ...
 
-    def play(self, audio: bytes) -> None:
-        """サーバーから届いた声（AI の声・録音）を、通話へ流す（待たずに返す＝PC の部品のやり取りを止めない）。"""
+    def play(self, audio: bytes, *, ref: str) -> None:
+        """サーバーから届いた声（AI の声・録音）を、通話へ流す（待たずに返す＝PC の部品のやり取りを止めない）。ref＝声のひと続きの印（サーバーが決める。
+        同じひと続きは同じ印で何回かに分けて届く）。ひと続きを通話へ流し終えたら、出来事 {kind: played, ref} を送る（`protocol.PLAYED`。PC の順番待ちに
+        残っている間は終わっていない。CL-3 の連絡帳 69・PHONE.md 2-2）。"""
+        ...
+
+    def stop_playing(self) -> None:
+        """流している声と、まだ流していない声を捨てて止める（待たずに返す）。止めたひと続きごとに、出来事 {kind: stopped, ref, played_s}（どこまで流れたかの秒。
+        `protocol.STOPPED`）を送る。流していなければ何もしない。止めると決めるのはサーバー（流れの制御の見張り）だけ。"""
         ...

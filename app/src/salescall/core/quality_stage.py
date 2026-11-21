@@ -305,7 +305,7 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
         if cause == "judge_unknown":   # 何が原因か（決まった名前と意味・直す担当）を、止める理由に入れて知らせる（(c)）
             unk = m["unknown_judgments"]
             reason = (f"判定できない通話がありました（原因：{unk['cause']}＝{UNKNOWN_CAUSES.get(unk['cause'], '不明')}。"
-                      f"通話 {len(unk['attempts'])} 件）。その行は判定待ちで残しています。原因を直し、その場面を入れた模擬通話に"
+                      f"通話 {len(unk['attempts'])} 件）。そのお客様は判定待ちで残しています。原因を直し、その場面を入れた模擬通話に"
                       "合格したら再開します")
         stop_id = _stop(tx, v, version_id, cause, reason, unknown_cause=m["unknown_judgments"]["cause"])
         outcome = "stop"
