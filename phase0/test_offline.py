@@ -48097,3 +48097,47 @@ class UntilBackByTest(unittest.TestCase):
         self.assertEqual(it["label"][UNTIL_WHY], [UNTIL_LABEL["unavailable"]])
         self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), {a for a in G.flow_wants(it, qmap[it["qid"]]) if UNTIL_LABEL["unavailable"] in a})
         self.assertTrue(all(G.UNTIL_ASK_ACT not in a for a in G.flow_wants(it, qmap[it["qid"]])))
+
+
+class CallbackAsksAboutTest(unittest.TestCase):
+    """分身 R（CL-1 の頼み rv184/R の (4)）：日時の2択（「2時と4時ではどちらがよろしいでしょうか？」「金曜日と火曜日ではどちらがよろしいでしょうか？」）の判定の文は、名乗りの用件（「ご予約の確認」）
+    から、2つの日時をご予約の日時とも読めた＝かけ直しの日時を伺っているのか、依頼者の日時を伺っているのかが判定に分からなかった（答えを伏せた読み手 A・B が2人とも書いた＝束 rv183/Q/readers の
+    n9）。判定に見せる質問の1か所（Flow.for_judge）で、こちらからかけ直す日時を伺う質問（LADDER_ROLES＝「あとで」の時刻・急いでいる方の H1 のあとの時刻。2択の段・「〇時まで」の伺い直しも同じ
+    質問）には、何の日時かが分かる一文（Question.asks_about＝flowctl.asks_about の1か所）を、質問の文のすぐあとに見せる（meaning_judge.prompt_parts・Jev の場面 scene も同じ）。質問の文は
+    お客様が聞いた文のまま（本書 9-5 の (6)「判定に見せる質問の文は、お客様が聞いた文」）。添えるのは、お客様がもう知っている事柄（お客様が頼んだ・受けていただいたかけ直し）だけで、お客様の
+    言葉は渡さない（システムの質問に前の言葉を渡さない決まりのまま）。CL-1 が決まりで決めた（10-21 G-59「判定が何へのお返事かを知らずに読むと読み違える」・11-12 まとめ役の (2)・
+    9-5 の (6) の後任の方をお呼びしている一文と同じ形）。⛔ 20109859 まで見せていなかった"""
+
+    LINE = "（この質問は、この電話を終えたあとに、こちらからお客様へかけ直す日時を伺っています）"
+
+    def test_the_pair_shows_what_it_asks(self):
+        from flowctl import CALLBACK_IDS
+        from meaning_judge import prompt, scene
+        d, f = UntilAskAgainTest().at_hours()
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertEqual(q.text, "2時と4時ではどちらがよろしいでしょうか？")   # 質問の文はお客様が聞いた文のまま
+        self.assertIn(f"質問：「{q.text}」\n{self.LINE}\n", prompt(q, "3時までには戻ってます。", asked, before))
+        from flowctl import CALLBACK_ASKS_ABOUT
+        from meaning_judge import ASKS_ABOUT
+        self.assertEqual(scene(q, "3時までには戻ってます。", asked, before)[ASKS_ABOUT], CALLBACK_ASKS_ABOUT)   # Jev の場面も同じ1か所
+        self.assertEqual(f.questions[CALLBACK_IDS["time"]].asks_about, "")   # 流れの制御の質問は空のまま（判定に見せるときだけ）
+
+    def test_other_questions_do_not(self):
+        from meaning_judge import prompt
+        from flowctl import callback_question
+        f = MisgivingTest().flow()
+        q = f.for_judge(f.questions["Q1"])
+        self.assertNotIn("かけ直す日時を伺っています", prompt(q, "振込で。"))
+        back = f.for_judge(callback_question("back_time"))   # お戻りの時刻（電話口の方がご存じの時刻＝伺い61）は、質問の文で分かる
+        self.assertNotIn("かけ直す日時を伺っています", prompt(back, "3時ごろです。"))
+
+    def test_the_measure_scene_uses_the_same_place(self):
+        import g53_meaning as G
+        from meaning_judge import prompt
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        for text in ("3時までには戻ってます。", "給料日のあとでお願いします。", "はい、そうです。"):
+            it = next(i for i in answer_words() if i["text"] == text and i["qid"] == "C1")
+            q, asked, before = G.judge_inputs(it, qmap[it["qid"]])
+            self.assertIn(f"質問：「{q.text}」\n{self.LINE}\n", prompt(q, text, asked, before), text)

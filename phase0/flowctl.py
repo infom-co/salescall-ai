@@ -3771,6 +3771,20 @@ def until_fits(q: "Question") -> bool:
     return getattr(q, "callback", "") == "later_time"
 
 
+# 判定に見せる質問に添える、何の日時を伺っているかの一文の中身（唯一の場所＝asks_about）。分身 R の (4)
+CALLBACK_ASKS_ABOUT = "この電話を終えたあとに、こちらからお客様へかけ直す日時"
+
+
+def asks_about(q: "Question") -> str:
+    """判定に見せる質問に添える、何を伺っている質問かの中身（唯一の決まり＝判定に見せる質問の1か所 Flow.for_judge が Question.asks_about に入れ、meaning_judge.prompt_parts・
+    scene が質問の文のすぐあとに見せる）：こちらからかけ直す日時を伺う質問（LADDER_ROLES＝「あとで」の時刻・急いでいる方の H1 のあとの時刻。日時の2択の段の2択・「〇時まで」の理由の
+    伺い直しも同じ質問）だけ CALLBACK_ASKS_ABOUT・ほかは ""（質問の文で分かる＝今のまま）。2択の文（「2時と4時ではどちらがよろしいでしょうか？」）は何の日時かを言わないので、名乗りの
+    用件（「ご予約の確認」）から依頼者の日時とも読めた（答えを伏せた読み手 A・B が2人とも書いた＝束 rv183/Q/readers の n9）。質問の文はお客様が聞いた文のまま（本書 9-5 の (6)）・添える
+    のは、お客様がもう知っている事柄（頼んだ・受けていただいたかけ直し）だけ（お客様の言葉は渡さない）。CL-1 が決まりで決めた（10-21 G-59「判定が何へのお返事かを知らずに読むと
+    読み違える」・11-12 まとめ役の (2)・後任の方をお呼びしている一文 Question.called と同じ形）。⛔ 20109859 まで見せていなかった"""
+    return CALLBACK_ASKS_ABOUT if getattr(q, "callback", "") in LADDER_ROLES else ""
+
+
 def cycle_fits(q: "Question") -> bool:
     """月単位の理由（CYCLE）を判定に見せる質問か（唯一の決まり＝until_fits と同じ3か所）：かけ直しの時刻・日の質問（CALLBACK_FIELD の time＝C1・分かる時 C9）。"""
     return CALLBACK_FIELD.get(getattr(q, "id", "")) == "time"
@@ -4510,6 +4524,9 @@ class Question:
     # 判定に見せるだけ：かけた番号が、お呼びした方ご本人の電話か（Flow._own_phone の1か所。入れるのは Flow.for_judge の1か所＝流れの制御の質問は偽のまま）。読むのは、
     # 答えの段の項目「こちらがかけた電話番号が違うと伝えたか」の説明だけ（meaning_judge.answer_items＝wrong_choices。お呼びする段は項目ごとの説明 target_facets が読む）
     own_phone: bool = False
+    # 判定に見せるだけ：何を伺っている質問か（asks_about の1か所＝こちらからかけ直す日時を伺う質問だけ。入れるのは Flow.for_judge の1か所＝流れの制御の質問は空のまま）。
+    # 読むのは、問い合わせの文の質問のすぐあとの一文（meaning_judge.prompt_parts・Jev の場面 scene）だけ。分身 R の (4)
+    asks_about: str = ""
     # 一度受けていただいたこちらの申し出から始まった質問として判定に見せるとき、その申し出の言葉（「改めてお掛けさせていただく」。Flow.judge_context が入れる＝
     # Flow._taken_offer の1か所）。あれば、判定の選べるものに「申し出を取り消した」（WITHDREW）を足す（meaning_judge.answer_kinds）。空なら今のまま（文は変えない）
     taken_offer: str = ""
@@ -7852,11 +7869,14 @@ class Flow:
         # 答えとは別に読む項目（お呼びする段のかけ直しの質問も）：かけた番号がご本人の電話か（読むのは番号違いの説明だけ＝Question.own_phone。項目ごとに答える質問は
         # target_facets が同じ1か所 _own_phone から作る）
         own = not getattr(q, "facets", ()) and self._own_phone()
-        if (text, called, purpose, own) == (q.text, getattr(q, "called", ""), getattr(q, "heard_purpose", ""), getattr(q, "own_phone", False)):
+        # 何を伺っている質問か（こちらからかけ直す日時を伺う質問だけ＝asks_about の1か所。質問の文は変えない）
+        about = asks_about(q)
+        if (text, called, purpose, own, about) == (q.text, getattr(q, "called", ""), getattr(q, "heard_purpose", ""), getattr(q, "own_phone", False),
+                                                   getattr(q, "asks_about", "")):
             return q
         # お知らせの形は、お知らせの文も判定に見せる形に（判定の側の見分け in_announce_form が同じ文で当たる）
         shown = {"announce": self._judge_text(q.announce)} if in_announce_form(q) else {}
-        return dataclasses.replace(q, text=text, called=called, heard_purpose=purpose, own_phone=own, **({"intro": ""} if intro else {}), **shown)
+        return dataclasses.replace(q, text=text, called=called, heard_purpose=purpose, own_phone=own, asks_about=about, **({"intro": ""} if intro else {}), **shown)
 
     def _heard_purpose(self) -> str:
         """お客様が名乗りのあとに聞いた用件の一文（唯一の場所＝判定に見せる質問 for_judge）：業務の録音があれば、流した用件の一文（続きの電話は前の電話と
