@@ -41,7 +41,7 @@ class WatchOnScreen(OurTroubles):
         self.assertEqual(calls.count(words.call_end("ai_malfunction")), 2)       # 終えた2本（言葉は output/words の1か所）
         home = http.get("/t").text
         self.assertIn("気をつけること", home)
-        self.assertIn("こちらの不具合で休ませている行", home)
+        self.assertIn("こちらの不具合で休ませているお客様", home)
         got = self.claim(s)                                                      # 門が、休んでいる行を止める（理由 task_resting）
         self.assertEqual(getattr(got, "reason", None), "task_resting")
         biz = http.get(f'/c/{s["client"]}/b/{s["business"]}').text

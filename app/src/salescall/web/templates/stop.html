@@ -80,8 +80,9 @@
 {% elif not x.resolved %}
 <section class="card" style="margin-top:16px">
   <h2>緊急の道で再開する（どうしても今かける必要があるときだけ）</h2>
-  <p class="muted">止まった AI の代わりに、OpenRouter を通して Google が預かる同じ Claude で判定して、新しい電話をかけます。止まった AI が戻ったと確かめられたら、ふだんの道に戻ります。理由は記録に残り、管理者にも知らせます。</p>
-  <form method="post" action="/t/stops/{{ x.stop.event_id }}/emergency" data-needs-reason>
+  <p class="muted">止まった AI の代わりに、予備の窓口から同じ AI に判定を頼んで、新しい電話をかけます（予備の窓口は米国の会社のもので、お客様の言葉は米国を通ります）。止まった AI が戻ったと確かめられたら、ふだんの道に戻ります。理由は記録に残り、管理者にも知らせます。</p>
+  <form method="post" action="/t/stops/{{ x.stop.event_id }}/emergency" data-needs-reason data-confirm-ok="緊急の道で再開する"
+        data-confirm="止めている新しい電話を、緊急の道で再開します（お客様の言葉は米国の予備の窓口を通ります）。止まった AI が戻ったと確かめられるまでです。">
     {{ csrf(token) }}
     <label class="field" for="emergency-pass-reason">緊急の道で再開する理由</label>
     <textarea id="emergency-pass-reason" name="reason" required placeholder="例：今日中に約束のお電話があるため"></textarea>

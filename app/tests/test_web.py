@@ -938,8 +938,8 @@ class Web(_World):
 
 
 # 確かめの窓を必ず通す送り先（取り消せない操作と、電話を再開させる操作）：結果を直す・かけるかを変える・発信禁止を外す・PC のログインを外す・
-# 止めたもの／回線の再開・依頼者を無効にする／戻す・回線の使用停止・依頼者へ渡すファイルの書き出し・赤字を確かめた
-CONFIRMED_ACTIONS = r"/result$|/exclude$|/revoke$|/resume$|/active$|/retire$|/results\.(xlsx|csv)$|/inbox/deficit/confirm$"
+# 止めたもの／回線の再開・緊急の道での再開・依頼者を無効にする／戻す・回線の使用停止・依頼者へ渡すファイルの書き出し・赤字を確かめた
+CONFIRMED_ACTIONS = r"/result$|/exclude$|/revoke$|/resume$|/stops/[^/]+/emergency$|/active$|/retire$|/results\.(xlsx|csv)$|/inbox/deficit/confirm$"
 
 
 def visible_primary_buttons(page: str) -> list[str]:

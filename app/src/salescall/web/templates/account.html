@@ -27,7 +27,7 @@
 <section class="card">
   <h2>パスキー（2段階の確かめ）</h2>
   {% if not passkey %}
-  <p class="muted">このサーバーでは、まだパスキーを使えません（サーバーの設定にサイトの住所が入ると使えます）。</p>
+  <p class="muted">このサーバーでは、まだパスキーを使えません（管理者がサーバーの設定を済ませると使えます）。</p>
   {% else %}
   <p class="muted">パスキーを1つでも登録すると、ログインのたびに、パスワードのあとでパスキーで確かめます。失くしたときのため、2つ（PC とスマホなど）の登録をおすすめします。</p>
   {% if sec.passkeys %}
@@ -71,7 +71,7 @@
   <div class="g_id_signin" data-type="standard" data-text="continue_with" data-locale="ja"></div>
   <p class="flash ng" data-google-msg role="alert" hidden></p>
   {% else %}
-  <p class="muted">このサーバーでは、まだ Google のアカウントでログインできません（サーバーの設定に Google のクライアント ID が入ると使えます）。</p>
+  <p class="muted">このサーバーでは、まだ Google のアカウントでログインできません（管理者がサーバーの設定を済ませると使えます）。</p>
   {% endif %}
 </section>
 {% endblock %}
