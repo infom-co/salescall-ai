@@ -32,7 +32,7 @@ from phrases import OFFER_ACCEPTED, APOLOGY_FIRST, APOLOGY_SAME_DAY, CALL_AGAIN_
 from phrases import NOT_ASKED_AGAIN, RECORDED, STANDARD_PARTS, THINKING_PROMPT, ack_pause_s, ask_again as ask_again_phrase
 from phrases import NAME_HEAD_IDS, NAME_HEADS, NAME_PART_TAILS
 from phrases import ASKED_PROMPT_IDS, CONCERN_PROMPT_IDS, QUIET_LINES, THINKING_PROMPT_IDS, WAIT, WAIT_ASK_PLAIN_ID
-from phrases import OMATASE, ROLE_PARTS, SUCCESSOR_IF_PART, WAIT_SOON, WRONG_NUMBER_ASK, ladder_kept_head, ladder_topic_head, question_body
+from phrases import OMATASE, ROLE_PARTS, SUCCESSOR_IF_PART, WAIT_SOON, WRONG_NUMBER_ASK, ladder_kept_head, ladder_no_room_head, ladder_topic_head, question_body
 from phrases import DECLINE_RECEIPT
 from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
@@ -901,17 +901,33 @@ def ladder_weekends(ctx: LadderCtx) -> bool:
 
 def ladder_days(s: dict, ctx: LadderCtx) -> tuple:
     """曜日の2択の候補（唯一の作り方＝伺い (a) の仮の決まり）：電話をかけられる日のうち、明日から6日先まで（週を言われたらその週）で、平日（土日を選ばれたら土日）の
-    近い順に2つ。電話の日が分からなければ無し。"""
+    近い順に2つ。電話の日が分からなければ無し。お客様のおっしゃった頃・週に空いている予定が無ければ、そのすぐあとの空いている予定から（そのあとにも無いときだけ、すぐ前から）＝
+    中身は _ladder_day_cands（お伝えするかは ladder_no_room の1か所）。"""
+    return _ladder_day_cands(s, ctx)[0]
+
+
+def ladder_no_room(s: dict, ctx: LadderCtx) -> str | None:
+    """お客様のおっしゃった頃・週（伺えた所 s の span・week）に空いている予定が無く、曜日の2択の候補をそのすぐあと（すぐ前）から並べるときの、その頃・週の言葉（唯一の決まり＝
+    2択の頭「あいにく（頃）は空きがございませんので」を入れる Flow._ladder_set）。その中に候補がある・頃も週も言っていないなら None。✅ 2026-11-21 日本時間14時59分44秒 ユーザー
+    「伺い96〜101：すべてアでOK、進めてください」（伺い100 ア）"""
+    return _ladder_day_cands(s, ctx)[1]
+
+
+def _ladder_day_cands(s: dict, ctx: LadderCtx) -> tuple:
+    """曜日の2択の候補と、お客様のおっしゃった頃・週に空いている予定が無かったときのその言葉（ladder_days・ladder_no_room の中身＝候補の作りは1か所）：(候補, 言葉 か None)。
+    頃・週の中に無ければ、そのすぐあとの空いている予定から2つ（お客様がその頃を選んだ理由＝それより前は忙しい、を崩さない）・そのあとにも無いときだけ、すぐ前の2つ（伺い100 ア。
+    2つとも合わないと言われたあと＝shown_day も、そのすぐあとの別の空いている予定から＝伺い60）。⛔ 21263a4a まで、頃の中に無ければ候補無し＝日を伺わずに頃の言葉のまま時刻へ進んだ"""
     import datetime as dt
     if ctx.today is None:
-        return ()
+        return (), None
     days = tuple(d for d, _, _ in ctx.free) if ctx.free else ctx.days or tuple(ctx.today + dt.timedelta(days=i) for i in range(1, 22))
     shown = s.get("shown_day", ())
+    words = None
     if s.get("week"):
         lo = ctx.today - dt.timedelta(days=ctx.today.weekday()) + dt.timedelta(weeks=_LADDER_WEEKS[s["week"]])
-        hi = lo + dt.timedelta(days=6)
+        hi, words = lo + dt.timedelta(days=6), s["week"]
     elif (span := ladder_span(s.get("span"), ctx.today)) is not None:
-        lo, hi = span   # お客様が言った頃（「来月の頭」＝ladder_read の span）の中から（2つとも合わないと言われたあとも、その頃の中の別の空いている予定から）
+        (lo, hi), words = span, s["span"]   # お客様が言った頃（「来月の頭」＝ladder_read の span）の中から（2つとも合わないと言われたあとも、その頃の中の別の空いている予定から）
     else:
         # 2つとも合わないと言われたあと（shown_day）は、別の空いている予定から＝6日先を越えてよい（伺い60 の「別の空スケジュールの2つ」）
         lo, hi = ctx.today + dt.timedelta(days=1), (max(days, default=ctx.today) if shown else ctx.today + dt.timedelta(days=6))
@@ -920,8 +936,12 @@ def ladder_days(s: dict, ctx: LadderCtx) -> tuple:
     if s.get("theirs") and not s.get("week") and theirs_today(s, ctx):
         # お客様から折り返していただく日（theirs＝伺い67 ア）：今日の言われた時刻に間に合えば今日から（電話の日は、お客様のほうはお電話いただける日。外した今日は並べない＝theirs_today）
         days, lo = (ctx.today, *days), ctx.today
-    return tuple([d for d in sorted(set(days)) if lo <= d <= hi and (d > ctx.today or (s.get("theirs") and d == ctx.today))
-                  and (d.weekday() >= 5) == weekend][:2])
+    ok = [d for d in sorted(set(days)) if (d > ctx.today or (s.get("theirs") and d == ctx.today)) and (d.weekday() >= 5) == weekend]
+    inside = tuple(d for d in ok if lo <= d <= hi)[:2]
+    if inside or words is None:
+        return inside, None
+    out = tuple(d for d in ok if d > hi)[:2] or tuple(d for d in ok if d < lo)[-2:]
+    return out, (words if out else None)
 
 
 def theirs_today(s: dict, ctx: LadderCtx) -> bool:
@@ -1015,12 +1035,21 @@ def ladder_label(step: str, choice, s: dict, pair: tuple = (), today=None) -> st
         if (on := s.get("theirs")) and not s.get("week") and (choice - on).days in (0, 1):
             return ("本日", "明日")[(choice - on).days]   # お客様から折り返していただく日の2択（伺い67 ア「本日と明日では」）
         wday = f"{WEEKDAY_WORDS[choice.weekday()]}曜日"
-        if s.get("week"):
-            return f"{s['week']}の{wday}"   # お客様が週を言った（今のまま）
+        if s.get("week") and _in_week(choice, s["week"], today):
+            return f"{s['week']}の{wday}"   # お客様が週を言った（今のまま。その週に空いている予定が無く、そのあとの日を並べるときは下の言い方＝伺い100 ア）
         return f"{week_or_date(choice, today)}の{wday}" if ladder_far((*pair, choice), today) else wday
     if step == "clock":
         return f"{choice % 12 or 12}時"
     return choice
+
+
+def _in_week(day, week: str, today) -> bool:
+    """日 day が、お客様のおっしゃった週（今週・来週・再来週）の中か（ladder_label の週の言い方の決まり）。電話の日が分からなければ真（今のまま）。"""
+    import datetime as dt
+    if today is None or day is None:
+        return True
+    lo = today - dt.timedelta(days=today.weekday()) + dt.timedelta(weeks=_LADDER_WEEKS[week])
+    return lo <= day <= lo + dt.timedelta(days=6)
 
 
 def ladder_far(pair: tuple, today) -> bool:
@@ -6417,6 +6446,8 @@ class Item:
     # 日時の2択に月単位の理由で日の分からない頃を言われ、その日を伺った（伺い99 ア＝Flow._ask_payday。1項目1回まで）・お返事を待つ間の、伺う前の値と質問（Flow._payday_take が外す）
     payday_asked: bool = False
     payday_held: tuple | None = None
+    # おっしゃった頃・週に空いている予定が無いことを、いま置いた2択の頭でお伝えする（Flow._ladder_set が置き、頭の相づちのお詫びの印にする Flow._ladder_ask が外す＝伺い100 ア）
+    no_room_now: bool = False
     # お客様から折り返していただく日の2択（伺い67 ア＝Flow._theirs_begin）を伺っている間の、伺う前の値と質問（Flow._theirs_take が外す）
     theirs_held: tuple | None = None
     # お客様から折り返していただく日の2択で伺えた所（Flow._theirs_take が伺い終えてもとの質問に戻すときに残す＝段の外。言い直しに時刻だけ・日だけ直されたとき、直された値に伺えた日・
@@ -8983,6 +9014,11 @@ class Flow:
             # 途中の「はい。」を会話AIが言ったら重ねない）と同じ理由。⛔ 3cd6ec5c まで、考えている途中・迷っている点の2つの返事だけが見て、H2・待つ・確かめて戻る・
             # あとでかけ直すには重ねた（束 n7＝OPEN-A5・棚卸し 7章 L9）
             return None
+        if reply.get("no_room"):
+            # おっしゃった頃・週に空いている予定が無いことのお詫び（Flow._ladder_ask の印 no_room＝伺い100 ア「頭のお詫びは今の録音」・こちらの都合＝重いお詫び）。順番に回す相づちの番は、
+            # このお詫びが使う（次の2択の相づちは順番の次＝伺い100 アの伺いの文の例の会話「申し訳ございません、あいにく…」→「承知しました。お時間は…」）
+            self._ack_choice(name, args, {k: v for k, v in reply.items() if k != "no_room"})
+            return "moushiwake_heavy"
         if reply.get("payday") or reply.get("payday_back"):
             # お給料日を伺う一言（Flow._ask_payday）・おっしゃらずに今の2択に戻る一言（Flow._payday_take）の頭は「承知しました。」（伺い99 アの文「承知しました。恐れ入りますがお給料日は
             # 何日になりますでしょうか？」「承知しました。それでは金曜日と火曜日ではどちらがよろしいでしょうか？」）
@@ -17704,7 +17740,13 @@ class Flow:
             self.questions[qid] = ladder_opening(q, step[0], step[1], it.ladder, ctx.today, ladder_value(told) if told else "")
             return step
         text, rid, voiced = ladder_line(step[0], step[1], it.ladder, ctx.today)
-        if told:
+        room = ladder_no_room(it.ladder, ctx) if step[0] == "day" and not it.ladder.get("no_room_told") else None
+        if room:
+            # おっしゃった頃・週に空いている予定が無い（ladder_no_room の1か所＝伺い100 ア）：2択の頭で1回だけお伝えする（「あいにく（頃）は空きがございませんので」＝値の入る文＝会話AIの声。
+            # 頭の「申し訳ございません、」は相づちの1か所 _ack_choice が印 no_room で選ぶ重いお詫びの録音＝_ladder_ask）。2つとも合わないと言われたあとの2択には重ねない（no_room_told）
+            it.ladder["no_room_told"], it.no_room_now = True, True
+            text, rid, voiced = ladder_no_room_head(room, question_body(text)), "", True
+        elif told:
             text, rid, voiced = ladder_kept_head(ladder_value(told), question_body(text)), "", True
         self.questions[qid] = dataclasses.replace(q, text=text, recording=rid, voiced=voiced)
         return step
@@ -17888,8 +17930,11 @@ class Flow:
         plays = [*([{"kind": "recorded", "id": TIME_LADDER_IDS["weekend"], "text": TIME_LADDER["weekend"]}] if weekend else []), line]
         say = "".join(p["text"] for p in plays)
         hint = answer_wait("相手が答えたら、聞いたとおりの値（選んだほう・2択の外の言葉もそのまま）で record_answer で報告します。")
+        it = self.items[qid]
+        # おっしゃった頃・週に空いている予定が無いことをお伝えする2択（_ladder_set の印 no_room_now＝伺い100 ア）：頭の相づちはお詫び（印 no_room＝_ack_choice）
+        no_room, it.no_room_now = it.no_room_now, False
         base = {"result": "ask_back", "question_id": qid, "ask_n": 0, "ask_reason": "ladder", **({"weekend": True} if weekend else {}),
-                **({"ahead": True} if ahead else {})}
+                **({"ahead": True} if ahead else {}), **({"no_room": True} if no_room else {})}
         if self.play_recordings:
             return base | {"play": plays, "message": f"{played_note(say)}何も言わずに、相手の答えを待ってください。{hint}"}
         return base | {"say": say, "message": f"{say_note(say)}相手の答えを待ってください。{hint}"}

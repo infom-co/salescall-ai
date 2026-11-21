@@ -856,6 +856,18 @@ def ladder_topic_head(topic: str, body: str) -> str:
 LADDER_KEPT_HEAD = "それでは{kept}でしたら"
 
 
+# お客様のおっしゃった頃・週（「来月の頭」「来週」）に空いている予定が無いときに、そのすぐあとの空いている予定の2択の頭に入れる一言（頭の「申し訳ございません、」は今のお詫びの録音＝
+# 重いお詫び moushiwake_heavy・続きは日の入る文＝会話AIの声。入れるのは flowctl.Flow._ladder_set の1か所・頃は flowctl.ladder_no_room の1か所）。✅ 2026-11-21 日本時間14時59分44秒
+# ユーザー「伺い96〜101：すべてアでOK、進めてください」（伺い100 ア「申し訳ございません、あいにく来月の頭は空きがございませんので1月4日の月曜日と1月5日の火曜日ではどちらがよろしい
+# でしょうか？」）。決まった言い方なので読点は入れない（10-15）
+LADDER_NO_ROOM_HEAD = "あいにく{w}は空きがございませんので"
+
+
+def ladder_no_room_head(words: str, body: str) -> str:
+    """2択の文 body（頭のつなぎの言葉を外した文）の頭に「あいにく（頃）は空きがございませんので」を入れる唯一の場所（flowctl.Flow._ladder_set）。"""
+    return LADDER_NO_ROOM_HEAD.format(w=words) + body
+
+
 def ladder_kept_head(kept: str, body: str) -> str:
     """2択の文 body（頭のつなぎの言葉を外した文）の頭に「それでは（避けなかった方）でしたら」を入れる唯一の場所（flowctl.Flow._ladder_kept）。"""
     return LADDER_KEPT_HEAD.format(kept=kept) + body.removeprefix(LADDER_HALF_HEAD)
