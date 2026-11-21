@@ -285,11 +285,19 @@ def _drop_dev_parens(text: str) -> str:
     return "".join(out)
 
 
+# CL-2 の部品の文にある、画面の呼び方と違う言葉（言い換えるだけ。見張りの言葉には入れない＝お客様リストの名前など、契約者が付けた名前に
+# 同じ字があっても落とさない）。✅ 2026-11-20 管理者「イ」：画面では「実施回」を使わず「お客様リスト」
+_PLAIN_ONLY: dict[str, str] = {"業務設定の版": "電話の台本の版", "業務設定": "電話の台本", "実施回": "お客様リスト"}   # 長い言葉から先に（業務設定の版の画面の名前は「電話の台本」）
+# 内部の番号（英数字の長い列）は、画面に出さない（2026-11-21：取り込みの断りの文に、版の番号がそのまま出ていた）
+_INTERNAL_ID = re.compile(r"[：:]?\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
 def plain(text: str) -> str:
     """データに入っている文（設定の説明・仮の値の見直す時・知らせの本文・修正依頼の中身 など）を、管理者・契約者の画面に出す形にする
     1か所：開発の覚え書きの入った括弧書きを外し、内部の言い方・担当の名前を画面の言い方にする。お客様の言葉には使わない（言い換えない）。"""
     out = _drop_dev_parens(text or "")
-    for inner, word in _INNER_WORDS.items():
+    out = _INTERNAL_ID.sub("", out)
+    for inner, word in {**_INNER_WORDS, **_PLAIN_ONLY}.items():
         out = out.replace(inner, word)
     out = _ASSIGNEE.sub(lambda m: ASSIGNEE_WORDS.get(m.group(1), "直す担当"), out)
     # 内部の英字の名前（approval.awaiting_ai_recheck など）を含む、ひと区切りの文（句点・括弧の内側まで）を外す（名前だけ外すと文が壊れる）

@@ -1,4 +1,4 @@
-<!doctype html>
+{% from "parts.html" import flash %}<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ログイン — SalesCall</title><link rel="stylesheet" href="/static/app.css">
 {% if google_client_id %}<script src="/static/passkey.js" defer></script><script src="https://accounts.google.com/gsi/client" async></script>{% endif %}</head>
@@ -6,7 +6,7 @@
 <div class="card">
   <h1 class="login-brand">Sales<b>Call</b></h1>
   {# ログインの確かめは core の people の1か所。通らなかった理由は出さない（ログインIDが在るかを教えない） #}
-  {% if error %}<div class="flash ng" role="alert">{{ error }}</div>{% endif %}
+  {{ flash(error, false) }}
   <form method="post" action="/login" class="stack">
     <label class="field" for="login-id">ログインID</label>
     <input id="login-id" type="text" name="login_id" autocomplete="username" required autofocus>

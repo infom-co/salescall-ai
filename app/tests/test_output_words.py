@@ -281,3 +281,11 @@ class DncImportFields(unittest.TestCase):
                 self.assertLessEqual(len(v), 40)
                 self.assertIsNone(_re.search(DEV_NOTE, v))
 
+
+class PlainCoreTexts(unittest.TestCase):
+    def test_core_refusals_lose_internal_ids_and_use_screen_names(self):   # 取り込みの断りの文（2026-11-21）：内部の番号・「実施回」を画面に出さない
+        got = words.plain("この実施回の業務設定の版が、確かめに通りません（その版の業務設定の中身がありません：cee21249-c094-44a2-adb5-3b0c90ea946b）。")
+        self.assertNotRegex(got, r"[0-9a-f]{8}-[0-9a-f]{4}")
+        self.assertNotIn("実施回", got)
+        self.assertIn("お客様リストの電話の台本の版", got)
+

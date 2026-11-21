@@ -12,7 +12,7 @@
 <h1>発信禁止の一覧を取り込む</h1>
 {{ imp.steps(stage, base, key) }}
 {{ flash(done, ok) }}
-{% if error %}<div class="flash ng" role="alert">{{ error }}</div>{% endif %}
+{{ flash(error, false) }}
 
 {% if stage == "upload" %}
 {{ imp.upload(base, "依頼者から受け取った一覧（Excel か CSV）", encodings, token,

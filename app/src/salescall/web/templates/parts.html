@@ -25,8 +25,10 @@
 <div class="stat {{ tone }}"><span class="label">{{ label }}</span><span class="value">{{ value }}</span></div>
 {%- endmacro %}
 
+{#- 操作の結果・断りの1行（1か所）。core の部品の断りの文も来るので、言い換えの1か所 words.plain を通す（内部の番号・開発の覚え書きを出さない）。
+    断りは読み上げで知らせる（role="alert"） -#}
 {% macro flash(done, ok) -%}
-{% if done %}<div class="flash {{ 'ok' if ok else 'ng' }}" role="status">{{ done }}</div>{% endif %}
+{% if done %}<div class="flash {{ 'ok' if ok else 'ng' }}" role="{{ 'status' if ok else 'alert' }}">{{ words.plain(done) }}</div>{% endif %}
 {%- endmacro %}
 
 {#- 空のときの形。2つ目（次にすること・これから何が起きるか）は必ず書く（「ありません」だけで終えない。試験が全部の画面を見る） -#}

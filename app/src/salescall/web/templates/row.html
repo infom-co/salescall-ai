@@ -89,7 +89,7 @@
     <form method="post" action="{{ base }}/rows/{{ row.task_id }}/fix#fix">
       {{ csrf(token) }}
       {% if not draft or error %}
-        {% if error %}<div class="flash ng" role="alert">{{ error }}</div>{% endif %}
+        {{ flash(error, false) }}
         <label class="field" for="fix-field">直す欄</label>
         <select id="fix-field" name="field" data-reading-fields="{{ name_fields|join(' ') }}" required>
           {% if not draft %}<option value="" selected disabled>直す欄を選ぶ</option>{% endif %}{# 初めから「かける番号」を選んでおかない（2026-11-20 の見直し） #}
