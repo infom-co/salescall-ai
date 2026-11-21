@@ -1065,7 +1065,7 @@ def ladder_fill(s: dict, step: str, choice, pair: tuple = (), today=None) -> dic
     if step == "day":
         s.update(day=ladder_label(step, choice, s, pair, today), date=choice, today=False, kind="平日" if choice.weekday() < 5 else "土日")
     elif step == "clock":
-        s["clock"] = ladder_label(step, choice, s)
+        s["clock"], s["picked"] = ladder_label(step, choice, s), True   # こちらが並べた2択の時刻（印 picked＝ladder_recheck が確かめる＝分身 AB の (5)）
     else:
         s[step] = choice
     return s
@@ -1163,6 +1163,10 @@ def ladder_mend(value: str | None, s: dict, ctx: LadderCtx) -> tuple:
     known = {**s, **({k: got.get(k) for k in LADDER_DAY_KEYS} if said_day else {}), **({"half": got["half"]} if got.get("half") else {})}
     if value and got.get("day") and not (said_time or got.get("any") or got.get("frame")):
         return _ladder_day_mend(s, known, ctx)
+    if value and said_day and not (said_time or got.get("any") or got.get("frame")):
+        return _ladder_range_mend(s, got, known, ctx)
+    if said_time and not said_day:
+        known.pop("picked", None)   # 時刻を言い直された＝お客様ご自身の時刻（こちらが並べた2択の時刻ではない＝ladder_recheck で確かめない）
     if not value or said_day or not said_time:
         return None, known, False
     out = value
@@ -1178,20 +1182,44 @@ def _ladder_day_mend(s: dict, known: dict, ctx: LadderCtx) -> tuple:
     if not (time or s.get("any")):
         return None, known, False   # 伺えた時刻が無い（日の段までで直された）＝お客様の言葉のまま
     value = ladder_value(known) if not s.get("frame") else f"{ladder_day_words(known)}の{time}" if time else None
-    m = None if s.get("frame") or s.get("theirs") else _CLOCK.search(s.get("clock") or "")
+    redo = ladder_recheck(known, ctx)
+    return (value, known, False) if redo is None else (None, redo, True)
+
+
+def ladder_recheck(s: dict, ctx: LadderCtx) -> dict | None:
+    """日が決まった伺えた所 s に残した時刻（こちらが並べた2択から選んでいただいた時刻＝印 picked）に、その日は電話をかけられないか（唯一の確かめ＝日だけ直された ladder_mend の
+    _ladder_day_mend・日が1つに決まらない直しのあとに日が決まった Flow._ladder_take。かけられるかの決まりは時刻の2択の候補と同じ ladder_open）。かけられない＝時刻（と前の日の、合わないと
+    言われた時刻・時間帯）を外した所（伺えた時間帯にその日の空きが無ければ時間帯も外す＝その日の空いている予定から2択）。かけられる・確かめない（印が無い＝お客様ご自身がその場で言った
+    時刻＝10-24「お客様の要望時間は、何時でも『かける』」・幅の答え・お客様から折り返していただく日の2択・日が1つに決まっていない）・その日に伺える2択が無いなら None。分身 W の (1)・
+    分身 AB の (5)（確かめるのは、こちらが並べた2択から選んでいただいた時刻を残すときだけ＝印は1か所）"""
+    m = None if s.get("frame") or s.get("theirs") or not s.get("picked") else _CLOCK.search(s.get("clock") or "")
     h24 = clock_h24(m.group("part") or s.get("band") or s.get("half"), int(m.group("h"))) if m else None
-    if h24 is None:
-        return value, known, False
+    day = ctx.today if s.get("today") else s.get("date")
+    if h24 is None or day is None:
+        return None
     minute = h24 * 60 + (30 if m.group("half") else int(m.group("min") or 0))
-    if ladder_open(minute, ctx.today if known.get("today") else known.get("date"), ctx):
-        return value, known, False
+    if ladder_open(minute, day, ctx):
+        return None
     # その日のその時刻に電話をかけられない：時刻（と前の日の、合わないと言われた時刻・時間帯）を外し、その日の空いている予定から2択（伺えた時間帯に空きが無ければ時間帯も外す）
-    redo = {k: v for k, v in known.items() if k not in ("clock", "shown_clock", "shown_half", "any")}
+    redo = {k: v for k, v in s.items() if k not in ("clock", "shown_clock", "shown_half", "any", "picked")}
     if ladder_step(redo, ctx) is None:
         redo = {k: v for k, v in redo.items() if k not in ("half", "band")}
-    if ladder_step(redo, ctx) is None:
-        return value, known, False
-    return None, redo, True
+    return redo if ladder_step(redo, ctx) is not None else None
+
+
+def _ladder_range_mend(s: dict, got: dict, known: dict, ctx: LadderCtx) -> tuple:
+    """ladder_mend の、日が1つに決まらない所（週・頃・平日と土日だけ）を言い直されたときの中身（返り値も同じ形）：伺えた時刻（と印 picked）を残し、伺えた日の所を直された所に替えて
+    （平日と土日は言われたときだけ替える）、直された所から先の2択で伺い直す（日を伺う段があれば「2択で伺い直す」＝Flow._ladder_redo）。日を伺わずに決まる（土日＝曜日は伺わない）なら、
+    その値（「土日の午後4時」＝今の記録の形）。伺えた時刻が無い・お客様から折り返していただく日の2択（もとの質問に戻したあと）・伺える段が無いなら None（今のまま＝お客様の言葉）。
+    分身 AB の (5)（CL-1 が決まりで決めた＝11-20 日本時間0時09分49秒「もう最後の日時が決まるまで必ず二者択一」・11-19 日本時間14時18分13秒「お客様がもう言った所から先の2択だけを伺う」・
+    本書 9-3「取得済みのことを重ねて聞かない」）。⛔ 21263a4a まで「改めまして来週で大丈夫でしょうか？」と言い直し、記録から日と時刻が抜けた（分身 W の書き置き rv184/W/notes.md の (6-1)）"""
+    if not (ladder_time_words(s) or s.get("any")) or s.get("theirs"):
+        return None, known, False
+    redo = {k: v for k, v in s.items() if k not in ("day", "date", "today", "week", "span", "shown_day", "shown_kind", "no_room_told")}
+    redo.update({k: got[k] for k in ("kind", "week", "span") if got.get(k)})
+    if (step := ladder_step(redo, ctx)) is None:
+        return ladder_value(redo), redo, False
+    return (None, redo, True) if step[0] in ("kind", "day") else (None, known, False)
 
 
 def night_dated(value: str | None, today) -> str | None:
@@ -17786,8 +17814,16 @@ class Flow:
             return self._ask_payday(qid, value)
         if s == before:
             return self._ask_again(qid, self._ask_kind(), f"日時の2択の答えとして読めない値（{value}）")
+        if step is not None and step[0] == "clock" and s.get("clock") != before.get("clock"):
+            # 時刻の2択のお答え：並べた2つの1つなら、こちらが並べた2択から選んでいただいた時刻（印 picked＝ladder_recheck が確かめる・2択の外の時刻はお客様ご自身の時刻＝確かめない）
+            s = ladder_fill(s, "clock", next(c for c in step[1] if ladder_label("clock", c, s) == s["clock"])) if s["clock"] in {ladder_label("clock", c, s) for c in step[1]} \
+                else {k: v for k, v in s.items() if k != "picked"}
+        since = None
+        if step is not None and step[0] in ("kind", "day") and (redo := ladder_recheck(s, ctx)) is not None:
+            # 日が1つに決まらない直しのあとに日が決まった：残した時刻にその日は電話をかけられない＝その日の空いている予定から2択（頭は「それでは（その日）でしたら」＝since。分身 AB の (5)）
+            s, since = redo, before
         start, it.ladder = it.ladder_start, s
-        if (now := self._ladder_set(qid)) is None:
+        if (now := self._ladder_set(qid, since=since)) is None:
             # 1つの答えで決まった（伺い始めの所から、その答えだけで時刻まで・幅・「いつでも」）なら、お客様の言葉のまま（言い直しで言い方を崩さない＝今までの
             # 答えの受け方と同じ）。いくつかの2択で決まったなら、伺えた所から作る（お客様から折り返していただく日の2択＝伺い67 ア は、伺えた日で伺う前の値を言い直す＝_ladder_end）
             return value if before == start and not s.get("theirs") else self._ladder_end(qid, s)

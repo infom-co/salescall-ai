@@ -44196,6 +44196,89 @@ class UntilSinceTest(unittest.TestCase):
         self.assertEqual(until_since("火曜日の午後4時"), "火曜日の午後4時")   # 「まで」が無ければそのまま
 
 
+class LadderRangeMendTest(unittest.TestCase):
+    """分身 AB の (5)（CL-1 が決まりで決めた＝伺わない。理由＝11-20 日本時間0時09分49秒「もう最後の日時が決まるまで必ず二者択一」・11-19 日本時間14時18分13秒「お客様がもう言った所から
+    先の2択だけを伺う」・本書 9-3「取得済みのことを重ねて聞かない」）：日時の2択で時刻まで伺えたあとの言い直しに、日が1つに決まらない直し（「いえ、来週でお願いします。」＝週だけ・「いえ、
+    来月の頭で」＝頃だけ・「いえ、土日で」＝平日と土日だけ）をされたら、伺えた時刻を残し、直された所から先の2択を伺う（直された値を受ける1か所 ladder_mend）。日が決まったら、残した時刻を
+    その日にかけられるかを分身 W の (1) と同じ1か所（ladder_open＝ladder_recheck）で確かめ、かけられなければその日の空いている予定から2択。確かめるのは、こちらが並べた2択から選んで
+    いただいた時刻を残すときだけ（印 picked の1か所＝ladder_fill・Flow._ladder_take が置く。お客様ご自身がその場で言った時刻は 10-24「お客様の要望時間は、何時でも『かける』」で確かめない）。
+    土日の直しは、今の記録の形「土日の午後4時」。⛔ 21263a4a まで「改めまして来週で大丈夫でしょうか？」と言い直し、記録から日と時刻が抜けた（分身 W の書き置き rv184/W/notes.md の (6-1)）"""
+
+    def setUp(self):
+        self.m = LadderMendTest()
+
+    def at_clock(self, day="金曜日", clock="4時", until=11):
+        import datetime as dt
+        d = self.m.d
+        f, _ = d.first()
+        f.call_days = tuple(f.today + dt.timedelta(days=i) for i in range(1, until + 1) if f.today + dt.timedelta(days=i) != dt.date(2026, 11, 23))
+        d.answer(f, "平日でお願いします。", "平日")
+        d.answer(f, f"{day}で。", day)
+        d.answer(f, "午後がいいですね。", "午後")
+        r = d.answer(f, f"{clock}でお願いします。", clock)
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        return d, f
+
+    def test_a_week_keeps_the_time_and_asks_the_days(self):
+        d, f = self.at_clock()
+        r = self.m.reply(f, "いえ、来週でお願いします。", "corrected", "来週")
+        # 頭はこちらの聞き違いのお詫び＋もう伺った質問へ戻る今の形（分身 W の _ladder_redo と同じ＝言い直しを違うと言われたときの _continue の repeat）
+        self.assertEqual(d.heard(r), "失礼いたしました。来週の火曜日と来週の水曜日ではどちらがよろしいでしょうか？")
+        r = d.answer(f, "水曜日でお願いします。", "水曜日")
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        # お答えの日の言葉は今の読み（1〜6日先の日はお客様の言葉のまま＝ladder_read）
+        self.assertIn("水曜日の16時、午後4時", d.heard(r))
+        self.assertEqual(self.m.done(f), "水曜日の午後4時")
+
+    def test_a_span_keeps_the_time_and_asks_the_days_in_it(self):
+        d, f = self.at_clock(until=16)
+        r = self.m.reply(f, "いえ、来月の頭でお願いします。", "corrected", "来月の頭")
+        self.assertEqual(d.heard(r), "失礼いたしました。12月1日の火曜日と12月2日の水曜日ではどちらがよろしいでしょうか？")
+        r = d.answer(f, "1日でお願いします。", "1日")
+        self.assertIn("12月1日の火曜日の16時、午後4時", d.heard(r))
+        self.assertEqual(self.m.done(f), "12月1日の火曜日の午後4時")
+
+    def test_the_weekend_is_the_weekend_record(self):
+        d, f = self.at_clock()
+        r = self.m.reply(f, "いえ、土日でお願いします。", "corrected", "土日")
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        self.assertTrue(d.heard(r).endswith("失礼いたしました。改めまして土日の16時、午後4時で大丈夫でしょうか？"), d.heard(r))
+        self.assertEqual(self.m.done(f), "土日の午後4時")
+
+    def test_the_kept_time_not_open_on_the_chosen_day_is_asked_from_that_day(self):
+        d, f = self.at_clock()
+        f.call_free = (("2026-11-20", "13:00", "17:00"), ("2026-11-24", "13:00", "17:00"), ("2026-11-25", "09:30", "12:00"), ("2026-11-25", "13:00", "15:30"))
+        self.m.reply(f, "いえ、来週でお願いします。", "corrected", "来週")
+        r = d.answer(f, "水曜日でお願いします。", "水曜日")
+        self.assertEqual(r["result"], "ask_back", d.heard(r))
+        self.assertTrue(d.heard(r).endswith("それでは水曜日でしたら2時と3時ではどちらがよろしいでしょうか？"), d.heard(r))
+        r = d.answer(f, "3時でお願いします。", "3時")
+        self.assertIn("水曜日の15時、午後3時", d.heard(r))
+        self.assertEqual(self.m.done(f), "水曜日の午後3時")
+
+    def test_the_customers_own_time_is_not_checked(self):
+        # お客様ご自身がその場で言った時刻（並べた「2時と4時」の外の5時）は、日だけ直されても、その日にかけられるかを確かめない（10-24。分身 W の (6-4) と同じ）
+        d, f = self.at_clock(clock="5時")
+        f.call_free = (("2026-11-20", "13:00", "18:00"), ("2026-11-25", "13:00", "15:30"))
+        r = self.m.reply(f, "いえ、水曜日でお願いします。", "corrected", "水曜日")
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        self.assertTrue(d.heard(r).endswith("失礼いたしました。改めまして水曜日の17時、午後5時で大丈夫でしょうか？"), d.heard(r))
+        # 曜日の2択に日と時刻を一度に言われたときも今のまま（確かめない）
+        d2 = DateTimePairsTest()
+        f2, _ = d2.first()
+        f2.call_free = (("2026-11-20", "13:00", "18:00"), ("2026-11-24", "13:00", "15:30"))
+        d2.answer(f2, "平日でお願いします。", "平日")
+        r = d2.answer(f2, "火曜日の4時でお願いします。", "火曜日の4時")
+        self.assertEqual(r["result"], "confirm_required", d2.heard(r))
+        self.assertIn("火曜日の16時、午後4時", d2.heard(r))
+
+    def test_the_mark_is_only_for_our_pairs(self):
+        import datetime as dt
+        from flowctl import LadderCtx, ladder_fill
+        self.assertTrue(ladder_fill({"half": "午後"}, "clock", 16).get("picked"))
+        self.assertFalse(ladder_fill({}, "half", "午後").get("picked"))
+
+
 class NightClockTest(unittest.TestCase):
     """伺い68（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い68：ア」）：時刻と合わない時間帯の言葉（「夜1時」「深夜2時」）は時間帯の言葉で読み（夜の0〜4時台・深夜／夜中の
     0〜5時台は日付が変わったあとの時刻）、日付まで言い直して確かめる（「明日の夜1時」⇒「21日の午前1時でよろしいでしょうか？」＝電話の日が19日）。「夕方2時」は時間帯の言葉
