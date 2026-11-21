@@ -77,15 +77,19 @@
     {#- いまいる所の道筋（依頼者 › 業務 › 実施回 › このページ）。どのページも、この1か所で出す（どの依頼者・業務を操作しているかを見失わない） -#}
     {#- 戻り方は、このパンくずの1か所（ページごとに「← 戻る」を書かない）。依頼者の中は 依頼者 › 業務 › お客様リスト、そのあとに
         ページが渡す親の画面（crumbs＝[(名前, 行き先)]。全体の画面の下の画面も、これで親へ戻れる）、最後に、このページ -#}
+    {#- 最後はいつも「いまいる所」（押せない字）。ページが名前を渡さなければ、道筋の最後（依頼者・業務・お客様リストの画面そのもの）を
+        いまいる所にする（2026-11-20 の見直し：自分へのリンクで終わる画面と、押せない字で終わる画面が混ざっていた） -#}
     {% set trail = crumbs if crumbs is defined else [] %}
-    {% if client or trail %}
+    {% set here %}{% block crumb %}{% endblock %}{% endset %}
+    {% set ns = namespace(steps=[]) %}
+    {% if client %}{% set ns.steps = ns.steps + [("依頼者「" ~ client.name ~ "」", "/c/" ~ client.client_id)] %}
+      {% if business %}{% set ns.steps = ns.steps + [("業務「" ~ business.name ~ "」", "/c/" ~ client.client_id ~ "/b/" ~ business.business_id)] %}{% endif %}
+      {% if run and business %}{% set ns.steps = ns.steps + [("お客様リスト「" ~ run.name ~ "」", "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id)] %}{% endif %}{% endif %}
+    {% set ns.steps = ns.steps + trail %}
+    {% if here|trim %}{% set ns.steps = ns.steps + [(here|trim, none)] %}{% endif %}
+    {% if ns.steps %}
     <nav class="crumbs" aria-label="いまいる所">
-      {% if client %}<a href="/c/{{ client.client_id }}">依頼者「{{ client.name }}」</a>
-      {% if business %}<span aria-hidden="true">›</span><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}">業務「{{ business.name }}」</a>{% endif %}
-      {% if run and business %}<span aria-hidden="true">›</span><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}">お客様リスト「{{ run.name }}」</a>{% endif %}{% endif %}
-      {% for label, href in trail %}{% if client or not loop.first %}<span aria-hidden="true">›</span>{% endif %}<a href="{{ href }}">{{ label }}</a>{% endfor %}
-      {% set here %}{% block crumb %}{% endblock %}{% endset %}
-      {% if here|trim %}<span aria-hidden="true">›</span><span class="here">{{ here|trim }}</span>{% endif %}
+      {% for label, href in ns.steps %}{% if not loop.first %}<span aria-hidden="true">›</span>{% endif %}{% if href and not loop.last %}<a href="{{ href }}">{{ label }}</a>{% else %}<span class="here" aria-current="page">{{ label }}</span>{% endif %}{% endfor %}
     </nav>
     {% endif %}
     {% block main %}{% endblock %}

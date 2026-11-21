@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "parts.html" import tag, flash, csrf, empty %}
 {% block title %}設定{% endblock %}
+{% block crumb %}設定{% endblock %}
 {% macro widget(r) -%}
 {% set w = forms.FORMS[r.value_type].widget if r.value_type in forms.FORMS else "" %}
 {% set v = r.got.value if r.got else none %}

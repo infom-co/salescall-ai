@@ -699,6 +699,8 @@ class Web(_World):
                 page = self.get("A", path).text
                 crumbs = page[page.index('class="crumbs"'):page.index("</nav>", page.index('class="crumbs"'))]
                 self.assertIn("依頼者「依頼者X」", crumbs)
+                # 最後はいつも「いまいる所」（押せない字）。自分へのリンクで終わらない（2026-11-20 の見直し）
+                self.assertRegex(crumbs, r'<span class="here" aria-current="page">[^<]+</span>\s*$')
 
     def test_every_page_has_one_name_and_marks_itself_in_the_side_nav(self):
         """画面の名前は words.PAGES の1か所（左の道しるべ・見出し・ホームの札が同じ名前）。開いた画面は、左の道しるべで自分に印が付く。"""

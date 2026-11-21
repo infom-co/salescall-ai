@@ -2,7 +2,8 @@
 {% from "parts.html" import tag, flash, csrf %}
 {% set active = "stops" %}
 {% block title %}何で止まったか{% endblock %}
-{% set crumbs = [(words.page("stops"), "/t/stops")] %}
+{#- 止まっているものの一覧は全体に1つ。依頼者の中の停止では、途中に全体の一覧を挟まない（依頼者の下に全体の一覧が出て、押すと全体へ飛んでいた） -#}
+{% set crumbs = [] if client else [(words.page("stops"), "/t/stops")] %}
 {% block crumb %}何で止まったか{% endblock %}
 {% block main %}
 <h1>{{ x.cause.label }}</h1>
