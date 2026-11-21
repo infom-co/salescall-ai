@@ -30306,6 +30306,67 @@ class MatterPromptWordsTest(unittest.TestCase):
         self.assertTrue(announces.matter_fits("ご利用日の変更は前日までにご連絡いただく決まりになっております。", self.ASK, "ご利用日の変更"))
 
 
+class MatterPromptPrefaceTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L19 の (a)（分身 AE の (1)）：束 ac1 で答えを伏せた読み手 A・B が2人とも挙げた取込の問い合わせ（announces.MATTER_PROMPT）の言葉を、
+    帳面 0-3 の決まり（初めて読む人がそのまま分かる言葉で・(a) 境目の決まりは1か所だけに書く）で直した：(1-a) 前置きの中の事柄の言葉を使うのは、前置きのあとの文に
+    事柄の言葉が無いときだけ＝名詞と句が同じ1つの決まり（announces.PREFACE）を読む（名詞の決まり MATTER_NOT と句の主語の決まり SUBJECT には書かない）(1-b) 数の中の
+    「,」は文を区切る「、」とは別で、書いてあるとおりに入れる＝問い合わせが入れないと言う字は、句の形の確かめ（clause_fits の読点の見方＝askitems.noun_fits）が通さない字と
+    同じ（全角の「，」も）(1-c) 名詞に入れない時期や値は、句には数と期限の言葉の決まりのとおり入れる（名詞の決まりから句の決まりを指す）。⛔ それまで、名詞の決まりは
+    「前置きの中の事柄の言葉は入れます」とだけ書き、句の主語の決まりだけが「前置きの中にしか無ければ」と限っていた（前置き「ご予約の内容ですが」の「ご予約」も入れるのか
+    迷う＝束 ac1 の #1・#4）・「「、」「。」「？」は入れません」と「書いてあるとおりに入れます」が「3,000円」の「,」でどちらに当たるか書いていなかった（#7）"""
+    ASK = UnheardCautionClauseTest.ASK
+
+    def test_the_preface_rule_is_one_place_for_both_items(self):
+        import announces
+        p = announces.MATTER_PROMPT
+        self.assertEqual(p.count(announces.PREFACE), 1)
+        self.assertIn(f"- matter も clause も、{announces.PREFACE}。", p)
+        self.assertIn("前置きのあとの文に事柄の言葉が無いときだけ", announces.PREFACE)
+        # 境目（前置きの中の言葉を使うときの限り）は PREFACE の1か所だけ：名詞の決まりと句の主語の決まりには書かない
+        for rule in (announces.MATTER_NOT, announces.SUBJECT):
+            self.assertNotIn("前置きの中", rule, rule)
+        self.assertEqual(p.count("前置きの中"), announces.PREFACE.count("前置きの中"))
+
+    def test_the_preface_answers_pass_the_import_checks(self):
+        # 決まりどおりの答え（前置きのあとに事柄の言葉があればそれ・無ければ前置きの中の言葉）が、本番の形の確かめを通る。前置きのあとに事柄の言葉があるのに前置きの
+        # 中の言葉を使った答えも形は通る（確かめは中身の違いだけを止める＝帳面 0-2）＝どちらに揃うかは問い合わせの文で決まる
+        import announces
+        fee = "送料のご案内ですが一律800円となります。"
+        self.assertIn(f"「{fee}」なら、matter に「送料」、clause に「送料は一律800円となる」と答えます", announces.PREFACE)
+        self.assertTrue(announces.matter_fits(fee, self.ASK, "送料") and announces.clause_fits(fee, self.ASK, "送料は一律800円となる"))
+        pay = "お申し込みの内容ですがお支払いは前日までにお済ませいただく決まりになっております。"
+        self.assertIn("「お申し込みの内容ですがお支払いは…」なら", announces.PREFACE)
+        self.assertTrue(announces.matter_fits(pay, self.ASK, "お支払い"))
+        self.assertTrue(announces.matter_fits(pay, self.ASK, "お申し込み"))
+
+    def test_the_comma_in_a_number_and_the_marks_agree_with_the_clause_check(self):
+        # 問い合わせが句に入れないと言う字は、句の形の確かめが通さない字と同じ。数の中の「,」は書いてあるとおりに入れる（確かめも通す）
+        import announces
+        p = announces.MATTER_PROMPT
+        self.assertIn(announces.CLAUSE_MARKS, p)
+        self.assertEqual(p.count("数の中の「,」"), 1)
+        month = "料金のご案内ですが月額3,000円となります。"
+        self.assertTrue(announces.clause_fits(month, self.ASK, "料金は月額3,000円となる"))
+        for mark in ("、", "，", "。", "？"):
+            self.assertIn(f"「{mark}」", announces.CLAUSE_MARKS)
+            self.assertFalse(announces.clause_fits(month, self.ASK, f"料金は月額3{mark}000円となる"), mark)
+        # 全角の数の「，」は入れない字（確かめが通さない）＝数を「,」で書いても、区切りを外しても、数の確かめは通る（数は区切りを除いて比べる）
+        wide = "料金のご案内ですが月額３，０００円となります。"
+        self.assertFalse(announces.clause_fits(wide, self.ASK, "料金は月額３，０００円となる"))
+        self.assertTrue(announces.clause_fits(wide, self.ASK, "料金は月額３,０００円となる"))
+        self.assertTrue(announces.clause_fits(wide, self.ASK, "料金は月額３０００円となる"))
+
+    def test_the_matter_rule_points_to_the_clause_rule_for_times_and_values(self):
+        # 名詞に入れない時期や値（「当日の」）は、句には数と期限の言葉の決まりのとおり入れる（名詞の決まりから句の決まりを指す。句の決まりは1か所のまま）
+        import announces
+        self.assertIn("clause には、下の「数・金額・日にち・期限・回数は…」の決まりのとおり入れます", announces.MATTER_NOT)
+        self.assertIn("数・金額・日にち・期限・回数は、お客様が聞いた文にあるものを全部", announces.MATTER_PROMPT)
+        rule = HeardLineClauseTest
+        self.assertTrue(announces.matter_fits(rule.RULE, rule.ASK, "キャンセル"))
+        self.assertTrue(announces.clause_fits(rule.RULE, rule.ASK, "当日のキャンセルは前日までにご連絡いただく必要がある", rule.LINE))
+        self.assertFalse(announces.clause_fits(rule.RULE, rule.ASK, "キャンセルは前日までにご連絡いただく必要がある", rule.LINE))
+
+
 class ImportFormsReviewTest(unittest.TestCase):
     """見直し (12) の組 Q（取込で決めた文・録音の一覧）：C-1 事実を伺う質問に選択肢を並べた文を作らない・C-2／C-3 {最短の日} を声に出す文のすべてで1か所で
     置き換え、流す録音の名前と録音の表の名前を同じ1つから作る・C-4 取込の中身の判定で同じことを伺っているかを読む・C-5 形の確かめの1か所・C-6 先に並べた文は
