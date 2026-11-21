@@ -72,6 +72,38 @@ class ApologyInInbox(ApologyBase):
         self.assertIn("ok=1", done.headers["location"])
         self.assertNotIn("お詫びの電話の承認", self.page(s))
 
+    def test_a_recording_is_approved_after_hearing_only_its_unapproved_parts(self):
+        """録音の承認（計画書 6-2）：まだ承認していない部分だけを札で聞き、すべて聞いてから承認する（お詫びの電話と同じ部品）。"""
+        import re
+        from salescall.core import recording_audio, recordings
+        from tests.support import OPERATOR, World
+        from tests.test_gate import unique_role
+        from tests.test_web_inbox_rows import form_of
+        s = World().setup()
+        role = unique_role()
+        wav = b"RIFF" + (36).to_bytes(4, "little") + b"WAVE" + role.encode("utf-8")[:32].ljust(32, b"\0")
+
+        def work(tx):
+            got = recording_audio.put(tx, wav)
+            return recordings.add_name_part(tx, voice_name="Leda", key=recordings.NameKey(role=role),
+                                            part=recordings.Part("name", f"{role}様", got.audio_ref, got.audio_sha256), business_id=s["business"])
+        set_id = app_access().in_client(OPERATOR, s["tenant"], s["client"], work)
+        person = Person("試験の契約者", False, s["tenant"], "架空の契約者")
+        http = TestClient(create_app(app_access(), lambda r: person, b"t"))
+        page = http.get("/t/inbox").text
+        self.assertIn("録音の承認", page)
+        self.assertIn(f"{role}様", page)                                       # 聞く録音の文
+        act = f'/c/{s["client"]}/inbox/recording/approve'
+        heard = re.findall(r'<audio controls preload="none" src="([^"]+)"', page)
+        self.assertEqual(heard, [f'/c/{s["client"]}/recordings/{set_id}/name.wav'])
+        token = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1)
+        self.assertIn("ok=0", http.post(act, data={**form_of(page, act), "form_token": token}, follow_redirects=False).headers["location"])
+        self.assertEqual(http.get(heard[0]).status_code, 200)
+        page = http.get("/t/inbox").text
+        token = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1)
+        self.assertIn("ok=1", http.post(act, data={**form_of(page, act), "form_token": token}, follow_redirects=False).headers["location"])
+        self.assertNotIn(f"{role}様", http.get("/t/inbox").text)
+
     def test_an_approved_apology_leaves_the_inbox(self):
         s = self.fresh(stage_cap=1)
         aid = self.incident(s)

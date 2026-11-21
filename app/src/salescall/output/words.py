@@ -331,6 +331,11 @@ DETAIL_KIND_WORDS: dict[str, str] = {
 }
 
 
+# 録音の組の単位の、画面の名前（承認する録音の種類。core の recordings.create_set の unit のうち、契約者が承認するもの）
+RECORDING_UNIT_WORDS: dict[str, str] = {"business": "業務の録音", "name_role": "名前の録音（役職の部分）",
+                                        "name": "名前の録音（お名前の部分）", "name_tail": "名前の録音（続く言葉）"}
+
+
 # 電話の型の、画面の名前（型の正本は core の business_settings.CALL_TYPES。そのすべてを書く＝試験が突き合わせる。計画書 9-9・
 # ✅ 2026-11-20 管理者「伺い78：…ア」＝業務ごとに選ぶ電話の型）
 CALL_TYPE_WORDS: dict[str, str] = {

@@ -4,7 +4,7 @@
 なにを決めるか・根拠・決めないと何が起きるか・ボタン（承認する／差し戻す）。並び順は緊急 → 期限 → 古い順（`ordered`）。
 
 この表に無い承認を、別の画面に作らない。種類を足すときは、ここに1行足す（docs/DASHBOARD.md 4-2 の表と同じ並び）。
-⏳ まだ入れていない種類：録音の承認・名前の録音の審査（録音を聞く仕組みはできた＝CL-2 の 4-460。お詫びの電話の承認と同じ部品で作る）。
+⏳ まだ入れていない種類：名前の録音の審査（管理者だけの画面で作る。録音の承認は、お詫びの電話の承認と同じ部品で作った）。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (approval, apology, calling_hours, client_solutions, conversation_io, fix_requests, next_action, row_fixes,
+from salescall.core import (approval, apology, recordings, calling_hours, client_solutions, conversation_io, fix_requests, next_action, row_fixes,
                             tasks, usage)
 from salescall.core.access import Tx
 from salescall.output import result_rows, words
@@ -101,10 +101,11 @@ def _deficit(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
 # 録音を聞いて決める承認（お詫びの電話＝2026-10-24「承認のときに録音を一緒に聞いていただく」）。音は core の recording_audio の1か所（CL-2 の 4-460）。
 # 承認のボタンは、録音が置き場にそろっているときだけ出し、押したときは、押した方がすべての部分を聞いた記録（recording_listens）があるかを確かめる
 # （ボタンを隠すだけでは、古い画面などから押せてしまう。聞かずに承認できる形を作らない）。
-def playable_parts(tx: Tx, set_id: Any) -> list[str] | None:
-    """その録音の組の部分（順に）。どれかの音が置き場に無ければ None（聞けない＝承認のボタンを出さない）。"""
+def playable_parts(tx: Tx, set_id: Any, only: list[str] | None = None) -> list[str] | None:
+    """その録音の組の部分（順に。only＝聞いていただく部分だけ）。どれかの音が置き場に無ければ None（聞けない＝承認のボタンを出さない）。"""
     rows = tx.all("SELECT r.part, EXISTS (SELECT 1 FROM salescall.recording_audio x WHERE x.audio_sha256 = r.audio_sha256) AS stored"
-                  " FROM salescall.recordings r WHERE r.set_id = %s ORDER BY r.part", (set_id,))
+                  " FROM salescall.recordings r WHERE r.set_id = %s AND (%s::text[] IS NULL OR r.part = ANY(%s::text[])) ORDER BY r.part",
+                  (set_id, only, only))
     if not rows or not all(r["stored"] for r in rows):
         return None
     return [r["part"] for r in rows]
@@ -119,6 +120,48 @@ def unheard_parts(tx: Tx, set_id: Any) -> list[str]:
 
 def _audio(set_id: Any, parts: list[str]) -> tuple[tuple[str, str], ...]:
     return tuple((f"録音 {n}", f"{set_id}/{p}") for n, p in enumerate(parts, start=1))
+
+
+def _recordings(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
+    """録音の承認（計画書 6-2「録音で流す部分は、契約者が聞いて承認する」）：その依頼者の業務の録音・名前の録音の組のうち、まだ承認していない
+    部分のあるもの。聞いていただくのは、まだ承認していない部分だけ（同じ中身をもう聞いて承認した部分は聞き直さない＝core の
+    recordings.unapproved_parts の1か所）。お客様の行・お客様リストのものではないので、行・リストで絞るときは出さない。"""
+    if task is not None or run is not None:
+        return []
+    items = []
+    for r in tx.all("SELECT s.set_id, s.unit, s.voice_name, s.created_at, b.business_id, b.name AS business_name"
+                    " FROM salescall.recording_sets s"
+                    " LEFT JOIN salescall.businesses b ON b.business_id = coalesce(s.business_id,"
+                    "   (SELECT v.business_id FROM salescall.business_versions v WHERE v.version_id = s.version_id))"
+                    " WHERE s.client_id = salescall.cur_client() AND s.unit IN ('business', 'name_role', 'name', 'name_tail')"
+                    "   AND NOT EXISTS (SELECT 1 FROM salescall.recording_approvals a WHERE a.set_id = s.set_id)"
+                    " ORDER BY s.created_at, s.set_id"):
+        need = recordings.unapproved_parts(tx, r["set_id"])
+        if not need:
+            continue
+        texts = {x["part"]: x["spoken_text"] for x in tx.all(
+            "SELECT part, spoken_text FROM salescall.recordings WHERE set_id = %s AND part = ANY(%s)", (r["set_id"], need))}
+        parts = playable_parts(tx, r["set_id"], need)
+        ready = parts is not None
+        items.append(Item(
+            kind="recording", key={"set_id": str(r["set_id"])}, title="録音の承認",
+            decide=f"{words.RECORDING_UNIT_WORDS.get(r['unit'], words.NO_WORD)}（声：{r['voice_name']}）を、お客様に流してよいか",
+            evidence=[(f"録音 {n} の文", texts.get(p, "")) for n, p in enumerate(need, start=1)],
+            if_not="承認するまで、この録音を使う電話はかけません。", at=r["created_at"],
+            business_id=r["business_id"], business_name=r["business_name"] or "",
+            buttons=(Button("approve", "録音を聞いたので承認する", main=True),) if ready else (),
+            waiting_why="" if ready else "録音の音がまだそろっていません（聞いてから承認する決まりのため）",
+            audio=_audio(r["set_id"], parts) if ready else ()))
+    return items
+
+
+def _approve_recording(tx: Tx, k: dict[str, str]) -> Any:
+    from salescall.web.actions import Refused
+    set_id = UUID(k["set_id"])
+    need = set(recordings.unapproved_parts(tx, set_id))
+    if need & set(unheard_parts(tx, set_id)):
+        raise Refused("録音をすべて聞いてから承認してください（まだ聞いていない録音があります）")
+    return recordings.approve(tx, set_id)
 
 
 def _approve_apology(tx: Tx, k: dict[str, str]) -> Any:
@@ -410,6 +453,9 @@ def _fixes(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
 KINDS: dict[str, Kind] = {
     "apology": Kind("お詫びの電話の承認", _apologies, {
         "approve": (_approve_apology, "承認しました。お詫びの電話をかけます。"),
+    }),
+    "recording": Kind("録音の承認", _recordings, {
+        "approve": (_approve_recording, "承認しました。この録音を使う電話をかけられます。"),
     }),
     "decision": Kind("取り消せない決定の確かめ", _decisions, {
         "approve": (lambda tx, k: approval.approve_decision(tx, UUID(k["attempt_id"]), int(k["seq"])), "承認しました。"),
