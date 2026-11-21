@@ -27,7 +27,8 @@ class DncImport(_World):
         self.assertTrue(key_url.startswith(base + "/"), key_url)
         page = self.get(who, key_url).text
         self.assertIn("電話番号", page)
-        mapping = dict(re.findall(r'<select id="map-([a-z_]+)" name="map_[a-z_]+">.*?<option value="([^"]*)" selected', page, re.S))
+        # 列の対応付けは、お客様の取り込みと同じ部品（import_parts.mapping）の表の形
+        mapping = {f: v for f, v in re.findall(r'<select name="map_([a-z_]+)"[^>]*>(?:(?!</select>).)*?<option value="([^"]*)" selected', page, re.S)}
         return key_url, mapping
 
     def _entries(self, client=None):

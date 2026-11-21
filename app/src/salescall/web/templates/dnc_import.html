@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% from "parts.html" import flash, csrf, stat, file_pick %}
+{% from "parts.html" import flash %}
+{% import "import_parts.html" as imp with context %}
 {% block title %}発信禁止の一覧の取り込み{% endblock %}
 {% set crumbs = [("発信禁止", "/c/" ~ client.client_id ~ "/dnc")] if client else [(words.page("dnc"), "/t/dnc")] %}
 {% block crumb %}一覧を取り込む{% endblock %}
@@ -9,64 +10,24 @@
 {% set base = back ~ "/import" %}
 {% set place = ("依頼者「" ~ client.name ~ "」の発信禁止") if client else ("「" ~ ctx.tenant_name ~ "」の共通の発信禁止（すべての依頼者に効く）") %}
 <h1>「かけないで」の一覧を取り込む</h1>
-<ol class="steps">
-  <li {% if stage == "upload" %}aria-current="step"{% endif %}>ファイルを選ぶ</li>
-  <li {% if stage == "map" %}aria-current="step"{% endif %}>列を確かめる</li>
-  <li {% if stage == "preview" %}aria-current="step"{% endif %}>行ごとの結果を確かめて登録</li>
-</ol>
+{{ imp.steps(stage, base, key) }}
 {{ flash(done, ok) }}
 {% if error %}<div class="flash ng" role="alert">{{ error }}</div>{% endif %}
 
 {% if stage == "upload" %}
-<form class="card import-card" method="post" action="{{ base }}" enctype="multipart/form-data">
-  {{ csrf(token) }}
-  {{ file_pick("依頼者から受け取った一覧（Excel か CSV）", "10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。") }}
-  <details class="more">
-    <summary>シートや文字の決まりを指定する（ふつうは要りません）</summary>
-    <label class="field" for="sheet-name">シートの名前（Excel で最初のシート以外を使うとき）</label>
-    <input id="sheet-name" type="text" name="sheet_name">
-    <label class="field" for="encoding">CSV の文字の決まり（読めなかったときだけ選ぶ）</label>
-    <select id="encoding" name="encoding"><option value="">自動で見分ける</option>{% for e, label in encodings %}<option value="{{ e }}">{{ label }}</option>{% endfor %}</select>
-  </details>
-  <div class="actions"><button class="btn main" type="submit">次へ（列を確かめる）</button></div>
-</form>
+{{ imp.upload(base, "依頼者から受け取った一覧（Excel か CSV）", encodings, token) }}
 <p class="muted" style="margin-top:12px">{% if client %}一覧のお客様は、断ったお客様と同じく、その番号か管理番号を持つ行のお客様ごと止めます（依頼者をまたいでは止めません）。{% else %}この契約者のすべての依頼者で、一覧の番号へはかけません（番号だけで止めます）。{% endif %}</p>
 
 {% elif stage == "map" %}
-<form class="card" method="post" action="{{ base }}/{{ key }}/preview">
-  {{ csrf(token) }}
-  <p class="muted">ファイル：{{ file_name }}。どの列がどの欄かを選んでください（見出しから案を入れています）。{% if client %}番号か管理番号の、どちらかがあれば止められます。{% endif %}</p>
-  {% for f in fields %}
-  <label class="field" for="map-{{ f }}">{{ words.DNC_IMPORT_FIELD_WORDS[f] }}</label>
-  <select id="map-{{ f }}" name="map_{{ f }}"><option value="">（使わない）</option>{% for h in sheet.header if h %}<option value="{{ h }}" {% if mapping.get(f) == h %}selected{% endif %}>{{ h }}</option>{% endfor %}</select>
-  {% endfor %}
-  {% if sample %}
-  <h3 style="margin-top:16px">ファイルの最初の行</h3>
-  <div class="table-scroll"><table class="list"><thead><tr>{% for h in sheet.header %}<th>{{ h }}</th>{% endfor %}</tr></thead>
-    <tbody>{% for r in sample %}<tr>{% for c in r.cells %}<td>{{ c.text or "" }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
-  {% endif %}
-  <div class="actions" style="margin-top:12px"><a class="btn" href="{{ back }}">やめる</a><button class="btn main" type="submit">行ごとの結果を出す（まだ登録しません）</button></div>
-</form>
+<p class="lead">ファイル：{{ file_name }}。どの列がどの欄かを選んでください（見出しから案を入れています）。{% if client %}番号か管理番号の、どちらかがあれば止められます。{% endif %}</p>
+{% set ns = namespace(items=[]) %}{% for f in fields %}{% set ns.items = ns.items + [(f, words.DNC_IMPORT_FIELD_WORDS[f])] %}{% endfor %}
+{{ imp.mapping(base, key, ns.items, sheet, mapping, sample, token, back) }}
 
 {% elif stage == "preview" %}
 <p class="lead">ファイル：{{ file_name }}。まだ何も登録していません。</p>
-<div class="grid cols-3 stats">
-  <div class="card">{{ stat("かけない番号に加える行", counts.registered) }}<span class="muted">番号 {{ counts.numbers }}件{% if client %}・管理番号 {{ counts.client_refs }}件{% endif %}</span></div>
-  <div class="card">{{ stat("もう入っている行", counts.already) }}</div>
-  <div class="card">{{ stat("加えられない行", counts.stopped, words.tone("waiting")) }}</div>
-</div>
-{% if stopped %}
-<h2>加えられない行（理由）</h2>
-<div class="table-scroll"><table class="list"><thead><tr><th class="num">行</th><th class="wide">理由</th></tr></thead>
-  <tbody>{% for r in stopped %}<tr><td class="num">{{ r.row_no }}</td><td class="wide">{{ r.reason }}</td></tr>{% endfor %}</tbody></table></div>
-<p class="muted">この行は加えません。ファイルを直して、もう一度取り込めます。</p>
-{% endif %}
-<form method="post" action="{{ base }}/{{ key }}/register" style="margin-top:20px">
-  {{ csrf(token) }}
-  <div class="actions">
-    <a class="btn" href="{{ back }}">やめる（何も登録しない）</a>
-    <button class="btn danger" type="submit" {% if not counts.registered %}disabled{% endif %}>{{ place }}に {{ counts.registered }}行を登録する</button>
-  </div>
-</form>
+{{ imp.counts([("かけない番号に加える行", counts.registered, "", "番号 " ~ counts.numbers ~ "件" ~ (("・管理番号 " ~ counts.client_refs ~ "件") if client else "")),
+                ("もう入っている行", counts.already, "", ""), ("加えられない行", counts.stopped, words.tone("waiting"), "")]) }}
+{{ imp.stopped_rows("加えられない行", stopped) }}
+{{ imp.register(base, key, place ~ "に " ~ counts.registered ~ "行を登録する", counts.registered, token, back) }}
 {% endif %}
 {% endblock %}

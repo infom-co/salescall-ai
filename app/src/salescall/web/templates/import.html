@@ -1,24 +1,14 @@
 {% extends "base.html" %}
-{% from "parts.html" import flash, csrf, file_pick %}
+{% from "parts.html" import flash %}
+{% import "import_parts.html" as imp with context %}
 {% set active = "client" %}
 {% block title %}お客様の取り込み{% endblock %}
 {% block crumb %}取り込み{% endblock %}
 {% block main %}
-{% set base = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
+{% set ibase = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id ~ "/import" %}
 <h1>お客様を取り込む</h1>
-<ol class="steps"><li aria-current="step">ファイルを選ぶ</li><li>列を確かめる</li><li>行ごとの結果を確かめて登録</li></ol>
+{{ imp.steps("upload", ibase) }}
 {{ flash(done, ok) }}
-<form class="card import-card" method="post" action="{{ base }}/import" enctype="multipart/form-data">
-  {{ csrf(token) }}
-  {{ file_pick("取り込むファイル（Excel か CSV）", "10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。") }}
-  <details class="more">
-    <summary>シートや文字の決まりを指定する（ふつうは要りません）</summary>
-    <label class="field" for="sheet-name">シートの名前（Excel で最初のシート以外を使うとき）</label>
-    <input id="sheet-name" type="text" name="sheet_name" placeholder="例：お客様一覧">
-    <label class="field" for="encoding">CSV の文字の決まり（読めなかったときだけ選ぶ）</label>
-    <select id="encoding" name="encoding"><option value="">自動で見分ける</option>{% for e, label in encodings %}<option value="{{ e }}">{{ label }}</option>{% endfor %}</select>
-  </details>
-  <div class="actions"><button class="btn main" type="submit">次へ（列を確かめる）</button></div>
-</form>
-<p class="muted" style="margin-top:12px">同じお客様リストに何度取り込んでも、同じお客様が2行になることはありません（管理番号・番号で見分けます）。止めた行は、理由を見せてから登録します。</p>
+{{ imp.upload(ibase, "取り込むファイル（Excel か CSV）", encodings, token) }}
+<p class="muted" style="margin-top:12px">同じお客様リストに何度取り込んでも、同じお客様が2人になることはありません（管理番号・番号で見分けます）。登録できない行は、理由を見せてから登録します。</p>
 {% endblock %}

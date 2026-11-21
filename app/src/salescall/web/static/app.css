@@ -325,6 +325,8 @@ ol.steps li::before { content: counter(step); display: inline-grid; place-items:
   background: var(--line); color: var(--text); font-size: 12px; }
 ol.steps li[aria-current="step"] { background: var(--primary-soft); color: var(--primary); }
 ol.steps li[aria-current="step"]::before { background: var(--primary); color: var(--primary-ink); }
+ol.steps li.done a { color: inherit; }   /* 済んだ手順は押すと戻れる（取り込みの部品 import_parts.steps。ページごとの「← 戻る」の代わり） */
+ol.steps li.done::before { content: "✓"; background: var(--ok-soft); color: var(--ok); }
 .drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 20px; border: 2px dashed var(--line);
   border-radius: var(--radius); text-align: center; cursor: pointer; background: var(--surface-2); }
 .drop:hover, .drop:focus-within { border-color: var(--primary); background: var(--primary-soft); }

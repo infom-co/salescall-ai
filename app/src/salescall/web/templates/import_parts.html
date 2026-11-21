@@ -1,0 +1,88 @@
+{#- 取り込みの3つの手順の部品（お客様の取り込みと、発信禁止の一覧の取り込みが同じ部品を使う。違うのは言葉と行き先だけ）。
+    2026-11-20 の見直し：同じ流れのひな形が2通りあり、列の選び方・数の並び・最後のボタンの色がそろっていなかった。
+    行き先の形はどちらも同じ：ibase（ファイルを選ぶ）・ibase/{key}（列を確かめる）・ibase/{key}/preview（結果を出す）・ibase/{key}/register（登録）。
+    行ごとの結果と、登録してよいかは core の1か所（お客様＝importer、発信禁止＝dnc_import）。ここは並べるだけ -#}
+{% from "parts.html" import csrf, stat, file_pick %}
+
+{#- 手順の印。済んだ手順は押すと戻れる（ページごとの「← 戻る」は書かない＝戻り方の決まり。列を確かめる手順へ戻るのは、ファイルを受け取ったあとだけ） -#}
+{% macro steps(stage, ibase, key="") -%}
+{% set order = ["upload", "map", "preview"] %}
+{% set names = {"upload": "ファイルを選ぶ", "map": "列を確かめる", "preview": "行ごとの結果を確かめて登録"} %}
+{% set links = {"upload": ibase, "map": (ibase ~ "/" ~ key) if key else ""} %}
+<ol class="steps">{% for s in order %}
+  {% if s == stage %}<li aria-current="step">{{ names[s] }}</li>
+  {% elif order.index(s) < order.index(stage) and links.get(s) %}<li class="done"><a href="{{ links[s] }}">{{ names[s] }}</a></li>
+  {% else %}<li>{{ names[s] }}</li>{% endif %}
+{% endfor %}</ol>
+{%- endmacro %}
+
+{#- 1つ目：ファイルを選ぶ -#}
+{% macro upload(ibase, label, encodings, token) -%}
+<form class="card import-card" method="post" action="{{ ibase }}" enctype="multipart/form-data">
+  {{ csrf(token) }}
+  {{ file_pick(label, "10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。") }}
+  <details class="more">
+    <summary>シートや文字の決まりを指定する（ふつうは要りません）</summary>
+    <label class="field" for="sheet-name">シートの名前（Excel で最初のシート以外を使うとき）</label>
+    <input id="sheet-name" type="text" name="sheet_name" placeholder="例：お客様一覧">
+    <label class="field" for="encoding">CSV の文字の決まり（読めなかったときだけ選ぶ）</label>
+    <select id="encoding" name="encoding"><option value="">自動で見分ける</option>{% for e, label in encodings %}<option value="{{ e }}">{{ label }}</option>{% endfor %}</select>
+  </details>
+  <div class="actions"><button class="btn main" type="submit">次へ（列を確かめる）</button></div>
+</form>
+{%- endmacro %}
+
+{#- 2つ目：欄ごとに、ファイルのどの列を使うか（見出しから案を入れてある）。選んだ列のはじめの行の値を横に出し、その場で合っているかを見られる。
+    fields＝[(欄の名前, 画面の言葉)] -#}
+{% macro mapping(ibase, key, fields, sheet, mapping, sample, token, cancel) -%}
+<form method="post" action="{{ ibase }}/{{ key }}/preview">
+  {{ csrf(token) }}
+  <div class="card">
+    <div class="table-scroll"><table class="list map">
+      <thead><tr><th>欄</th><th>ファイルの列</th><th class="wide">はじめの行の値</th></tr></thead>
+      <tbody>
+      {% for f, label in fields %}
+        {% set chosen = mapping.get(f, "") %}
+        <tr class="{{ 'on' if chosen }}">
+          <td class="nowrap"><b>{{ label }}</b></td>
+          <td><select name="map_{{ f }}" aria-label="{{ label }}の列"><option value="">使わない</option>
+            {% for h in sheet.header if h %}<option value="{{ h }}" {% if h == chosen %}selected{% endif %}>{{ h }}</option>{% endfor %}</select></td>
+          <td class="wide muted">{% if chosen and chosen in sheet.header %}{% set i = sheet.header.index(chosen) %}{% for r in sample %}{{ r.cell(i).text or "（空）" }}{% if not loop.last %} ／ {% endif %}{% endfor %}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+  <div class="actions" style="margin-top:16px"><a class="btn" href="{{ cancel }}">やめる</a><button class="btn main" type="submit">次へ（行ごとの結果を見る。まだ登録しません）</button></div>
+</form>
+{%- endmacro %}
+
+{#- 3つ目：行ごとの結果の数。cards＝[(言葉, 数, 色の役割, 添える言葉)]。並びはどちらも「加える・もう入っている・加えられない・空」 -#}
+{% macro counts(cards) -%}
+<div class="grid cols-4 stats">
+  {% for label, n, tone, note in cards %}<div class="card">{{ stat(label, n, tone) }}{% if note %}<span class="muted">{{ note }}</span>{% endif %}</div>{% endfor %}
+</div>
+{%- endmacro %}
+
+{#- 加えられない行と理由（行の番号は取り込んだファイルの行。name＝その行の会社名などがあれば） -#}
+{% macro stopped_rows(title, stopped, names={}) -%}
+{% if stopped %}
+<h2>{{ title }}と理由</h2>
+<div class="table-scroll"><table class="list">
+  <thead><tr><th class="num">ファイルの行</th><th class="wide">理由</th>{% if names or stopped|selectattr("name")|list %}<th class="wide">会社名</th>{% endif %}</tr></thead>
+  <tbody>{% for r in stopped %}<tr><td class="num">{{ r.row_no }}</td><td class="wide">{{ r.reason }}</td>{% if names or stopped|selectattr("name")|list %}<td class="wide">{{ r.name or names.get(r.row_no, "") }}</td>{% endif %}</tr>{% endfor %}</tbody>
+</table></div>
+<p class="muted">この行は登録しません。ファイルを直して、もう一度取り込めます（もう入っている行は2つになりません）。</p>
+{% endif %}
+{%- endmacro %}
+
+{#- 登録する（取り消せない操作なので、どこへ何行かを名前つきで見せてから＝計画書 5-1。押せる・押せないは core の数で決まる） -#}
+{% macro register(ibase, key, label, enabled, token, cancel) -%}
+<form method="post" action="{{ ibase }}/{{ key }}/register" style="margin-top:20px">
+  {{ csrf(token) }}
+  <div class="actions">
+    <a class="btn" href="{{ cancel }}">やめる（何も登録しない）</a>
+    <button class="btn main" type="submit" {% if not enabled %}disabled{% endif %}>{{ label }}</button>
+  </div>
+</form>
+{%- endmacro %}

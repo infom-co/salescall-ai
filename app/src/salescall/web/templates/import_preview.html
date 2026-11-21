@@ -1,26 +1,23 @@
 {% extends "base.html" %}
-{% from "parts.html" import csrf, tag, stat %}
+{% from "parts.html" import csrf %}
+{% import "import_parts.html" as imp with context %}
 {% set active = "client" %}
 {% block title %}行ごとの結果{% endblock %}
 {% block crumb %}取り込み{% endblock %}
 {% block main %}
 {% set base = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
-<p><a href="{{ base }}/import/{{ key }}">← 列を確かめ直す</a></p>
+{% set ibase = base ~ "/import" %}
 <h1>行ごとの結果を確かめて登録</h1>
-<ol class="steps"><li>ファイルを選ぶ</li><li>列を確かめる</li><li aria-current="step">行ごとの結果を確かめて登録</li></ol>
+{{ imp.steps("preview", ibase, key) }}
 <p class="lead">「{{ file_name }}」をお客様リスト「{{ run.name }}」に取り込みます。まだ何も登録していません。</p>
-<div class="grid cols-4 stats">
-  <div class="card">{{ stat("登録する行", counts.registered) }}</div>
-  <div class="card {{ 'attention-stop' if counts.stopped }}">{{ stat("登録できない行", counts.stopped, words.tone("waiting")) }}</div>
-  <div class="card">{{ stat("登録済みの行", counts.already) }}</div>
-  <div class="card">{{ stat("空の行", counts.empty) }}</div>
-</div>
+{{ imp.counts([("登録する行", counts.registered, "", ""), ("もう入っている行", counts.already, "", ""),
+                ("登録できない行", counts.stopped, words.tone("waiting"), ""), ("空の行", counts.empty, "", "")]) }}
 {% if plan.to_confirm %}
-<form class="card" method="post" action="{{ base }}/import/{{ key }}/preview" style="margin-top:16px">
+<form class="card" method="post" action="{{ ibase }}/{{ key }}/preview" style="margin-top:16px">
   {{ csrf(token) }}
   <h2>名前の読みを確かめてください（検証モードの業務）</h2>
   <p class="muted">AI が決めた読みです。違っていれば直してから「読みを確かめた」を押してください。</p>
-  <div class="table-scroll"><table class="list"><thead><tr><th>名前</th><th>読み</th><th class="wide">行</th></tr></thead><tbody>
+  <div class="table-scroll"><table class="list"><thead><tr><th>名前</th><th>読み</th><th class="wide">ファイルの行</th></tr></thead><tbody>
   {% for c in plan.to_confirm %}
     <tr><td><input type="hidden" name="name_{{ loop.index }}" value="{{ c.text }}">{{ c.text }}</td>
         <td><input type="text" name="reading_{{ loop.index }}" value="{{ c.reading }}" aria-label="{{ c.text }}の読み"></td>
@@ -30,19 +27,7 @@
   <div class="actions"><button class="btn" type="submit">読みを確かめた（もう一度結果を出す）</button></div>
 </form>
 {% endif %}
-{% if stopped %}
-<h2>登録できない行と理由</h2>
-<div class="table-scroll"><table class="list">
-  <thead><tr><th class="num">行</th><th>理由</th><th class="wide">会社名</th></tr></thead>
-  <tbody>{% for r in stopped %}<tr><td class="num">{{ r.row_no }}</td><td>{{ r.reason }}</td><td class="wide">{{ r.name or row_names.get(r.row_no, "") }}</td></tr>{% endfor %}</tbody>
-</table></div>
-<p class="muted">この行は登録しません。ファイルを直して、もう一度取り込めます（登録済みの行は2つになりません）。</p>
-{% endif %}
-<form method="post" action="{{ base }}/import/{{ key }}/register" style="margin-top:20px">
-  {{ csrf(token) }}
-  <div class="actions">
-    <a class="btn" href="{{ base }}">やめる（何も登録しない）</a>
-    <button class="btn main" type="submit" {% if not counts.registered and not counts.already %}disabled{% endif %}>依頼者「{{ client.name }}」・業務「{{ business.name }}」のお客様リスト「{{ run.name }}」に {{ counts.registered }}行を登録する</button>
-  </div>
-</form>
+{{ imp.stopped_rows("登録できない行", stopped, row_names) }}
+{{ imp.register(ibase, key, "依頼者「" ~ client.name ~ "」・業務「" ~ business.name ~ "」のお客様リスト「" ~ run.name ~ "」に " ~ counts.registered ~ "行を登録する",
+                counts.registered or counts.already, token, base) }}
 {% endblock %}

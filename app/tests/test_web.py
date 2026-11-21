@@ -722,7 +722,7 @@ class Web(_World):
         （取り込みの手順の中で1つ前の手順へ戻るリンクは別）。"""
         import pathlib
         tpl = pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/templates")
-        backs = [f.name for f in tpl.glob("*.html") if f.name not in ("import_map.html", "import_preview.html") and re.search(r">\s*← ", f.read_text(encoding="utf-8"))]
+        backs = [f.name for f in tpl.glob("*.html") if re.search(r">\s*← ", f.read_text(encoding="utf-8"))]
         self.assertEqual(backs, [])
         page = self.get("A", "/t/dnc/import").text
         self.assertIn('<nav class="crumbs" aria-label="いまいる所">', page)
