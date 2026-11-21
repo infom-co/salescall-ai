@@ -47,7 +47,6 @@ h3 { font-size: 13px; margin: 0 0 8px; font-weight: 700; color: var(--muted); le
 .tenant { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .spacer { flex: 1; }
 .badges { display: flex; gap: 8px; }
-.pill .short { display: none; }   /* 狭い幅でだけ出す短い名前（下の @media） */
 .pill { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; font-weight: 600;
         font-size: 13px; border: 1px solid transparent; white-space: nowrap; }
 .pill.stop { background: var(--stop-soft); color: var(--stop); border-color: color-mix(in srgb, var(--stop) 30%, transparent); }
@@ -203,7 +202,7 @@ table.list td.num, table.list th.num { text-align: right; white-space: nowrap; }
 .btn.small { min-height: 30px; padding: 4px 12px; font-size: 13px; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 
-textarea, select, input[type="text"], input[type="search"] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit;
+textarea, select, input[type="text"], input[type="search"], input[type="date"], input[type="number"] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit;
                                         background: var(--surface); color: var(--text); }
 textarea { min-height: 72px; resize: vertical; }
 label.field { display: block; font-weight: 600; margin-bottom: 6px; }
@@ -286,10 +285,12 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   .tabrow.businesses { padding-left: 6px; }
   .finder .panel { position: fixed; top: 100px; left: 8px; right: 8px; width: auto; }
   .brand { font-size: 13px; }
-  .pill { padding: 0 10px; }
-  .pill .long { display: none; }
-  .pill .short { display: inline; }
-  .top { gap: 8px; padding: 0 10px; }
+  /* 狭い幅の上の帯：「緊急停止」がいつも見えて、横にはみ出さない（2026-11-21：中身の幅の合計が画面より広く、ページ全体が横にはみ出していた）。
+     札は同じ呼び方のまま点を外して詰め、さらに狭い幅ではメニューのボタンを「≡」だけにする（読み上げの名前は残る） */
+  .pill { padding: 0 7px; font-size: 12px; gap: 0; height: 28px; }
+  .pill .dot { display: none; }
+  .top { gap: 6px; padding: 0 8px; }
+  .top .menu-toggle { padding: 4px 8px; }
 }
 .question label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 /* 飛び先（#…）は、上に留まる帯とタブの下に出す（どの飛び先も同じ1か所。前は「直す」の札だけにあった） */
@@ -598,4 +599,5 @@ ul.done-steps li { margin: 4px 0; }
 ul.done-steps span { color: var(--ok); margin-right: 4px; }
 /* 設定の段（契約者 › 依頼者 › 業務） */
 .setting-levels { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; }
+@media (max-width: 380px) { .top .menu-toggle .menu-word { display: none; } }
 
