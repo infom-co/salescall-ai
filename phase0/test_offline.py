@@ -44477,6 +44477,85 @@ class AskRowsTest(unittest.TestCase):
             self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), acts, text)
 
 
+class HeldAskChoicesTest(unittest.TestCase):
+    """分身 AD の (1)：日時の2択の途中で伺い直した一言（「〇時まで」の理由の確かめ＝Flow._ask_until・お給料日を伺う一言＝Flow._ask_payday）を待つ間に判定へ見せる選べるものと、
+    束 ab1（rv186/AB/readers）で答えを伏せた読み手 A・B が2人とも挙げた説明の文の穴（帳面 0-3「判定（AI）への文も、初めて読む人がそのまま分かる言葉で書く」・(a)「境目の決まりは1か所
+    だけに書く」）。⛔ 02d9ec8e まで、(a) 答えの説明が「答えた：「答えた」と答えた」「どちらも合わない：「どちらも合わない」と答えた」（名前のくり返し。はい・いいえの確かめには
+    「どちら」も無い）(b)「こちらがそう確かめた問いに、そうだと答えた」が「それまでは出られる（それ以降は難しい）」の説明にだけあった (c)「わからない」の「あとで確かめる」が、
+    聞かれたことの答えでない確かめ（「3時までに社内で確認しておくので」）を引き寄せえた (d) 月単位の理由が、伺った日のお答え（「毎月25日です。」）にも頃の頼み（「給料日のあとで」）にも
+    境目が無かった（正しい読みでもお給料日を伺わない読みがあった＝分身 AB の (6-1)）"""
+
+    @staticmethod
+    def judged(scene):
+        import g53_meaning as G
+        from meaning_judge import prompt
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        it = next(i for i in answer_words() if i.get("scene") == scene)
+        q, asked, before = G.judge_inputs(it, qmap[it["qid"]])
+        return q, prompt(q, it["text"], asked, before)
+
+    def test_held_asks_show_the_answer_by_meaning(self):
+        # 2択を伺っていないので「どちらも合わない」は出さない（受け取りの until_held・payday_held は、その名前を受けない）・「答えた」は意味で書く（held_ask_desc の1か所）
+        from flowctl import LADDER_NEITHER, VALUE_CHOICE, held_ask_desc, ladder_sides
+        from review_words import PAYDAY_ASK_SCENE, UNTIL_ASK_SCENE, UNTIL_LEAN_SCENE
+        for scene, kind in ((UNTIL_ASK_SCENE, "until"), (UNTIL_LEAN_SCENE, "until"), (PAYDAY_ASK_SCENE, "payday")):
+            q, p = self.judged(scene)
+            self.assertEqual(q.held_ask, kind, scene)
+            self.assertNotIn(LADDER_NEITHER, q.conditions, scene)
+            self.assertEqual(ladder_sides(q), (), scene)
+            self.assertIn(f"- {VALUE_CHOICE}：{held_ask_desc(kind)}\n", p, scene)
+            self.assertNotIn(f"「{VALUE_CHOICE}」と答えた", p, scene)
+            self.assertNotIn(f"- {LADDER_NEITHER}：", p, scene)
+
+    def test_the_question_comes_back_after_the_reply(self):
+        # お返事を受けたら、伺う前の質問（印なし・2択の選べるものあり）に戻る（_payday_take・_until_take の1か所）
+        import g53_meaning as G
+        from flowctl import LADDER_NEITHER
+        from review_words import questions
+        q = questions()["C1"]
+        f = G._payday_ask_scene(q)
+        G._scene_say(f, "どうでしょうねえ。", G._scene_read("unknown"), "record_answer", question_id=q.id, condition_id="unknown")
+        self.assertIsNone(f.items[q.id].payday_held)
+        self.assertEqual(f.questions[q.id].held_ask, "")
+        self.assertIn(LADDER_NEITHER, f.questions[q.id].conditions)
+
+    def test_the_confirmed_reason_is_written_once(self):
+        # 「こちらが確かめた問いへのお返事」の決まりは「〇時まで」の理由の説明の1か所だけ（どの理由でも当たる・打ち消しただけなら理由は言っていない）
+        from flowctl import UNTIL_LABEL, UNTIL_WHY_NOT_SAID, until_choices
+        from review_words import questions
+        c = until_choices(False, questions()["C1"])
+        self.assertEqual([k for k, d in c.items() if "確かめた問い" in d], [UNTIL_WHY_NOT_SAID])
+        self.assertNotIn("確かめた", c[UNTIL_LABEL["available_until"]])
+        self.assertIn("打ち消しただけ", c[UNTIL_WHY_NOT_SAID])
+
+    def test_checking_later_is_unknown_only_for_the_answer(self):
+        from meaning_judge import SYSTEM_DESC
+        self.assertIn("聞かれたことの答えを、あとで確かめる", SYSTEM_DESC["unknown"])
+
+    def test_the_monthly_reason_has_its_borders(self):
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID, cycle_choices
+        from review_words import questions
+        c = cycle_choices(False, questions()["C1"])
+        self.assertIn("目安にした頃", c[CYCLE_LABEL["month"]])
+        self.assertIn("伺った日", c[CYCLE_NOT_SAID])
+
+    def test_the_truths_and_the_acts(self):
+        # 正解を言葉と説明の文から当て直した行（帳面 0-3 の (2)）と、その読みで決まる動き（伺い99 ア：判定の組がそろって月単位の理由を読んだ答えがお給料日を伺う入口）
+        import g53_meaning as G
+        from flowctl import CYCLE, CYCLE_LABEL, CYCLE_NOT_SAID, VALUE_CHOICE
+        from review_words import LADDER_SCENE, PAYDAY_ASK_SCENE, answer_words, questions
+        q = questions()["C1"]
+        rows = {(i.get("scene"), i["text"]): i for i in answer_words()}
+        it = rows[(LADDER_SCENE, "給料日のあとでお願いします。")]
+        self.assertEqual(it["label"]["accept"], [VALUE_CHOICE])
+        self.assertEqual(it["label"][CYCLE], [CYCLE_LABEL["month"]])
+        self.assertEqual(G.flow_wants(it, q), {f"{G.PAYDAY_ACT}〔理由：{CYCLE_LABEL['month']}〕"})
+        for text in ("25日です。", "毎月25日です。", "うちは月末なんですよ。"):
+            self.assertEqual(rows[(PAYDAY_ASK_SCENE, text)]["label"][CYCLE], [CYCLE_NOT_SAID], text)
+        self.assertEqual(rows[(PAYDAY_ASK_SCENE, "月によって違うんですよ。")]["label"]["accept"], ["unknown"])
+
+
 class PaydayAskTest(unittest.TestCase):
     """伺い99 ア（✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」）：曜日の2択への「給料日のあとでお願いします。」には「承知しました。
     恐れ入りますがお給料日は何日になりますでしょうか？」と伺い（共通の一言の録音）、おっしゃった日のあとを頃として、その頃の中の空いている予定から2択（会話AIの声）。もう過ぎて
@@ -49532,7 +49611,8 @@ class ReaderAgreedRowsTest(unittest.TestCase):
 
     # 「〇時まで」の4行は、分身 U の (1) で説明の文に区切りの時刻の見分けを足して「答えた」に当て直した＝見張りは LadderBoundaryAnsweredTest の1か所（ここには写さない）
     ROWS = {
-        "給料日のあとでお願いします。": ({"答えた", "決められない"}, {"片方だけ合わないとは言っていない"}),
+        # 分身 AD の (1-d)：説明の文に境目を書いて、答えたに当て直した（HeldAskChoicesTest）
+        "給料日のあとでお願いします。": ({"答えた"}, {"片方だけ合わないとは言っていない"}),
     }
 
     def rows(self):
@@ -49555,9 +49635,10 @@ class ReaderAgreedRowsTest(unittest.TestCase):
         from review_words import questions
         from flowctl import CYCLE_LABEL
         q = questions()["C1"]
-        # 「給料日のあとでお願いします。」：答えた・月単位の理由の読み＝お給料日を伺う（伺い99 ア＝分身 AB の (2)。⛔ 21263a4a まで、どの正しい読みでも聞き直す）・ほかの正しい読み＝聞き直す
+        # 「給料日のあとでお願いします。」：答えた・月単位の理由の読み＝お給料日を伺う（伺い99 ア＝分身 AB の (2)。⛔ 21263a4a まで、どの正しい読みでも聞き直す）。⛔ 02d9ec8e まで、
+        # ほかの正しい読み（決められない・月単位の理由は言っていない）＝聞き直すも入っていた（分身 AB の (6-1)＝分身 AD の (1-d) で説明の文を直して当て直した）
         want = {
-            "給料日のあとでお願いします。": {G.ASK_AGAIN, f"{G.PAYDAY_ACT}〔理由：{CYCLE_LABEL['month']}〕"},
+            "給料日のあとでお願いします。": {f"{G.PAYDAY_ACT}〔理由：{CYCLE_LABEL['month']}〕"},
         }
         for text, it, _ in self.rows():
             self.assertEqual(G.flow_wants(it, q), want[text], text)
