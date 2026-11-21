@@ -7,12 +7,13 @@
 <div class="title-row"><div class="titles"><h1>お客様リスト：{{ run.name }}</h1>
   <p class="lead">お客様ごとの、いまの状態と結果です。会社名を押すと、そのお客様の画面を開きます。</p></div>
   <span class="btn-row">
-    {{ rename(rbase ~ "/name", "お客様リスト", run.name, token) }}
     <a class="btn main" href="{{ rbase }}/import">お客様を取り込む</a>
     {#- 依頼者へ渡すものの書き出しの入口は「依頼者へ渡す結果」の画面の1か所（ここからは移るだけ）。記録のすべて（基本の形＝設計書 7-3-5b）は
         依頼者へ渡さない手元の控えなので、依頼者へ渡す画面に混ぜず、ここに置く（名前に「手元の控え」と書く） -#}
     {{ go(rbase ~ "/results", words.LIST_GO_WORDS.results) }}
     <a class="btn" href="{{ rbase }}/records.xlsx" download>{{ words.EXPORT_WORDS.records }}</a>
+    {#- たまにしかしない「名前を直す」は、見出しの横のボタンのいちばん後ろ（どの画面も同じ並び） -#}
+    {{ rename(rbase ~ "/name", "お客様リスト", run.name, token) }}
   </span></div>
 {{ flash(done, ok) }}
 {% if more %}
