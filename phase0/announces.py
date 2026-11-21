@@ -44,7 +44,8 @@ flowctl.at_hand の1か所）。「ご確認ください。」の文は、お知
   （import_ai.decide_matters の受け口＝(説明, 質問の文, お知らせの文)）。⛔ bcdf81a4 まで、句の問いの例が「…ご連絡いただく決まりになっている」で、説明が
   「決まりになっております」だけの業務では決まりとして言わない句（「…必要がある」）を作れなかった（「必要」が説明に無い）。
   良い点と気をつけていただくことの2つの文のお知らせの句は、気をつけていただく文の中身だけから作り、「それ以降」は良い点の文の期限の言葉で「（期限）を過ぎた」と
-  言う（BACK・PAST・確かめは clause_fits の1か所＝「前日以降」は通さない）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めて
+  言う（BACK・PAST・確かめは clause_fits の1か所＝「前日以降」は通さない。句に求める数と期限の言葉は、気をつけていただく文と、それが指す良い点の文の期限だけ＝
+  良い点の文にだけある「無料」などは求めない）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めて
   ください」＝伺い96 ア「…前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる件のお返事の…」。⛔ それまで、2つの文の中身を全部持つ句（一言が112字）
 """
 from __future__ import annotations
@@ -229,7 +230,8 @@ MATTER_PROMPT = (
     "- matter に「の件」は入れません。説明と質問の文の中に無い言葉・言い換えた言葉は書きません。中身を短い言葉で表せなければ空にします。\n"
     f"- matter も clause も、{KEEP_ITEMS}。\n"
     "- clause には、頭の「（何々）の内容ですが」のような前置きと「件」を入れません。数・金額・日にち・期限・回数は、お客様が聞いた文にあるものを全部、書いてある"
-    f"とおりに入れます（2つの文のときの「{BACK}」は、上のとおり期限の言葉で言います）。説明と質問の文にも、お客様が聞いた文にも無い言葉・事実は足しません"
+    "とおりに入れます（2つの文のときは、気をつけていただくことの文にあるものと、その文が指す良い点の文の期限の言葉です。"
+    f"「{BACK}」は、上のとおり期限の言葉で言います）。説明と質問の文にも、お客様が聞いた文にも無い言葉・事実は足しません"
     f"（足すのは、2つの文のときの「{PAST}」だけです）。「、」「。」「？」は入れません。1つの句にできなければ空にします。\n"
     f"- clause も、{NO_BRACKETS}。\n"
     "質問（番号：説明／質問の文／お客様が聞いた文）：\n"
@@ -306,21 +308,27 @@ def clause_fits(intro: str, text: str, clause: str | None, announce: str = "") -
     良い点と気をつけていただくことの2つの文のお知らせで、気をつけていただく文（caution の1か所）が良い点の文の期限を「それ以降」（BACK）で指すときは、句はその
     期限を「（期限）を過ぎた」（PAST）で1回だけ言う（伺い96 ア）：「を過ぎた」のすぐ前の言葉が、良い点の文で「（その言葉）まで」と言った期限であること・
     数と期限の言葉と出どころの確かめ（from_source の1か所）は、句の「を過ぎた」を「それ以降」を言ったものとして数える（「を過ぎた」の「過」は足してよい言葉。
-    「前日以降」は「を過ぎた」が無いので通さない＝前日も入ってしまい、説明と違う。2つの文の中身を全部持つ句も「を過ぎた」が無いので通さない）。ほかの形の
-    お知らせ（1つの文・良い点だけ・お知らせの文が無い）は今のまま。"""
+    「前日以降」は「を過ぎた」が無いので通さない＝前日も入ってしまい、説明と違う。2つの文の中身を全部持つ句も「を過ぎた」が無いので通さない）。句に求める（落とさない）
+    数と期限の言葉は、気をつけていただく文と、良い点の文の「（期限）まで」の期限の言葉（「の」でつないだ言葉も＝「前日の18時」）だけ（伺い96 ア「確かめの句は気を
+    つけていただくことの文だけから作る」＝良い点の文にだけある数や「無料」は求めない。足すのは今までどおり出どころ全部で止める）。ほかの形のお知らせ（1つの文・
+    良い点だけ・お知らせの文が無い）は今のまま。⛔ L18 の (1) まで、2つの文の句にも出どころの数と期限の言葉を全部求め、良い点の文にだけ「無料」がある業務は名詞の形"""
     from askitems import spoken_noun_fits
 
     # 名詞の形・常体・かっこを使わない（声で言う句＝spoken_noun_fits の1か所。かっこは ✅ 2026-11-16 日本時間12時48分22秒「・伺い33：…」）
     if not spoken_noun_fits(clause) or not clause.endswith(CLAUSE_ENDS):
         return False
     source = "\n".join((intro, text, heard(intro, text, announce)))   # お知らせの文が無いとき heard は入る一言＋質問の文（重なりは確かめに効かない）
+    keep = source
     if BACK in caution(announce):
         head, past, rest = clause.partition(PAST)
         deadline = _DEADLINE.search(head)
-        if not past or PAST in rest or deadline is None or f"{deadline.group()}まで" not in announce.split("。")[0]:
+        # 良い点の文の「（期限）まで」の期限の言葉（「の」でつないだ言葉も＝「前日の18時まで」の「前日」）
+        until = deadline and re.search(rf"(?:{_ITEM}の)*{re.escape(deadline.group())}まで", announce.split("。")[0])
+        if not past or PAST in rest or not until:
             return False
         clause = f"{head}・{BACK}・{rest}"   # 「・」は言葉のまとまりの切れ目（_WORDS に入らない）
-    return from_source(source, clause) and keeps_items(source, clause)
+        keep = caution(announce) + until.group()   # 求める数と期限の言葉は、気をつけていただく文と、それが指す良い点の文の期限だけ（伺い96 ア）
+    return from_source(source, clause, keep) and keeps_items(source, clause)
 
 
 def caution(announce: str) -> str:
@@ -331,10 +339,12 @@ def caution(announce: str) -> str:
     return announce.split("。")[1] + "。"
 
 
-def from_source(source: str, words: str) -> bool:
+def from_source(source: str, words: str, keep: str | None = None) -> bool:
     """取込で作った言葉 words が、言葉の出どころ source から作ったものか（唯一の決まり＝お知らせの中身の句 clause_fits・その後の文の中身 since.fits）：出どころの数と
-    期限の言葉を落とさない・出どころに無い数と期限の言葉を足さない（keeps_facts の1か所を両向きに）・出どころに無い言葉（漢字・カタカナ・英字のまとまり）を足さない。"""
-    return keeps_facts(source, words) and keeps_facts(words, source) and all(w in source for w in _WORDS.findall(words))
+    期限の言葉を落とさない・出どころに無い数と期限の言葉を足さない（keeps_facts の1か所を両向きに）・出どころに無い言葉（漢字・カタカナ・英字のまとまり）を足さない。
+    keep＝落とさない側に当てる文（無ければ source。2つの文のお知らせの句は、気をつけていただく文と、それが指す良い点の文の期限＝clause_fits）。"""
+    return (keeps_facts(source if keep is None else keep, words) and keeps_facts(words, source)
+            and all(w in source for w in _WORDS.findall(words)))
 
 
 def _decided(model_words: list[str | None], fits) -> str | None:

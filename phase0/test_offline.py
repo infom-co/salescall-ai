@@ -30103,6 +30103,85 @@ class MatterItemsTest(unittest.TestCase):
         self.assertEqual(accepted_line(q)[1], "それではキャンセルや変更の件はご了承ということでよろしかったでしょうか？")
 
 
+class CautionClauseFactsTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L18 の (1)（分身 AA の書き置きの (6-1)）：良い点と気をつけていただくことの2つの文のお知らせの句に求める数と期限の言葉は、気をつけて
+    いただく文と、それが「それ以降」で指す良い点の文の期限（「（期限）まで」の言葉）だけ（伺い96 ア「確かめの句は気をつけていただくことの文だけから作る」＝✅ 2026-11-21
+    日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」）。良い点の文にだけある数や「無料」は求めない。出どころに無い数・期限の言葉・言葉を
+    足すのは今までどおり止める。確かめは1か所（announces.clause_fits が announces.from_source を呼ぶ所）。1つの文・良い点だけ・お知らせの文が無いときは今のまま。
+    ⛔ それまで、出どころの数と期限の言葉を全部求めたので、良い点の文にだけ「無料」がある業務では気をつけていただく文だけの句が通らず、名詞の形（「キャンセルや変更の
+    件のお返事の…」）になった"""
+    EXPL = "キャンセルや変更は前日までのご連絡でしたら無料となっております。それ以降のご連絡ですとキャンセル料や変更料がかかる決まりになっております。"
+    ASK = UnheardCautionClauseTest.ASK
+    LINE = "キャンセルや変更は前日までにご連絡いただければ無料です。それ以降になってしまいますとキャンセル料や変更料がかかってしまうのでお気を付けください。"
+    CLAUSE = "前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる"
+    USER = ("ありがとうございます。申し訳ございません、前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる件のお返事のお声が聞き取れなかったのですがご了承と"
+            "いうことでよろしかったでしょうか？")   # 伺い96 アの一言と同じ文
+
+    def test_the_caution_clause_needs_only_the_caution_facts_and_the_deadline(self):
+        import announces
+        self.assertTrue(announces.fits(self.EXPL, self.ASK, self.LINE))   # お知らせの文は今の取込の形の確かめを通る（良い点の文に「無料」）
+        self.assertTrue(announces.clause_fits(self.EXPL, self.ASK, self.CLAUSE, self.LINE))
+        # 良い点の文にだけある数も求めない（「1回目」）・期限は良い点の文の「（期限）まで」の言葉（「3日前」）
+        expl = "ご予約の変更は3日前までのご連絡でしたら1回目は無料となっております。それ以降のご連絡ですと変更料がかかる決まりになっております。"
+        line = "ご予約の変更は3日前までにご連絡いただければ1回目は無料です。それ以降になってしまいますと変更料がかかってしまうのでお気を付けください。"
+        self.assertTrue(announces.fits(expl, self.ASK, line))
+        self.assertTrue(announces.clause_fits(expl, self.ASK, "3日前を過ぎたご予約の変更は変更料がかかる", line))
+        # 足すのは今までどおり止める・期限と気をつけていただく文の料金は落とさない
+        bad = {"前日を過ぎたキャンセルや変更はキャンセル料や変更料が2倍かかる": "出どころに無い数",
+               "前日を過ぎたキャンセルや変更は翌日までにキャンセル料や変更料がかかる": "出どころに無い期限の言葉（翌日）",
+               "前日を過ぎたキャンセルや変更は手数料がかかる": "出どころに無い言葉（手数料）",
+               "キャンセルや変更はキャンセル料や変更料がかかる": "期限を落とした（前日）",
+               "前日以降のキャンセルや変更はキャンセル料や変更料がかかる": "「前日以降」＝前日も入ってしまい、説明と違う",
+               "前日を過ぎたキャンセルや変更はキャンセル料がかかる": "気をつけていただく文の並べた事柄の一部だけ（keeps_items）"}
+        for clause, why in bad.items():
+            self.assertFalse(announces.clause_fits(self.EXPL, self.ASK, clause, self.LINE), why)
+        # 期限は「（期限）まで」の言葉を全部（「前日の18時まで」なら「前日」も＝「18時を過ぎた」は通さない。今までと同じ）
+        expl = "キャンセルは前日の18時までのご連絡でしたら無料となっております。それ以降のご連絡ですとキャンセル料がかかる決まりになっております。"
+        line = "キャンセルは前日の18時までにご連絡いただければ無料です。それ以降になってしまいますとキャンセル料がかかってしまうのでお気を付けください。"
+        self.assertTrue(announces.fits(expl, self.ASK, line))
+        self.assertTrue(announces.clause_fits(expl, self.ASK, "前日の18時を過ぎたキャンセルはキャンセル料がかかる", line))
+        for clause in ("18時を過ぎたキャンセルはキャンセル料がかかる", "前日を過ぎたキャンセルはキャンセル料がかかる"):
+            self.assertFalse(announces.clause_fits(expl, self.ASK, clause, line), clause)
+
+    def test_other_announcements_still_need_every_fact(self):
+        # 1つの文・良い点だけ・お知らせの文が無いときは今のまま（出どころの数と期限の言葉を全部）
+        import announces
+        one = "キャンセルは前日までにご連絡いただければ無料ですがそれ以降はキャンセル料がかかりますのでご了承ください。"
+        self.assertTrue(announces.fits(one, self.ASK, one))
+        self.assertTrue(announces.clause_fits(one, self.ASK, "キャンセルは前日までにご連絡いただければ無料だがそれ以降はキャンセル料がかかる", one))
+        self.assertFalse(announces.clause_fits(one, self.ASK, "キャンセルは前日までにご連絡いただかないとキャンセル料がかかる", one))   # 無料・以降を落とした
+        benefit = "キャンセルは前日までにご連絡いただければ無料です。"
+        self.assertTrue(announces.clause_fits(benefit, self.ASK, "キャンセルは前日までにご連絡いただければ無料となる", benefit))
+        self.assertFalse(announces.clause_fits(benefit, self.ASK, "キャンセルは前日までにご連絡いただける", benefit))   # 無料を落とした
+
+    def test_the_import_takes_the_caution_clause_and_the_line_is_the_users(self):
+        # 取込（import_ai.decide_matters の1か所）：2つの文字のAIがそろって気をつけていただく文だけの句を答えれば、その句。文を組むのは flowctl.accepted_line の1か所
+        import json
+        from types import SimpleNamespace
+        import import_ai
+        from flowctl import Question, accepted_line
+        from phrases import ACK
+
+        def gemini(got):
+            class Models:
+                def generate_content(self, model, contents, config):
+                    return SimpleNamespace(text=json.dumps({"items": got}))
+            return SimpleNamespace(models=Models())
+
+        got = [{"no": 1, "matter": "キャンセルや変更", "clause": self.CLAUSE}]
+        self.assertEqual(import_ai.decide_matters([(gemini(got), "m1"), (gemini(got), "m2")], [(self.EXPL, self.ASK, self.LINE)]),
+                         [("キャンセルや変更", self.CLAUSE)])
+        q = Question("Q2", self.ASK, "yes_no", conditions=("はい", "いいえ"), approval=True, intro=self.EXPL, announce=self.LINE, matter="キャンセルや変更",
+                     matter_clause=self.CLAUSE)
+        self.assertEqual(ACK["arigatou"] + ACK["moushiwake_heavy"] + accepted_line(q, heard=False)[1], self.USER)
+        self.assertEqual(self.USER, UnheardCautionClauseTest.USER)
+
+    def test_the_import_ask_names_the_facts_of_the_caution_clause(self):
+        # 取込の問い合わせ（announces.MATTER_PROMPT）も同じ決まり：2つの文の句に入れる数と期限の言葉は、気をつけていただく文にあるものと、それが指す良い点の文の期限
+        import announces
+        self.assertIn("2つの文のときは、気をつけていただくことの文にあるものと、その文が指す良い点の文の期限の言葉です", announces.MATTER_PROMPT)
+
+
 class ImportFormsReviewTest(unittest.TestCase):
     """見直し (12) の組 Q（取込で決めた文・録音の一覧）：C-1 事実を伺う質問に選択肢を並べた文を作らない・C-2／C-3 {最短の日} を声に出す文のすべてで1か所で
     置き換え、流す録音の名前と録音の表の名前を同じ1つから作る・C-4 取込の中身の判定で同じことを伺っているかを読む・C-5 形の確かめの1か所・C-6 先に並べた文は
