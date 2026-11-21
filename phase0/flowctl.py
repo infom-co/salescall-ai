@@ -21,7 +21,7 @@ import functools
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
+from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, PAYDAY_FORM, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_ALSO_IDS, APOLOGY_ALSO_TEXTS, APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
 from phrases import LISTED_ASK, LISTED_DIALED_ID, UNTIL_ASK, UNTIL_LEAN_ASK, brief_sorry_text, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
@@ -665,7 +665,8 @@ def held_ask_desc(kind: str) -> str:
         # 確かめる言葉が「わからない」の「あとで確かめる」へ引かれうる・聞かれたことの答えが何を指すかが読み取りにくいと書いた（束 ad1 の #4）。分身 AF の (1-b)。CL-1 が決まりで決めた
         return (f"こちらが確かめたこと（お客様がその時刻までと言ったわけ）に答えた（そうだ・違う、と答えたのも、そのわけを言ったのも、時刻や日を言い直したのも。その時刻までに何かを"
                 f"確かめる・用意する、と言ったのも、そのわけを言ったことになり、聞かれたことの答えをあとで確かめる、ではない。どのわけかは、{UNTIL_WHY_HEADING}で選びます）")
-    return (f"伺ったお給料日の日や頃を言った（毎月のその日、と言ったのも。日や頃を言わずに、決まった日は無い・その時々で変わる、とだけ言ったのは「{SYSTEM_LABEL['unknown']}」）")
+    # 伺った日の名前（お給料日・締め日など＝payday_name）によらない文（質問の文に名前がある。分身 AF の (2)。⛔ a3b200cf まで「伺ったお給料日の」＝ほかの日の名前で伺ったときに食い違う）
+    return (f"質問で伺った日を、日や頃で言った（毎月のその日、と言ったのも。日や頃を言わずに、決まった日は無い・その時々で変わる、とだけ言ったのは「{SYSTEM_LABEL['unknown']}」）")
 
 
 def held_ask_unread(q) -> tuple:
@@ -717,7 +718,9 @@ _LADDER_MONTHS = {"今月": 0, "来月": 1, "再来月": 2}
 # その日のあと（「25日のあと」「月末のあと」）の頃：その日の次の日から、その月の終わりの日まで（その日がもう過ぎていれば次の月のその日から。月に無い日はその月の終わりの日）。
 # お客様のおっしゃった日（伺い99 アの「お給料日」＝Flow._payday_take）も、お客様ご自身の「25日のあとで」も、この1か所（ladder_span）。✅ 2026-11-21 日本時間14時59分44秒
 # ユーザー「伺い96〜101：すべてアでOK、進めてください」（伺い99 ア「おっしゃった日のあとを頃として…もう過ぎていれば次の月のその日のあとから・頃の読みは「来月の頭」などと同じ1か所」）
-_LADDER_AFTER = re.compile(r"(?:(?P<d>\d{1,2})日|(?P<end>月末|末日))の?(?:あと|後)")
+# その日のあとの頃を言う言葉（「25日のあと」の「のあと」・「給料日後」の「後」）。頃を読む _LADDER_AFTER と、お給料日を伺う一言の日の名前 payday_name が同じ言葉で読む（分身 AF の (2)）
+_AFTER_TAIL = r"の?(?:あと|後)"
+_LADDER_AFTER = re.compile(r"(?:(?P<d>\d{1,2})日|(?P<end>月末|末日))" + _AFTER_TAIL)
 _LADDER_SPAN = re.compile(r"(?:(?P<mrel>今月|来月|再来月)|(?P<mon>\d{1,2})月)(?:の?(?P<part>" + "|".join(sorted(LADDER_PARTS, key=len, reverse=True))
                           + r")|(?:中|いっぱい)?(?!\d|の\d{1,2}日))|(?<!週)(?<!年)(?P<own>"
                           + "|".join(sorted((p for p in LADDER_PARTS if p not in LADDER_PARTS_MONTHLESS), key=len, reverse=True)) + ")")
@@ -853,6 +856,19 @@ def payday_after_words(value: str | None) -> str | None:
     if (m := re.search(r"(?<!\d)(\d{1,2})日", t)) and 1 <= int(m.group(1)) <= 31:
         return f"{int(m.group(1))}日のあと"
     return "月末のあと" if re.search("月末|末日", t) else None
+
+
+def payday_name(value: str | None) -> str | None:
+    """お給料日を伺う一言（Flow._ask_payday）で伺う日の名前（唯一の作り。伺う文は phrases.PAYDAY_FORM）：お客様がおっしゃった頃の値の文字（会話AIの報告の値＝「締め日のあと」）から、
+    そのあとの頃を言う言葉（_AFTER_TAIL＝頃を読む _LADDER_AFTER と同じ）を外した日の名前（「締め日」「支払日」＝「日」で終わる名前）。伺い直しの値の文字の受け方（until_ask_line＝値の文字から
+    終わりの言葉を外す）と同じ形。録音の一言の名前（phrases.PAYDAY_NAME＝お給料日。頭の「お」を外して同じ）・日の名前が読めない（あとの頃の言葉が無い・「日」で終わらない＝「入金のあと」）
+    なら None（録音の一言のまま）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」（伺い99 ア）を、9-3（お客様の言った言葉で伺う）・10-19
+    「同じ理由が当たる場面すべてに当てる」で、ほかの日の名前にも当てた＝分身 AF の (2)（分身 AB の書き置き rv186/AB/notes.md の (6-2)）。CL-1 が決まりで決めた"""
+    from phrases import PAYDAY_NAME
+    m = re.fullmatch(r"(?P<name>.+?日)" + _AFTER_TAIL, re.sub(r"\s", "", value or ""))
+    if m is None or m.group("name").removeprefix("お") == PAYDAY_NAME.removeprefix("お"):
+        return None
+    return m.group("name")
 
 
 def _ladder_pair_days(text: str, pair: tuple) -> tuple:
@@ -18094,7 +18110,11 @@ class Flow:
         it, q = self.items[qid], self.questions[qid]
         it.payday_asked, it.payday_held = True, (value, q)
         it.set(it.state, f"日時の2択：月単位の理由で、こちらで日の分からない頃（{value}）＝その日を伺う")
-        self.questions[qid] = held_ask_question(q, "payday", text=TIME_LADDER["payday"], recording=TIME_LADDER_IDS["payday"], voiced=False, plain=None)
+        # お客様がほかの日の名前でおっしゃった（「締め日のあと」）なら、同じ形の文をその名前で会話AIの声で（名前は payday_name の1か所・文の形は phrases.PAYDAY_FORM。分身 AF の (2)）
+        if (name := payday_name(value)) is None:
+            self.questions[qid] = held_ask_question(q, "payday", text=TIME_LADDER["payday"], recording=TIME_LADDER_IDS["payday"], voiced=False, plain=None)
+        else:
+            self.questions[qid] = held_ask_question(q, "payday", text=PAYDAY_FORM.format(name=name), recording="", voiced=True, plain=None)
         return self._ladder_ask(qid) | {"payday": True}   # 印 payday＝その日を伺った（測りの数えの名前 g53_meaning._flow_base）
 
     def _payday_take(self, qid: str, value: str | None) -> dict:

@@ -44622,6 +44622,49 @@ class AFHeldBordersTest(unittest.TestCase):
         self.assertGreater(outs(G._until_ask_scene, "unknown", "record_answer"), 1)
 
 
+
+class AFPaydayNameTest(unittest.TestCase):
+    """分身 AF の (2)（分身 AB の書き置き rv186/AB/notes.md の (6-2)）：お給料日を伺う一言（Flow._ask_payday＝伺い99 ア）は、入口を言葉の形で分けない（判定の組がそろって月単位の理由を
+    読んだ答えで、日の言葉に読めない値）ので、お客様がほかの日の名前でおっしゃった頃（「締め日のあとでお願いします。」）にも伺う。その日の名前で伺う（9-3 お客様の言った言葉で伺う・
+    10-19「同じ理由が当たる場面すべてに当てる」）：名前は値の文字から、そのあとの頃を言う言葉（「の」「あと」「後」＝_LADDER_AFTER と同じ）を外した日の名前（flowctl.payday_name の1か所＝
+    伺い直しの値の文字の受け方 until_ask_line と同じ形）。録音の一言「恐れ入りますがお給料日は何日になりますでしょうか？」はお言葉の文のまま（名前が同じ＝頭の「お」を外して同じ・日の名前が
+    読めない）・名前が違うときだけ同じ形の文を会話AIの声で。⛔ a3b200cf まで「締め日のあとで」にも「お給料日は何日」と伺った"""
+
+    @staticmethod
+    def ask(words, value):
+        from flowctl import CYCLE_LABEL
+        t = PaydayAskTest()
+        d, f = t.at_days()
+        month = CYCLE_LABEL["month"]
+        return d, f, PaydayAskTest.said(f, words, value, (month, month))
+
+    def test_another_day_name_is_asked_by_that_name(self):
+        from flowctl import CALLBACK_IDS
+        d, f, r = self.ask("締め日のあとでお願いします。", "締め日のあと")
+        ask = "恐れ入りますが締め日は何日になりますでしょうか？"
+        self.assertEqual((r["result"], r.get("ack"), d.heard(r)), ("ask_back", "shouchi", "承知しました。" + ask))
+        self.assertEqual([p["kind"] for p in r["play"]], ["said"])   # 名前の入る文＝会話AIの声
+        q = f.questions[CALLBACK_IDS["time"]]
+        self.assertEqual((q.text, q.held_ask, q.recording, q.voiced), (ask, "payday", "", True))
+        r = d.answer(f, "20日です。", "20日")
+        # 20日のあとの頃の2択（伺い99 アと同じ1か所＝payday_after_words・ladder_span。11-19（木曜日）の電話＝21日からの電話をかけられる日の 24日・25日＝1〜6日先は曜日だけ）
+        self.assertEqual((r["result"], d.asked(r)), ("ask_back", d.pair("火曜日", "水曜日")))
+
+    def test_the_payday_name_is_the_recording(self):
+        from phrases import PAYDAY_ASK_ID
+        for words, value in (("給料日のあとでお願いします。", "給料日のあと"), ("お給料日のあとでお願いします。", "お給料日のあと"), ("給料日後でお願いします。", "給料日後")):
+            d, f, r = self.ask(words, value)
+            self.assertEqual([(p["kind"], p.get("id")) for p in r["play"]], [("recorded", PAYDAY_ASK_ID)], words)
+
+    def test_the_name_and_the_line_are_made_in_one_place(self):
+        from flowctl import held_ask_desc, payday_name
+        from phrases import PAYDAY_FORM, PAYDAY_NAME, TIME_LADDER
+        self.assertEqual(TIME_LADDER["payday"], PAYDAY_FORM.format(name=PAYDAY_NAME))
+        self.assertEqual([payday_name(v) for v in ("締め日のあと", "締め日の後", "支払日後", "給料日のあと", "お給料日のあと", "入金のあと", None, "")],
+                         ["締め日", "締め日", "支払日", None, None, None, None, None])
+        # 判定に見せる「答えた」の説明は、伺った日の名前によらない
+        self.assertNotIn(PAYDAY_NAME, held_ask_desc("payday"))
+
 class PaydayAskTest(unittest.TestCase):
     """伺い99 ア（✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」）：曜日の2択への「給料日のあとでお願いします。」には「承知しました。
     恐れ入りますがお給料日は何日になりますでしょうか？」と伺い（共通の一言の録音）、おっしゃった日のあとを頃として、その頃の中の空いている予定から2択（会話AIの声）。もう過ぎて

@@ -819,6 +819,9 @@ def of_matter(noun: str) -> str:
 # 平日と土日・土日の受け・午前と午後は共通の一言の録音（名前は TIME_LADDER_IDS）。曜日・時刻の入る2択（pair）は値の入る文＝言い直し（confirm）と同じく会話AIの声
 # （flowctl.question_play の voiced）。段を決めるのは flowctl.ladder_step の1か所・質問の文を置き換えるのは flowctl.Flow._ladder_set の1か所。
 # ⛔ 894b082f まで、答えの段のかけ直しは「いつ頃おかけ直しさせていただきましょうか？」（11-06 日本時間0時44分31秒・録音 callback_later_time_answering）
+# お給料日を伺う一言の形（{name}＝伺う日の名前）と、録音の一言の名前（お言葉の文＝伺い99 ア）。伺うのは flowctl.Flow._ask_payday の1か所・名前は flowctl.payday_name の1か所。お客様が
+# ほかの日の名前（「締め日のあとで」）でおっしゃったら、同じ形の文をその名前で会話AIの声で（9-3 お客様の言った言葉で伺う・10-19「同じ理由が当たる場面すべてに当てる」）。分身 AF の (2)
+PAYDAY_FORM, PAYDAY_NAME = "恐れ入りますが{name}は何日になりますでしょうか？", "お給料日"
 TIME_LADDER = {"kind": "それでは平日と土日のどちらがよろしいでしょうか？",
                # 土日の受け：お言葉の文「はい、承知致しました。土日にあらためてご連絡させていただきますね。」の頭の「はい、」は相づちの録音（ACK の hai）で流し、
                # 続きをこの録音にする（録音の文には読点を入れない＝10-15。flowctl.Flow._ack_choice が土日の受けの頭に hai を選ぶ）
@@ -832,7 +835,7 @@ TIME_LADDER = {"kind": "それでは平日と土日のどちらがよろしい�
                # 日時の2択に、月単位の理由で、こちらで日の分からない頃（「給料日のあとでお願いします。」）を言われたときに、その日を伺う一言（頭の「承知しました。」は相づちの
                # 録音。値の入らない決まった文＝共通の一言の録音。伺うのは flowctl.Flow._ask_payday の1か所）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアで
                # OK、進めてください」（伺い99 アの「承知しました。恐れ入りますがお給料日は何日になりますでしょうか？」）。決まった言い方なので読点は入れない（10-15）
-               "payday": "恐れ入りますがお給料日は何日になりますでしょうか？"}
+               "payday": PAYDAY_FORM.format(name=PAYDAY_NAME)}
 TIME_LADDER_IDS = {"kind": "callback_time_kind", "weekend": "time_weekend", "half": "callback_time_half", "payday": "time_payday"}
 PAYDAY_ASK, PAYDAY_ASK_ID = TIME_LADDER["payday"], TIME_LADDER_IDS["payday"]
 # 依頼者のお客様に日時を選んでいただく質問（伺い62）を2択で伺い始めるときの、2択の頭に入れる聞くこと（flowctl.ladder_opening の1か所）：業務の質問の聞くこと（Question.topic
