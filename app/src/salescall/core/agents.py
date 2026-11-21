@@ -33,6 +33,8 @@ from salescall.core import notify, settings
 from salescall.core.access import Access, Actor, Tx
 from salescall.link.basics import PcPass
 
+UNUSABLE = ("スマホと電話のアプリ（Rakuten Link）のつながりが切れています。その回線では電話をかけていません。スマホの電源・電話のアプリのログイン・"
+            "PC とスマホの連携を確かめてください")
 DOWN = "PC（電話をつなぐ部品）からの動いている合図が途切れました。その PC の回線では電話をかけていません。PC の電源・ネット・PC の部品が動いているかを確かめてください"
 
 
@@ -199,3 +201,29 @@ def watch_down(tx: Tx, *, alive: frozenset[UUID] = frozenset(), listening_for: f
                        refs={"pc_id": pc["pc_id"], "pc": pc["label"], "since": pc["since"]}, admin=True, contractor=True):
             down.append(pc["pc_id"])
     return down
+
+
+def watch_lines(tx: Tx, *, alive: frozenset[UUID] = frozenset(), listening_for: float | None = None) -> list[UUID]:
+    """取引の契約者の使っている回線のうち、PC の合図に入らない（電話の部品が「使えない」と答えた・どの PC もつないでいない）まま、PC の途切れと同じ長さ
+    （設定 pc.down_after）たったものを、その契約者へ知らせる（1回の外れに1回）。知らせた回線を返す。判断はこの1か所（CL-3 の連絡帳 4-1 のお願い 62 の (2)・0276）：
+    - 動いている PC が1台も無ければ知らせない（PC の途切れ＝`watch_down` が知らせる。同じことを2つ知らせない）。動いている＝いまつないでいる（alive）か、
+      合図が途切れの長さより新しい
+    - 外れた時刻＝その回線が合図に入っていたいちばん新しい時刻（line_seen）。一度も入っていなければ、いちばん前に払い出した PC の時刻
+    - listening_for は `watch_down` と同じ（つなぎ口を立ち上げた直後は知らせない）
+    回線のせいの数え（テスト番号・回線の一時中止）には入れない（PC の側でつながっていないだけ＝電話網の回線が悪いのではない）。"""
+    after = timedelta(seconds=int(settings.system_value(tx, "pc.down_after")))
+    if listening_for is not None and listening_for < after.total_seconds():
+        return []
+    out = []
+    for ln in tx.all(
+            "WITH pcs AS (SELECT * FROM salescall.pc_agents WHERE revoked_at IS NULL)"
+            " SELECT l.line_id, l.name, coalesce(s.seen_at, (SELECT min(issued_at) FROM pcs)) AS since FROM salescall.lines l"
+            " LEFT JOIN salescall.line_seen s ON s.line_id = l.line_id"
+            " WHERE l.retired_at IS NULL AND NOT EXISTS (SELECT 1 FROM pcs p WHERE l.line_id = ANY (p.lines))"
+            "   AND EXISTS (SELECT 1 FROM pcs p WHERE p.pc_id = ANY (%s::uuid[]) OR coalesce(p.last_seen_at, p.issued_at) >= now() - %s)"
+            "   AND coalesce(s.seen_at, (SELECT min(issued_at) FROM pcs)) < now() - %s ORDER BY l.line_id",
+            (list(alive), after, after)):
+        if notify.emit(tx, "line_unusable", key=f"line_unusable:{ln['line_id']}:{ln['since'].isoformat()}", summary=UNUSABLE,
+                       refs={"line_id": ln["line_id"], "line": ln["name"], "since": ln["since"]}, contractor=True):
+            out.append(ln["line_id"])
+    return out

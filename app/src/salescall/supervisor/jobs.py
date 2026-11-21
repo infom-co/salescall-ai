@@ -301,9 +301,11 @@ def whole_backup(ctx: Context) -> None:
 
 
 def pc_watch(ctx: Context) -> None:
-    """その契約者の PC（PC の部品）からの合図が途切れたら、その契約者と管理者へ知らせる（DESIGN.md 5-5。止めない）。"""
+    """その契約者の PC（PC の部品）からの合図が途切れたら、その契約者と管理者へ知らせる（DESIGN.md 5-5。止めない）。回線（スマホと電話のアプリ）が使えないまま
+    合図に入らなければ、その契約者へ知らせる（agents.watch_lines。CL-3 のお願い 62）。"""
     alive, listening_for = ctx.links.connected()
-    ctx.access.in_tenant(ACTOR, ctx.tenant_id, lambda tx: agents.watch_down(tx, alive=alive, listening_for=listening_for))
+    ctx.access.in_tenant(ACTOR, ctx.tenant_id, lambda tx: (agents.watch_down(tx, alive=alive, listening_for=listening_for),
+                                                           agents.watch_lines(tx, alive=alive, listening_for=listening_for)))
 
 
 # 仕事の表（1か所）。なぜその間隔か：

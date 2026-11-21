@@ -776,14 +776,15 @@ class Shapes(unittest.TestCase):
             "callback": [{"turn": 4, "said": "携帯にお願いします", "why": "other_number", "time": None,
                           "number": "ゼロキュウゼロのゼロゼロゼロゼロのゼロゼロゼロイチ", "person": None}],
             "end": [{"turn": 5, "said": "急いでるので", "reason": "callee_hurry"}]}})
-        self.assertEqual((r.parties, r.do_not_call, r.complaint, r.out_of_scope, r.hurried, r.end_reason),
-                         (("reception", "target"), False, False, False, True, "callee_hurry"))
+        self.assertEqual((r.parties, r.do_not_call, r.complaint, r.out_of_scope, r.end_reason),
+                         (("reception", "target"), False, False, False, "callee_hurry"))
         self.assertEqual((r.callback.reason, r.callback.number_e164), ("other_number", "+819000000001"))
-        self.assertFalse(from_json({**r.to_json(), "facts": {"end": [{"turn": 5, "said": "", "reason": "done"}]}}).hurried)
+        self.assertEqual(from_json({**r.to_json(), "facts": {"end": [{"turn": 5, "said": "", "reason": "wrong_party"}]}}).end_reason, "wrong_party")
+        self.assertFalse(hasattr(r, "hurried"))   # 急いでいる締めかの写しは持たない（締めのあと切ってよい秒は会話の側の1か所。CL-1 の連絡帳 4-230 の (4)）
         asked = from_json({**r.to_json(), "facts": {"ai_question": [{"turn": 3, "said": "これ機械ですか？"},
                                                                      {"turn": 6, "said": "AIなの？"}],
                                                      "end": [{"turn": 9, "said": "", "reason": "done"}]}})
-        self.assertEqual((len(asked.ai_questions), asked.end_reason, asked.hurried), (2, "done", False))   # 版 0.5
+        self.assertEqual((len(asked.ai_questions), asked.end_reason), (2, "done"))   # 版 0.5
         self.assertEqual(from_json(asked.to_json()), asked)
         with self.assertRaises(ReportInvalid):                     # 「AIですか」では終えない（2026-10-19 夜 ユーザー。CL-1 が外した）
             from_json({**r.to_json(), "facts": {"end": [{"turn": 6, "said": "AIなの？", "reason": "ai_question"}]}})

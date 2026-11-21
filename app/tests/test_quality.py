@@ -312,6 +312,57 @@ class BusinessMetrics(Base):
         later = self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=until + timedelta(minutes=5)))
         self.assertEqual((later["dialed"], later["redial"]["hits"]), (5, 1))   # 留守番電話の行・受付の方だけの行を足したので5本
 
+    def test_the_ai_voice_rates_are_not_counted_until_the_verification_counts_them(self):
+        """会話AIの声の率（黙り・声の途切れ・言葉の抜け・同じ文の2回・英語。CL-1 の連絡帳 4-221）：通話後の検証が数えた通話が範囲に無ければ「まだ数えていない」
+        （None。0 と言わない＝原則10）。数えた通話があれば、見つかったターン÷確かめたターン（確かめたターンが0なら率は出さない）。数えていない通話は、率に入らない。"""
+        from datetime import timedelta
+        from salescall.core import metrics
+        s = self.fresh(stage_cap=5)
+        start = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"]) - timedelta(minutes=1)
+        self.verified_call(s, VerificationSummary(1, 0, 0))                                       # 数えていない通話（検証の部品の前）
+        span = lambda: self.tx(s, lambda tx: metrics.business(tx, s["business"], since=start, until=start + timedelta(hours=1)))["ai_voice"]
+        self.assertEqual(span(), dict.fromkeys(attempts.VOICE_KINDS))
+        voice = {k: (0, 0) for k in attempts.VOICE_KINDS} | {"silent": (10, 1), "cut_off": (8, 2)}
+        self.verified_call(self.second_row(s), VerificationSummary(1, 0, 0, ai_voice=voice))
+        self.verified_call(self.second_row(s), VerificationSummary(1, 0, 0, ai_voice=voice | {"silent": (10, 0)}))
+        got = span()
+        self.assertEqual((got["silent"]["hits"], got["silent"]["total"], got["silent"]["value"]), (1, 20, 0.05))
+        self.assertEqual((got["cut_off"]["hits"], got["cut_off"]["total"]), (4, 16))
+        self.assertEqual((got["wrong_language"]["total"], got["wrong_language"]["value"]), (0, None))   # 確かめたターンが無い：率を出さない
+
+    def test_the_ai_voice_counts_are_checked_and_kept_only_with_a_recorded_check(self):
+        """会話AIの声の数は、種類のすべてを (確かめた数, 見つかった数) で渡す（見つかった数は確かめた数まで）。録音なしで済ませた確かめには持てない。
+        処理を通らずに書いても、データベースが、録音で確かめた検証の結果の無い通話には書かせない（0274）。"""
+        full = {k: (1, 0) for k in attempts.VOICE_KINDS}
+        for bad in ({"silent": (1, 0)}, full | {"silent": (1, 2)}, full | {"silent": (1,)}, full | {"silent": (True, False)}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                VerificationSummary(1, 0, 0, ai_voice=bad)
+        with self.assertRaises(ValueError):
+            VerificationSummary(0, 0, 0, recording_missing=True, ai_voice=full)
+        s = self.fresh(stage_cap=5)
+        aid = self.call(s, verify=None)
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, lambda tx: tx.execute("INSERT INTO salescall.verification_voice (tenant_id, client_id, attempt_id, kind, checked, found)"
+                                             " SELECT tenant_id, client_id, attempt_id, 'silent', 1, 0 FROM salescall.attempts WHERE attempt_id = %s",
+                                             (aid,)))
+        self.assertEqual(e.exception.constraint, "verification_voice_after_summary")
+        self.tx(s, lambda tx: tx.execute("INSERT INTO salescall.verification_summaries (tenant_id, client_id, attempt_id, items_checked, items_disagreed,"
+                                         " forbidden_speech, recording_missing) SELECT tenant_id, client_id, attempt_id, 0, 0, 0, true"
+                                         " FROM salescall.attempts WHERE attempt_id = %s", (aid,)))   # 録音なしで済ませた確かめ
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, lambda tx: tx.execute("INSERT INTO salescall.verification_voice (tenant_id, client_id, attempt_id, kind, checked, found)"
+                                             " SELECT tenant_id, client_id, attempt_id, 'silent', 1, 0 FROM salescall.attempts WHERE attempt_id = %s",
+                                             (aid,)))
+        self.assertEqual(e.exception.constraint, "verification_voice_after_summary")
+        other = self.second_row(s)
+        checked = self.call(other, verify=None)
+        self.tx(other, lambda tx: attempts.record_verification(tx, checked, summary=VerificationSummary(1, 0, 0)))
+        with self.assertRaises(Rejected) as e:                         # 見つかった数は確かめた数まで
+            self.tx(other, lambda tx: tx.execute("INSERT INTO salescall.verification_voice (tenant_id, client_id, attempt_id, kind, checked, found)"
+                                                 " SELECT tenant_id, client_id, attempt_id, 'silent', 1, 2 FROM salescall.attempts WHERE attempt_id = %s",
+                                                 (checked,)))
+        self.assertEqual(e.exception.constraint, "verification_voice_found_within")
+
 
 class Production(Base):
     """本番（検証モードでない業務）の品質の見方：止めない（2026-10-22 ユーザー：「前にも言ったはずで本番は止めない（担当への修正依頼と

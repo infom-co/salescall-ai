@@ -3,7 +3,7 @@
 name = "salescall"
 version = "0.1.0"
 description = "SalesCall AI の本番のコード（設計：Intent.md・docs/DESIGN.md）"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.14,<3.15"   # ✅ 2026-11-20 管理者「Python は 3.14 で作ればいいんじゃないの？」（計画書 14-1。CL-3 の連絡帳 59）
 dependencies = [
     "psycopg[binary]==3.2.10",   # PostgreSQL へつなぐ部品（使ってよいのは読み書きの層だけ。DESIGN.md 11章・I-31）
     "psycopg-pool==3.2.6",       # データベースへのつなぎを共有にする部品（psycopg の公式。使ってよいのは読み書きの層だけ）

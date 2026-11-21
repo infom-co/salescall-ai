@@ -2149,7 +2149,7 @@ class NameLedger(Content):
         from salescall.core import business_settings
         self.assertLessEqual(set(common_phrases.NAME_TAILS), business_settings.RESERVED_IDS)
         self.assertLessEqual({"mobile_owner", "target_role", "target_role_confirm", "target_role_unavailable", "target_role_transfer",
-                              "reception_purpose_role", "Y1", "Y2", "yes", "but", "acquire_special", "meeting_time", "pain1", "case3"},
+                              "reception_purpose_role", "reception_purpose_useful_role", "Y1", "Y2", "yes", "but", "acquire_special", "meeting_time", "pain1", "case3"},
                              business_settings.RESERVED_IDS)
         self.assertNotIn("target_reconfirm", recordings.NAME_TAILS)
         got = self.w.a.in_system(ADMIN, lambda tx: tx.one("SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint"
@@ -2297,7 +2297,7 @@ class NameLedger(Content):
         c = self.ready()
         self.switch_to(c, {"kind": "anyone", "role": None})
         self.assertIsNone(self.tx(c, lambda tx: recordings.name_needs(tx, c["task"])))
-        person = {"call_type": "confirm", "target": {"kind": "個人", "name": "岡田", "reading": "おかだ", "role": "", "full_name": "", "full_reading": "",
+        person = {"call_type": "confirm", "reception_talk": "important", "target": {"kind": "個人", "name": "岡田", "reading": "おかだ", "role": "", "full_name": "", "full_reading": "",
                              "department": ""}}
         with mock.patch.object(recordings.business_settings, "target_of", return_value=person):
             got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
@@ -2317,8 +2317,15 @@ class NameLedger(Content):
         with mock.patch.object(recordings.business_settings, "target_of", side_effect=lambda tx, t: {**real(tx, t), "call_type": "acquire"}):
             got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
         self.assertLessEqual({*recordings.ACQUIRE_TAILS, "reception_purpose"}, set(got.tails))
+        self.assertNotIn("reception_purpose_useful", got.tails)
+        # 受付の方への言葉が「お役に立つお話」の業務は、その続く言葉だけ（「大切なお話」の続く言葉は流さない＝要らない。CL-1 の連絡帳 4-217）
+        with mock.patch.object(recordings.business_settings, "target_of",
+                               side_effect=lambda tx, t: {**real(tx, t), "call_type": "acquire", "reception_talk": "useful"}):
+            useful = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
+        self.assertIn("reception_purpose_useful", useful.tails)
+        self.assertNotIn("reception_purpose", useful.tails)
         plain = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
-        self.assertFalse({*recordings.ACQUIRE_TAILS, "reception_purpose"} & set(plain.tails))
+        self.assertFalse({*recordings.ACQUIRE_TAILS, "reception_purpose", "reception_purpose_useful"} & set(plain.tails))
 
     def test_the_full_name_call_needs_its_parts_only_when_it_adds_something(self):
         """お名前だけではどの方か分からないと言われたときに、部署とフルネームでお呼びし直す一言（会話の側の Target.full_call・
