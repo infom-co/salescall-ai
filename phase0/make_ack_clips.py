@@ -137,7 +137,7 @@ HOW_OF.update({f"callback_{k}_chosen": "question" for k in CALLBACK_ASK_CHOSEN})
 HOW_OF.update({f"callback_{k}_pending": "question" for k in CALLBACK_PENDING})   # 申し出の保留でよいかを伺う一言も質問の読み方（2026-11-09）
 # 日時の2択の段の共通の一言（phrases.TIME_LADDER。✅ 2026-11-19 日本時間14時18分13秒）：平日と土日・午前と午後は質問の読み方・土日の受けはこちらがすることの言い切りと
 # 同じ読み方（CALL_AGAIN_TAKEN と同じ）。⛔ 894b082f まで答えの段のかけ直しの一言 callback_later_time_answering（2026-11-06）
-HOW_OF.update({TIME_LADDER_IDS[k]: "question" for k in ("kind", "half")} | {TIME_LADDER_IDS["weekend"]: "own_fallback"})   # LINE の伺い方を選んでいただいたあとの一言も質問の読み方（2026-11-04 20時27分）
+HOW_OF.update({TIME_LADDER_IDS[k]: "question" for k in ("kind", "half", "payday")} | {TIME_LADDER_IDS["weekend"]: "own_fallback"})   # LINE の伺い方を選んでいただいたあとの一言も質問の読み方（2026-11-04 20時27分）
 # LINE の伺い方で選んでいただいた方法の連絡先が無いときに、ほかの方法を伺う一言と、その伺い直しも質問の読み方（2026-11-05 0時48分。phrases.CALLBACK_ASK_OTHER_WAYS）。
 # ほかの方法を伺う一言は、LINE の伺い方の一言（callback_line_how）と同じく長い質問の上限（1時19分47秒のメールの一言は40字＝見込み 6.5秒）
 HOW_OF.update({f"callback_line_how_without_{k}": "question" for k in CALLBACK_ASK_OTHER_WAYS})
