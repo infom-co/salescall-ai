@@ -128,8 +128,17 @@
     document.addEventListener(k, function (e) {
       var form = stateful(e.target);
       if (!form) return;
-      if (k === "change" && e.target.matches("[data-check-all]")) {
-        form.querySelectorAll("input[name=task_id]").forEach(function (b) { b.checked = e.target.checked; });
+      // 「すべて選ぶ」は、いま見えているお客様だけ（「探す」で絞り込んで隠れた行は選ばない＝隠れたお客様にうっかり印を付けない）。
+      // すべて選ぶの欄が2つ（表の見出し・狭い画面の帯）あっても、同じ1つの状態にそろえる
+      var boxes = Array.prototype.filter.call(form.querySelectorAll("input[name=task_id]"), function (b) { return b.closest("tr").style.display !== "none"; });
+      if (e.target.matches("[data-check-all]")) {
+        if (k === "change") {
+          boxes.forEach(function (b) { b.checked = e.target.checked; });
+          form.querySelectorAll("[data-check-all]").forEach(function (c) { c.checked = e.target.checked; });
+        }
+      } else if (e.target.matches("input[name=task_id]")) {   // お客様の印を押したときだけ、すべて選ぶの印をそろえ直す
+        var all = boxes.length > 0 && boxes.every(function (b) { return b.checked; });
+        form.querySelectorAll("[data-check-all]").forEach(function (c) { c.checked = all; });
       }
       submitState(form);
     });
