@@ -43,8 +43,23 @@ def _ranges(s: str, *, empty_ok: bool) -> list[list[str]]:
     return [_range(x) for x in items]
 
 
+_DAY_START, _DAY_ENDS = "00:00", ("00:00", "24:00")
+
+
+def _span(a: str, b: str) -> str:
+    """時間帯1つを見せる1か所。端の 00:00 は「その日の始まり・終わり」なので、時刻として並べず「〜まで」「〜から」と書く
+    （2026-11-21 の見直し：「午後」の幅が「13:00〜00:00」、「朝」の幅が「00:00〜10:00」と出て読めなかった）。0時〜24時は「いつでも」。"""
+    if a == _DAY_START and b in _DAY_ENDS:
+        return "いつでも（0時〜24時）"
+    if b in _DAY_ENDS:
+        return f"{a}から（その日の終わりまで）"
+    if a == _DAY_START:
+        return f"{b}まで"
+    return f"{a}〜{b}"
+
+
 def _show_ranges(v: Any) -> str:
-    return "、".join(f"{a}〜{b}" for a, b in v) if v else "なし"
+    return "、".join(_span(a, b) for a, b in v) if v else "なし"
 
 
 def _show_weekly(v: Any) -> str:
@@ -172,7 +187,7 @@ FORMS: dict[str, Form] = {
     "integer_list": Form("list", lambda v: "、".join(str(x) for x in v), lambda f, p, d: _ints(str(f.get(f"{p}v") or ""), least=1)),
     "hour_list": Form("list", lambda v: "、".join(f"{x}時" for x in v),
                       lambda f, p, d: _ints(str(f.get(f"{p}v") or ""), least=1, most=23, increasing=True)),
-    "daily_range": Form("range", lambda v: f"{v[0]}〜{v[1]}", lambda f, p, d: _range(str(f.get(f"{p}v") or ""))),
+    "daily_range": Form("range", lambda v: _span(v[0], v[1]), lambda f, p, d: _range(str(f.get(f"{p}v") or ""))),
     "daily_ranges": Form("ranges", _show_ranges, lambda f, p, d: _ranges(str(f.get(f"{p}v") or ""), empty_ok=False)),
     "weekly_hours": Form("weekly", _show_weekly, _weekly),
     "gap_or_never": Form("gap_never", _show_gap, lambda f, p, d: _gap(f, p, "never")),

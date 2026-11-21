@@ -78,6 +78,19 @@
 {% set action = request.url.path %}
 <h1>設定：{{ where }}</h1>
 <p class="lead">ここで決めた値は、{% if level == "system" %}すべての契約者の初めの値になります（契約者・依頼者・業務で決めた値が勝ちます。「システムだけ」の設定は、この値だけを使います）{% elif level == "tenant" %}すべての依頼者・業務の初めの値になります（依頼者・業務で決めた値が勝ちます）{% elif level == "client" %}この依頼者のすべての業務に効きます（業務で決めた値が勝ちます）{% else %}この業務だけに効きます{% endif %}。変えた値と前の値は、記録に残ります。{% if level != "system" %}どこで決めたかを添えていない値は、システムの初めの値のままです。{% endif %}</p>
+{#- 設定の段（どこで決めるか）：契約者 › 依頼者 › 業務の順に並べ、いまの段に印。ほかの段の設定の画面へ移れる（2026-11-21 の見直し：3つの段の
+    画面が題名のほかは同じ形で、どこで決めればよいか・ほかの段へどう移るかの手がかりが無かった）。依頼者の段では、その依頼者の業務を並べる -#}
+{% if level != "system" %}
+<nav class="filters setting-levels" aria-label="設定の段">
+  <span class="muted">決める段：</span>
+  <a class="chip" href="/t/settings" {% if level == "tenant" %}aria-current="true"{% endif %}>契約者（すべての依頼者）</a>
+  {% if client %}<span aria-hidden="true">›</span>
+  <a class="chip" href="/c/{{ client.client_id }}/settings" {% if level == "client" %}aria-current="true"{% endif %}>依頼者「{{ client.name }}」</a>
+  {% if business %}<span aria-hidden="true">›</span><a class="chip" href="/c/{{ client.client_id }}/b/{{ business.business_id }}/settings" aria-current="true">業務「{{ business.name }}」</a>
+  {% elif businesses %}<span aria-hidden="true">›</span>{% for b in businesses %}<a class="chip" href="/c/{{ client.client_id }}/b/{{ b.business_id }}/settings">業務「{{ b.name }}」</a>{% endfor %}{% endif %}
+  {% else %}<span class="muted">依頼者・業務ごとの値は、そのタブの「設定」で決めます（ここで決めた値より先に効きます）。</span>{% endif %}
+</nav>
+{% endif %}
 {{ flash(done, ok) }}
 {#- ここで決めている値の一覧（どれを変えたかを一目で。押すとその行を開く）。システムの段は、どれもこの段の値なので出さない -#}
 {% set mine = rows|selectattr("own")|list %}

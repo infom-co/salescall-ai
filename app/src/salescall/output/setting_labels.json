@@ -33,9 +33,9 @@
  "callback.period_forenoon": "「午前」の幅",
  "callback.period_morning": "「朝」の幅",
  "callback.period_night": "「夜」の幅",
- "callback.until_other_party": "「〇時までに別の番号へ」のかけ方",
- "callback.until_preparing": "「〇時までに確認します」のかけ方",
- "callback.until_unavailable": "「〇時まで出られない」のかけ方",
+ "callback.until_other_party": "「〇時までにこの番号へ」と言われたとき",
+ "callback.until_preparing": "「〇時までに確認します」と言われたとき",
+ "callback.until_unavailable": "「〇時まで出られない」と言われたとき",
  "callback.window_daily_max": "幅の約束で1日にかける回数",
  "callee.business_hours": "お客様の営業時間",
  "callee.designated_limit": "お客様指定の歯止め時間",
@@ -120,5 +120,5 @@
  "login.session_seconds": "ログインが続く長さ",
  "output.customer_words": "お客様の言葉の書き方",
  "business.declined_wait_days": "アポを断られた方へ、もう一度かけるまでの日数",
- "callback.until_available": "「〇時までなら大丈夫」のときのかける時間"
+ "callback.until_available": "「〇時までなら大丈夫」と言われたとき"
 }

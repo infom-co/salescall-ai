@@ -106,7 +106,8 @@ h3 { font-size: 13px; margin: 0 0 8px; font-weight: 700; color: var(--muted); le
         background: var(--surface); color: var(--text); font-weight: 600; white-space: nowrap; }
 .chip b { font-variant-numeric: tabular-nums; color: var(--muted); }
 .chip:hover { text-decoration: none; border-color: var(--primary); }
-.chip[aria-current="true"] { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
+/* 選んでいる札は、薄い藍の地に藍の字（塗りつぶしの藍は主のボタンだけ＝1画面に1つ。2026-11-21 の見直し：選んだ札が主のボタンに見えた） */
+.chip[aria-current="true"] { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); font-weight: 700; }
 .chip[aria-current="true"] b { color: inherit; }
 .filters .pick { margin-left: auto; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .filters select { height: 32px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; padding: 0 8px; max-width: 260px; }
@@ -437,7 +438,7 @@ td.to-fill { background: var(--stop-soft); color: var(--stop); font-weight: 700;
 ul.bars { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
 ul.bars li { display: grid; grid-template-columns: minmax(8em, 14em) 1fr 3.5em; align-items: center; gap: 10px; }
 ul.bars .bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
-ul.bars .bar > span { display: block; height: 100%; border-radius: 999px; background: var(--primary); }
+ul.bars .bar > span { display: block; height: 100%; border-radius: 999px; background: color-mix(in srgb, var(--muted) 55%, transparent); }   /* 棒は灰（藍は押せるもの・選んだものの色） */
 ul.bars .num { text-align: right; font-weight: 700; }
 ul.reasons { list-style: none; margin: 0; padding: 0; }
 ul.reasons li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
@@ -595,4 +596,6 @@ details.setting .now > b { font-weight: 700; }
 ul.done-steps { margin: 6px 0 0; padding-left: 0; list-style: none; color: var(--muted); }
 ul.done-steps li { margin: 4px 0; }
 ul.done-steps span { color: var(--ok); margin-right: 4px; }
+/* 設定の段（契約者 › 依頼者 › 業務） */
+.setting-levels { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; }
 

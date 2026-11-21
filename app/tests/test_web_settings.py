@@ -79,6 +79,12 @@ class Forms(unittest.TestCase):
         week.update(tue=[], sat=day)                                            # 続かない曜日は「・」で、続く3日以上は「〜」で
         self.assertEqual(setting_forms.show("weekly_hours", week), "月・水〜土 09:00〜18:00 ／ 火・日・祝日 なし")
 
+    def test_the_edges_of_a_day_are_read_as_from_and_until(self):   # 「午後」の幅が「13:00〜00:00」と出ていた（2026-11-21 の見直し）
+        self.assertEqual(setting_forms.show("daily_range", ["13:00", "00:00"]), "13:00から（その日の終わりまで）")
+        self.assertEqual(setting_forms.show("daily_range", ["00:00", "10:00"]), "10:00まで")
+        self.assertEqual(setting_forms.show("daily_ranges", [["00:00", "24:00"]]), "いつでも（0時〜24時）")
+        self.assertEqual(setting_forms.show("daily_range", ["16:00", "18:00"]), "16:00〜18:00")
+
     def test_a_phone_number_is_cleared_only_when_asked_and_shown_by_the_last_four(self):
         with self.assertRaises(Refused):
             setting_forms.read("phone", {"f_v": ""}, "f_", {})                 # 空のまま送っても消えない
