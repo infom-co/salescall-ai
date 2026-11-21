@@ -44556,6 +44556,72 @@ class HeldAskChoicesTest(unittest.TestCase):
         self.assertEqual(rows[(PAYDAY_ASK_SCENE, "月によって違うんですよ。")]["label"]["accept"], ["unknown"])
 
 
+
+class AFHeldBordersTest(unittest.TestCase):
+    """分身 AF の (1)：束 ad1（rv187/AD/readers）で答えを伏せた読み手 A・B が2人とも挙げた判定への説明の文の境目（帳面 0-3「判定（AI）への文も、初めて読む人がそのまま分かる言葉で書く」・
+    (a)「境目の決まりは1か所だけに書く」）。(1-a) 確かめた問いへのお返事の決まりは「理由は言っていない」の説明の1か所（判断のモデルにも渡る選べるものの説明＝決まりの文は渡らない）に、
+    言い直しを打ち消す返事の決まりより先に当てることまで書く (1-b)「〇時まで」の理由の確かめの「答えた」に、その時刻までに確かめる・用意するは、わけ（聞かれたことの答えをあとで確かめる、
+    ではない）を書く (1-c) 月単位の理由の「言っていない」の伺った日のお答えは「日や頃」(1-d) お給料日を伺う一言を待つ間は、流れの制御が読まない「わからない・答えたくない理由」を
+    見せない（「〇時まで」の確かめは、わからない・答えたくないなら理由も記録する＝見せる）"""
+
+    def test_the_confirmed_reason_goes_before_the_denial_rule(self):
+        from flowctl import UNTIL_WHY, UNTIL_WHY_NOT_SAID, until_choices
+        from meaning_judge import jev_request
+        from review_words import UNTIL_LEAN_SCENE, questions
+        d = until_choices(False, questions()["C1"])[UNTIL_WHY_NOT_SAID]
+        self.assertIn("言い直しを打ち消す返事の決まりより先に", d)
+        self.assertIn("「決められない」", d)
+        q, p = HeldAskChoicesTest.judged(UNTIL_LEAN_SCENE)
+        self.assertEqual(p.count("言い直しを打ち消す返事の決まりより先に"), 1)
+        # 判断のモデル（決まりの文を渡さない）にも、同じ説明が渡る
+        self.assertIn("言い直しを打ち消す返事の決まりより先に", jev_request("j", q, "いえ、そういうわけではないです。")["questions"][UNTIL_WHY]["criteria"][UNTIL_WHY_NOT_SAID])
+
+    def test_getting_ready_by_then_is_the_reason(self):
+        from flowctl import held_ask_desc
+        self.assertIn("聞かれたことの答えをあとで確かめる、ではない", held_ask_desc("until"))
+        self.assertNotIn("あとで確かめる", held_ask_desc("payday"))
+
+    def test_the_asked_day_may_be_a_part_of_the_month(self):
+        from flowctl import CYCLE_NOT_SAID, cycle_choices
+        from review_words import questions
+        self.assertIn("毎月の日や頃を答えても", cycle_choices(False, questions()["C1"])[CYCLE_NOT_SAID])
+
+    def test_the_why_item_is_shown_only_where_it_is_read(self):
+        from flowctl import WHY, WHY_HEADING
+        from meaning_judge import answer_items
+        from review_words import PAYDAY_ASK_SCENE, UNTIL_ASK_SCENE, UNTIL_LEAN_SCENE
+        q, p = HeldAskChoicesTest.judged(PAYDAY_ASK_SCENE)
+        self.assertNotIn(WHY, answer_items(q))
+        self.assertNotIn(WHY_HEADING, p)
+        for scene in (UNTIL_ASK_SCENE, UNTIL_LEAN_SCENE):
+            q, p = HeldAskChoicesTest.judged(scene)
+            self.assertIn(WHY, answer_items(q), scene)
+            self.assertIn(WHY_HEADING, p, scene)
+
+    def test_the_flow_reads_the_why_item_only_for_until(self):
+        # 作りで確かめる：お給料日を伺う一言へのお返事は、どの答えの読みでも、理由の読みで返事・記録が変わらない（_payday_take）。「〇時まで」の確かめは、わからない・答えたくないの
+        # 読みで、理由の読みが記録に入る（_take_system の _why_of）
+        import json
+        import g53_meaning as G
+        from flowctl import AWAY, AWAY_NO, UNDECIDED, VALUE_CHOICE, WHY, why_choices
+        from review_words import questions
+        q = questions()["C1"]
+
+        def outs(build, cond, op):
+            got = set()
+            for why in why_choices(False):
+                f = build(q)
+                args = {"question_id": q.id, "condition_id": cond} if op else {}
+                r = G._scene_say(f, "（言葉）", G._scene_read(cond, **{WHY: why, AWAY: AWAY_NO}), op, **args)
+                it = f.items[q.id]
+                got.add(json.dumps([r, it.condition, it.value, it.reason, it.state], ensure_ascii=False, sort_keys=True, default=str))
+            return len(got)
+        for cond in (VALUE_CHOICE, "unknown", "refused", UNDECIDED):
+            for op in (None, "record_answer"):
+                self.assertEqual(outs(G._payday_ask_scene, cond, op), 1, (cond, op))
+        self.assertGreater(outs(G._until_ask_scene, "unknown", "record_answer"), 1)
+
+
 class PaydayAskTest(unittest.TestCase):
     """伺い99 ア（✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」）：曜日の2択への「給料日のあとでお願いします。」には「承知しました。
     恐れ入りますがお給料日は何日になりますでしょうか？」と伺い（共通の一言の録音）、おっしゃった日のあとを頃として、その頃の中の空いている予定から2択（会話AIの声）。もう過ぎて

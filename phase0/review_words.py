@@ -700,15 +700,16 @@ ASK_ROWS = [
          until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない",
          cycle=[CYCLE_NOT_SAID], cycle_note="こちらが伺った日そのもののお答え＝月単位の理由は言っていない（分身 AD の (1-d)：説明の文に境目を書いて当て直した。月単位の理由は伺う前の答えで"
                                                   "受け取って持っている＝どちらの読みでも同じ受け取り）"),
+    # わからない・答えたくない理由は、お給料日を伺う一言を待つ間は判定に見せない（流れの制御が読まない＝flowctl.held_ask_unread。分身 AF の (1-d)。⛔ a3b200cf まで「わからない理由を言わなかった」を
+    # 正解にしていた＝読み手 A・B が2人とも、当たる選べるものが無いと書いた＝束 ad1 の #8）
     _row("C1", "月によって違うんですよ。", ["unknown"], AWAY_NO, scene=PAYDAY_ASK_SCENE, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
-         reason=(DONT_KNOW_LABEL["unspecified"],),
          why="伺ったお給料日を、月ごとに違うとだけおっしゃった（日はおっしゃらない）＝わからない（分身 AD の (1-e)：お給料日の「答えた」の説明に「決まった日は無い・その時々で変わる、"
              "とだけ言ったのは「わからない」」を書いて当て直した。前の正解は、わからない・決められない＝読み手 A・B は2人とも、答えた・決められないと読み、別のお話とも読んだ＝決められない・"
              "別のお話の読みでは、ひとこと応えてお給料日を伺い直す＝伺い99 アの「おっしゃらない」の今の2択に戻らない。わからない・答えたの読みは、どちらでも今の2択に戻る）",
          until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない",
          cycle=[CYCLE_NOT_SAID], cycle_note="こちらが伺った日そのもののお答え＝月単位の理由は言っていない（分身 AD の (1-d)：説明の文に境目を書いて当て直した。月単位の理由は伺う前の答えで"
                                                   "受け取って持っている＝どちらの読みでも同じ受け取り）"),
-    _row("C1", "いやあ最近は暑くてねえ。", [UNDECIDED], AWAY_YES, scene=PAYDAY_ASK_SCENE, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+    _row("C1", "いやあ最近は暑くてねえ。", [UNDECIDED], AWAY_YES, scene=PAYDAY_ASK_SCENE, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
          why="伺ったお給料日と関わりの無い世間話＝別のお話・答えは決められない（【決まりで決めた】(d)）",
          until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（世間話）", cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（世間話）"),
 ]
