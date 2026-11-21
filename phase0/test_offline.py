@@ -51326,3 +51326,239 @@ class AIIfTailTest(unittest.TestCase):
             self.assertEqual(normalize_value(qtype, value), want, (qtype, value))
         self.assertEqual(spoken_value("date", "15日なら"), "15日なら")
         self.assertEqual(spoken_value("amount", normalize_value("amount", "1000000円くらいなら")), "100万円くらい")
+
+
+class AJNameSamaTest(unittest.TestCase):
+    """分身 AJ（分身 AI の書き置き rv190/AI/notes.md の (6-1)・帳面 1 の (6) の (i) の L22）：業務の名前の質問（名前の型）の答えを言い直すときは「（お名前）様」、つなぐ言葉は「で」
+    （「はい、ありがとうございます。おかだ様でよろしいでしょうか？」）。足すのは、お客様に聞こえる文で値を言う形にする1か所（spoken_value）だけ＝言い直し・聞き取れなかったあと・
+    直されたあと・締めの前の念のための確認・会話AIへの知らせ・判定に見せる言い直しの文のどれも、この1か所から作る。値の終わりがもう敬称・呼び方・役職（「様」「さん」「部長」など）なら
+    足さない（phrases.called の1か所）。つなぐ言葉は値と「よろしいでしょうか」をつなぐ1か所（phrases.joiner）が、値の終わりの敬称・呼び方・役職で「で」と決める（品詞の読みは
+    「様」を「よう」と読むことがある＝「やまだたろう様」「たける様」「かどた様」）。記録の値（依頼者へ渡す値・通話の事実）には足さない＝お客様が言った名前のまま（本書 9-5 の 7.）。
+    名前の読みの確かめ（reading_question）の文はもう「様」を持つ＝重ねない。CL-1 が書いてある決まりで決めた（本書 9-5「基本は「（値）でよろしいでしょうか？」」・帳面 0-2 の 10-16
+    「お名前はやまざき様でよろしかったでしょうか」とご承認の読みの確かめの形＝失礼のないように・10-19「同じ理由が当たる場面すべてに当てる」）。
+    ⛔ 9deb385c まで、かなで書いた名前は名詞と読まれず「おかだということでよろしいでしょうか？」（「やまだたろう」「ゆたか」「たける」「こなら」も）・どの名前にも「様」が付かなかった"""
+    Q = "ご担当者様のお名前をお伺いしてもよろしいでしょうか？"
+
+    def q(self, qid="Q1", text=None):
+        from flowctl import Question
+        return Question(qid, text or self.Q, "name", conditions=("答えた",), topic="ご担当者様のお名前", required=True)
+
+    @staticmethod
+    def told(f, words):
+        f.on_callee(); f.on_heard(words)
+
+    def test_the_name_is_restated_with_sama(self):
+        # 業務の名前の質問への答え：言い直しは「（お名前）様でよろしいでしょうか？」・記録の値はお客様が言った名前のまま（もう「様」「さん」が付いた名前は重ねない）
+        from flowctl import Flow
+        for words, value, shown in (("おかだです。", "おかだ", "おかだ様"), ("やまだたろうです。", "やまだたろう", "やまだたろう様"),
+                                    ("ゆたかと申します。", "ゆたか", "ゆたか様"), ("こならと申します。", "こなら", "こなら様"),
+                                    ("たけると申します。", "たける", "たける様"), ("山田太郎です。", "山田太郎", "山田太郎様"),
+                                    ("山田様です。", "山田様", "山田様"), ("田中さんです。", "田中さん", "田中さん"),
+                                    ("営業部の山田部長です。", "営業部の山田部長", "営業部の山田部長")):
+            f = Flow([self.q()])
+            self.told(f, words)
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": value})
+            said = heard_words(r)
+            self.told(f, "はい。")
+            f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+            with self.subTest(value=value):
+                self.assertEqual((r["result"], said), ("confirm_required", f"はい、ありがとうございます。{shown}でよろしいでしょうか？"))
+                record = {"山田様": "山田"}.get(value, value)   # 終わりの「様」は値を受け取る1か所で外す（続きの (3)＝AJNameSamaTailTest）
+                self.assertEqual(r["value"], record)                                                 # 会話AIへの返事の値は記録の値のまま
+                self.assertEqual((f.items["Q1"].state, f.export()["Q1"]), ("confirmed", record))    # 依頼者へ渡す値に「様」を足さない
+        # 会社・お店のお名前（「御社名」）も、お客様の側のお名前＝同じ形
+        f = Flow([self.q(text="御社名をお伺いしてもよろしいでしょうか？")])
+        self.told(f, "株式会社アオバ物流です。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "株式会社アオバ物流"})
+        self.assertEqual(heard_words(r), "はい、ありがとうございます。株式会社アオバ物流様でよろしいでしょうか？")
+        self.told(f, "はい。")
+        f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.assertEqual(f.export()["Q1"], "株式会社アオバ物流")
+
+    def test_every_restating_line_says_sama(self):
+        # 聞き取れなかったあと（「（値）とおっしゃいましたでしょうか？」「（値）でよろしかったでしょうか？」）・こちらの聞き違い（「失礼いたしました。改めまして（値）で…」）・
+        # お客様の言い間違い（「承知しました。それでは（値）で…」）・会話AIへの知らせ・判定に見せる言い直しの文のどれも同じ形
+        from flowctl import Flow
+        f = Flow([self.q("Q1"), self.q("Q2")])
+        self.told(f, "えーと。")
+        f.apply("report_unclear", {"question_id": "Q1"})
+        self.told(f, "やまだたろうです。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "やまだたろう"})
+        self.assertEqual(heard_words(r), "はい、ありがとうございます。やまだたろう様とおっしゃいましたでしょうか？")
+        self.assertIn(f"「{r['say']}」", r["message"])                                         # 会話AIへの知らせ
+        self.assertEqual(f.judge_context()[1], r["say"])                                         # 判定に見せる言い直しの文
+        self.told(f, "いえ、かどたです。")
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "かどた"})
+        self.assertEqual(heard_words(r), "失礼いたしました。改めましてかどた様で大丈夫でしょうか？")
+        self.assertEqual(f.judge_context()[1], r["say"])
+        self.told(f, "はい。")
+        f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.told(f, "えーと。")
+        f.apply("report_unclear", {"question_id": "Q2"})
+        self.told(f, "たけるです。")
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "たける"})
+        self.assertEqual(heard_words(r), "はい、かしこまりました。たける様でよろしかったでしょうか？")
+        self.told(f, "あ、間違えました、こならです。")
+        r = f.apply("confirm_field", {"question_id": "Q2", "result": "corrected", "correction": "こなら"})
+        self.assertEqual(heard_words(r), "承知しました。それではこなら様でよろしいでしょうか？")
+        self.told(f, "はい。")
+        f.apply("confirm_field", {"question_id": "Q2", "result": "affirmed"})
+        self.assertEqual(f.export(), {"Q1": "かどた", "Q2": "こなら"})
+
+    def test_the_recheck_before_closing_and_the_person_who_knows(self):
+        # 締めの前の念のための確認（聞き取れずに「-」にした名前を伺い直す）と、分かる方を伺う質問（システムの質問 ask_who＝名前の型）も同じ1か所。分かる方のお名前は、かけ直しの記録
+        # （通話の事実 callback の person）にお客様が言ったまま
+        from flowctl import Flow, Question
+        f = Flow([self.q(), Question("Q2", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        for _ in range(3):
+            self.told(f, "えーと。")
+            f.apply("report_unclear", {"question_id": "Q1"})
+        self.told(f, "はい、お願いします。")
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"})
+        self.assertEqual(r["result"], "recheck")
+        self.told(f, "おかだです。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "おかだ"})
+        self.assertEqual(heard_words(r), "はい、ありがとうございます。おかだ様とおっしゃいましたでしょうか？")
+        self.told(f, "はい。")
+        f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.assertEqual(f.export()["Q1"], "おかだ")
+        h = {("dont_know", "not_in_charge"): "ask_who"}
+        f = Flow([Question("Q1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), handlings=h)])
+        self.told(f, "予算は私の担当ではないので分からないですね。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown", "unknown_why": "not_in_charge"})
+        self.told(f, "経理の山田なら分かると思います。")
+        r = f.apply("record_answer", {"question_id": r["question_id"], "condition_id": "答えた", "value": "経理の山田"})
+        self.assertTrue(heard_words(r).endswith("経理の山田様でよろしいでしょうか？"), heard_words(r))
+        self.told(f, "はい。")
+        f.apply("confirm_field", {"question_id": f.awaiting_confirm, "result": "affirmed"})
+        self.assertEqual(f.facts["callback"][0]["person"], "経理の山田")
+
+    def test_one_place_says_the_name_with_sama(self):
+        # 「様」を足すのは言う形の1か所（spoken_value）・足さない値の終わりは1か所（phrases.called）・つなぐ言葉は1か所（phrases.joiner）。値を受け取る所（normalize_value）は「様」を
+        # 足さない（終わりの「様」「さま」は外す＝分身 AJ の続き・AJNameSamaTailTest）。名前の読みの確かめの文（もう「様」を持つ）には重ねない
+        from flowctl import Flow, normalize_value, reading_question, spoken_value
+        from phrases import called, joiner
+        for value, want in (("おかだ", "おかだ様"), ("かどた", "かどた様"), ("株式会社アオバ物流", "株式会社アオバ物流様"), ("山田様", "山田様"),
+                            ("おかださま", "おかださま"), ("田中さん", "田中さん"), ("たなかくん", "たなかくん"), ("はなこちゃん", "はなこちゃん"),
+                            ("山田殿", "山田殿"), ("やまだ先生", "やまだ先生"), ("山田社長", "山田社長"), ("総務の部長", "総務の部長"), ("経理の方", "経理の方"),
+                            ("緒方", "緒方様"), ("あかね", "あかね様")):
+            with self.subTest(value=value):
+                self.assertEqual(spoken_value("name", value), want)
+                self.assertEqual(spoken_value("name", want), want)                  # 2回通しても重ねない
+                self.assertTrue(called(want))
+                self.assertEqual(joiner(want), "で")
+                self.assertEqual(normalize_value("name", value), {"山田様": "山田", "おかださま": "おかだ"}.get(value, value))   # 終わりの「様」「さま」だけ外す（続き）
+        self.assertEqual((spoken_value("date", "15日"), spoken_value("free_text", "おかだ"), spoken_value("name", None)), ("15日", "おかだ", None))
+        self.assertEqual((joiner("いつでも"), joiner("15日")), ("ということで", "で"))   # ほかの値は今までどおり値の終わりの品詞で決める
+        f = Flow([reading_question("R1", "中島", "なかじま", ("なかじま", "なかしま"))])
+        self.assertEqual(f.questions["R1"].text, "お名前の読みの方は「なかじま」様でよろしかったでしょうか？")
+        self.told(f, "いや、なかしまです。")
+        r = f.apply("confirm_field", {"question_id": "R1", "result": "corrected", "correction": "なかしま"})
+        self.assertTrue(heard_words(r).endswith("改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？"), heard_words(r))
+
+
+class AJNameMoreTest(unittest.TestCase):
+    """分身 AJ の続き（書き置き rv191/AJ/notes.md の (6-2)・(6-4)・(6-1)。CL-1 が書いてある決まりで決めた）：
+    (2) お客様がご自分の側の方をへりくだって言った「の者」（「経理の者」「担当の者」）は、お客様に聞こえる文では「の方」に替え、「様」は足さない（「経理の方でよろしいでしょうか？」。
+        帳面 0-2 の 10-16＝お客様の側の方を失礼のないように言う・10-19）。替えるのは言う形の1か所（phrases.honored）だけ・記録の値はお客様の言葉のまま（「経理の者」）。部署の名前だけの値
+        （「総務部」）・「担当者」は今のまま「様」（部署の言葉の一覧は作らない＝「阿部」「長谷部」を取り違える）。⛔ 8007c081 まで「経理の者様でよろしいでしょうか？」
+    (3) 言い切っていない名前の答えの形は、取込で決めた質問ごとの「事実を伺う質問か」（Question.asks_fact）の1か所が選ぶ（今のまま＝見張り）"""
+
+    def test_humble_words_of_their_side_are_said_with_kata(self):
+        from flowctl import Flow, Question, spoken_value
+        from phrases import joiner
+        for words, value, shown in (("経理の者です。", "経理の者", "経理の方"), ("担当の者が分かります。", "担当の者", "担当の方"),
+                                    ("総務部です。", "総務部", "総務部様"), ("担当者です。", "担当者", "担当者様"), ("阿部です。", "阿部", "阿部様"),
+                                    ("長谷部です。", "長谷部", "長谷部様")):
+            f = Flow([AJNameSamaTest().q()])
+            AJNameSamaTest.told(f, words)
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": value})
+            said = heard_words(r)
+            AJNameSamaTest.told(f, "はい。")
+            f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+            with self.subTest(value=value):
+                self.assertEqual(said, f"はい、ありがとうございます。{shown}でよろしいでしょうか？")
+                self.assertEqual(f.export()["Q1"], value)                                   # 記録の値はお客様の言葉のまま
+                self.assertEqual((spoken_value("name", value), spoken_value("name", shown), joiner(shown)), (shown, shown, "で"))
+        # 分かる方を伺う質問（ask_who）：言い直しは「担当の方」・かけ直しの記録の person は「担当の者」
+        h = {("dont_know", "not_in_charge"): "ask_who"}
+        f = Flow([Question("Q1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), handlings=h)])
+        AJNameSamaTest.told(f, "予算は私の担当ではないので分からないですね。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown", "unknown_why": "not_in_charge"})
+        AJNameSamaTest.told(f, "担当の者なら分かると思います。")
+        r = f.apply("record_answer", {"question_id": r["question_id"], "condition_id": "答えた", "value": "担当の者"})
+        self.assertEqual(heard_words(r), "はい、ありがとうございます。担当の方でよろしいでしょうか？")
+        AJNameSamaTest.told(f, "はい。")
+        f.apply("confirm_field", {"question_id": f.awaiting_confirm, "result": "affirmed"})
+        self.assertEqual(f.facts["callback"][0]["person"], "担当の者")
+
+    def test_hedged_name_answers_follow_whether_the_question_asks_a_fact(self):
+        # 言い切っていない名前の答え（「たぶんおかだだと思います。」）：事実を伺う質問＝「それではおかだ様ということで承っておいて大丈夫でしょうか？」・そうでない質問＝
+        # 「それではおかだ様とさせていただきますね？」（Flow._hedged_after の1か所が Question.asks_fact で選ぶ）
+        from flowctl import Flow, Question
+        for fact, want in ((True, "はい、それではおかだ様ということで承っておいて大丈夫でしょうか？"), (False, "はい、それではおかだ様とさせていただきますね？")):
+            f = Flow([Question("Q1", AJNameSamaTest.Q, "name", conditions=("答えた",), topic="ご担当者様のお名前", asks_fact=fact)])
+            AJNameSamaTest.told(f, "たぶんおかだだと思います。")
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "おかだ"})
+            self.assertEqual(heard_words(r), want, fact)
+            AJNameSamaTest.told(f, "はい。")
+            f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+            self.assertEqual(f.export()["Q1"], "おかだ", fact)
+
+
+class AJNameSamaTailTest(unittest.TestCase):
+    """分身 AJ の続きの (3)（書き置き rv191/AJ/notes.md の (6-4)。CL-1 が書いてある決まりで決めた）：名前の型の値の終わりの「様」「さま」は、値を受け取る1か所（normalize_value）で外す。
+    「様」はこちらが言い直しで足す言葉（言う形の1か所 spoken_value）＝会話AIが言い直しを写して「かどた様」と報告しても、お客様が「山田様です」と言っても、記録の値（依頼者へ渡す値・
+    かけ直しの記録・会話AIへの返事の value）は「かどた」「山田」・言い直しは「様」を1回だけ（本書 9-5 の 7.「依頼者へ渡るのは確かめた値」・分身 AI の「なら」と同じ考え）。外すと値が
+    無くなるなら外さない。「さん」「くん」「ちゃん」「殿」「先生」・役職は外さない（お客様の言葉・「鵜殿」のように名前の一部になりうる）。
+    名前の読みの確かめの直しの値で別に外していた所（_op_confirm_field の [\\s様さん。、]＝文字の組なので、読みの中の「さ」「ん」まで消していた＝「さいどう」を「いどう」・
+    「なかしまさま」を「なかしまま」と確かめた）は、空白と読点だけを外し、「様」「さま」は同じ1か所（normalize_value）に任せる。⛔ 8007c081 まで、記録の値は「山田様」「かどた様」のまま"""
+
+    def test_sama_is_not_in_the_record(self):
+        from flowctl import Flow, normalize_value
+        for words, value, record, shown in (("山田様です。", "山田様", "山田", "山田様"), ("おかださまです。", "おかださま", "おかだ", "おかだ様"),
+                                            ("山田様でしたら。", "山田様でしたら", "山田", "山田様"), ("様です。", "様", "様", "様"),
+                                            ("田中さんです。", "田中さん", "田中さん", "田中さん"), ("山田殿です。", "山田殿", "山田殿", "山田殿"),
+                                            ("鵜殿です。", "鵜殿", "鵜殿", "鵜殿"), ("やまだ先生です。", "やまだ先生", "やまだ先生", "やまだ先生"),
+                                            ("山田部長です。", "山田部長", "山田部長", "山田部長"), ("たなかくんです。", "たなかくん", "たなかくん", "たなかくん")):
+            f = Flow([AJNameSamaTest().q()])
+            AJNameSamaTest.told(f, words)
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": value})
+            said = heard_words(r)
+            AJNameSamaTest.told(f, "はい。")
+            f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+            with self.subTest(value=value):
+                self.assertEqual(said, f"はい、ありがとうございます。{shown}でよろしいでしょうか？")
+                self.assertEqual((r["value"], f.export()["Q1"]), (record, record))
+        # 会話AIが言い直しを写して、直した値に「様」を付けて報告した：言い直しは「様」を1回だけ・記録は「かどた」
+        f = Flow([AJNameSamaTest().q()])
+        AJNameSamaTest.told(f, "おかだです。")
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "おかだ"})
+        AJNameSamaTest.told(f, "いえ、かどたです。")
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "かどた様"})
+        self.assertEqual(heard_words(r), "失礼いたしました。改めましてかどた様で大丈夫でしょうか？")
+        AJNameSamaTest.told(f, "はい。")
+        f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.assertEqual(f.export()["Q1"], "かどた")
+        # 外すのは名前の型だけ・終わりだけ（ほかの型・途中の「様」はそのまま）
+        for qtype, value, want in (("name", "山田様", "山田"), ("name", "おかださま", "おかだ"), ("name", "様", "様"), ("name", "さま", "さま"),
+                                   ("name", "様方", "様方"), ("name", "田中さん", "田中さん"), ("free_text", "お客様", "お客様"),
+                                   ("address", "東京都港区山田様方", "東京都港区山田様方")):
+            self.assertEqual(normalize_value(qtype, value), want, (qtype, value))
+
+    def test_reading_corrections_keep_every_sound(self):
+        # 名前の読みの確かめへの直し：読みの中の「さ」「ん」を消さない（「さいどう」「ほんだ」）・終わりの「さま」は値を受け取る1か所で外す（「なかしまさま」）
+        from flowctl import Flow, reading_question
+        for surface, likely, readings, said, corr, want in (("斎藤", "さいとう", ("さいとう", "さいどう"), "いや、さいどうです。", "さいどう", "さいどう"),
+                                                            ("本田", "もとだ", ("もとだ", "ほんだ"), "いや、ほんだです。", "ほんだ", "ほんだ"),
+                                                            ("中島", "なかじま", ("なかじま", "なかしま"), "いや、なかしまです。", "なかしまさま", "なかしま"),
+                                                            ("中島", "なかじま", ("なかじま", "なかしま"), "いや、なかしまです。", "なか しま。", "なかしま")):
+            f = Flow([reading_question("R1", surface, likely, readings)])
+            f._enter_reading("R1")
+            AJNameSamaTest.told(f, said)
+            r = f.apply("confirm_field", {"question_id": "R1", "result": "corrected", "correction": corr})
+            with self.subTest(corr=corr):
+                self.assertEqual(heard_words(r), f"失礼いたしました。改めましてお名前の読みの方は「{want}」様でよろしかったでしょうか？")
+                AJNameSamaTest.told(f, "はい。")
+                f.apply("confirm_field", {"question_id": "R1", "result": "affirmed"})
+                self.assertEqual(f.items["R1"].value, want)
