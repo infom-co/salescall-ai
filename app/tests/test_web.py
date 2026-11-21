@@ -735,8 +735,16 @@ class Web(_World):
         running = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}").text
         # 動いている業務でも、PC が無ければ電話はかからないので、手順は「回線と PC を用意する」だけが残る（前は PC を見ずに「そろった」としていた）
         steps = running[running.index("<h2>はじめかた</h2>"):running.index("</section>", running.index("<h2>はじめかた</h2>"))]
-        self.assertEqual(steps.count("まだ</span>"), 1)
+        self.assertEqual(steps.count("まだ</span>"), 2)
         self.assertIn("回線と PC を用意する", steps)
+        self.assertIn("知らせの受け先を決める", steps)                           # 知らせの受け先も手順に入る（counts.readiness と同じ答え）
+        # 設定の画面は、決めれば直る設定（受け先）に「決めてください」を付ける（どれかは counts.readiness の keys の1か所）
+        settings_page = self.get("A", "/t/settings").text
+        from salescall.web import counts
+        for key in counts.NOTIFY_KEYS:
+            row = settings_page[settings_page.index(f'id="s-{key.replace(".", "-")}"'):]
+            self.assertIn("決めてください", row[:row.index("</summary>")])
+        self.assertNotIn("決めてください", self.get("A", f"/c/{self.a['client']}/settings").text)   # 依頼者の設定には出さない
 
     def test_a_notice_about_a_customer_says_where_and_links_to_the_row(self):   # 知らせの「どこの」「見る」（links の1か所）
         from salescall.core import notify

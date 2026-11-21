@@ -44,17 +44,22 @@
 {% macro group_section(group, items) -%}
 <section class="setting-group" id="g-{{ group }}">
   <h2>{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }}</h2>
-  {% for r in items %}
-  <details class="setting card {{ 'own' if r.own }}" id="s-{{ r.key|replace('.', '-') }}">
+  {#- 決めてほしい設定（下の札）は、まとまりの中で先に並べる -#}
+  {% set ordered = (items|selectattr("key", "in", need or {})|list) + (items|rejectattr("key", "in", need or {})|list) %}
+  {% for r in ordered %}
+  {#- 決めれば土台の抜けが直る設定（どれかは counts.readiness の keys の1か所。ホームの「いま見ること」と同じ答え）は、橙の札で示す -#}
+  {% set needed = need[r.key] if need and r.key in need else none %}
+  <details class="setting card {{ 'own' if r.own }} {{ 'needed' if needed }}" id="s-{{ r.key|replace('.', '-') }}">
     <summary>
       <span class="meaning"><b>{{ r.label }}</b></span>
-      <span class="now">{% if r.got %}<b>{{ r.shown }}</b>{% if r.got["from"] != "system" and not r.own %} <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% endif %}{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if r.own and level != "system" %} {{ tag("ここで決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag(("仮の値（見直す時：" ~ words.plain(r.provisional.review_when) ~ "）") if person.admin else "仮の値（あとで見直すことがあります）", "wait") }}{% endif %}</span>
+      <span class="now">{% if r.got %}<b>{{ r.shown }}</b>{% if r.got["from"] != "system" and not r.own %} <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% endif %}{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if needed %} {{ tag("決めてください", words.tone("waiting")) }}{% endif %}{% if r.own and level != "system" %} {{ tag("ここで決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag(("仮の値（見直す時：" ~ words.plain(r.provisional.review_when) ~ "）") if person.admin else "仮の値（あとで見直すことがあります）", "wait") }}{% endif %}</span>
       <span class="change" aria-hidden="true">変える</span>
     </summary>
     <form method="post" action="{{ action }}" class="setting-form" data-needs-reason>
       {{ csrf(token) }}<input type="hidden" name="key" value="{{ r.key }}">
+      {% if needed %}<p class="need-why">{{ needed.title }}。{{ needed.how }}</p>{% endif %}
       <p>{{ r.meaning }}</p>
-      <p class="muted">{{ r.merge }}</p>
+      {% if r.merge %}<p class="muted">{{ r.merge }}</p>{% endif %}
       {{ widget(r) }}
       {% if level == "system" %}
       <div class="gap"><select name="status" aria-label="仮か確定か"><option value="decided">確定の値</option><option value="provisional">仮の値（あとで見直す）</option></select>

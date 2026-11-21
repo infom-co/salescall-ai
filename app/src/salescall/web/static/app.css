@@ -583,3 +583,7 @@ details.setting .now > b { font-weight: 700; }
 /* 名前を直す小窓（見出しの横・表の操作の列で同じ形） */
 .rename .panel input[type=text] { width: 100%; }
 
+/* 決めれば土台の抜けが直る設定（橙。ホームの「いま見ること」と同じ答え） */
+.setting.needed { border-left: 4px solid var(--wait); }
+.need-why { color: var(--wait); font-weight: 600; }
+

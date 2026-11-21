@@ -11,7 +11,7 @@ from uuid import UUID
 
 from salescall.core import agents, approval, business_settings, health, health_rules, metrics, reward, stops, usage
 from salescall.core.access import Tx
-from salescall.output import words
+from salescall.output import notices, words
 from salescall.web.context import Ctx
 
 _OPEN = ("SELECT event_id, scope::text AS scope, cause::text AS cause, reason, at, client_id, business_id, line_id"
@@ -93,10 +93,14 @@ def tenant_system(tx: Tx) -> dict[str, Any]:
     return {"lines": len(lines), "resting": resting, "pcs": len(pcs), "last_seen": max(seen) if seen else None}
 
 
-def readiness(tx: Tx) -> list[dict[str, str]]:
+NOTIFY_KEYS = tuple(notices.DESTINATIONS[False].values())   # 契約者あての知らせの受け先の設定（正本は output/notices の1か所）
+
+
+def readiness(tx: Tx) -> list[dict[str, Any]]:
     """電話をかける・知らせを届けるための土台の抜け（契約者の取引。答える1か所＝ホームの「いま見ること」・気をつけること・回線と PC の画面が
     同じものを出す。2026-11-21 の見直し：PC が0台で電話がかからないのに、判断がホームの1つの札の中にしか無く、上の段は「何もない」と言っていた）。
-    kind＝stop（このままでは電話がかからない）／wait（電話はかかるが、止まったことなどが届かない）。PC が止まったか（合図が途切れたか）は
+    kind＝stop（このままでは電話がかからない）／wait（電話はかかるが、止まったことなどが届かない）。keys＝決めれば直る設定の名前
+    （設定の画面が、その行に「決めてください」を出す。同じ答えを使う）。PC が止まったか（合図が途切れたか）は
     core の agents.watch_down が知らせで決める（ここでは決め直さない）。"""
     sysinfo = tenant_system(tx)
     out: list[dict[str, str]] = []
@@ -108,14 +112,19 @@ def readiness(tx: Tx) -> list[dict[str, str]]:
     elif sysinfo["resting"] >= sysinfo["lines"]:
         out.append({"kind": "stop", "title": "すべての回線が休んでいます", "how": "休んでいる理由を確かめてください（決まった確かめが通れば、自動で戻ります）。",
                     "link": "/t/lines"})
-    from salescall.core import settings
-    from salescall.output import notices
-    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
-    if not any(settings.resolve(tx, key, tenant_id=tenant, client_id=None, business_id=None) for key in notices.DESTINATIONS[False].values()):
+    if not notify_destination_set(tx):
         out.append({"kind": "wait", "title": "知らせの受け先が決まっていません",
-                    "how": "止まったときや承認待ちを、ショートメールかチャットワークでお知らせする受け先です（決めるまでは、この画面だけに出ます）。",
-                    "link": "/t/settings#g-notify"})
+                    "how": "止まったときや承認待ちを、ショートメールかチャットワークでお知らせする受け先です（決めるまでは、ダッシュボードの中だけでお知らせします）。",
+                    "link": "/t/settings#g-notify", "keys": list(NOTIFY_KEYS)})
     return out
+
+
+def notify_destination_set(tx: Tx) -> bool:
+    """契約者あての知らせの受け先（ショートメールかチャットワークのどちらか）が決まっているか（土台の抜けと、はじめかたの手順が同じ答えを使う）。
+    受け先の設定の名前は output/notices.DESTINATIONS の1か所。"""
+    from salescall.core import settings
+    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
+    return any(settings.resolve(tx, key, tenant_id=tenant, client_id=None, business_id=None) for key in NOTIFY_KEYS)
 
 
 def required_answers(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:
@@ -200,6 +209,8 @@ def setup_steps(tx: Tx, client_id: UUID, business_id: UUID, recording_needs: lis
         {"name": "回線と PC を用意する（この依頼者で使える回線と、電話をつなぐ PC）", "done": f["lines"] > 0 and f["pcs"] > 0,
          "how": "「回線と PC」で回線を足すか使い先を決め、PC で「PC のログイン」をします（PC が無いと電話はかかりません）",
          "link": "/t/lines"},
+        {"name": "知らせの受け先を決める（止まったときや承認待ちを受け取る）", "done": notify_destination_set(tx),
+         "how": "「契約者の設定」の「知らせ」で、ショートメールの番号かチャットワークの部屋を決めます", "link": "/t/settings#g-notify"},
         {"name": "録音をそろえる", "done": script and not recording_needs,
          "how": "録音の要るものは、この画面の上の警告に出ます" if script else "電話の台本ができてから、録音の要るものが分かります",
          "link": ""},

@@ -677,10 +677,19 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
 
     # ── 設定（docs/DASHBOARD.md 5-9。Intent.md 5-3・5-4）：契約者・依頼者・業務の段で、同じ1つの画面 ──────────
     SCOPES = ("system", "tenant", "client", "business")
-    MERGE_WORDS = {"override": "下の段（業務 ＞ 依頼者 ＞ 契約者 ＞ 初めの値）の値が勝ちます",
+    # 段の重なりの説明。{chain} は、その設定を決められる段だけ（finest_scope まで）を細かい順に（契約者までしか決められない設定に
+    # 「業務 ＞ 依頼者」を書かない）。決められる段が1つだけなら、重なりの説明は出さない
+    SCOPE_SHORT = {"system": "初めの値", "tenant": "契約者", "client": "依頼者", "business": "業務"}
+    MERGE_WORDS = {"override": "細かい段（{chain}）の値が勝ちます",
                    "min": "どの段の値より小さくなりません（いちばん小さい値を使います）",
                    "max": "どの段の値より大きくなりません（いちばん大きい値を使います）",
                    "intersect": "どの段の時間帯にも入る時間だけを使います", "union": "どの段の値もすべて合わせて使います"}
+
+    def _merge_words(kind: str, finest: str) -> str:
+        levels = SCOPES[:SCOPES.index(finest) + 1]
+        if len(levels) < 2:
+            return ""
+        return MERGE_WORDS.get(kind, "").format(chain=" ＞ ".join(SCOPE_SHORT[x] for x in reversed(levels)))
 
     def _settings_rows(tx: Any, level: str, tenant_id: UUID, client_id: UUID | None, business_id: UUID | None) -> list[dict[str, Any]]:
         """その段で決められる設定（いちばん細かく決められる段＝finest_scope がその段より細かいか同じ）と、その段で結局いくつか
@@ -710,7 +719,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": d["help"],
                          "got": got, "shown": shown,
                          "own": got is not None and got["from"] == level, "group": d["key"].split(".")[0],
-                         "merge": MERGE_WORDS.get(d["merge_kind"], ""), "unit": words.SETTING_UNITS.get(d["key"], "")})
+                         "merge": _merge_words(d["merge_kind"], d["finest_scope"]), "unit": words.SETTING_UNITS.get(d["key"], "")})
         return rows
 
     def _settings_page(request: Request, level: str, client_id: UUID | None, business_id: UUID | None,
@@ -718,6 +727,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
                 out: dict[str, Any] = {"rows": _settings_rows(tx, level, ctx.tenant_id, client_id, business_id)}
+                if client_id is None:   # 契約者の設定：決めれば土台の抜けが直る設定（counts.readiness の keys の1か所）に「決めてください」
+                    out["need"] = {k: r for r in counts.readiness(tx) for k in r.get("keys", [])}
                 if client_id is not None:
                     out.update(client=context.client(tx, client_id),
                                businesses=context.businesses(tx),
