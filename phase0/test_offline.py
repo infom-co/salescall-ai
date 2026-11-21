@@ -44924,20 +44924,19 @@ class AFHeldBordersTest(unittest.TestCase):
         self.assertIn("毎月の日や頃を答えても", cycle_choices(False, questions()["C1"])[CYCLE_NOT_SAID])
 
     def test_the_why_item_is_shown_only_where_it_is_read(self):
+        # 伺い直した一言を待つ間は、お給料日も「〇時まで」の確かめも、流れの制御が「わからない・答えたくない理由」を読まない＝見せない（「〇時まで」の確かめは分身 AG の (2)＝
+        # AGUntilUnknownTest。⛔ 3ccaced6 まで「〇時まで」の確かめでは見せていた）
         from flowctl import WHY, WHY_HEADING
         from meaning_judge import answer_items
         from review_words import PAYDAY_ASK_SCENE, UNTIL_ASK_SCENE, UNTIL_LEAN_SCENE
-        q, p = HeldAskChoicesTest.judged(PAYDAY_ASK_SCENE)
-        self.assertNotIn(WHY, answer_items(q))
-        self.assertNotIn(WHY_HEADING, p)
-        for scene in (UNTIL_ASK_SCENE, UNTIL_LEAN_SCENE):
+        for scene in (PAYDAY_ASK_SCENE, UNTIL_ASK_SCENE, UNTIL_LEAN_SCENE):
             q, p = HeldAskChoicesTest.judged(scene)
-            self.assertIn(WHY, answer_items(q), scene)
-            self.assertIn(WHY_HEADING, p, scene)
+            self.assertNotIn(WHY, answer_items(q), scene)
+            self.assertNotIn(WHY_HEADING, p, scene)
 
     def test_the_flow_reads_the_why_item_only_for_until(self):
-        # 作りで確かめる：お給料日を伺う一言へのお返事は、どの答えの読みでも、理由の読みで返事・記録が変わらない（_payday_take）。「〇時まで」の確かめは、わからない・答えたくないの
-        # 読みで、理由の読みが記録に入る（_take_system の _why_of）
+        # 作りで確かめる：お給料日を伺う一言へのお返事は、どの答えの読みでも、理由の読みで返事・記録が変わらない（_payday_take）。「〇時まで」の確かめも、わからない・答えたくないの
+        # 読みで、伺い直す前の値のまま受け取り、理由の読みは記録に入らない（分身 AG の (2)。⛔ 3ccaced6 まで _take_system の _why_of で理由の読みが記録に入った）
         import json
         import g53_meaning as G
         from flowctl import AWAY, AWAY_NO, UNDECIDED, VALUE_CHOICE, WHY, why_choices
@@ -44956,7 +44955,7 @@ class AFHeldBordersTest(unittest.TestCase):
         for cond in (VALUE_CHOICE, "unknown", "refused", UNDECIDED):
             for op in (None, "record_answer"):
                 self.assertEqual(outs(G._payday_ask_scene, cond, op), 1, (cond, op))
-        self.assertGreater(outs(G._until_ask_scene, "unknown", "record_answer"), 1)
+                self.assertEqual(outs(G._until_ask_scene, cond, op), 1, (cond, op))
 
 
 
@@ -50917,3 +50916,35 @@ class AGPeriodTest(unittest.TestCase):
         self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": "ご予約の確認の件でお電話いたしました。"})["result"], "own_answer")
         r = G._scene_say(f, "なるほど。", G._scene_read(UNDECIDED, **{AWAY: AWAY_NO}))
         self.assertEqual(ids(r), ["callback_time_period_midway"])
+
+
+class AGUntilUnknownTest(unittest.TestCase):
+    """分身 AG の (2)（分身 AF の書き置き rv187/AF/notes.md の (6-1)）：「〇時まで」の理由の確かめ（伺い63・伺い98 ア＝Flow._ask_until）へのお返事を、判定がわからない・答えたくないと読んだ
+    ときも、伺い直す前の値（「3時まで」）のまま受け取り、理由は言っていない（_op_record_answer の until_held の受け取り）。お返事を待つ間は「わからない・答えたくない理由」を判定に見せない
+    （flowctl.held_ask_unread の1か所）。CL-1 が書いてある決まりで決めた（10-24「「〇時まで」と言われたら理由を記録し、分からなければ時刻を1回だけ伺い直す」・9-3「取得済みのことを重ねて
+    聞かない」・本書 9-5 の 11-15 の見直し (12) の (3)「言い直した値は捨てない」）。⛔ 3ccaced6 まで、伺い直す前の値を捨て、かけ直しの時刻を「わからない」で受け取って質問を終え、締めた"""
+
+    def test_unknown_or_refused_keeps_the_time_before_the_ask(self):
+        import g53_meaning as G
+        from flowctl import AWAY, AWAY_NO, VALUE_CHOICE, WHY, DONT_KNOW_LABEL
+        from review_words import questions
+        q = questions()["C1"]
+        for build in (G._until_ask_scene, G._until_lean_scene):
+            for cond in ("unknown", "refused"):
+                f = build(q)
+                r = G._scene_say(f, "ちょっと分からないです。", G._scene_read(cond, **{WHY: DONT_KNOW_LABEL["unspecified"], AWAY: AWAY_NO}), "record_answer",
+                                 question_id=q.id, condition_id=cond)
+                it = f.items[q.id]
+                with self.subTest(scene=build.__name__, cond=cond):
+                    self.assertEqual((r["result"], it.condition, it.value, it.until_why, f.current), ("confirm_required", VALUE_CHOICE, "火曜日の午後3時まで", None, q.id))
+                    self.assertEqual(r["say"], "ありがとうございます。火曜日の15時まで、午後3時までということでよろしいでしょうか？")
+                    self.assertIsNone(f.end_reason)
+
+    def test_the_why_item_is_not_shown_while_held(self):
+        from flowctl import WHY, held_ask_unread
+        from meaning_judge import answer_items
+        from review_words import UNTIL_ASK_SCENE, UNTIL_LEAN_SCENE
+        for scene in (UNTIL_ASK_SCENE, UNTIL_LEAN_SCENE):
+            q, p = HeldAskChoicesTest.judged(scene)
+            self.assertEqual(held_ask_unread(q), (WHY,), scene)
+            self.assertNotIn(WHY, answer_items(q), scene)

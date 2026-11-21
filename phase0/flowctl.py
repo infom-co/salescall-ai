@@ -672,10 +672,12 @@ def held_ask_desc(kind: str) -> str:
 def held_ask_unread(q) -> tuple:
     """伺い直した一言（Question.held_ask）を待つ間、流れの制御がお返事で読まない、答えとは別の項目（唯一の決まり＝判定に見せる項目を決める meaning_judge.answer_items が外す＝
     問い合わせの文・返事の形・判断のモデルの問いが、そろって外れる）。お給料日（payday）は、どの答えでも _payday_take が受ける（日や頃をおっしゃれば頃の2択・おっしゃらなければ今の
-    2択）＝わからない・答えたくない理由（WHY）を読まない。「〇時まで」の確かめ（until）は、わからない・答えたくないと読んだら、その答えで受け取って理由も記録する（_take_system の
-    _why_of）＝外さない。作りで確かめた（試験 AFHeldBordersTest＝答えの読みと理由の読みの組を流れの制御に通す）。⛔ a3b200cf まで見せていて、答えを伏せた読み手 A・B が2人とも、
-    「月によって違うんですよ。」（決まった日が無いので1つの日を言えない）の理由に当たる選べるものが無いと書いた（束 ad1 の #8）。分身 AF の (1-d)。CL-1 が決まりで決めた"""
-    return (WHY,) if getattr(q, "held_ask", "") == "payday" else ()
+    2択）＝わからない・答えたくない理由（WHY）を読まない。「〇時まで」の確かめ（until）も、わからない・答えたくないと読んだら、伺い直す前の値のまま受け取り、理由は言っていない
+    （_op_record_answer の until_held の受け取り＝分身 AG の (2)）＝読まない。作りで確かめた（試験 AFHeldBordersTest・AGUntilUnknownTest＝答えの読みと理由の読みの組を流れの制御に
+    通す）。⛔ a3b200cf まで見せていて、答えを伏せた読み手 A・B が2人とも、「月によって違うんですよ。」（決まった日が無いので1つの日を言えない）の理由に当たる選べるものが無いと書いた
+    （束 ad1 の #8）。分身 AF の (1-d)。⛔ 3ccaced6 まで「〇時まで」の確かめでは見せていた（わからない・答えたくないで伺い直す前の値を捨て、理由を記録した＝分身 AF の書き置きの (6-1)）。
+    CL-1 が決まりで決めた"""
+    return (WHY,) if getattr(q, "held_ask", "") in ("payday", "until") else ()
 
 
 def held_ask_question(q: "Question", kind: str, **text) -> "Question":
@@ -9680,9 +9682,13 @@ class Flow:
             # 日時の2択に月単位の理由で日の分からない頃を言われて伺った一言（_ask_payday＝「恐れ入りますがお給料日は何日になりますでしょうか？」）へのお返事：おっしゃった日のあとを頃と
             # して2択・おっしゃらなければ今の2択に戻る（_payday_take の1か所）。伺う前の答えで受け取った理由（月単位の理由）は持ったまま（_hold_reasons）
             return self._hold_reasons(it, reasons, self._payday_take(qid, value if answered else None))
-        if it.until_held is not None and (answered or cond == UNDECIDED):
+        if it.until_held is not None and (answered or cond == UNDECIDED or cond in SYSTEM_CONDITIONS):
             # 「〇時まで」の理由を伺い直した一言（_ask_until）へのお返事：はい・いいえ・理由（判定の決められないも）は、伺い直す前の値で受け取る（伺い直しは1回まで＝
-            # 10-24。理由は判定の読み＝_reasons_of）。値を言い直されたら、その値（2択の段は伺えた所に重ねる）＝_until_take の1か所
+            # 10-24。理由は判定の読み＝_reasons_of）。値を言い直されたら、その値（2択の段は伺えた所に重ねる）＝_until_take の1か所。
+            # わからない・答えたくない（理由を言えない・言いたくない）も、伺い直す前の値のまま受け取り、理由は言っていない（reason_items＝わからない・答えたくないの答えは理由の項目を
+            # 読まない）。CL-1 が書いてある決まりで決めた（10-24「「〇時まで」と言われたら理由を記録し、分からなければ時刻を1回だけ伺い直す」＝伺い直しても理由が無ければ、そのまま受け取る・
+            # 9-3「取得済みのことを重ねて聞かない」・本書 9-5 の 11-15 の見直し (12) の (3)「言い直した値は捨てない」）。⛔ 3ccaced6 まで、伺い直す前の値（「3時まで」）を捨てて、かけ直しの
+            # 時刻を「わからない」で受け取り、質問を終えて締めた（分身 AF の書き置き rv187/AF/notes.md の (6-1)）
             value, cond, answered = self._until_take(qid, value if answered else None), VALUE_CHOICE, True
         elif it.theirs_held is not None and not answered and cond in SYSTEM_CONDITIONS:
             # お客様から折り返していただく日の2択（_theirs_begin）に「分からない」：伺えた所のまま（「平日の4時まで」）で受け取る（伺い67 ア の伺いの文の「分からない」の行）
