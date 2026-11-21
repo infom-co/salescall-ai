@@ -1271,6 +1271,11 @@ def _ladder_range_mend(s: dict, got: dict, known: dict, ctx: LadderCtx) -> tuple
         return None, known, False
     redo = {k: v for k, v in s.items() if k not in ("day", "date", "today", "week", "span", "shown_day", "shown_kind", "no_room_told")}
     redo.update({k: got[k] for k in ("kind", "week", "span") if got.get(k)})
+    if s.get("date") is not None:
+        # お客様が直した（避けた）その日は、並べ直す2択に並べない（伺い94「避けた日だけを外す」・伺い60「別の空スケジュールの2つ」と同じ理由。外すのは同じ1か所＝伺えた所の shown_day を
+        # 候補の作り _ladder_day_cands が外す）。直された週・頃の外の日なら、何も変わらない。分身 AF の (4)（⛔ a3b200cf まで、はじめに伺えた日がもう直された週の中の日（11-19 の電話の
+        # 「火曜日」＝24日）だと「来週の火曜日と来週の水曜日」＝直された火曜日がまた並んだ＝分身 AB の書き置き rv186/AB/notes.md の (6-8)）
+        redo["shown_day"] = (s["date"],)
     if (step := ladder_step(redo, ctx)) is None:
         return (ladder_value(redo) if not s.get("theirs") else None), redo, False
     if s.get("theirs") and ladder_no_room(redo, ctx) is not None:

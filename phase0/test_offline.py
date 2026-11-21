@@ -44954,6 +44954,29 @@ class LadderRangeMendTest(unittest.TestCase):
         self.assertFalse(ladder_fill({}, "half", "午後").get("picked"))
 
 
+
+class AFRangeMendAvoidTest(unittest.TestCase):
+    """分身 AF の (4)（分身 AB の書き置き rv186/AB/notes.md の (6-8)）：言い直しへの週の直し（「いえ、来週でお願いします。」）で、はじめに伺えた日がもうその週の中の日だったとき（11-19 の
+    電話の「火曜日」＝24日＝来週の火曜日）、並べ直す2択から、お客様が直した（避けた）その日を外す（伺い94「避けた日だけを外す」・伺い60「別の空スケジュールの2つ」と同じ理由。外す所は
+    伺い60・伺い94 と同じ1か所＝伺えた所の shown_day を候補の作り _ladder_day_cands が外す）。⛔ a3b200cf まで「来週の火曜日と来週の水曜日」＝直された火曜日がまた並んだ"""
+
+    def test_the_corrected_day_is_not_offered_again(self):
+        t = LadderRangeMendTest()
+        t.setUp()
+        d, f = t.at_clock(day="火曜日")
+        r = t.m.reply(f, "いえ、来週でお願いします。", "corrected", "来週")
+        self.assertEqual(d.heard(r), "失礼いたしました。来週の水曜日と来週の木曜日ではどちらがよろしいでしょうか？")
+        r = d.answer(f, "木曜日でお願いします。", "木曜日")
+        self.assertIn("木曜日の16時、午後4時", d.heard(r))
+
+    def test_a_day_outside_the_new_week_changes_nothing(self):
+        # はじめに伺えた日が直された週の外（金曜日＝20日）なら、今のまま（LadderRangeMendTest と同じ2択）
+        t = LadderRangeMendTest()
+        t.setUp()
+        d, f = t.at_clock(day="金曜日")
+        r = t.m.reply(f, "いえ、来週でお願いします。", "corrected", "来週")
+        self.assertEqual(d.heard(r), "失礼いたしました。来週の火曜日と来週の水曜日ではどちらがよろしいでしょうか？")
+
 class LadderNamedDayTest(unittest.TestCase):
     """言い直しに日だけ直された日（お客様の名指しの日）に空いている予定が1つも無いとき（依頼者の休みの日など）も、伺えた時刻のまま言い直す（分身 W の形のまま＝
     残した時刻の確かめ ladder_recheck は、その日に伺える2択が無ければ値のまま）。名指しの日は依頼者の休みの日でもかける（2026-10-31 伺い4「案1」＝範囲の「月末」「来週」は
