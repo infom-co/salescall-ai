@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import empty, csrf %}
+{% from "parts.html" import empty, csrf, why_disabled %}
 {% set active = "client" %}
 {% block title %}{{ words.LIST_GO_WORDS.results }}{% endblock %}
 {% block crumb %}{{ words.LIST_GO_WORDS.results }}{% endblock %}
@@ -11,7 +11,8 @@
 <form method="post" action="{{ rbase }}/results.xlsx" data-download class="card handover">{{ csrf(token) }}
   <b>依頼者「{{ client.name }}」へ渡すファイル（{{ rows|length }}行・控えを残す）</b>
   <span class="btn-row"><button class="btn main" type="submit" {% if leak or not deliverable(rows) %}disabled{% endif %}>{{ words.EXPORT_WORDS.handover_xlsx }}</button>
-  <button class="btn" type="submit" formaction="{{ rbase }}/results.csv" {% if leak or not deliverable(rows) %}disabled{% endif %}>{{ words.EXPORT_WORDS.handover_csv }}</button></span>
+  <button class="btn" type="submit" formaction="{{ rbase }}/results.csv" {% if leak or not deliverable(rows) %}disabled{% endif %}>{{ words.EXPORT_WORDS.handover_csv }}</button>
+  {{ why_disabled("依頼者へ出さない言葉が入っています（下の知らせ）" if leak else ("" if deliverable(rows) else "確定した結果がまだありません（確かめ用の書き出しは使えます）")) }}</span>
   <p class="muted">Excel では、依頼者に入れていただく空欄を赤い背景で示します（CSV では「（ご記入ください）」と書きます）。</p>
 </form>
 {#- 確かめ用の書き出しは、渡すボタンと並べず、小窓の奥に（名前でも「依頼者へは渡さない」と分かる） -#}
@@ -19,7 +20,6 @@
   <p class="muted">中身を手元で確かめるためのものです。控えは残らず、依頼者へ渡したことにもなりません。</p>
   <span class="btn-row"><a class="btn small" href="{{ rbase }}/results.xlsx">{{ words.EXPORT_WORDS.check_xlsx }}</a><a class="btn small" href="{{ rbase }}/results.csv">{{ words.EXPORT_WORDS.check_csv }}</a></span>
 </details>
-{% if not leak and rows and not deliverable(rows) %}<p class="muted">確定した結果がまだ無いので、依頼者へは渡せません（確かめ用の書き出しは使えます）。</p>{% endif %}
 {% if rows|selectattr("to_fill")|list %}<p class="muted"><span class="to-fill-key">赤い欄</span>は、お名前だけではどの方か分からなかった行で、依頼者にご記入いただく欄です（書き出す CSV には「{{ please_fill }}」と書きます）。</p>{% endif %}
 {% if leak %}<div class="flash ng" role="alert">{{ leak }}</div>{% endif %}
 {% if rows %}

@@ -2,7 +2,7 @@
     2026-11-20 の見直し：同じ流れのひな形が2通りあり、列の選び方・数の並び・最後のボタンの色がそろっていなかった。
     行き先の形はどちらも同じ：ibase（ファイルを選ぶ）・ibase/{key}（列を確かめる）・ibase/{key}/preview（結果を出す）・ibase/{key}/register（登録）。
     行ごとの結果と、登録してよいかは core の1か所（お客様＝importer、発信禁止＝dnc_import）。ここは並べるだけ -#}
-{% from "parts.html" import csrf, stat, file_pick %}
+{% from "parts.html" import csrf, stat, file_pick, why_disabled %}
 
 {#- 手順の印。済んだ手順は押すと戻れる（ページごとの「← 戻る」は書かない＝戻り方の決まり。列を確かめる手順へ戻るのは、ファイルを受け取ったあとだけ） -#}
 {% macro steps(stage, ibase, key="") -%}
@@ -83,6 +83,7 @@
   <div class="actions">
     <a class="btn" href="{{ cancel }}">やめる（何も登録しない）</a>
     <button class="btn main" type="submit" {% if not enabled %}disabled{% endif %}>{{ label }}</button>
+    {{ why_disabled("" if enabled else "登録できる行がありません（ファイルを直して、もう一度取り込めます）") }}
   </div>
 </form>
 {%- endmacro %}
