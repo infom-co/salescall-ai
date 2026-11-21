@@ -46,6 +46,11 @@ class EmergencyRouteOnScreen(Pause):
         page = http.get(f"/t/stops/{sid}").text                                 # 停止が解ければ、緊急の道も終わる（いま効いているかは core の active だけを見る）
         self.assertIn("緊急の道で再開していました", page)
         self.assertNotIn("緊急の道で再開しています", page)
+        # 再開の記録（だれが・いつ・なぜ。core の stops.explain の resolved）を出し、もう決めることの無い説明は出さない
+        self.assertIn("<dt>再開した</dt>", page)
+        self.assertIn("試験：止めた停止を解く", page)
+        self.assertNotIn("再開する前に確かめること", page)
+        self.assertNotIn("止めているあいだも出る電話", page)
 
     def test_a_stop_that_cannot_be_reopened_says_why(self):
         w = World().setup()

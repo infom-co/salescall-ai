@@ -7,7 +7,7 @@
 {% block crumb %}{{ words.STOP_PAGE }}{% endblock %}
 {% block main %}
 <h1>{{ x.cause.label }}</h1>
-<p class="lead">{{ words.stop_scope(x.stop.scope) }}の範囲・{{ time(x.stop.at) }}から
+<p class="lead">{% if client %}依頼者「{{ client.name }}」の範囲{% else %}{{ words.stop_scope(x.stop.scope) }}の範囲{% endif %}・{{ time(x.stop.at) }}から{% if x.resolved %}{{ time(x.resolved.at) }}まで{% endif %}
   {% if x.resolved %}{{ tag("再開しました", "ok") }}{% else %}{{ tag("止まっています", "stop") }}{% endif %}</p>
 {{ flash(done, ok) }}
 
@@ -19,14 +19,20 @@
       <dt>理由</dt><dd>{{ x.stop.reason }}</dd>
       {% if x.stop.evidence %}<dt>根拠</dt><dd>{{ words.plain(x.stop.evidence) }}</dd>{% endif %}
       <dt>止めた</dt><dd>{{ x.stop.actor }}・{{ time(x.stop.at) }}</dd>
+      {#- 再開の記録（だれが・いつ・なぜ。core の stops.explain の resolved をそのまま） -#}
+      {% if x.resolved %}<dt>再開した</dt><dd>{{ "システム（決まりで自動に再開）" if x.resolved.actor_kind == "system" else x.resolved.actor }}・{{ time(x.resolved.at) }}
+        {% if x.resolved.reason %}<div class="muted">理由：{{ x.resolved.reason }}</div>{#- 書いた方の文は書いたまま（言い換えを通さない） -#}{% endif %}</dd>{% endif %}
     </dl>
   </section>
+  {#- 再開したあとは、止めていたあいだの説明（出る電話・再開する前に確かめること）は、もう決めることが無いので出さない -#}
+  {% if not x.resolved %}
   <section class="card">
     <h2>止めているあいだも出る電話</h2>
     {% if x.cause.lets_through %}
       <ul>{% for k in x.cause.lets_through %}<li>{{ words.keeping_kind(k) }}</li>{% endfor %}</ul>
     {% else %}<p class="muted">この停止では、どの電話も出ません。</p>{% endif %}
   </section>
+  {% endif %}
   <section class="card">
     <h2>自動で再開する決まり</h2>
     <p>{{ words.plain(x.cause.auto_resume) }}</p>
@@ -38,11 +44,13 @@
     </tbody></table></div>
     {% endif %}
   </section>
+  {% if not x.resolved %}
   <section class="card">
     <h2>再開する前に確かめること</h2>
     <p>{{ words.plain(x.cause.before_resume) }}</p>
     <p class="hint">再開できるのは：{{ x.who_can_resume }}。管理者か契約者が再開すると、同じ原因で止めるために数えていた数は、再開した時刻から数え直します。</p>
   </section>
+  {% endif %}
 </div>
 
 {% if x.ai_troubles %}
@@ -109,7 +117,7 @@
         data-confirm="「{{ x.cause.label }}」（{{ words.stop_scope(x.stop.scope) }}の範囲{% if client %}・依頼者「{{ client.name }}」{% endif %}）から再開します。新しい電話をまたかけ始めます。">
     {{ csrf(token) }}
     <label class="field" for="reason">再開する理由</label>
-    <textarea id="reason" name="reason" required placeholder="例：回線の端末を入れ替え、テスト番号で鳴ることを確かめた"></textarea>
+    <textarea id="reason" name="reason" required placeholder="例：止めた理由が片付いたことを確かめた（何を確かめたかを書きます）"></textarea>
     <div class="actions" style="margin-top:12px">
       <button class="btn main" type="submit" data-submit disabled>再開する</button>
     </div>

@@ -571,7 +571,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 return stops.resume(tx, event_id, reason=reason)
             out = actions.act(secret, person.login_id, form,
                               lambda: ctx.tenant(do) if client_id is None else ctx.client(client_id, do),
-                              done="再開しました。", reason_field="reason")
+                              done="再開しました。新しい電話をまたかけ始めます（だれが・いつ・なぜ再開したかは、この画面の記録に残りました）。",
+                              reason_field="reason")
             return _back(f"/t/stops/{event_id}" if client_id is None else f"/c/{client_id}/stops/{event_id}", out)
         return handle(request, render)
 
