@@ -40995,7 +40995,10 @@ class RereadRowsTest(unittest.TestCase):
              # 分身 S3 の続き：申し出 N4 のあとの方法 N5（伺い40）・決め手を伺う一言 E5（伺い47 のイ）
              "受けていただいた申し出のあとの方法の伺い（ご承認いただけなかったあとの N4 に「はい」）": ("N5", "それでは訪問とお電話のどちらがよろしいでしょうか？", ""),
              "決め手を伺う一言のあと（ほかの会社に頼んでいて困りごとは無いと言われた）": (
-                 "E5", "それは何よりです。ちなみにそちらの会社をお選びになった決め手はどのような点でしたでしょうか？", "")}
+                 "E5", "それは何よりです。ちなみにそちらの会社をお選びになった決め手はどのような点でしたでしょうか？", ""),
+             # 分身 Q（n9）：「〇時まで」の理由を伺い直した一言のあと（判定に見せる質問は、その一言＝伺い63）
+             "「〇時まで」の理由を伺い直した一言のあと（時刻の2択に「3時までなら大丈夫です。」）": (
+                 "C1", "恐れ入ります。3時までということはそれ以降はお電話が難しいということでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -43540,7 +43543,8 @@ class UntilAskAgainTest(unittest.TestCase):
         self.assertEqual(f2.items[c1].value, "火曜日の午後3時まで")
 
     def test_yes_gives_the_reason_and_no_gives_none(self):
-        from flowctl import CALLBACK_IDS, JUDGMENTS, UNTIL_LABEL
+        # 理由は判定の読み（項目 UNTIL_WHY＝分身 Q の (4)＝n9。会話AIの報告の until_why は判定を使う通話では使わない）
+        from flowctl import CALLBACK_IDS, JUDGMENTS, UNTIL_LABEL, UNTIL_WHY, UNTIL_WHY_NOT_SAID
         c1 = CALLBACK_IDS["time"]
         self.assertEqual(UNTIL_LABEL["available_until"], "それまでは出られる（それ以降は難しい）")
         for why in ("available_until", None):
@@ -43548,7 +43552,9 @@ class UntilAskAgainTest(unittest.TestCase):
             d.answer(f, "3時までなら大丈夫です。", "3時までなら")
             f.on_callee(); f.on_heard("はい、3時から会議なんです。" if why else "いえ、そういうわけではないです。")
             for k in JUDGMENTS:
-                f.on_check(k, CallbackTimeAheadTest.rd("答えた"))
+                rd = CallbackTimeAheadTest.rd("答えた")
+                setattr(rd, UNTIL_WHY, UNTIL_LABEL[why] if why else UNTIL_WHY_NOT_SAID)
+                f.on_check(k, rd)
             f.on_decided()
             r = f.apply("record_answer", {"question_id": c1, "condition_id": "答えた", "value": "3時まで", **({"until_why": why} if why else {})})
             self.assertTrue(d.heard(r).endswith(self.SAY), (why, d.heard(r)))
@@ -47666,9 +47672,246 @@ class MisgivingTest(unittest.TestCase):
         self.assertEqual(G.step_wants(rows[("G16", "カードか振込か迷っています。")], qmap["G16"], False), {G.HESITATE_ACT[False]})
         self.assertEqual(G.misgiving_truths({"label": {"accept": [HESITATING, "いいえ"], MISGIVING: [MISGIVING_UNSAID, MISGIVING_OFF]}}, "いいえ"), (MISGIVING_OFF,))
         self.assertEqual(G.misgiving_truths({"label": {"accept": [HESITATING, "いいえ"], MISGIVING: [MISGIVING_UNSAID, MISGIVING_OFF]}}, HESITATING), (MISGIVING_UNSAID,))
-        # 迷っているお客様に応じる質問の行は、どれも正解を付けた（帳面 0-3 の (2)）
-        from flowctl import hears_hesitation
+        # 項目を見せる質問（迷っているお客様に応じる質問のうち、ご承認の質問を除く＝misgiving_fits。分身 Q の (2)）の行は、どれも正解を付けた（帳面 0-3 の (2)）
+        from flowctl import misgiving_fits
         for k, v in labels.items():
-            if hears_hesitation(qmap[k.split("|")[1]]):
+            if misgiving_fits(qmap[k.split("|")[1]]):
                 self.assertIn(MISGIVING, v, k)
                 self.assertTrue(v.get("misgiving_why"), k)
+
+
+class RefusalNoHeadTest(unittest.TestCase):
+    """分身 Q（CL-1 の頼み rv183/Q の (1)＝分身 P の書き置き (6-3)）：ご遠慮の一言 R1「今後このようなお電話はご遠慮したほうがよろしいでしょうか？」へのお返事が「いいえ」
+    「はっきりしない」のときの返事の頭は「はい、」（本書 9-4 の「断られた」の行「R1 … いいえ・はっきりしない答え＝断ったとは言われていないので、伺う前の位置へ…戻る」・D2 の
+    「問題は無い・はっきりしない＝…ご遠慮の一言の「いいえ」と同じ1か所から伺う前の質問へ戻る（「はい、話を戻させていただきますね。それでは…」）」＝D2 と R1 は同じ1か所・同じ頭）。
+    伺う前の質問へ戻るときも、その場で戻らずに次の質問へ進むときも（相づちの1か所 _ack_choice が、戻る1か所 _back_from_aside の印で選ぶ）。
+    ⛔ 直す前は、進むときは順に回す相づち「ありがとうございます。続きまして…」・はっきりしないお返事で戻るときは「承知しました。」"""
+
+    def refusal(self, words, cond, talks):
+        """D2 のお返事「もう結構ですので。」（断ろうとしている）で R1 を伺い、R1 へのお返事を受ける。(f, お返事への返事)。"""
+        from flowctl import CALLBACK_IDS
+        from meaning_judge import Reading
+        c = ConcernNoMatterHeadTest()
+        f, r = c.concern("もう結構ですので。", Reading("断ろうとしている", firm=True), "断ろうとしている", talks=talks)
+        self.assertEqual(f.current, CALLBACK_IDS["refusal"], heard_words(r))
+        f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(cond, firm=True))
+        return f, f.apply("record_answer", {"question_id": CALLBACK_IDS["refusal"], "condition_id": cond})
+
+    def test_no_to_r1_is_received_with_hai_going_on_or_back(self):
+        for words, cond in (("いいえ、そういうわけでは。", "いいえ"), ("うーん、どうでしょう。", "unknown")):
+            # 進む（その場の回数を使い切った言い直し＝L14 の「-」の道）
+            f, r = self.refusal(words, cond, 2)
+            self.assertEqual((f.current, r["ack"]), ("Q2", "hai"), (cond, heard_words(r)))
+            self.assertTrue(heard_words(r).startswith("はい、続きまして"), (cond, heard_words(r)))
+            # 戻る（その場の回数が残っている）
+            f, r = self.refusal(words, cond, 0)
+            self.assertEqual((f.current, f.awaiting_confirm, r["ack"]), ("V1", "V1", "hai"), (cond, heard_words(r)))
+            self.assertTrue(heard_words(r).startswith("はい、話を戻させていただきますね。"), (cond, heard_words(r)))
+
+    def test_yes_to_r1_still_closes(self):
+        f, r = self.refusal("はい、もうかけないでください。", "はい", 0)
+        self.assertEqual(f.end_reason, "callee_refused_call", heard_words(r))
+        self.assertNotEqual(r.get("ack"), "hai", heard_words(r))
+
+
+class MisgivingApprovalTest(unittest.TestCase):
+    """分身 Q（CL-1 の頼み rv183/Q の (2)＝分身 P の書き置き (6-4)）：説明した内容のご承認の質問（approval）には、項目「迷っている点を言ったか」（MISGIVING）を見せない。
+    ご承認の質問への迷いは、ご承認いただけなかったときの手順（N1＝「はい、どういった点でお迷いでしょうか？」）が受け持ち、点をもう言っていれば伺わないのは、本書 9-5 の W1 の段の
+    終わりの決まり（N1 を流す前に、先に言われた答えの1か所で判定が N1 について読み直す＝Flow._point_ahead）が同じ問いに答える＝同じ問いに答える所を2つ作らない。
+    見せる質問の1か所は flowctl.misgiving_fits（迷っているお客様に応じる質問のうち、ご承認の質問を除く）。
+    ⛔ 直す前は、ご承認の質問にも項目を見せ（判定に送る文に項目の段）、流れの制御は使っていなかった（正解の表のご承認の質問の行にも正解を付けていた）"""
+
+    def test_the_item_is_not_shown_for_the_approval(self):
+        from flowctl import MISGIVING, hears_hesitation, misgiving_choices, misgiving_fits
+        from meaning_judge import answer_items, items_text
+        a = ApprovalTest().flow()
+        q = a.for_judge(a.questions["Q2"])
+        self.assertTrue(q.approval and hears_hesitation(q))
+        self.assertFalse(misgiving_fits(q))
+        self.assertNotIn(MISGIVING, answer_items(q))
+        self.assertNotIn(MISGIVING, answer_items(q, "念のため以上の内容でよろしいでしょうか？"))
+        self.assertNotIn(f"（{MISGIVING}）", items_text(q))
+        self.assertEqual(misgiving_choices(False, q), {})
+        # 迷っているお客様に応じるほかの質問（ご希望から選んでいただく質問）は今のまま見せる
+        m = MisgivingTest().flow()
+        p = m.for_judge(m.questions["Q1"])
+        self.assertTrue(misgiving_fits(p))
+        self.assertIn(MISGIVING, answer_items(p))
+
+    def test_a_stated_point_over_the_approval_is_read_again_for_n1(self):
+        # (a) ご承認の質問への迷いの言葉に点があれば、N1（「どういった点でお迷いでしょうか？」の形）を流す前に、先に言われた答えの1か所で判定が N1 について読み直し、
+        # 点を言っていれば N1 を流さずに、聞いた答えの報告へ（_point_ahead・ahead_context）。言っていなければ N1 を流す
+        from flowctl import AHEAD_CHECKS, CALLBACK_IDS, HESITATING, JUDGMENTS, POINT_SAID, UNDECIDED
+        from meaning_judge import Reading
+        from phrases import HESITATE_POINT
+        n1 = CALLBACK_IDS["not_agreed"]
+        for read, played in ((POINT_SAID["not_agreed"], False), (UNDECIDED, True)):
+            f = ApprovalTest().flow(play=True)
+            f.use_checks(*JUDGMENTS)
+            for words, qid, cond, rd in (("届いてないです。", "Q1", "いいえ", "いいえ"), ("料金が高いのが気になって、同意するか迷っています。", "Q2", "unknown", HESITATING)):
+                f.on_callee(); f.on_heard(words)
+                for k in JUDGMENTS:
+                    f.on_check(k, Reading(rd))
+                r = f.apply("record_answer", {"question_id": qid, "condition_id": cond})
+            self.assertEqual((f.current, r.get("ahead_offer"), f.questions[n1].text), (n1, True, HESITATE_POINT))
+            ctx = f.ahead_context()
+            self.assertEqual(ctx[0].id, n1)
+            f.on_check(AHEAD_CHECKS[0], Reading(read), f.callee_turns)
+            r = f.apply("replay_opening", {"part": "resume"})
+            self.assertEqual(HESITATE_POINT in "".join(p["text"] for p in r.get("play") or []), played, (read, r))
+
+    def test_the_approval_rows_carry_no_misgiving(self):
+        # 正解の表（試しの言葉の行 review_words.answer_words・正解の表 g53_labels.json）のご承認の質問の行には、この項目の正解を付けない。見せる質問の行は、どれも付けた
+        import g53_meaning as G
+        from flowctl import MISGIVING, misgiving_fits
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        with open("g53_labels.json", encoding="utf-8") as fp:
+            labels = json.load(fp)["labels"]
+        rows = [(k.split("|")[1], k, v) for k, v in labels.items()] + [(it["qid"], (it["qid"], it["text"]), it["label"]) for it in answer_words()]
+        seen = 0
+        for qid, k, v in rows:
+            if qmap[qid].approval:
+                seen += 1
+                self.assertNotIn(MISGIVING, v, k)
+                self.assertNotIn("misgiving_why", v, k)
+            elif misgiving_fits(qmap[qid]):
+                self.assertIn(MISGIVING, v, k)
+        self.assertGreater(seen, 0)
+
+
+class EndWordsMisgivingTest(unittest.TestCase):
+    """分身 Q（CL-1 の頼み rv183/Q の (3)＝分身 P の書き置き (6-5)）：電話を終える言葉の表の行（組 F＝end_words.answer_truths）のうち、項目「迷っている点を言ったか」（MISGIVING）を
+    読む質問（flowctl.misgiving_fits）の行にも、項目の正解を1行ずつ当てる（帳面 0-3 の (2)）。どの行も答えの正解に「迷っている」が無い＝項目の説明から「迷っていない」（行ごとの理由
+    misgiving_why）。項目を読まない質問の行には付けない。⛔ 直す前は付けていなかった（読んでいない＝None）"""
+
+    def test_each_row_reading_the_item_has_its_truth(self):
+        import end_words as E
+        from flowctl import HESITATING, MISGIVING, MISGIVING_OFF, misgiving_fits
+        truths = E.answer_truths()
+        seen = 0
+        for (qtext, words), v in truths.items():
+            if misgiving_fits(E.question(qtext)):
+                seen += 1
+                self.assertNotIn(HESITATING, v["accept"], (qtext, words))
+                self.assertEqual(v.get(MISGIVING), [MISGIVING_OFF], (qtext, words))
+                self.assertIn("迷っている", v.get("misgiving_why", ""), (qtext, words))
+            else:
+                self.assertNotIn(MISGIVING, v, (qtext, words))
+        self.assertEqual(seen, 20)
+        # 正しい読みの組み合わせに、項目の正解が入る（答えごと＝g53_meaning.misgiving_truths）
+        import g53_meaning as G
+        it = {"set": "F", "question": E.PAMPHLET, "text": "もういいです。"}
+        self.assertEqual(G.misgiving_truths(it, "いいえ"), (MISGIVING_OFF,))
+
+
+class UntilCycleJudgedTest(unittest.TestCase):
+    """分身 Q（CL-1 の頼み rv183/Q の (4)＝n9・D43-21＋L8）：「〇時まで」と言われたときの、いま電話を続けられない理由（別の番号・別の方へ／それまでは出られない／それまでに確認・準備／
+    それまでは出られる＝伺い63／言っていない）と、月単位の理由（月ぎめの業務・締め・振り込みや入金の間隔など／言っていない）を、わからない理由（WHY）・電話に出られない理由
+    （ABSENT_WHY）と同じ形で、答えとは別に読む項目（flowctl.SIDE_ITEMS の UNTIL_WHY・CYCLE）にして判定が読む（✅ 2026-11-08 日本時間12時11分40秒「会話AIは判定に加えない」・
+    11-06 日本時間15時20分30秒「(3)「わからない」の理由は判定が読む（OK）」と同じ理由）。読む1か所は答えの報告の入口 _op_record_answer の理由（Flow._reasons_of）。
+    会話AIの until_why・cycle は、判定を使わない通話だけ（判定を使う通話では判定を待つきっかけと値の文字だけ）。見せる質問は、かけ直しの時刻を伺う質問だけ（until_fits＝「あとで」の時刻・
+    cycle_fits＝かけ直しの時刻・日の質問）。⛔ 直す前は、判定を使う通話でも会話AIの報告の理由だけで決めていた（理由を報告しなければ、言っていても伺い直した）"""
+
+    @staticmethod
+    def say(f, words, value, until_read=None, cycle_read=None, **ai):
+        """判定の組がそろって、項目 UNTIL_WHY を until_read・CYCLE を cycle_read と読んだ言葉に、会話AIが ai（until_why・cycle など）を添えて答えを報告する。"""
+        from flowctl import CALLBACK_IDS, CYCLE, JUDGMENTS, UNTIL_WHY
+        f.on_callee(); f.on_heard(words)
+        for k in JUDGMENTS:
+            r = CallbackTimeAheadTest.rd("答えた")
+            setattr(r, UNTIL_WHY, until_read)
+            setattr(r, CYCLE, cycle_read)
+            f.on_check(k, r)
+        f.on_decided()
+        return f.apply("record_answer", {"question_id": CALLBACK_IDS["time"], "condition_id": "答えた", "value": value, **ai})
+
+    def agreed(self, f):
+        from flowctl import CALLBACK_IDS, JUDGMENTS
+        f.on_callee(); f.on_heard("はい、お願いします。")
+        for k in JUDGMENTS:
+            f.on_check(k, CallbackTimeAheadTest.rd("affirmed"))
+        f.on_decided()
+        f.apply("confirm_field", {"question_id": CALLBACK_IDS["time"], "result": "affirmed"})
+        return f.facts["callback"][0]
+
+    def test_the_items_are_shown_only_on_the_callback_time(self):
+        from flowctl import CYCLE, CYCLE_LABEL, SIDE_ITEMS, UNTIL_LABEL, UNTIL_WHY, callback_question, cycle_fits, side_items, until_fits
+        from meaning_judge import JEV_ITEMS, answer_items
+        later = callback_question("later_time", answering=True)
+        self.assertTrue(until_fits(later) and cycle_fits(later))
+        self.assertLessEqual(set(UNTIL_LABEL.values()), set(answer_items(later)[UNTIL_WHY]))
+        self.assertIn(CYCLE_LABEL["month"], answer_items(later)[CYCLE])
+        back = callback_question("back_time")   # お戻りの時刻：月単位の理由だけ（「〇時まで」の理由は「あとで」のときだけ＝記録も同じ）
+        self.assertEqual((until_fits(back), cycle_fits(back)), (False, True))
+        self.assertNotIn(UNTIL_WHY, answer_items(back))
+        pay = MisgivingTest().flow().questions["Q1"]
+        self.assertFalse(until_fits(pay) or cycle_fits(pay))
+        self.assertFalse({UNTIL_WHY, CYCLE} & set(answer_items(pay)))
+        self.assertLessEqual({UNTIL_WHY, CYCLE}, set(SIDE_ITEMS) & set(JEV_ITEMS))
+        self.assertFalse({UNTIL_WHY, CYCLE} & set(side_items(False) | side_items(True)))
+
+    def test_the_until_reason_is_the_judges(self):
+        from flowctl import UNTIL_LABEL, UNTIL_WHY_NOT_SAID
+        a = UntilAskAgainTest()
+        # 判定がそろって理由を読んだ：会話AIが理由を報告しなくても伺い直さずに受け取り、記録に理由
+        d, f = a.at_hours()
+        r = self.say(f, "4時まで会議なんです。", "4時まで", until_read=UNTIL_LABEL["unavailable"])
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        self.assertEqual(self.agreed(f).get("until_why"), "unavailable")
+        # 判定が「言っていない」：会話AIが理由を報告しても使わず、1回だけ伺い直す
+        d, f = a.at_hours()
+        r = self.say(f, "3時までなら大丈夫です。", "3時まで", until_read=UNTIL_WHY_NOT_SAID, until_why="preparing")
+        self.assertEqual((r["result"], r.get("ask_reason")), ("ask_back", "until"))
+        # 伺い直した一言へのお返事も判定が読む（「はい」＝それまでは出られる）
+        r = self.say(f, "はい、3時から会議なんです。", "3時まで", until_read=UNTIL_LABEL["available_until"])
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        self.assertEqual(self.agreed(f).get("until_why"), "available_until")
+        # 読みが割れた（判定の組の片方だけ）：言っていない側＝伺い直す
+        d, f = a.at_hours()
+        from flowctl import CALLBACK_IDS, JUDGMENTS, UNTIL_WHY
+        f.on_callee(); f.on_heard("3時までに担当に確認しておきます。")
+        for k, u in zip(JUDGMENTS, (UNTIL_LABEL["preparing"], UNTIL_LABEL["unavailable"])):
+            rd = CallbackTimeAheadTest.rd("答えた")
+            setattr(rd, UNTIL_WHY, u)
+            f.on_check(k, rd)
+        f.on_decided()
+        r = f.apply("record_answer", {"question_id": CALLBACK_IDS["time"], "condition_id": "答えた", "value": "3時まで", "until_why": "preparing"})
+        self.assertEqual(r.get("ask_reason"), "until")
+
+    def test_the_month_reason_is_the_judges(self):
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID
+        a = UntilAskAgainTest()
+        for cycle, ai, want in ((CYCLE_LABEL["month"], {}, "month"), (CYCLE_NOT_SAID, {"cycle": "month"}, None)):
+            d, f = a.at_hours()
+            r = self.say(f, "振り込みが毎月25日なので、4時でお願いします。", "4時", cycle_read=cycle, **ai)
+            self.assertEqual(r["result"], "confirm_required", d.heard(r))
+            self.assertEqual(self.agreed(f).get("cycle"), want, cycle)
+
+    def test_each_row_reading_the_items_has_its_truth(self):
+        # 帳面 0-3 の (2)：項目を読む質問の行（行の場面で判定に見せる質問が until_fits・cycle_fits）は、どれも1行ずつ正解と理由を付けた（読まない行には付けない）。
+        # 正解の表 g53_labels.json・電話を終える言葉の表には、かけ直しの時刻の質問の行が無い（分身 O の (3-3)）＝試しの言葉の行を作った
+        import g53_meaning as G
+        import end_words as E
+        from flowctl import CYCLE, UNTIL_WHY, cycle_fits, until_fits
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        with open("g53_labels.json", encoding="utf-8") as fp:
+            labels = json.load(fp)["labels"]
+        self.assertFalse([k for k in labels if until_fits(qmap[k.split("|")[1]]) or cycle_fits(qmap[k.split("|")[1]])])
+        self.assertFalse([k for k in E.answer_truths() if until_fits(E.question(k[0])) or cycle_fits(E.question(k[0]))])
+        seen = {UNTIL_WHY: 0, CYCLE: 0}
+        for it in answer_words():
+            q = qmap[it["qid"]]
+            if not (until_fits(q) or cycle_fits(q)):
+                self.assertFalse({UNTIL_WHY, CYCLE} & set(it["label"]), it["text"])
+                continue
+            f, qid = G.flow_scene(it, q)
+            shown = f.for_judge(f.questions[qid])
+            for key, fits, why in ((UNTIL_WHY, until_fits, "until_why_why"), (CYCLE, cycle_fits, "cycle_why")):
+                if fits(shown):
+                    seen[key] += 1
+                    self.assertTrue(it["label"].get(key) and it["label"].get(why), (key, it["text"]))
+                else:
+                    self.assertNotIn(key, it["label"], (key, it["text"]))
+        self.assertGreaterEqual(min(seen.values()), 20)
