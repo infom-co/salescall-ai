@@ -45,7 +45,7 @@ class WatchOnScreen(OurTroubles):
         got = self.claim(s)                                                      # 門が、休んでいる行を止める（理由 task_resting）
         self.assertEqual(getattr(got, "reason", None), "task_resting")
         biz = http.get(f'/c/{s["client"]}/b/{s["business"]}').text
-        part = biz[biz.index("今日、システムが電話を見送り始めたお客様"):]
+        part = biz[biz.index("今日、電話を見送ったお客様"):]
         self.assertIn(words.gate_reason("task_resting"), part)                   # 理由の言葉は core の gate.REASONS
         other = World().setup()
         self.assertNotIn(f'/rows/{s["task"]}', _http(other["tenant"]).get("/t/watch").text)   # ほかの契約者には見えない

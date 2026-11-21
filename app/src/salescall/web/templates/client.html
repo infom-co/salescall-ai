@@ -95,18 +95,25 @@
     <p class="muted">合わせて {{ total }} 件。お客様ごとの最新の結果です（確定していないものも入ります）。</p>
     {% else %}{{ empty("まだお客様がいません", "お客様を取り込むと、ここに結果ごとの数が出ます。") }}{% endif %}
   </div>
+  {#- 2026-11-21 の見直し：「確定していない結果」と「今日見送ったお客様」が1つの札に入っていた（別のこと）。札を分け、見出しは何が困るかで書く -#}
+  <div class="stack">
   <div class="card {{ 'attention-wait' if unconfirmed }}">
-    <h2>確定していない結果</h2>
+    <h2>まだ依頼者へ渡せない結果</h2>
+    <p class="muted">結果が確定するまで、依頼者へ渡すファイルには、その結果を書きません。</p>
     <div class="mini-stats">
       <a class="mini {{ 'wait' if f.unconfirmed.awaiting_check }}" href="/t/inbox?kind=result_check&client={{ client.client_id }}">
         <b class="num">{{ f.unconfirmed.awaiting_check }}</b><span>確かめ待ち</span><small>承認待ちで確かめる</small></a>
       <div class="mini"><b class="num">{{ f.unconfirmed.blocked }}</b><span>決定待ち</span><small>取り消せない決定・あとの電話を待つ</small></div>
       <div class="mini"><b class="num">{{ f.unconfirmed.unknown }}</b><span>判定できない</span><small>判定し直すまで渡さない</small></div>
     </div>
-    <h3 style="margin-top:14px">今日、システムが電話を見送り始めたお客様（理由別）</h3>
+  </div>
+  <div class="card">
+    <h2>今日、電話を見送ったお客様</h2>
+    <p class="muted">かける直前の確かめで、今日新しく見送り始めたお客様の数です（理由別）。</p>
     {% if f.denied_today %}
     <ul class="reasons">{% for r, n in f.denied_today %}<li><span>{{ words.gate_reason(r) }}</span><b class="num">{{ n }}</b></li>{% endfor %}</ul>
     {% else %}<p class="muted">今日、新しく見送り始めたお客様はいません。</p>{% endif %}
+  </div>
   </div>
 </section>
 {#- 必須の質問の答えの数（計画書 5-2「必須項目の『取れた』『-』『✕』の数（別々に）」。数えるのは core の metrics.required_items の1か所） -#}
