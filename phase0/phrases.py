@@ -822,6 +822,9 @@ def of_matter(noun: str) -> str:
 # お給料日を伺う一言の形（{name}＝伺う日の名前）と、録音の一言の名前（お言葉の文＝伺い99 ア）。伺うのは flowctl.Flow._ask_payday の1か所・名前は flowctl.payday_name の1か所。お客様が
 # ほかの日の名前（「締め日のあとで」）でおっしゃったら、同じ形の文をその名前で会話AIの声で（9-3 お客様の言った言葉で伺う・10-19「同じ理由が当たる場面すべてに当てる」）。分身 AF の (2)
 PAYDAY_FORM, PAYDAY_NAME = "恐れ入りますが{name}は何日になりますでしょうか？", "お給料日"
+# 時期の2択の形（{a}・{b}＝週の言い方＝flowctl.ladder_period_words）と、録音の一言の週の言い方（伺い102 イのお見せした文「来週と再来週」）。日付で言う週（「12月7日からの週」）は
+# 同じ形で会話AIの声（分身 AF の伺いの文 rv187/AF/ask_period.md の伺い1・伺い2 のア＝CL-1 が書いてある決まりで決めた）
+PERIOD_FORM, PERIOD_NAMED = "それでは{a}と{b}ではどちらがよろしいでしょうか？", ("来週", "再来週")
 TIME_LADDER = {"kind": "それでは平日と土日のどちらがよろしいでしょうか？",
                # 土日の受け：お言葉の文「はい、承知致しました。土日にあらためてご連絡させていただきますね。」の頭の「はい、」は相づちの録音（ACK の hai）で流し、
                # 続きをこの録音にする（録音の文には読点を入れない＝10-15。flowctl.Flow._ack_choice が土日の受けの頭に hai を選ぶ）
@@ -835,8 +838,12 @@ TIME_LADDER = {"kind": "それでは平日と土日のどちらがよろしい�
                # 日時の2択に、月単位の理由で、こちらで日の分からない頃（「給料日のあとでお願いします。」）を言われたときに、その日を伺う一言（頭の「承知しました。」は相づちの
                # 録音。値の入らない決まった文＝共通の一言の録音。伺うのは flowctl.Flow._ask_payday の1か所）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアで
                # OK、進めてください」（伺い99 アの「承知しました。恐れ入りますがお給料日は何日になりますでしょうか？」）。決まった言い方なので読点は入れない（10-15）
-               "payday": PAYDAY_FORM.format(name=PAYDAY_NAME)}
-TIME_LADDER_IDS = {"kind": "callback_time_kind", "weekend": "time_weekend", "half": "callback_time_half", "payday": "time_payday"}
+               "payday": PAYDAY_FORM.format(name=PAYDAY_NAME),
+               # 平日と土日の2択に2つとも合わないと言われたときの時期の2択（頭の「承知しました。」は相づちの録音。値の入らない決まった文＝共通の一言の録音。日付で言う週の入る文は
+               # 同じ形 PERIOD_FORM で会話AIの声＝flowctl.ladder_line の1か所・週の言い方は flowctl.ladder_period_words の1か所）。✅ 2026-11-21 日本時間21時15分00秒 ユーザー
+               # 「伺い102：イ」（お見せしたイの文「承知しました。それでは来週と再来週ではどちらがよろしいでしょうか？」）。決まった言い方なので読点は入れない（10-15）
+               "period": PERIOD_FORM.format(a=PERIOD_NAMED[0], b=PERIOD_NAMED[1])}
+TIME_LADDER_IDS = {"kind": "callback_time_kind", "weekend": "time_weekend", "half": "callback_time_half", "payday": "time_payday", "period": "callback_time_period"}
 PAYDAY_ASK, PAYDAY_ASK_ID = TIME_LADDER["payday"], TIME_LADDER_IDS["payday"]
 # 依頼者のお客様に日時を選んでいただく質問（伺い62）を2択で伺い始めるときの、2択の頭に入れる聞くこと（flowctl.ladder_opening の1か所）：業務の質問の聞くこと（Question.topic
 # 「ご来店の日時」）から日時の言葉を外した言葉（「ご来店」）＋「は」。午前と午後の2択は、その頭の「お時間は」の代わりに入れる（「ご来店は午前と午後の…」）。日時の言葉しか

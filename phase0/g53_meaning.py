@@ -1123,6 +1123,29 @@ def _payday_named_scene(q: Question) -> Flow:
     return f
 
 
+SCENE_NEITHER = "どちらもちょっと難しいですね。"
+PERIOD_DAYS = 28   # 時期の2択の場面の電話をかけられる日（12月14日からの週の頭まで＝時期の2択に2つとも合わないとき、その先の2つの時期を並べられる）
+
+
+def _period_scene(q: Question, again: bool = False) -> Flow:
+    """時期の2択（review_words.PERIOD_SCENE・PERIOD_AGAIN_SCENE）：かけ直しを頼まれ（_ladder_scene と同じ頭）、平日と土日の2択に「どちらもちょっと難しいですね。」（判定の読みは
+    どちらも合わない）と答えていただき、「それでは来週と再来週ではどちらがよろしいでしょうか？」（伺い102 イ＝段を決める ladder_step の period）を伺った所まで。again＝時期の2択にも
+    同じお返事をいただき、その先の2つの時期「それでは12月7日からの週と12月14日からの週ではどちらがよろしいでしょうか？」（日付で言う週＝会話AIの声）を伺った所まで（試験 AGPeriodTest と
+    同じ手順）。分身 AG の (1)"""
+    from flowctl import LADDER_NEITHER, LATER, ladder_step
+    f = asked_flow([SCENE_PRE, SCENE_NEXT])
+    f.use_checks("judge")
+    _ladder_day(f, PERIOD_DAYS)
+    _scene_say(f, SCENE_LATER, _scene_read(LATER), "request_callback", why="later")
+    _no_time_said(f)
+    for _ in range(1 + again):
+        _scene_say(f, SCENE_NEITHER, _scene_read(LADDER_NEITHER), "record_answer", question_id=q.id, condition_id=LADDER_NEITHER)
+    it = f.items.get(q.id)
+    if f.current != q.id or it is None or it.ladder is None or (ladder_step(it.ladder, f._ladder_ctx(q.id)) or ("",))[0] != "period":
+        raise NoScene("時期の2択を伺わない")
+    return f
+
+
 SCENE_THEIRS_PICK = "明日になります。"
 SCENE_THEIRS_WEEK_FIX = "いえ、来週になります。"
 
@@ -1143,12 +1166,13 @@ def _theirs_redo_scene(q: Question) -> Flow:
     return f
 
 
-def _ladder_day(f: Flow) -> None:
-    """日時の2択の段の場面の電話の日と時刻・電話をかけられる日（唯一の場所＝LADDER_TODAY・LADDER_HOLIDAY。曜日の2択は「金曜日と火曜日」）。"""
+def _ladder_day(f: Flow, days: int = 11) -> None:
+    """日時の2択の段の場面の電話の日と時刻・電話をかけられる日（唯一の場所＝LADDER_TODAY・LADDER_HOLIDAY。曜日の2択は「金曜日と火曜日」）。days＝電話をかけられる日を電話の日の
+    次の日から何日先までとするか（時期の2択の場面 _period_scene は週を2つ・4つ並べられる日数）。"""
     import datetime as dt
     y, m, d, h = LADDER_TODAY
     f.today, f.now = dt.date(y, m, d), dt.datetime(y, m, d, h, 0)
-    f.call_days = tuple(f.today + dt.timedelta(days=i) for i in range(1, 12) if f.today + dt.timedelta(days=i) != dt.date(*LADDER_HOLIDAY))
+    f.call_days = tuple(f.today + dt.timedelta(days=i) for i in range(1, days + 1) if f.today + dt.timedelta(days=i) != dt.date(*LADDER_HOLIDAY))
 
 
 def _no_time_said(f: Flow) -> None:
@@ -1538,7 +1562,7 @@ def _new_scene(it: dict, q: Question) -> Flow:
     from review_words import (ACCEPT_PAIR_SCENE, ANSWERED_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, LADDER_SCENE, MEETING_PAIR_SCENE, OFFER_FINAL_SCENE,
                               PAIN_SCENE, THEIRS_PAIR_SCENE, WAIT_SCENE, WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, WRONG_ASK_SCENE,
                               UNTIL_ASK_SCENE, THEIRS_SIDE_AGAIN_SCENE, THEIRS_NEITHER_AGAIN_SCENE, LADDER_REDO_SCENE, UNTIL_LEAN_SCENE, PAYDAY_ASK_SCENE,
-                              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE)
+                              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE, PERIOD_SCENE, PERIOD_AGAIN_SCENE)
     build = {LADDER_SCENE: _ladder_scene, LADDER_CLOCK_SCENE: _ladder_clock_scene, WRONG_ASK_SCENE: _wrong_ask_scene, WAIT_SCENE: _wait_scene,
              PAIN_SCENE: _pain_scene, CONCERN_SCENE: _concern_scene, CONFIRM_CONCERN_SCENE: _confirm_concern_scene, ANSWERED_SCENE: _answered_scene,
              OFFER_FINAL_SCENE: _offer_final_scene, WITHDRAW_TIME_SCENE: _withdraw_time_scene, WITHDRAW_SEND_SCENE: _withdraw_send_scene,
@@ -1547,7 +1571,8 @@ def _new_scene(it: dict, q: Question) -> Flow:
              THEIRS_SIDE_AGAIN_SCENE: lambda q: _theirs_again_scene(q, "本日"), THEIRS_NEITHER_AGAIN_SCENE: lambda q: _theirs_again_scene(q, None),
              LADDER_REDO_SCENE: _ladder_redo_scene, UNTIL_LEAN_SCENE: _until_lean_scene,
              PAYDAY_ASK_SCENE: _payday_ask_scene, NO_ROOM_SCENE: _no_room_scene, RANGE_REDO_SCENE: _range_redo_scene, PAYDAY_SPAN_SCENE: _payday_span_scene,
-             PAYDAY_NAMED_SCENE: _payday_named_scene, THEIRS_REDO_SCENE: _theirs_redo_scene}.get(it["scene"])
+             PAYDAY_NAMED_SCENE: _payday_named_scene, THEIRS_REDO_SCENE: _theirs_redo_scene,
+             PERIOD_SCENE: _period_scene, PERIOD_AGAIN_SCENE: lambda q: _period_scene(q, again=True)}.get(it["scene"])
     if build is None:
         raise NoScene(f"場面の印の場面を組む作りが無い（{it['scene']}）")
     return build(q)

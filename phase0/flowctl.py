@@ -21,7 +21,7 @@ import functools
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, PAYDAY_FORM, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
+from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, PAYDAY_FORM, PERIOD_FORM, PERIOD_NAMED, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_ALSO_IDS, APOLOGY_ALSO_TEXTS, APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
 from phrases import LISTED_ASK, LISTED_DIALED_ID, UNTIL_ASK, UNTIL_LEAN_ASK, brief_sorry_text, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
@@ -706,6 +706,9 @@ _LADDER_WDAY = re.compile(r"(?:(?P<week>今週|来週|再来週)の?)?(?P<w>[月
 _LADDER_DATE = re.compile(r"(?:(?P<m>\d{1,2})月)?(?P<d>\d{1,2})日(?!後|の?(?:あと|後))")
 _LADDER_WEEK = re.compile(r"今週|来週|再来週")
 _LADDER_WEEKS = {"今週": 0, "来週": 1, "再来週": 2}
+# 日付で言う週（時期の2択の「12月7日からの週」＝ladder_period_words の言い方・お答えの「7日からの週」「14日の週」）。週の言葉（今週・来週・再来週）と同じく週として読む
+# （日の言葉・幅の言葉「から」にしない＝ladder_read）。週の月曜日を決めるのは ladder_week_start の1か所
+_LADDER_WEEK_OF = re.compile(r"(?:\d{1,2}月)?\d{1,2}日(?:から)?の週")
 # 日時の2択の段で読む頃（月の中の頃・月まるごと）と、その日の範囲（{頃の言葉: (始まりの日, 終わりの日)}。0 以下は月の終わりの日から数える＝0 が終わりの日・-2 が終わりの3日前）。
 # CL-2 の時刻の読み（spoken_time の _MONTH_PART・_MONTH・_month_range・_named_month）と同じ日の範囲（比べる試験 LadderSpanTest）。✅ 2026-10-19 ユーザー：月末＝月の最後の3日・
 # 月の初め／頭＝1〜3日。上旬・中旬・下旬はふつうの意味（CL-2 の 2026-10-19 の決まり）。分身 R の (2)
@@ -894,7 +897,13 @@ def ladder_read(text: str | None, slots: dict, today=None, pair: tuple = ()) -> 
     1か所＝言い直し・通話の事実の値も同じ言い方。1〜6日先だけの2択はお客様の言葉のまま＝今のまま）。
     分身 V。⛔ 090edbfa まで、11-27・11-30 を並べた「金曜日と月曜日では…」への「月曜日で。」を、いちばん近い月曜日 11-23（祝日）と読んだ"""
     s, t = dict(slots), re.sub(r"\s", "", text or "")
+    # 日付で言う週（「7日からの週」＝時期の2択の言い方）は週（言い方は時期の言い方の1か所 ladder_period_words にそろえる）。日の言葉・幅の言葉（「から」）としては読まない
+    of = _LADDER_WEEK_OF.search(t) if today is not None else None
+    if of is not None:
+        t = t[:of.start()] + t[of.end():]
     word, day, week = _ladder_date(t, today)
+    if of is not None and not word and (start := ladder_week_start(of.group(), today)) is not None:
+        week = ladder_period_words(start, today)
     matched, hits = False, (_ladder_pair_days(t, pair) if pair and word else ())
     if len(hits) > 1:
         word = day = week = None   # 並べた2つで1つに決まらない＝決めない
@@ -963,6 +972,56 @@ def ladder_no_room(s: dict, ctx: LadderCtx) -> str | None:
     return _ladder_day_cands(s, ctx)[1]
 
 
+def _ladder_call_days(ctx: LadderCtx) -> tuple:
+    """日時の2択の候補にできる日（唯一の材料＝曜日の2択の候補 _ladder_day_cands・時期の2択の候補 ladder_periods）：空いている予定があればその日・無ければ電話をかけられる日・
+    暦も無ければ明日から21日。"""
+    import datetime as dt
+    return tuple(d for d, _, _ in ctx.free) if ctx.free else ctx.days or tuple(ctx.today + dt.timedelta(days=i) for i in range(1, 22))
+
+
+def ladder_week_start(week: str | None, today) -> object:
+    """週の言葉（今週・来週・再来週＝_LADDER_WEEKS・日付で言う週「12月7日からの週」＝_LADDER_WEEK_OF）の月曜日（唯一の読み＝曜日の2択の候補 _ladder_day_cands・言い方 _in_week・
+    お答えの読み ladder_read）。週は月曜日から（day_words と同じ）。読めない・電話の日が分からなければ None。"""
+    import datetime as dt
+    if today is None or not week:
+        return None
+    if week in _LADDER_WEEKS:
+        return today - dt.timedelta(days=today.weekday()) + dt.timedelta(weeks=_LADDER_WEEKS[week])
+    if (m := _LADDER_WEEK_OF.search(week)) is None or (day := _ladder_date(m.group(), today)[1]) is None:
+        return None
+    return day - dt.timedelta(days=day.weekday())
+
+
+def ladder_period_words(start, today) -> str:
+    """時期の2択で並べる週（月曜日 start）の言い方（唯一の場所＝段の質問の文 ladder_line・判定の選べるもの「（週）だけ合わない」・選ばれた週 ladder_fill・お答えの日付で言う週
+    ladder_read）：電話の日の週の次の週＝「来週」・その次＝「再来週」（✅ 2026-11-21 日本時間21時15分00秒 ユーザー「伺い102：イ」のお見せした文「来週と再来週では」）・それより先は
+    週の初めの日付で「12月7日からの週」（日付の言い方は _date_words の1か所＝同じ月は「7日」）。「今週・来週・再来週」は電話の日が月曜日〜土曜日のときだけで、日曜日の電話は日付
+    （「23日からの週」）。CL-1 が書いてある決まりで決めた（分身 AF の伺いの文 rv187/AF/ask_period.md の伺い1・伺い2 のア＝分身 V の日の言い方の決まり「来週より先は日付」・
+    「今週・来週は電話の日と言う日がどちらも月曜日〜土曜日のときだけ」＝week_or_date と同じ理由。週を日曜日から数えるお客様には違う週に聞こえる）"""
+    weeks = (start - today.fromordinal(today.toordinal() - today.weekday())).days // 7
+    if weeks in (0, 1, 2) and today.weekday() != 6:
+        return ("今週", "来週", "再来週")[weeks]
+    return f"{_date_words(start, today)}からの週"
+
+
+def ladder_periods(s: dict, ctx: LadderCtx) -> tuple:
+    """時期の2択の候補（唯一の作り方＝段を決める ladder_step）：電話の日の次の週から先の週の月曜日のうち、その週の中に曜日の2択の候補がある週（候補の作りは
+    _ladder_day_cands の1か所＝伺い60「空スケジュールの中から2つ」）の早い順に2つ。片方だけ合わない・2つとも合わないと言われた週（shown_period＝Flow._ladder_neither）は
+    並べない（伺い60「2.別の空スケジュールの2つ」・伺い94）。電話の日が分からなければ無し。"""
+    import datetime as dt
+    if ctx.today is None:
+        return ()
+    days, out = _ladder_call_days(ctx), []
+    start = ctx.today - dt.timedelta(days=ctx.today.weekday()) + dt.timedelta(weeks=1)
+    while days and start <= max(days) and len(out) < 2:
+        if start not in s.get("shown_period", ()):
+            cands, room = _ladder_day_cands({**s, "week": ladder_period_words(start, ctx.today)}, ctx)
+            if cands and room is None:
+                out.append(start)
+        start += dt.timedelta(weeks=1)
+    return tuple(out)
+
+
 def _ladder_day_cands(s: dict, ctx: LadderCtx) -> tuple:
     """曜日の2択の候補と、お客様のおっしゃった頃・週に空いている予定が無かったときのその言葉（ladder_days・ladder_no_room の中身＝候補の作りは1か所）：(候補, 言葉 か None)。
     頃・週の中に無ければ、そのすぐあとの空いている予定から2つ（お客様がその頃を選んだ理由＝それより前は忙しい、を崩さない）・そのあとにも無いときだけ、すぐ前の2つ（伺い100 ア。
@@ -970,11 +1029,10 @@ def _ladder_day_cands(s: dict, ctx: LadderCtx) -> tuple:
     import datetime as dt
     if ctx.today is None:
         return (), None
-    days = tuple(d for d, _, _ in ctx.free) if ctx.free else ctx.days or tuple(ctx.today + dt.timedelta(days=i) for i in range(1, 22))
+    days = _ladder_call_days(ctx)
     shown = s.get("shown_day", ())
     words = None
-    if s.get("week"):
-        lo = ctx.today - dt.timedelta(days=ctx.today.weekday()) + dt.timedelta(weeks=_LADDER_WEEKS[s["week"]])
+    if s.get("week") and (lo := ladder_week_start(s["week"], ctx.today)) is not None:
         hi, words = lo + dt.timedelta(days=6), s["week"]
     elif (span := ladder_span(s.get("span"), ctx.today)) is not None:
         (lo, hi), words = span, s["span"]   # お客様が言った頃（「来月の頭」＝ladder_read の span）の中から（2つとも合わないと言われたあとも、その頃の中の別の空いている予定から）
@@ -1050,7 +1108,8 @@ def ladder_half_past(s: dict, ctx: LadderCtx, half: str) -> bool:
 
 
 def ladder_step(s: dict, ctx: LadderCtx) -> tuple | None:
-    """日時の2択の段で、まだ決まっていない最初の所と、その候補（唯一の決まり）：(段, 候補)。段は平日と土日（kind）→ 曜日（day）→ 午前と午後（half）→ 時刻（clock）の順で、
+    """日時の2択の段で、まだ決まっていない最初の所と、その候補（唯一の決まり）：(段, 候補)。段は平日と土日（kind。平日も土日も合わなければ時期＝period＝伺い102 イ）→ 曜日（day）→
+    午前と午後（half）→ 時刻（clock）の順で、
     お客様がもう言った所は飛ばす（場面C）。時刻まで決まった・「いつでも」・候補が無い（その日に、かけられる時刻が無いなど）なら None（伺えた所までの値で受け取る）。
     候補が1つだけの段は、その1つ（伺わずに入れる＝Flow._ladder_set）。土日を選ばれたら曜日は伺わない（お言葉の流れ）。時刻・幅だけを言われても、まだ伺えて
     いない日（平日を選んだあとの曜日）は伺う（時刻・幅は重ねて伺わない。日を言わない時刻は今日のこと＝ladder_read の today なので、平日と土日から伺っている
@@ -1062,7 +1121,13 @@ def ladder_step(s: dict, ctx: LadderCtx) -> tuple | None:
     if not (s.get("day") or s.get("today") or (s.get("kind") == "土日" and not (s.get("meeting") or s.get("theirs")))):
         if s.get("kind") is None and ladder_weekends(ctx):
             # 片方だけ合わないと言われた方（shown_kind＝Flow._ladder_neither）は並べない（残りが1つなら伺わずに入れる＝Flow._ladder_set）
-            return "kind", tuple(k for k in LADDER_KINDS if k not in s.get("shown_kind", ()))
+            if (kinds := tuple(k for k in LADDER_KINDS if k not in s.get("shown_kind", ()))):
+                return "kind", kinds
+            if not (s.get("week") or s.get("span")):
+                # 平日も土日も合わないと言われた（shown_kind が2つとも＝Flow._ladder_neither）：時期の2択（「来週と再来週」＝ladder_periods）。週を選ばれたら、その週の中の空いている
+                # 予定から曜日の2択（お客様が週をおっしゃったときと同じ候補の作り）。並べる時期が無ければ None（呼ぶ所が、いま伺った2択で聞き直す）。✅ 2026-11-21 日本時間21時15分00秒
+                # ユーザー「伺い102：イ」。⛔ 3ccaced6 まで、同じ「平日と土日」の2択で聞き直した（11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）
+                return ("period", periods) if (periods := ladder_periods(s, ctx)) else None
         if (days := ladder_days(s, ctx)):
             return "day", days
     # お客様から折り返していただく日（theirs＝伺い67 ア）は日だけを伺う（時刻は、お客様がご存じのことを伺った答えのまま＝伺い61 ア）
@@ -1086,11 +1151,15 @@ def ladder_label(step: str, choice, s: dict, pair: tuple = (), today=None) -> st
         if (on := s.get("theirs")) and not s.get("week") and (choice - on).days in (0, 1):
             return ("本日", "明日")[(choice - on).days]   # お客様から折り返していただく日の2択（伺い67 ア「本日と明日では」）
         wday = f"{WEEKDAY_WORDS[choice.weekday()]}曜日"
-        if s.get("week") and _in_week(choice, s["week"], today):
-            return f"{s['week']}の{wday}"   # お客様が週を言った（今のまま。その週に空いている予定が無く、そのあとの日を並べるときは下の言い方＝伺い100 ア）
+        if s.get("week") in _LADDER_WEEKS and _in_week(choice, s["week"], today):
+            # お客様が週を言った（今のまま。その週に空いている予定が無く、そのあとの日を並べるときは下の言い方＝伺い100 ア）。日付で言う週（時期の2択の「12月7日からの週」）は
+            # 下の言い方（「12月7日の月曜日」＝分身 AF の伺いの文 rv187/AF/ask_period.md の伺い1 のアの例）
+            return f"{s['week']}の{wday}"
         return f"{week_or_date(choice, today)}の{wday}" if ladder_far((*pair, choice), today) else wday
     if step == "clock":
         return f"{choice % 12 or 12}時"
+    if step == "period":
+        return ladder_period_words(choice, today)
     return choice
 
 
@@ -1099,8 +1168,8 @@ def _in_week(day, week: str, today) -> bool:
     import datetime as dt
     if today is None or day is None:
         return True
-    lo = today - dt.timedelta(days=today.weekday()) + dt.timedelta(weeks=_LADDER_WEEKS[week])
-    return lo <= day <= lo + dt.timedelta(days=6)
+    lo = ladder_week_start(week, today)
+    return lo is not None and lo <= day <= lo + dt.timedelta(days=6)
 
 
 def ladder_far(pair: tuple, today) -> bool:
@@ -1117,6 +1186,9 @@ def ladder_fill(s: dict, step: str, choice, pair: tuple = (), today=None) -> dic
         s.update(day=ladder_label(step, choice, s, pair, today), date=choice, today=False, kind="平日" if choice.weekday() < 5 else "土日")
     elif step == "clock":
         s["clock"], s["picked"] = ladder_label(step, choice, s), True   # こちらが並べた2択の時刻（印 picked＝ladder_recheck が確かめる＝分身 AB の (5)）
+    elif step == "period":
+        s["week"] = ladder_label(step, choice, s, pair, today)   # 選ばれた時期（週）＝お客様が週をおっしゃったときと同じ所（ladder_read の week）
+        s.pop("span", None)
     else:
         s[step] = choice
     return s
@@ -1128,6 +1200,10 @@ def ladder_line(step: str, cands: tuple, s: dict, today=None) -> tuple[str, str,
     if step in ("kind", "half"):
         return TIME_LADDER[step], TIME_LADDER_IDS[step], False
     a, b = (ladder_label(step, c, s, cands, today) for c in cands)
+    if step == "period":
+        # 時期の2択（伺い102 イ）：「来週と再来週」は値の入らない決まった文＝共通の一言の録音（phrases.TIME_LADDER の period）・日付で言う週の入る文は同じ形で会話AIの声
+        # （phrases.PERIOD_FORM の1か所＝PAYDAY_FORM と同じ形）
+        return (TIME_LADDER[step], TIME_LADDER_IDS[step], False) if (a, b) == PERIOD_NAMED else (PERIOD_FORM.format(a=a, b=b), "", True)
     return TIME_LADDER["theirs_pair" if s.get("theirs") else "pair"].format(a=a, b=b), "", True
 
 
@@ -1269,7 +1345,7 @@ def _ladder_range_mend(s: dict, got: dict, known: dict, ctx: LadderCtx) -> tuple
     ⛔ a3b200cf まで、お客様から折り返していただく日の2択のあとは今のまま（同じ言い直し・記録「来週」）だった（分身 AB の書き置き rv186/AB/notes.md の (6-5)＝分身 AF の (3)）"""
     if not (ladder_time_words(s) or s.get("any")):
         return None, known, False
-    redo = {k: v for k, v in s.items() if k not in ("day", "date", "today", "week", "span", "shown_day", "shown_kind", "no_room_told")}
+    redo = {k: v for k, v in s.items() if k not in ("day", "date", "today", "week", "span", "shown_day", "shown_kind", "shown_period", "no_room_told")}
     redo.update({k: got[k] for k in ("kind", "week", "span") if got.get(k)})
     if s.get("date") is not None:
         # お客様が直した（避けた）その日は、並べ直す2択に並べない（伺い94「避けた日だけを外す」・伺い60「別の空スケジュールの2つ」と同じ理由。外すのは同じ1か所＝伺えた所の shown_day を
@@ -17985,15 +18061,16 @@ class Flow:
         """日時の2択に2つとも合わない（判定の選べるもの LADDER_NEITHER・side＝None）・片方だけ合わない（「（避けた方）だけ合わない」＝ladder_side_name・side＝避けた方の候補）と
         言われたときの唯一の返事（時刻・午前と午後・平日と土日の2択も同じ1か所）：
         - 2つとも合わない：並べた2つを外し（shown_day・shown_clock）、別の空いている予定から2つを「承知しました。それでは（a）と（b）ではどちらがよろしいでしょうか？」（もう伺った
-          2択へ戻る頭＝again）。午前も午後も合わないなら、その日を外して曜日から（決まりで決めた＝その日は合わない）。平日も土日も合わない・別の空いている予定が無いときは、いま
-          伺った2択の文で聞き直す（決まりで決めた (a)＝_undecided_answer）。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い60：1.空スケジュールの中から2つ　2.別の空スケジュールの2つ」
+          2択へ戻る頭＝again）。午前も午後も合わないなら、その日を外して曜日から（決まりで決めた＝その日は合わない）。平日も土日も合わないなら、時期の2択「それでは来週と再来週では
+          どちらがよろしいでしょうか？」（段を決める ladder_step の period＝✅ 2026-11-21 日本時間21時15分00秒「伺い102：イ」）・時期の2択に2つとも合わないなら、その先の2つの時期。
+          別の空いている予定（時期）が無いときは、いま伺った2択の文で聞き直す（決まりで決めた (a)＝_undecided_answer）。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い60：1.空スケジュールの中から2つ　2.別の空スケジュールの2つ」
         - 片方だけ合わない（伺い94＝✅ 2026-11-20 日本時間16時13分55秒・16時25分52秒）：判定の組がそろって、合わないと言わなかったほうで大丈夫そうと読んだ（ladder_other_ok）＝エ
           （避けなかった方を答えとして受け取る＝_ladder_kept）。ほか＝ウ：避けた方だけを外し（shown_kind・shown_day・shown_half・shown_clock。外すのは並べたその1つ＝その日だけ。
           毎週かは言葉から決まらない＝伺い60 の「別の空スケジュール」と同じく並べた所だけ）、避けなかった方と次の空いている予定で2択（頭は 2つとも合わないときと同じ）。
           残りが1つの段（平日と土日・午前と午後）は今の「候補が1つだけの段は伺わずに入れる」（_ladder_set）で次の2択へ。それで時刻まで決まったら、その値（今の言い直しの確かめへ）"""
         it, ctx = self.items[qid], self._ladder_ctx(qid)
         step = ladder_step(it.ladder, ctx)
-        if step is None or (side is None and step[0] == "kind"):
+        if step is None:
             return self._undecided_answer(qid)
         name, cands = step
         s = dict(it.ladder)
@@ -18002,7 +18079,9 @@ class Flow:
             if ladder_other_ok(self._judged_now().get(k) for k in JUDGMENTS if k in self.checks_used):
                 return self._ladder_kept(qid, name, next(c for c in cands if c != side), cands)
             s[shown] = tuple(sorted({*s.get(shown, ()), side}))
-        elif name in ("day", "clock"):
+        elif name in ("day", "clock", "kind", "period"):
+            # 平日も土日も合わない（kind）：2つとも外す＝段を決める1か所 ladder_step が時期の2択（period）へ（伺い102 イ）。時期の2択に2つとも合わない：その先の2つの時期
+            # （伺い60 と同じ形）。並べる時期が無ければ下で、いま伺った2択の文で聞き直す
             s[shown] = tuple(sorted({*s.get(shown, ()), *cands}))
         elif s.get("date") is not None:   # half：その日を外して曜日から（時刻・午前と午後の外した所も消す＝別の日の時刻）
             s = {k: v for k, v in s.items() if k not in ("day", "date", "today", "half", "shown_clock", "shown_half")}

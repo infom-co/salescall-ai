@@ -80,10 +80,14 @@ RANGE_REDO_SCENE = "日時の2択の段の言い直しに週だけ直された�
 PAYDAY_SPAN_SCENE = "お給料日のあとの頃の2択（お給料日を伺った一言に「25日です。」）"
 PAYDAY_NAMED_SCENE = "締め日を伺った一言のあと（曜日の2択に「締め日のあとでお願いします。」）"
 THEIRS_REDO_SCENE = "お客様から折り返していただく日の言い直しに週だけ直されたあとの2択（「いえ、来週になります。」のあとの「来週の火曜日と来週の水曜日」）"
+# 時期の2択（伺い102 イ＝分身 AG の (1)）：平日と土日の2択に2つとも合わないと言われたあとの「来週と再来週」（共通の一言の録音）と、それにも2つとも合わないと言われたあとの日付で言う週
+# （会話AIの声）
+PERIOD_SCENE = "時期の2択（平日と土日の2択に「どちらもちょっと難しいですね。」のあとの「来週と再来週」）"
+PERIOD_AGAIN_SCENE = "時期の2択の2回目（時期の2択にも「どちらもちょっと難しいですね。」のあとの「12月7日からの週と12月14日からの週」）"
 NEW_SCENES = (LADDER_SCENE, WRONG_ASK_SCENE, WAIT_SCENE, PAIN_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, ANSWERED_SCENE, OFFER_FINAL_SCENE,
               WITHDRAW_TIME_SCENE, WITHDRAW_SEND_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, UNTIL_ASK_SCENE, THEIRS_PAIR_SCENE, ACCEPT_PAIR_SCENE,
               MEETING_PAIR_SCENE, THEIRS_SIDE_AGAIN_SCENE, THEIRS_NEITHER_AGAIN_SCENE, LADDER_REDO_SCENE, UNTIL_LEAN_SCENE, PAYDAY_ASK_SCENE,
-              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE)
+              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE, PERIOD_SCENE, PERIOD_AGAIN_SCENE)
 # 申し出の手順で選んでいただく方法（業務設定 handoff_ways。試験 EndJudgedTest.test_an_unlinked_reply_to_an_offer_is_answered_then_the_offer_is_put_again の to_offer と同じ）
 HANDOFF_WAYS = ("訪問", "お電話")
 
@@ -330,6 +334,7 @@ def answer_words() -> list[dict]:
         *AGAIN_ROWS,
         *ASK_ROWS,
         *AF_ROWS,
+        *AG_ROWS,
     ]
 
 
@@ -801,6 +806,15 @@ AF_ROWS = [
     _row("C1", "いやあ最近は暑くてねえ。", [UNDECIDED], AWAY_YES, scene=PAYDAY_NAMED_SCENE, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
          why="伺った締め日と関わりの無い世間話＝別のお話・答えは決められない（【決まりで決めた】(d)）",
          until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（世間話）", cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（世間話）"),
+]
+
+
+# 時期の2択（伺い102 イ＝分身 AG の (1)）の場面の試しの言葉（はじめの2択・並べ直した2回目の2択の行と同じ種類の6行＝_af_pair_rows の1か所）。並べる2つは週（「来週」「再来週」・日付で
+# 言う週「12月7日からの週」）。言葉は流れの制御に通して場面に合うことを確かめた（rv188/AG/probe/ag）。判定が見る文の変わった行（足した行の全部）は、答えを伏せた読み手への束 ag1
+# （rv188/AG/readers）に入れた
+AG_ROWS = [
+    *_af_pair_rows(PERIOD_SCENE, "C1", "来週", "再来週", "来週", "再来週"),
+    *_af_pair_rows(PERIOD_AGAIN_SCENE, "C1", "12月7日からの週", "12月14日からの週", "7日からの週", "14日からの週"),
 ]
 
 

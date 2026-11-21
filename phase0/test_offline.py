@@ -68,7 +68,10 @@ CL2_PENDING = frozenset({
                          "apology_cut_end_later_also",
                          # 日時の2択に月単位の理由で日の分からない頃を言われたときに、その日を伺う一言の共通の一言の録音（phrases.TIME_LADDER_IDS の payday＝伺い99 ア。
                          # ✅ 2026-11-21 日本時間14時59分44秒。分身 AB の (2)。CL-2 への知らせは CL-1）
-                         "time_payday"})
+                         "time_payday",
+                         # 平日と土日の2択に2つとも合わないときの時期の2択の共通の一言の録音と、戻る一言のあとの形（phrases.TIME_LADDER_IDS の period＝伺い102 イ。✅ 2026-11-21
+                         # 日本時間21時15分00秒。分身 AG の (1)。CL-2 への知らせは CL-1）
+                         "callback_time_period", "callback_time_period_bare", "callback_time_period_midway"})
 # CL-2 の読み手がまだ受けない値（CL2_PENDING の値の版）：{(通話の事実の種類, 欄): (CL-2 の call_report の組の名前, まだ入っていない値)}。FlowWatch は、読み手に通す前に、
 # その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
 # CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
@@ -42057,7 +42060,11 @@ class RereadRowsTest(unittest.TestCase):
              "お給料日のあとの頃の2択（お給料日を伺った一言に「25日です。」）": ("C1", "来週の木曜日と来週の金曜日ではどちらがよろしいでしょうか？", ""),
              "締め日を伺った一言のあと（曜日の2択に「締め日のあとでお願いします。」）": ("C1", "恐れ入りますが締め日は何日になりますでしょうか？", ""),
              "お客様から折り返していただく日の言い直しに週だけ直されたあとの2択（「いえ、来週になります。」のあとの「来週の火曜日と来週の水曜日」）": (
-                 "C1", "それでは来週の火曜日と来週の水曜日ではどちらになりますでしょうか？", "")}
+                 "C1", "それでは来週の火曜日と来週の水曜日ではどちらになりますでしょうか？", ""),
+             # 分身 AG の (1)：時期の2択（伺い102 イ＝review_words.AG_ROWS）
+             "時期の2択（平日と土日の2択に「どちらもちょっと難しいですね。」のあとの「来週と再来週」）": ("C1", "それでは来週と再来週ではどちらがよろしいでしょうか？", ""),
+             "時期の2択の2回目（時期の2択にも「どちらもちょっと難しいですね。」のあとの「12月7日からの週と12月14日からの週」）": (
+                 "C1", "それでは12月7日からの週と12月14日からの週ではどちらがよろしいでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -42074,13 +42081,14 @@ class RereadRowsTest(unittest.TestCase):
     def test_1_new_scenes_are_built_by_the_one_count(self):
         import g53_meaning as g
         from flowctl import AWAY, AWAY_NO, PROMPT_REPLY, PROMPT_REPLY_YES, VALUE_CHOICE, WRONG, WRONG_NOT_SAID
-        from review_words import AF_ROWS, AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
+        from review_words import AF_ROWS, AG_ROWS, AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
         qs = questions()
         rows = [it for it in answer_words() if it.get("scene") in NEW_SCENES]
         self.assertEqual({it["scene"] for it in rows}, set(NEW_SCENES))
         self.assertEqual(set(self.SHOWN), set(NEW_SCENES))
-        # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行・ASK_ROWS＝分身 AB が足した行・AF_ROWS＝分身 AF の (5) が足した行
-        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS, *AF_ROWS) if it.get("scene") in NEW_SCENES])
+        # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行・ASK_ROWS＝分身 AB が足した行・AF_ROWS＝分身 AF の (5) が足した行・
+        # AG_ROWS＝分身 AG の (1) が足した行
+        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS, *AF_ROWS, *AG_ROWS) if it.get("scene") in NEW_SCENES])
         for it in rows:
             with self.subTest(text=it["text"], scene=it["scene"]):
                 q = qs[it["qid"]]
@@ -45639,7 +45647,7 @@ class LadderFreeTest(unittest.TestCase):
     (1) 2択に並べる2つは、空いている予定の中から2つ（空いている予定は1か所＝LadderCtx.free。かけ直し＝電話をかけられる日時の空き Flow(call_free=…)・アポ＝依頼者が受けられる
         日時の空き Business.accept_free＝どちらも CL-2 から受ける仮の名前。受けるまでは今の候補の作り＝暦・営業時間・歯止め時間・いまの時刻を空いている予定として読む）
     (2) 2つとも合わなければ（判定の選べるもの「どちらも合わない」＝LADDER_NEITHER）、別の空いている予定から2つ（もう並べた所は外す＝6日先を越えてよい）。午前も午後も合わなければ、
-        その日を外して曜日から（決まりで決めた）。平日も土日も合わない・別の予定が無いときは、いま伺った2択の文で聞き直す（決まりで決めた (a) のまま）
+        その日を外して曜日から（決まりで決めた）。平日も土日も合わないときは時期の2択（伺い102 イ＝AGPeriodTest）。別の予定が無いときは、いま伺った2択の文で聞き直す（決まりで決めた (a) のまま）
     (3) 迷っている方には「はい、どういった点でお迷いでしょうか？」を1回（こちらから1つに絞ってお勧めはしない＝0時09分49秒）"""
     d = DateTimePairsTest()
 
@@ -45676,10 +45684,11 @@ class LadderFreeTest(unittest.TestCase):
         r = self.neither(f, "午前も午後もちょっと…。")
         self.assertTrue(self.d.heard(r).endswith(self.d.pair("金曜日", "水曜日")), self.d.heard(r))   # 火曜日を外した曜日
 
-    def test_neither_kind_asks_the_same_pair(self):
+    def test_neither_kind_asks_the_period_pair(self):
+        # 平日も土日も合わない：時期の2択（✅ 2026-11-21 日本時間21時15分00秒「伺い102：イ」＝AGPeriodTest）。⛔ 3ccaced6 まで、同じ「平日と土日」の2択で聞き直した
         f, _ = self.d.first()
         r = self.neither(f)
-        self.assertTrue(self.d.heard(r).endswith(self.d.KIND.removeprefix("それでは")), self.d.heard(r))
+        self.assertTrue(self.d.heard(r).endswith(AGPeriodTest.PERIOD), self.d.heard(r))
 
     def test_free_slots_are_the_one_source(self):
         import datetime as dt
@@ -50740,3 +50749,171 @@ class AgainSceneRowsTest(unittest.TestCase):
         for (scene, text), acts in want.items():
             it = next(i for i in self.rows(scene) if i["text"] == text)
             self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), acts, text)
+
+
+class AGPeriodTest(unittest.TestCase):
+    """分身 AG の (1)：✅ 2026-11-21 日本時間21時15分00秒 ユーザー「伺い102：イ」（伺いの文 rv186/AB/ask_weekend.md のイ）＝平日と土日の2択に2つとも合わない（判定の読み「どちらも
+    合わない」）と言われたら「承知しました。それでは来週と再来週ではどちらがよろしいでしょうか？」（時期の2択＝段を決める1か所 flowctl.ladder_step の period・候補は ladder_periods の
+    1か所）→ 週を選ばれたらその週の中の空いている予定から日の2択（「来週でお願いします。」→「来週の火曜日と来週の水曜日ではどちらがよろしいでしょうか？」）→ あとは今の段。時期の2択にも
+    2つとも合わなければ、その先の2つの時期（伺い60 と同じ形）。再来週より先の週と、日曜日の電話の週は日付で言う（「12月7日からの週」「23日からの週」＝ladder_period_words の1か所。
+    分身 AF の伺いの文 rv187/AF/ask_period.md の伺い1・伺い2 のア＝CL-1 が書いてある決まりで決めた）。片方だけ合わない＝伺い94 と同じ1か所。並べる時期が無ければ、いま伺った2択の文で
+    聞き直す（【決まりで決めた】(a)）。頭の相づちは次の2択の相づちの1か所（「承知しました。」が続けば「かしこまりました。」＝11-02 日本時間7時12分。伺い99 アと同じ＝CL-1 の決め）。
+    ⛔ 3ccaced6 まで、平日と土日の2択に2つとも合わないと、同じ「平日と土日」の2択で聞き直した"""
+    PERIOD = "それでは来週と再来週ではどちらがよろしいでしょうか？"
+
+    def call(self, today=None, days=11):
+        import datetime as dt
+        from flowctl import CALLBACK_IDS
+        today = today or dt.date(2026, 11, 19)
+        d = DateTimePairsTest()
+        f, _ = d.started()
+        f.today, f.now = today, dt.datetime(today.year, today.month, today.day, 10, 0)
+        f.call_days = tuple(today + dt.timedelta(days=i) for i in range(1, days + 1) if today + dt.timedelta(days=i) != dt.date(2026, 11, 23))
+        r = CallbackTimeAheadTest.time_asked(f)
+        self.assertTrue(d.heard(r).endswith(DateTimePairsTest.KIND), d.heard(r))
+        return f, CALLBACK_IDS["time"]
+
+    @staticmethod
+    def say(f, words, value, cond="答えた", other=None):
+        from flowctl import CALLBACK_IDS, JUDGMENTS, LADDER_OTHER
+        f.on_callee(); f.on_heard(words)
+        for k in JUDGMENTS:
+            r = CallbackTimeAheadTest.rd(cond)
+            if other is not None:
+                setattr(r, LADDER_OTHER, other)
+            f.on_check(k, r)
+        f.on_decided()
+        return f.apply("record_answer", {"question_id": CALLBACK_IDS["time"], "condition_id": cond, **({"value": value} if value else {})})
+
+    def neither(self, f):
+        from flowctl import LADDER_NEITHER
+        return self.say(f, "どちらもちょっと難しいですね。", None, LADDER_NEITHER)
+
+    def test_1_neither_at_the_kinds_asks_the_period_pair(self):
+        from flowctl import LADDER_NEITHER, ladder_side_name
+        from phrases import ACK, RECORDED, TIME_LADDER, TIME_LADDER_IDS
+        f, c1 = self.call()
+        r = self.neither(f)
+        heard = DateTimePairsTest.heard(r)
+        self.assertEqual(heard, ACK[r["ack"]] + self.PERIOD, heard)
+        self.assertEqual([p.get("id") for p in r["play"]], ["callback_time_period"])   # 頭の相づちは相づちの録音（ack）
+        self.assertEqual((TIME_LADDER["period"], TIME_LADDER_IDS["period"], RECORDED["callback_time_period"]), (self.PERIOD, "callback_time_period", self.PERIOD))
+        self.assertIn(r["ack"], ("shouchi", "kashikomari"))
+        # 判定の選べるもの：答えた・どちらも合わない・片方だけ合わない（伺い94 と同じ1か所）
+        self.assertEqual(f.questions[c1].conditions[-3:], (LADDER_NEITHER, ladder_side_name("来週"), ladder_side_name("再来週")))
+        self.assertEqual(f.questions[c1].text, self.PERIOD)
+
+    def test_2_the_chosen_week_gets_its_days(self):
+        # ご承認の例：「来週でお願いします。」→「承知しました。来週の火曜日と来週の水曜日ではどちらがよろしいでしょうか？」（11-23 は祝日）
+        f, c1 = self.call(days=14)
+        self.neither(f)
+        r = self.say(f, "来週でお願いします。", "来週")
+        self.assertEqual(DateTimePairsTest.heard(r), "承知しました。来週の火曜日と来週の水曜日ではどちらがよろしいでしょうか？")
+        self.assertEqual(self.say(f, "水曜日で。", "水曜日")["result"], "ask_back")
+        self.assertEqual(f.items[c1].ladder.get("date").isoformat(), "2026-11-25")
+
+    def test_3_neither_again_asks_the_weeks_after_by_date(self):
+        # 伺い1 のア：「承知しました。それでは12月7日からの週と12月14日からの週ではどちらがよろしいでしょうか？」・週を選ばれたら「12月7日の月曜日と12月8日の火曜日」
+        f, c1 = self.call(days=28)
+        self.neither(f)
+        r = self.neither(f)
+        self.assertTrue(DateTimePairsTest.heard(r).endswith("それでは12月7日からの週と12月14日からの週ではどちらがよろしいでしょうか？"), DateTimePairsTest.heard(r))
+        self.assertEqual([p["kind"] for p in r["play"]][-1], "said")   # 日付の入る文＝会話AIの声
+        r = self.say(f, "7日からの週でお願いします。", "7日からの週")
+        self.assertTrue(DateTimePairsTest.heard(r).endswith("12月7日の月曜日と12月8日の火曜日ではどちらがよろしいでしょうか？"), DateTimePairsTest.heard(r))
+
+    def test_4_a_sunday_call_says_the_weeks_by_date(self):
+        # 伺い2 のア：「承知しました。それでは23日からの週と30日からの週ではどちらがよろしいでしょうか？」（「今週・来週」は電話の日と言う日がどちらも月曜日〜土曜日のときだけ）
+        import datetime as dt
+        f, c1 = self.call(dt.date(2026, 11, 22), days=14)
+        r = self.neither(f)
+        self.assertTrue(DateTimePairsTest.heard(r).endswith("それでは23日からの週と30日からの週ではどちらがよろしいでしょうか？"), DateTimePairsTest.heard(r))
+
+    def test_5_one_side_of_the_periods(self):
+        # 伺い94 と同じ1か所：もう一方で大丈夫そう＝エ（その週の日の2択）・ほか＝ウ（避けた週だけを外し、避けなかった週と次の週）
+        from flowctl import LADDER_OTHER_OK, LADDER_OTHER_UNSURE, ladder_side_name
+        f, c1 = self.call(days=28)
+        self.neither(f)
+        r = self.say(f, "来週はちょっと…。", "再来週", ladder_side_name("来週"), LADDER_OTHER_UNSURE)
+        self.assertTrue(DateTimePairsTest.heard(r).endswith("それでは再来週と12月7日からの週ではどちらがよろしいでしょうか？"), DateTimePairsTest.heard(r))
+        f, c1 = self.call(days=28)
+        self.neither(f)
+        r = self.say(f, "来週はちょっと…再来週なら。", "再来週", ladder_side_name("来週"), LADDER_OTHER_OK)
+        self.assertTrue(DateTimePairsTest.heard(r).endswith("再来週の月曜日と再来週の火曜日ではどちらがよろしいでしょうか？"), DateTimePairsTest.heard(r))
+
+    def test_6_no_period_left_asks_the_same_pair_again(self):
+        # 【決まりで決めた】(a)：並べる時期が無ければ、いま伺った2択の文で聞き直す（11日＝再来週の先に電話をかけられる日が無い・3日＝来週に無い）
+        f, c1 = self.call()
+        self.neither(f)
+        r = self.neither(f)
+        self.assertEqual(DateTimePairsTest.heard(r), "はい、恐れ入ります。来週と再来週ではどちらがよろしいでしょうか？")
+        f, c1 = self.call(days=3)
+        r = self.neither(f)
+        self.assertEqual(DateTimePairsTest.heard(r), "はい、恐れ入ります。平日と土日のどちらがよろしいでしょうか？")
+
+    def test_7_one_period_is_put_in_without_asking(self):
+        # 今の「候補が1つだけの段は伺わずに入れる」：来週にしか空いている予定が無ければ、その週の日の2択へ
+        f, c1 = self.call(days=6)
+        r = self.neither(f)
+        self.assertTrue(DateTimePairsTest.heard(r).endswith("来週の火曜日と来週の水曜日ではどちらがよろしいでしょうか？"), DateTimePairsTest.heard(r))
+
+    def test_8_the_period_words_are_in_one_place(self):
+        import datetime as dt
+        from flowctl import ladder_period_words, ladder_read, ladder_week_start
+        thu, sun = dt.date(2026, 11, 19), dt.date(2026, 11, 22)
+        self.assertEqual([ladder_period_words(dt.date(2026, 11, 23) + dt.timedelta(weeks=k), thu) for k in range(3)], ["来週", "再来週", "12月7日からの週"])
+        self.assertEqual([ladder_period_words(dt.date(2026, 11, 23) + dt.timedelta(weeks=k), sun) for k in range(2)], ["23日からの週", "30日からの週"])
+        self.assertEqual(ladder_week_start("12月7日からの週", thu), dt.date(2026, 12, 7))
+        self.assertEqual(ladder_week_start("9日の週", thu), dt.date(2026, 12, 7))
+        # お答えの日付で言う週は週（日・幅の言葉にしない）
+        s = ladder_read("14日からの週でお願いします。", {}, thu)
+        self.assertEqual((s.get("week"), s.get("day"), s.get("frame")), ("12月14日からの週", None, None))
+
+    def test_9_the_new_recordings_wait_for_cl2(self):
+        import make_ack_clips
+        from phrases import RECORDED
+        names = {k for k in RECORDED if k.startswith("callback_time_period")}
+        self.assertEqual(names, {"callback_time_period", "callback_time_period_bare", "callback_time_period_midway"})
+        self.assertLessEqual(names, CL2_PENDING)
+        self.assertEqual(make_ack_clips.HOW_OF["callback_time_period"], "question")
+
+    def test_10_the_rows_of_the_period_pairs(self):
+        # 判定に見せる文の新しい場面（時期の2択）に試しの言葉の行（review_words.AG_ROWS＝はじめの2択・並べ直した2回目の2択と同じ種類の6行ずつ）。場面は測りの数えの1か所
+        # （g53_meaning._new_scene の _period_scene）が本番の流れの制御で組む。正しい読みで決まる動きを流れの制御に通して確かめた（rv188/AG/probe/ag）
+        import g53_meaning as G
+        from flowctl import ladder_sides
+        from meaning_judge import prompt
+        from review_words import AG_ROWS, PERIOD_AGAIN_SCENE, PERIOD_SCENE, questions
+        qmap = G.question_map() | questions()
+        texts = {PERIOD_SCENE: self.PERIOD, PERIOD_AGAIN_SCENE: "それでは12月7日からの週と12月14日からの週ではどちらがよろしいでしょうか？"}
+        self.assertEqual(sorted(it["scene"] for it in AG_ROWS), sorted([PERIOD_SCENE] * 6 + [PERIOD_AGAIN_SCENE] * 6))
+        for it in AG_ROWS:
+            q, asked, before = G.judge_inputs(it, qmap[it["qid"]])
+            self.assertEqual((q.text, len(ladder_sides(q))), (texts[it["scene"]], 2), it["text"])
+            self.assertIn(f"質問：「{texts[it['scene']]}」\n", prompt(q, it["text"], asked, before), it["text"])
+        want = {(PERIOD_SCENE, "どちらもちょっと難しいですね。"): {G.LADDER_NEITHER_ACT},
+                (PERIOD_SCENE, "来週はちょっと…。"): {f"{G.LADDER_ONE_ACT}：それでは再来週と12月7日からの週ではどちらがよろしいでしょうか？"},
+                (PERIOD_SCENE, "来週はちょっと…再来週なら。"): {f"{G.LADDER_KEPT_ACT}：再来週の月曜日と再来週の火曜日ではどちらがよろしいでしょうか？"},
+                (PERIOD_AGAIN_SCENE, "どちらもちょっと難しいですね。"): {G.ASK_AGAIN}}
+        for (scene, text), acts in want.items():
+            it = next(i for i in AG_ROWS if (i["scene"], i["text"]) == (scene, text))
+            self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), acts, text)
+
+    def test_11_the_back_lines_play_the_period_recordings(self):
+        # 録音で流す電話で、時期の2択へ戻るときの形（戻る一言のあと＝callback_time_period・2回目＝_bare・3回目から＝_midway）が流れる（録音の表の名前がどれも流れうる＝RecordedWatchTest）。
+        # 別のお話の受け答えが使えないときの録音のひとこと（2回）・尋ねられて答えたあとの相づちだけのお返事（3回目の戻り）
+        import g53_meaning as G
+        from flowctl import AWAY, AWAY_NO, AWAY_YES, QUERY, QUERY_YES, UNDECIDED
+        from review_words import questions
+        q = questions()["C1"]
+        f = G._period_scene(q)
+        ids = lambda r: [p.get("id") for p in (r or {}).get("play") or []]   # noqa: E731
+        for back in (["talk_heard_nod", "back", "callback_time_period"], ["talk_heard_nod", "back_again", "callback_time_period_bare"]):
+            G._scene_say(f, "今日は暑いですね。", G._scene_read(UNDECIDED, **{AWAY: AWAY_YES}), "record_answer", question_id=q.id, condition_id="答えた", value="今日は暑いですね。")
+            self.assertEqual(ids(f.apply("replay_opening", {"part": "talk", "answer": "本当に暑い日が続いておりますね。", "fallback": "talk_heard_nod"})), back)
+        r = G._scene_say(f, "それって何の件でしたっけ？", G._scene_read(UNDECIDED, **{AWAY: AWAY_NO, QUERY: QUERY_YES}))
+        self.assertEqual(r["result"], "callee_asked")
+        grounded(f, "ご予約の確認の件でお電話いたしました。")
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": "ご予約の確認の件でお電話いたしました。"})["result"], "own_answer")
+        r = G._scene_say(f, "なるほど。", G._scene_read(UNDECIDED, **{AWAY: AWAY_NO}))
+        self.assertEqual(ids(r), ["callback_time_period_midway"])
