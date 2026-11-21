@@ -38,6 +38,15 @@
   ので、本書を読み進めて記録が伸びると区切りが見えなくなり、29本のうち後半12本を数えず、書き換えも止めなかった (3) 通す命令を「名前が入っているか」
   だけで見ていて、ほかの命令をつなげても通った（形まで見る＝_guard_command）。
 - 英語の一言の見張りは、要約の区切りより前の文を見ない（区切りより前の英語の一言は、--after-compact の英語の数えの1か所で出す）。
+
+「〜本目まで読みました」の数の見張り（同じ hook の1か所・要約の区切りの見張りの中。帳面 1 の (6) の (i) の L11）：
+⛔ 帳面 0-1 の (2) の失敗が5回（11-19 日本時間0時45分台・0時55分台・6時35分30秒・14時23分22秒・11-21 4時43分37秒）＝(A) を読む途中、読んだファイルの
+   最後の番号ではなく、次に読む予定の番号を「まで」に書き、その続きから読んで間を飛ばした。決まりを足しても同じ形がくり返した。
+- --after-compact のあと (A) を読む間と、読み終えたすぐあとの一言の「N本目まで読みました」「次に、…M本目を読みます」と、そのあとの読む道具の
+  呼び出しを、会話の記録の同じ読みの順（_scan_reads）で、比べる1か所（_count_check）に当てる：N は直前に読み終えたその組の最後の番号（pNN）か・
+  1〜N本目は読んだか・M と次に呼ぶファイルは、まだ読んでいない一番小さい番号か。食い違えば、次の道具（読む道具も）か返事の終わりを1回止め、
+  どの数とどのファイルが食い違ったかを書く（同じ一言で二度は止めない。手伝いの係の道具・止めたあとの書き直しは止めない）。
+- 2026-11-21 に本物の会話の記録の区切り 207 回に当てた＝止めたのは12回：5回の失敗のほか、記録に無い数え違い・飛ばしが7回（分身 Y の書き置き rv184/Y/notes.md）。
 """
 from __future__ import annotations
 
@@ -113,6 +122,20 @@ def _step(row: dict) -> str:
     return str(row.get("uuid") or row.get("timestamp") or "")
 
 
+def _said(row: dict) -> list[str]:
+    """記録の1行のうち、こちらが書いた一言（type が assistant の行の text）。英語の一言・頭がコードの名前の一言・「〜本目まで」の数の見張りが
+    一言を見分ける入口の1か所。"""
+    if row.get("type") != "assistant":
+        return []
+    return [b.get("text") or "" for b in (row.get("message") or {}).get("content") or [] if isinstance(b, dict) and b.get("type") == "text"]
+
+
+def _mark(key: str, text: str) -> str:
+    """見た一言の印（その一言の直前の段の印と文の組＝同じ文をあとの段でまた書けば別の印）。"""
+    import hashlib
+    return hashlib.sha1(f"{key}\n{text}".encode("utf-8")).hexdigest()
+
+
 def recent_texts(path: str | Path, boundaries: int = BOUNDARIES, minutes: float = MINUTES,
                  tail_bytes: int = TAIL_BYTES, rows: list[dict] | None = None) -> list[tuple[str, str]]:
     """会話の記録の末尾から、最近の段（直近 boundaries 回の人の発言・道具の結果＝記録の type が user の行まで・minutes 分以内）に、
@@ -143,10 +166,8 @@ def recent_texts(path: str | Path, boundaries: int = BOUNDARIES, minutes: float 
     for idx, row in enumerate(rows):
         if row.get("type") == "user":
             step = _step(row)
-        elif idx >= start and row.get("type") == "assistant":
-            for block in (row.get("message") or {}).get("content") or []:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    texts.append((step, block.get("text") or ""))
+        elif idx >= start:
+            texts += [(step, t) for t in _said(row)]
     return texts
 
 
@@ -164,7 +185,7 @@ def jst(ts: str) -> str:
 
 def _load_compact() -> dict:
     st = json.loads(COMPACT_STATE.read_text(encoding="utf-8")) if COMPACT_STATE.exists() else {}
-    return {"done": list(st.get("done") or []), "pending": st.get("pending"), "reading": st.get("reading")}
+    return {"done": list(st.get("done") or []), "pending": st.get("pending"), "reading": st.get("reading"), "tail": st.get("tail")}
 
 
 def _save_compact(st: dict) -> None:
@@ -212,34 +233,214 @@ def _guard_command(hook: dict, *flags: str) -> bool:
 
 def _scan_reads(reading: dict) -> None:
     """会話の記録の、前に見た所から先を読み、出したファイルを読む道具で切らずに（offset・limit を付けずに）開いて答えが返った（止められて
-    いない・読めた）ものを、読んだと数える（読んだかの事実は会話の記録の1か所。呼ぶ時の知らせでは数えない）。"""
-    files, done = set(reading.get("files") or []), set(reading.get("read") or [])
+    いない・読めた）ものを、読んだと数える（読んだかの事実は会話の記録の1か所。呼ぶ時の知らせでは数えない）。
+    同じ読みの順で、こちらの一言の「〜本目まで読みました」「次に、…〜本目を読みます」と、そのあとの読む道具の呼び出しを _count_check に当て、
+    食い違いを reading["bad"] に足す（見る一言は、(A) を読む間と、読み終えたすぐあとの1つ。帳面 1 の (6) の (i) の L11）。"""
+    files, done = list(reading.get("files") or []), set(reading.get("read") or [])
     uses = dict(reading.get("uses") or {})
+    window, bad, seen = list(reading.get("window") or []), list(reading.get("bad") or []), list(reading.get("seen") or [])
+    step, armed, closed = str(reading.get("step") or ""), bool(reading.get("armed")), bool(reading.get("closed"))
+    finished = not [f for f in files if f not in done]
     with open(reading["transcript"], "rb") as f:
         f.seek(int(reading.get("scanned") or 0))
         data = f.read()
     end = data.rfind(b"\n") + 1   # 書きかけの最後の行は次に読む
     for line in data[:end].splitlines():
-        if b'"tool_use"' not in line and b'"tool_result"' not in line:
+        if b'"assistant"' not in line and b'"user"' not in line:
             continue
         try:
             row = json.loads(line)
         except ValueError:
             continue
+        if not isinstance(row, dict):
+            continue
+        if row.get("type") == "user":
+            step = _step(row)
+        for text in _said(row) if not closed else []:
+            if not text.strip():
+                continue
+            if _mark(step, text) not in seen:
+                seen.append(_mark(step, text))
+                bad += [{"at": str(row.get("timestamp") or ""), "why": why} for why in _count_check(files, done, window, done, text=text)]
+            armed, window = bool(_count_words(text)), []
+            closed = closed or finished   # 読み終えたあとは、すぐあとの一言の1つだけを見る
         for block in (row.get("message") or {}).get("content") or []:
             if not isinstance(block, dict):
                 continue
+            if block.get("type") == "tool_use":
+                closed = closed or finished   # 読み終えたあと、一言を書かずに道具を呼んだ（見る一言は無い）
             if block.get("type") == "tool_use" and block.get("name") == "Read":
                 args = block.get("input") or {}
                 path = str(Path(str(args.get("file_path", ""))).resolve())
                 if path in files and not args.get("offset") and not args.get("limit"):
+                    if armed and path not in done and path not in uses.values():
+                        bad += [{"at": str(row.get("timestamp") or ""), "why": why}
+                                for why in _count_check(files, done, window, done | set(uses.values()), call=path)]
                     uses[str(block.get("id"))] = path
             elif block.get("type") == "tool_result" and str(block.get("tool_use_id")) in uses:
                 path = uses.pop(str(block.get("tool_use_id")))
                 if not block.get("is_error"):
                     done.add(path)
+                    window.append(path)
+                    finished = not [f for f in files if f not in done]
     reading["scanned"] = int(reading.get("scanned") or 0) + end
     reading["read"], reading["uses"] = sorted(done), uses
+    reading.update(window=window, bad=bad, seen=seen[-200:], step=step, armed=armed, closed=closed)
+
+
+# 「〜本目まで読みました」の数の見張り（✅ 帳面 1 の (6) の (i) の L11）。⛔ 帳面 0-1 の (2) の失敗が5回（11-19 日本時間0時45分台・0時55分台・
+# 6時35分30秒・14時23分22秒・11-21 4時43分37秒）＝読んだファイルの最後の番号ではなく次に読む予定の番号を「まで」に書き、その続きから読んで間を飛ばした。
+# 決まりを書き足すだけでは止まらなかった（3回目・4回目のあとに決まりを足し、5回目も同じ形）。
+GROUP_ORDER = ("seg", "after", "english", *(name for name, _, _ in ALWAYS))   # after_compact が (A1) から出す組の順（フォルダの名前）
+GROUP_WORDS = {"seg": ("ご発言と私の返事", "ご発言と返事", "区切りのあいだの会話"), "after": ("あとのご発言",), "english": ("英語の一言",),
+               "book": ("帳面", "CL-1.md"), "intent": ("本書", "Intent.md", "Intent")}   # 一言の中での組の呼び方（フォルダの名前のほか）
+
+
+def _count_words(text: str) -> list[dict]:
+    """一言の「〜本目まで（読みました）」（upto）と「次に、…〜本目を読みます」（next）の番号を、出てきた順に {kind, key, n, alts, of} で返す。
+    key は組（フォルダの名前）か、組の名前が無ければ ""（「27本目（intent/p06）まで」の 27。通しの番号か直前に読んだ組の中の番号かは _count_check が
+    決める）。名前の無い番号は、同じ一言の前の番号の組を引き継ぐ（「帳面の3本目まで…次に、4本目から」）。alts は「8本目（book/p08）まで」
+    「12本目まで読みました（帳面の9本目）」のかっこの中の (組, 番号)。組が "*" は、名前の無い番号のかっこの中の名前の無い番号（「27本目（p06）」の 06＝
+    27 の指すファイルの組の番号）。本数（「残りの帳面7本」）は番号として見ない（「まで」の直前だけ「4本まで」を番号と見る）。"""
+    import re
+    # (A2) などは、かっこの中の番号と見分ける（長さは変えない）。組の名前とは見ない（「(A3) の3本目（english/p01）」は通しの3本目・
+    # 「(A2) の1本目」は組の中の1本目と、どちらにも書いた＝名前の無い番号と同じく、2つの読み方のどちらかで合えばよい）
+    text = re.sub(r"[(（](A\d)[)）]", r"［\1］", text)
+    words = sorted(((w, g) for g in GROUP_ORDER for w in GROUP_WORDS.get(g, ())), key=lambda x: -len(x[0]))
+    names = re.compile("|".join([re.escape(w) for w, _ in words] + [rf"(?<![A-Za-z]){g}(?![A-Za-z])" for g in GROUP_ORDER]))
+    group = {**{w: g for w, g in words}, **{g: g for g in GROUP_ORDER}}
+    marks = []   # [始め, 終わり, 番号, 種類（p・me＝本目・hon＝本）, フォルダの名前]
+    for m in re.finditer(r"(?<![A-Za-z0-9])(?:([a-z]+)/)?p(\d{1,3})(?:\.txt)?(?!\d)", text):
+        marks.append([m.start(), m.end(), int(m[2]), "p", m[1] if m[1] in GROUP_ORDER else None])
+    for m in re.finditer(r"(?<![0-9.\-])(\d{1,3})\s*本(目)?", text):
+        marks.append([m.start(), m.end(), int(m[1]), "me" if m[2] else "hon", None])
+    for m in re.finditer(r"(?<![0-9.\-])(\d{1,3})\s*(?:[〜～~\-－・]|から)\s*(?=\d{1,3}\s*本目)", text):   # 「8〜11本目」の 8
+        marks.append([m.start(), m.start() + len(m[1]), int(m[1]), "me", None])
+    marks.sort()
+    stops = [i for i, ch in enumerate(text) if ch in "。\n"]
+    begin = lambda pos: max((i + 1 for i in stops if i < pos), default=0)   # noqa: E731  その文の始め
+    finish = lambda pos: min((i for i in stops if i >= pos), default=len(text))   # noqa: E731
+    inner, stack = [], []   # 文字ごとの、いちばん内側のかっこの始め（かっこの外は None）
+    for i, ch in enumerate(text):
+        if ch in "）)" and stack:
+            stack.pop()
+        inner.append(stack[-1] if stack else None)
+        if ch in "（(":
+            stack.append(i)
+
+    def name(lo: int, hi: int) -> str | None:
+        flat, depth = [], 0   # そのあいだで閉じたかっこの中は見ない（「18本目（book/p15）まで…19本目」の 19 は book ではない）
+        for ch in text[max(lo, 0):hi]:
+            depth += (ch in "（(") - (ch in "）)" and depth > 0)
+            if depth == 0 and ch not in "（()）":
+                flat.append(ch)
+        hits = list(names.finditer("".join(flat)))
+        return group[hits[-1].group(0)] if hits else None
+
+    top, last_in = None, {}
+    for i, m in enumerate(marks):
+        at, paren = m[0], inner[m[0]]
+        owner = None
+        if paren is None:
+            g = m[4] or name(max(begin(at), marks[top][1] if top is not None else 0), at)
+            g = g if g is not None else (marks[top][5] if top is not None else "")
+            top = i
+        else:
+            before = last_in.get(paren)
+            g = m[4] or name(max(paren + 1, marks[before][1] if before is not None else 0), at)
+            j = max((k for k in range(i) if marks[k][1] <= paren), default=None)
+            if j is not None and not text[marks[j][1]:paren].strip() and inner[marks[j][0]] == inner[paren]:
+                owner = j
+            if g is None and before is not None:
+                g = marks[before][5]
+            if g is None and owner is not None:
+                g = marks[owner][5] or "*"
+            if g is None:   # かっこだけの番号（「帳面の残り（p07〜p10）」）
+                g = name(max(begin(at), marks[top][1] if top is not None else 0), paren) or (marks[top][5] if top is not None else "")
+            last_in[paren] = i
+        m += [g, owner]
+    shown = lambda s: re.sub(r"［(A\d)］", r"(\1)", s)   # noqa: E731  止める文には、書いたままの (A2) で出す
+    out = []
+    for q in re.finditer("まで", text):
+        if "読" not in text[q.end():finish(q.start())]:
+            continue
+        c = max((k for k, m in enumerate(marks) if m[1] <= q.start() and m[6] is None), default=None)
+        if c is None or marks[c][0] < begin(q.start()):
+            continue
+        gap = text[marks[c][1]:q.start()]
+        if gap.strip() and not re.fullmatch(r"\s*[（(][^（）()]*[）)]\s*", gap):
+            continue
+        tail = re.match(r"\s*読[みん][^（(。\n、]{0,5}[（(]", text[q.end():])   # 「12本目まで読みました（帳面の9本目）」のかっこも同じ番号の添え
+        after = q.end() + tail.end() - 1 if tail else None
+        out.append({"kind": "upto", "key": marks[c][5], "n": marks[c][2], "alts": [(m[5], m[2]) for m in marks if m[6] == c or (after and inner[m[0]] == after)],
+                    "of": 0, "said": shown(text[begin(q.start()):q.end()].strip()[-60:])})
+    for q in re.finditer("次に", text):
+        if "読" not in text[q.end():finish(q.start())]:
+            continue
+        for m in marks:   # 「（いま帳面の6本目まで済み）」の「まで」の番号は、次に読む番号ではない
+            if q.end() <= m[0] < finish(q.start()) and m[3] in ("me", "p") and not re.match(r"\s*(?:[（(][^（）()]*[）)])?\s*まで", text[m[1]:]):
+                out.append({"kind": "next", "key": m[5], "n": m[2], "alts": [], "of": marks[m[6]][2] if m[6] is not None else 0,
+                            "said": shown(text[q.start():finish(q.start())].strip()[:60])})
+    return out
+
+
+def _count_check(files: list[str], read: set, window: list[str], busy: set, text: str | None = None, call: str | None = None) -> list[str]:
+    """「〜本目まで」の数を読んだファイルと比べる唯一の1か所（食い違いの文の並び。無ければ空）。読んだかの事実は _scan_reads の1か所から
+    （read＝読み終えたファイル・window＝直前の一言のあとに読み終えたファイル・busy＝読み終えたか呼んで答えを待っているファイル）。
+    - text の「N本目まで」：N は、直前に読み終えたその組のファイルの最後の番号（pNN）と同じか。1〜N本目は全部読んだか（帳面 0-1 の (2)）。
+      「N本目（book/pMM）」のかっこの中は同じファイルを指すか。
+    - text の「次に、…M本目を読みます」：M は、その組のまだ読んでいない一番小さい番号（ふつうは N＋1）か（4回目の形＝次に呼ぶつもりの番号を「まで」に書いた）。
+    - call（その一言のあとの読む道具）：まだ読んでいない一番小さい番号から読むか（1・2回目の形＝6〜10本目を飛ばして11本目から読んだ）。読み直しは見ない。"""
+    info = {f: (Path(f).parent.name, int(Path(f).stem[1:]) if Path(f).stem[1:].isdigit() else 0, i) for i, f in enumerate(files, 1)}
+    word = lambda key: GROUP_WORDS.get(key, (key,))[0] if key else "通し"   # noqa: E731
+    tag = lambda f: f"{info[f][0]}/p{info[f][1]:02d}"   # noqa: E731
+    kin = lambda key: [f for f in files if not key or info[f][0] == key]   # noqa: E731
+    num = lambda key, f: info[f][1] if key else info[f][2]   # noqa: E731
+    pos = lambda key, f: f"{word(key)}の{num(key, f)}本目（{tag(f)}）"   # noqa: E731
+
+    def find(key: str, n: int) -> str | None:
+        return next((f for f in kin(key) if num(key, f) == n), None)
+
+    if call is not None:
+        if call not in info:
+            return []
+        key = info[call][0]
+        first = next((f for f in kin(key) if f not in busy and f != call), None)
+        return [f"{pos(key, first)}を読まずに、{num(key, call)}本目（{tag(call)}）を読みました"] if first and num(key, first) < num(key, call) else []
+    def judge(items: list[dict], bare: str) -> list[str]:
+        whys, starts = [], set()
+        for w in items:
+            key = w["key"]
+            if key == "":
+                key = bare
+            elif key == "*":   # 名前の無い番号のかっこの中の名前の無い番号（「27本目（p06）」の 06）
+                key = bare or (info[files[w["of"] - 1]][0] if 0 < w["of"] <= len(files) else "")
+            target = find(key, w["n"])
+            if target is None:
+                whys.append(f"「{w['said']}」の{w['n']}本目：{word(key)}は {len(kin(key))} 本です")
+                continue
+            if w["kind"] == "next":
+                first = next((f for f in kin(key) if f not in busy), None)
+                if key not in starts and first is not None and first != target:
+                    whys.append(f"「{w['said']}」の始めの{w['n']}本目：{word(key)}でまだ読んでいない一番小さい番号は{pos(key, first)}です")
+                starts.add(key)
+                continue
+            for k2, n2 in w["alts"]:   # 「N本目（book/pMM）」のかっこの中（"*"＝その番号の指すファイルの組の番号・""＝通しの番号）
+                if find(info[target][0] if k2 == "*" else k2, n2) != target:
+                    whys.append(f"「{w['said']}」：かっこの中の番号が{pos(key, target)}と別のファイルを指しています")
+            last = max((f for f in window if f in kin(key)), key=lambda f: num(key, f), default=None)
+            if last is not None and last != target:
+                whys.append(f"「{w['said']}」：直前に読み終えた{word(key)}のファイルの最後は{pos(key, last)}です")
+            left = [f for f in kin(key) if num(key, f) <= w["n"] and f not in read]
+            if left:
+                whys.append(f"「{w['said']}」：{'・'.join(tag(f) for f in left)} はまだ読んでいません")
+        return whys
+
+    items = _count_words(text or "")
+    # 組の名前が無い番号は、通しの番号（「27本目（本書の6本目）まで」）か、直前に読んだ組の中の番号（「帳面の1本目から4本目を読みます」のあとの
+    # 「4本目まで」）のどちらか＝どちらかで合えば止めない（1つの一言の中の名前の無い番号は、同じ読み方でそろえる）
+    ways = [judge(items, bare) for bare in dict.fromkeys(["", *(info[f][0] for f in window[-1:] if f in info)])]
+    return [] if not all(ways) else min(ways, key=len)
 
 
 def compact_verdict(hook: dict, rows: list[dict] | None = None) -> str | None:
@@ -256,13 +457,21 @@ def compact_verdict(hook: dict, rows: list[dict] | None = None) -> str | None:
     with _locked():
         st = _load_compact()
         mine = lambda x: bool(x) and x.get("transcript") == transcript and x.get("boundary") not in st["done"]   # noqa: E731
-        reading, pend = st.get("reading"), st.get("pending")
+        reading, pend, tail = st.get("reading"), st.get("pending"), st.get("tail")
         if marks and marks[-1] not in st["done"] and not (mine(reading) and reading["boundary"] == marks[-1]):
             pend = st["pending"] = {"transcript": transcript, "boundary": marks[-1]}
+            st["tail"] = None
             _save_compact(st)
         elif mine(reading) and (not marks or reading["boundary"] >= marks[-1]):
             return _reading_verdict(hook, st, reading, stop)
         elif not (mine(pend) and (not marks or pend["boundary"] >= marks[-1])):
+            if tail and tail.get("transcript") == transcript:   # 読み終えたすぐあとの一言の「〜本目まで」（見るのは1つだけ）
+                _scan_reads(tail)
+                said = _count_reason(hook, tail, stop)
+                if tail.get("closed"):
+                    st["tail"] = None
+                _save_compact(st)
+                return said
             return None
     if _guard_command(hook, AFTER, STATUS):
         return None
@@ -275,19 +484,48 @@ def compact_verdict(hook: dict, rows: list[dict] | None = None) -> str | None:
 
 def _reading_verdict(hook: dict, st: dict, reading: dict, stop: bool) -> str | None:
     """--after-compact のあと、出したファイルを全部読み終えるまで：読む道具と見張りの命令は通し、ほかは止める（全部読んだら、その区切りを済みにする）。
+    「〜本目まで」の数の食い違い（_count_reason）は、それより先に、読む道具も含めて1回止める。
     印を書き直すのは、ロックの中で呼ばれたときだけ（compact_verdict）。"""
     _scan_reads(reading)
     left = [f for f in reading.get("files") or [] if f not in set(reading["read"])]
     if not left:
         st["done"].append(reading["boundary"])
         st["reading"] = None
+        st["tail"] = None if reading.get("closed") else reading   # 読み終えたすぐあとの一言は、次の見張りでも見る
+    said = _count_reason(hook, reading, stop)
     _save_compact(st)
+    if said:
+        return said
     if not left or _guard_command(hook, AFTER, STATUS) or (not stop and hook.get("tool_name") in READ_TOOLS):
         return None
     head = "返事は終えていません" if stop else "この道具は呼んでいません"
     return (f"⛔ 要約の区切り（日本時間{jst(reading['boundary'])}）のあとの 0-1 で、まだ読み終えていないファイルがあります（残り {len(left)}：{left[0]} ほか）。"
             f"{head}。残りを読む道具で切らずに（offset・limit を付けずに）全部読み終えるまで、作り・帳面・本書を書き換えないでください"
             f"（残りの一覧は `{sys.executable} {Path(__file__).resolve()} {STATUS}`）。")
+
+
+def _count_reason(hook: dict, reading: dict, stop: bool) -> str | None:
+    """_scan_reads が見つけた「〜本目まで」の食い違いがあれば、次の道具（読む道具も）か返事の終わりを1回止める理由（出したら消す＝同じ一言で
+    二度は止めない）。返事の終わりは、記録にまだ無い最後の返事（hook の last_assistant_message）も同じ1か所（_count_check）に当てる
+    （印は英語の一言の見張りと同じ＝直前の段と文の組。あとで記録に入っても二度は見ない）。"""
+    last = hook.get("last_assistant_message")
+    if stop and isinstance(last, str) and last.strip() and not reading.get("closed"):
+        key = _mark(str(reading.get("step") or ""), last)
+        if key not in (reading.get("seen") or []):
+            files, done = list(reading.get("files") or []), set(reading.get("read") or [])
+            reading["seen"] = [*(reading.get("seen") or []), key][-200:]
+            reading["bad"] = [*(reading.get("bad") or []),
+                              *({"at": "", "why": why} for why in _count_check(files, done, list(reading.get("window") or []), done, text=last))]
+    bad = reading.get("bad") or []
+    if not bad:
+        return None
+    reading["bad"] = []
+    whys = list(dict.fromkeys(b["why"] for b in bad))
+    head = "返事は終えていません" if stop else "この道具は呼んでいません"
+    return (f"⛔ 要約の区切り（日本時間{jst(reading['boundary'])}）のあとの (A) を読む一言の「〜本目まで」の数が、読んだファイルと合いません："
+            f"{'／'.join(whys[:6])}{' ほか' if len(whys) > 6 else ''}。{head}。「〜本目まで」は、直前に読んだ最後のファイルの名前（pNN）の番号を"
+            "そのまま書き、次は、まだ読んでいない一番小さい番号（ふつうはその番号に1を足した数）から並べて読んでください（帳面 0-1 の (2)）。"
+            "(A) を読み終えたら、経過の記録（docs/team/CL-1_HISTORY.md の末尾の「失敗の記録」）に書いてください。")
 
 
 def _sections(path: Path, heads: tuple[str, ...]) -> list[tuple[int, str]]:
@@ -425,17 +663,15 @@ def verdict(hook: dict) -> str | None:
     stop = hook.get("hook_event_name") == "Stop"
     if stop and hook.get("stop_hook_active"):
         return None   # 止めたあとの書き直しの返事（同じ所で止め続けない）
-    import hashlib
     done = set(json.loads(STATE.read_text(encoding="utf-8"))) if STATE.exists() else set()
     lines = recent_texts(hook["transcript_path"], rows=rows)
     last = hook.get("last_assistant_message")
     if isinstance(last, str) and last:
         lines.append((last_step(rows), last))   # 記録にまだ無い最後の返事（記録に入っても同じ印）
-    mark = lambda key, t: hashlib.sha1(f"{key}\n{t}".encode("utf-8")).hexdigest()   # noqa: E731
-    bad = [(key, t) for key, t in dict.fromkeys(lines) if (english(t) or code_head(t)) and mark(key, t) not in done]
+    bad = [(key, t) for key, t in dict.fromkeys(lines) if (english(t) or code_head(t)) and _mark(key, t) not in done]
     if not bad:
         return None
-    done |= {mark(key, t) for key, t in bad}
+    done |= {_mark(key, t) for key, t in bad}
     STATE.write_text(json.dumps(sorted(done)), encoding="utf-8")
     said = "」「".join(dict.fromkeys(t.strip()[:100] for _, t in bad))
     if not any(english(t) for _, t in bad):
