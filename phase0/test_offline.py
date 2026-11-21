@@ -30409,6 +30409,91 @@ class MatterPromptWordsTest(unittest.TestCase):
         self.assertTrue(announces.matter_fits("ご利用日の変更は前日までにご連絡いただく決まりになっております。", self.ASK, "ご利用日の変更"))
 
 
+class UnheardPlainApprovalTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L19 の (b)（分身 AE の (2)・CL-1 が書いてある決まりで決めた）：お知らせの文が無いご承認の質問（取込でお知らせの文が決まらず、説明と質問の文で
+    伺った）へのお返事が聞き取れないまま「-」にしたとき、締めの前の念のための確認も、お知らせの形と同じ1か所（flowctl.accepted_line の heard 偽＝Flow._accepted_ask）で
+    「（句）件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」と伺う（句が無ければ名詞の「（名詞）の件のお返事の…」・どちらも無ければ
+    今の伺い直し）。理由＝11-15 日本時間11時59分07秒の (3)（何へのお返事が聞き取れなかったのかを言う）と同じ理由（10-19）・11-12 日本時間19時32分21秒「…こちらの内容で
+    ご承認いただけますでしょうか？⇒こんな言い方だと誰でも、警戒してしまう」・帳面 0-2「決まりの細かいほうを先に当てる」（10-14 の聞き返しの最後の1回より、同じ場面の
+    11-15 の (3) の形）。録音は依頼主の単位の「（番号）_accepted_unheard」（録音の表 make_ack_clips.script_table の条件を同じ1か所 flowctl.accepted_unheard で広げた）。
+    ⛔ それまで「申し訳ございません、お声が聞き取れませんでしたのでこちらの内容でご承認いただけますでしょうか？」（お客様には「こちらの内容」が何を指すか分からない）"""
+    EXPL = "料金のご案内ですが月額3,000円となります。"
+    LINE = "料金は月額3,000円となる件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？"
+
+    def flow(self, matter="料金", clause="料金は月額3,000円となる", play=True):
+        import dataclasses
+        from flowctl import Flow
+        qs = AnnounceTest().questions(announce="")
+        qs[1] = dataclasses.replace(qs[1], intro=self.EXPL, matter=matter, matter_clause=clause)
+        f = Flow(qs, play_recordings=play)
+        f.use_checks("judge")
+        AnnounceTest.say(f, "届いていないです。", "record_answer", "いいえ", question_id="Q1", condition_id="いいえ")
+        for _ in range(3):
+            RecheckAckTest.unclear(f, "Q2")
+        self.assertEqual((f.current, f.items["Q2"].state, f.items["Q2"].dash_heard), ("Q3", "unresolved", False))
+        return f
+
+    def test_the_unheard_plain_approval_says_what_it_was_about(self):
+        from flowctl import accepted_line, accepted_unheard, in_announce_form
+        from phrases import ACK
+        for play in (True, False):
+            f = self.flow(play=play)
+            self.assertFalse(in_announce_form(f.questions["Q2"]))
+            self.assertTrue(accepted_unheard(f.questions["Q2"]))
+            r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+            self.assertEqual((f.phase, f.current, f.awaiting_confirm, f.items["Q2"].final), ("rechecking", "Q2", "Q2", True), play)
+            self.assertEqual(accepted_line(f.questions["Q2"], heard=False), ("Q2_accepted_unheard", self.LINE))
+            if play:
+                self.assertEqual(RecheckAckTest.heard(r), ACK[r["ack"]] + ACK["moushiwake_heavy"] + self.LINE)
+                self.assertEqual([p["id"] for p in r["play"]], ["moushiwake_heavy", "Q2_accepted_unheard"])
+            else:
+                self.assertEqual(r["say"], self.LINE)
+            self.assertEqual(f.judge_context()[1], self.LINE, play)   # 判定はこの確かめの文へのお返事として読む（お知らせの形と同じ）
+        # お返事は最終の確かめへのお返事と同じ受け方（合っている＝ご承認いただける・違う＝ご承認いただけない手順）
+        f = self.flow()
+        AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+        r = AnnounceTest.say(f, "はい、大丈夫です。", "confirm_field", "affirmed", question_id="Q2", result="affirmed")
+        self.assertEqual((r["result"], f.export()["Q2"]), ("end", "はい"))
+
+    def test_the_noun_and_nothing(self):
+        # 句が無ければ名詞の「（名詞）の件のお返事の…」・句も名詞も無ければ今の伺い直し（質問の文を伺い直す＝お知らせの形の「先ほどの件の…」にはしない）
+        from phrases import ACK
+        f = self.flow(clause="")
+        r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+        self.assertEqual(RecheckAckTest.heard(r),
+                         ACK[r["ack"]] + ACK["moushiwake_heavy"] + "料金の件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？")
+        f = self.flow(matter="", clause="")
+        r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+        self.assertEqual((r["result"], f.awaiting_confirm), ("recheck", None))
+        self.assertEqual(RecheckAckTest.heard(r), ACK[r["ack"]] + ACK["moushiwake_heavy"] + "お声が聞き取れませんでしたのでこちらの内容でご承認いただけますでしょうか？")
+
+    def test_a_heard_plain_approval_is_asked_again_as_now(self):
+        # 聞き取れていた（別のお話・意味が決まらない答えで「-」にした＝Item.dash_heard）お知らせの文が無いご承認の質問は、今までどおり質問の文で伺い直す（変えたのは
+        # 聞き取れなかったときだけ＝お知らせの文が無い質問には、聞き取れていたときの最終の確かめ「それでは（名詞）の件は…」が無い）
+        f = self.flow()
+        f.items["Q2"].dash_heard = True
+        r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+        self.assertEqual((r["result"], f.awaiting_confirm), ("recheck", None))
+        self.assertTrue(r["say"].startswith("恐れ入りますがこちらの内容でご承認いただけますでしょうか？"), r["say"])
+
+    def test_the_recording_table_has_the_line(self):
+        # 録音の表（make_ack_clips.script_table）：お知らせの文が無く句か名詞のあるご承認の質問にも「（番号）_accepted_unheard」（聞き取れていたときの「_accepted」は作らない＝
+        # 最終の確かめはお知らせの形だけ）。句も名詞も無ければ作らない
+        import dataclasses
+        from instruction import Business
+        from make_ack_clips import script_table
+        qs = AnnounceTest().questions(announce="")
+        for matter, clause, want in (("料金", "料金は月額3,000円となる", {"Q2_accepted_unheard": self.LINE}),
+                                     ("料金", "", {"Q2_accepted_unheard": "料金の件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？"}),
+                                     ("", "", {})):
+            qs[1] = dataclasses.replace(qs[1], intro=self.EXPL, matter=matter, matter_clause=clause)
+            b = Business(company="株式会社テスト", company_reading="てすと", caller="山田", caller_reading="やまだ", purpose="ご予約の確認",
+                         purpose_line="ご予約の確認でお電話いたしました。", questions=list(qs))
+            table = script_table(b)[0]
+            got = {k: v[0] for k, v in table.items() if k.startswith("Q2_accepted")}
+            self.assertEqual(got, want, (matter, clause))
+
+
 class MatterPromptPrefaceTest(unittest.TestCase):
     """帳面 1 の (6) の (i) の L19 の (a)（分身 AE の (1)）：束 ac1 で答えを伏せた読み手 A・B が2人とも挙げた取込の問い合わせ（announces.MATTER_PROMPT）の言葉を、
     帳面 0-3 の決まり（初めて読む人がそのまま分かる言葉で・(a) 境目の決まりは1か所だけに書く）で直した：(1-a) 前置きの中の事柄の言葉を使うのは、前置きのあとの文に
@@ -39736,6 +39821,7 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
         # 見直し (12) の形の質問：その後の形（R3・R4）・「ところで」の形（R5）・選択肢を並べた形（R6）・ご承認のお知らせ（R7）を、本番の流れの制御がその形で
         # 伺う所まで組む（判定に見せる質問は、お客様が聞いた文）。聞き取れなかったお知らせの締めの前の確かめ（R7 の1行）だけは、まだ組めない（理由つき）
         import g53_meaning
+        from phrases import head_join
         from review_words import NEW_SCENES, answer_words, questions
         qs = questions()
         missing = []
@@ -39747,7 +39833,9 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
             except g53_meaning.NoScene as e:
                 missing.append((it["qid"], str(e)))
                 continue
-            want = qs[it["qid"]].announce or qs[it["qid"]].text
+            q = qs[it["qid"]]
+            # お知らせの文の無いご承認の質問（R16＝L19 の (b)）は、入る一言（説明）＋質問の文（お客様が聞いた文＝Flow.for_judge）
+            want = q.announce or (head_join(q.intro, q.text) if q.intro else q.text)
             self.assertEqual(shown.text, want, it)
             if it.get("asked"):
                 self.assertEqual(asked, it["asked"], it)   # 最終の確かめは、正解の表の行と同じ本番の1か所（accepted_line）の文

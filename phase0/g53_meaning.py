@@ -1554,7 +1554,7 @@ def flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
 
 
 def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
-    from flowctl import CALLBACK_IDS, in_aside_form, in_alternatives_form
+    from flowctl import CALLBACK_IDS, accepted_unheard, in_aside_form, in_alternatives_form
     from g73_system_words import wish_scenes
     if it.get("scene") and it["scene"] not in CONNECTED_SCENES:
         # 試しの言葉の表の場面の印（review_words.NEW_SCENES＝日時の2択の段・番号違いを伺う一言のあと・待っていただく一言のあと・顧客獲得型の悩みの伺いと本心を伺う一言）：
@@ -1584,7 +1584,8 @@ def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
         f = _form_scene(q)
     elif q.id == CALLBACK_IDS["wait_or_later"]:
         f = _wait_ask_scene()
-    elif q.approval and q.announce and (s == "D" or it.get("asked")):
+    elif q.approval and (q.announce or accepted_unheard(q)) and (s == "D" or it.get("asked")):
+        # お知らせの文が無いご承認の質問（accepted_unheard＝流れの制御と同じ1か所の見分け）も、聞き取れなかったときの最終の確かめの場面（L19 の (b)）
         f = _final_scene(q, it.get("asked"))
         return f, q.id
     elif prompted_row(it):

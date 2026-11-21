@@ -1832,12 +1832,25 @@ def accepted_line(q: "Question", heard: bool = True) -> tuple[str, str]:
     句は取込で決めた Question.matter_clause・句が無ければ名詞の「（名詞）の件のお返事の…」・どちらも無ければ「先ほどの件のお返事の…」）。録音は、句か名詞が
     あれば依頼主の単位の「番号_accepted_unheard」・どちらも無ければ共通の一言 announce_recheck_unheard。お詫びは確認を作る所 Flow._advance_to が前に置く。
     見直し (12) の B-1・まとめ役の決め (f)・✅ 2026-11-15 日本時間11時59分07秒 ユーザー「・(3)今：…⇒こちら「ありがとうございます。申し訳ございません、キャンセルは
-    前日までにご連絡いただく必要がある件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」」"""
+    前日までにご連絡いただく必要がある件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」」。お知らせの文が無いご承認の質問を
+    聞き取れないまま「-」にしたときも、句か名詞があればこの1か所の heard 偽の形（見分けは accepted_unheard の1か所。L19 の (b)）"""
     matter = getattr(q, "matter", "")
     if heard:
         return (f"{recording_base(q)}_accepted", ANNOUNCE_ACCEPTED.format(t=of_matter(matter))) if matter else ("announce_recheck", ANNOUNCE_RECHECK)
     t = getattr(q, "matter_clause", "") or of_matter(matter)
     return (f"{recording_base(q)}_accepted_unheard", unheard_form(t)) if t else ("announce_recheck_unheard", unheard_form(""))
+
+
+def accepted_unheard(q: "Question") -> bool:
+    """お知らせの文が無いご承認の質問（取込でお知らせの文が決まらず、説明と質問の文で伺った）を、聞き取れないまま「-」にしたとき、締めの前の念のための確認を
+    最終の確かめの形（accepted_line の heard 偽＝「（句）件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」）で伺うか（唯一の
+    見分け＝確認を作る所 Flow._advance_to・録音の表 make_ack_clips.script_table・測りの場面 g53_meaning._flow_scene）：取込で決めた句（Question.matter_clause）か名詞
+    （Question.matter）があるときだけ（どちらも無ければ今の伺い直し＝「お声が聞き取れませんでしたので（質問の文）」）。お知らせの形の質問は in_announce_form（いつも
+    最終の確かめの形）。L19 の (b)（CL-1 が書いてある決まりで決めた＝11-15 日本時間11時59分07秒の (3)「…件のお返事のお声が聞き取れなかったのですがご了承という
+    ことでよろしかったでしょうか？」と同じ理由（何へのお返事が聞き取れなかったのかを言う＝10-19）・11-12 日本時間19時32分21秒「…こちらの内容でご承認いただけます
+    でしょうか？⇒こんな言い方だと誰でも、警戒してしまう」・帳面 0-2「決まりの細かいほうを先に当てる」＝10-14 の聞き返しの最後の1回より同じ場面の 11-15 の (3)）。
+    ⛔ それまで「申し訳ございません、お声が聞き取れませんでしたのでこちらの内容でご承認いただけますでしょうか？」（「こちらの内容」が何を指すかお客様に分からない）"""
+    return bool(getattr(q, "approval", False) and not getattr(q, "announce", "") and (getattr(q, "matter_clause", "") or getattr(q, "matter", "")))
 
 
 def announce_forms(questions: list["Question"], got: dict) -> list["Question"]:
@@ -20106,7 +20119,9 @@ class Flow:
             # 答えを見ずに「はい、」か「申し訳ございません、」を頭に置いた。⛔ 2e5986f5 まで、確認の段に入る報告だけに当て、確認が2つ続くと2つ目の頭の受けの言葉が抜けた
             # （「はい、大丈夫です。」→「はい、恐れ入りますがご予算を…」＝見直し (12) の B-5）
             receipt = bool(self._received_now())
-            if in_announce_form(q):
+            if in_announce_form(q) or (reason == "unclear" and accepted_unheard(q)):
+                # お知らせの文が無いご承認の質問を聞き取れないまま「-」にしたときも、句か名詞があれば同じ1か所（accepted_unheard の見分け＝L19 の (b)）。聞き取れていた
+                # ときは今までどおり質問の文で伺い直す（下の else。お知らせの文が無い質問には聞き取れていたときの最終の確かめが無い）。
                 # ご承認のお知らせ（別のお話が続いた・聞き取れなかったで「-」にした）：お知らせの文はくり返さず、最終の確かめの1か所（_accepted_ask＝「（相づち）それでは
                 # （名詞）の件はご了承ということでよろしかったでしょうか？」・聞き取れなかったときは「（お知らせの中身を常体にした句）件のお返事のお声が聞き取れなかった
                 # のですが…」＝11-15 11時59分07秒の (3)。⛔ ca665f3e まで「お声が聞き取れませんでしたので（名詞）の件は…」）で伺う。判定は
@@ -20114,7 +20129,8 @@ class Flow:
                 # 「●伺い10」・見直し (12) の B-1・まとめ役の決め (f)。⛔ 2e5986f5 まで、聞き取れないまま「-」にしたお知らせは「申し訳ございません、お声が聞き取れません
                 # でしたのでもう一度だけお聞かせいただいてもよろしいでしょうか？」（聞くことが無い）・判定はお知らせの文で読み「はい、どうぞ。」をご了承と記録しえた
                 r = self._accepted_ask(q.id, "締めの前の念のための確認：「-」にしたお知らせの最終の確かめ",
-                                       f"{prefix}念のための確認です。{q.id} の{'別のお話が続いた' if reason == 'form' else '聞き取れなかった'}お知らせについて、",
+                                       f"{prefix}念のための確認です。{q.id} の{'別のお話が続いた' if reason == 'form' else '聞き取れなかった'}"
+                                       f"{'お知らせ' if in_announce_form(q) else 'ご承認の質問'}について、",
                                        heard=reason == "form")
             elif (kept := self.items[self.current].kept_say) is not None:
                 # その場で3回目に戻らずに回した問いでない言い直し（_talk_dash の keep）：質問を伺い直さずに、その言い直しを1回（値を保ったまま＝言い直した値は捨てない。
