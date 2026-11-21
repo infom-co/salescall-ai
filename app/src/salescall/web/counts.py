@@ -185,16 +185,31 @@ def script_versions(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:
     """業務の電話の台本の版（新しい順）と、それぞれ中身を読めるか（ready。読むのは core の business_settings.load の1か所＝通話と同じ確かめ）。
     「台本ができているか」（はじめかた）と「お客様リストに選べる版」（版を選ぶ欄）は、この1つの答えを使う（2026-11-20 の見直し：
     版を選ぶ欄は版が1つでもあれば出し、中身の無い版を選べた）。"""
-    out = []
-    for v in tx.all("SELECT version_id, version_no, created_at FROM salescall.business_versions WHERE business_id = %s"
-                    " ORDER BY version_no DESC", (business_id,)):
-        try:
-            business_settings.load(tx, v["version_id"])
-            ready = True
-        except (LookupError, business_settings.SettingsInvalid):
-            ready = False
-        out.append({**v, "ready": ready})
-    return out
+    return [{**v, "ready": version_ready(tx, v["version_id"])}
+            for v in tx.all("SELECT version_id, version_no, created_at FROM salescall.business_versions WHERE business_id = %s"
+                            " ORDER BY version_no DESC", (business_id,))]
+
+
+# 版を使えないとみなす断り（core の取り込み importer が「版を直してから取り込んでください」と断るのと同じ4つ。2026-11-21：前は2つだけを
+# 数え、業務の決まりが無い・誤っている版を「使える」としていた＝はじめかたは済みなのに、取り込みで断られえた）
+_VERSION_UNUSABLE = (LookupError, business_settings.SettingsInvalid, business_settings.business_rules.RulesMissing,
+                     business_settings.business_rules.RulesInvalid)
+
+
+def run_version(tx: Tx, run_id: UUID) -> UUID | None:
+    """お客様リストがいま使う台本の版（データベースの salescall.run_current_version の1か所を読むだけ。無ければ None）。"""
+    return tx.one("SELECT salescall.run_current_version(%s) AS v", (run_id,))["v"]
+
+
+def version_ready(tx: Tx, version_id: UUID | None) -> bool:
+    """その台本の版の中身を読めるか（版を選ぶ欄・はじめかた・取り込みの1番目の手順が同じ答えを使う。読むのは core の business_settings.load）。"""
+    if version_id is None:
+        return False
+    try:
+        business_settings.load(tx, version_id)
+        return True
+    except _VERSION_UNUSABLE:
+        return False
 
 
 def _script_ready(tx: Tx, business_id: UUID) -> bool:

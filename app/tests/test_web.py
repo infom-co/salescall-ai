@@ -360,6 +360,24 @@ class Web(_World):
         return app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: tx.one(
             "SELECT count(*) AS n FROM salescall.tasks WHERE run_id = %s", (self.a["run"],))["n"])
 
+    def test_a_list_whose_script_is_empty_says_so_before_any_file_is_chosen(self):
+        """台本の中身が無いお客様リストでは、取り込みの1番目の手順で理由を出し、「次へ」を押せない形にする
+        （前は、ファイルを選んで列を合わせたあとの最後の「次へ」で、core の取り込みに初めて断られた。読む答えは counts.version_ready の1か所）。"""
+        from tests.support import full_version
+        w = World()
+        s = w.setup(tenant=self.a["tenant"])
+        empty = full_version(w, s, content_too=False)
+        run = w.run(s["tenant"], s["client"], s["business"], empty)
+        page = self.get("A", f"/c/{s['client']}/b/{s['business']}/runs/{run}/import").text
+        self.assertIn("電話の台本に、まだ中身がありません", page)
+        self.assertIn('type="submit" disabled>次へ（列を確かめる）', page)
+        self.assertIn('<fieldset class="plain" disabled>', page)                # ファイルを選ぶ欄から押せない形（選んでも進めない作業をさせない）
+        self.assertIn("取り込めるのは、電話の台本が入ってからです", page)         # 押せない理由を横に（parts.why_disabled）
+        ensure_rules(World(), self.a)                                          # 中身のそろった版（取込の試験と同じ準備）
+        ready = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/import").text
+        self.assertNotIn("電話の台本に、まだ中身がありません", ready)          # 中身のある版では出さない
+        self.assertNotIn('type="submit" disabled>次へ', ready)
+
     def test_a_list_is_imported_through_mapping_and_preview(self):
         ensure_rules(World(), self.a)                                          # 業務設定の中身（CL-2 の取込の試験と同じ準備）
         r = self._upload()

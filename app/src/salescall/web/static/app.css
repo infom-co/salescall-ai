@@ -348,6 +348,10 @@ ol.steps li.done::before { content: "✓"; background: var(--ok-soft); color: va
 .drop { position: relative; }
 .drop input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }   /* ブラウザの部品は見せない（parts.file_pick） */
 .drop.dragging { border-color: var(--primary); background: var(--primary-soft); }
+/* 押せない形（取り込めるようになるまで。import_parts.upload の fieldset disabled）：選べないことが見て分かるように薄くする */
+.drop:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.drop:has(input:disabled):hover { border-color: var(--line); background: none; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
 .drop-name { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .drop-name.chosen { color: var(--text); font-weight: 600; }
 .drop-title { font-weight: 700; font-size: 15px; }

@@ -11,5 +11,5 @@
 {{ imp.steps("map", ibase, key) }}
 {{ flash(error, false) }}
 <p class="lead">それぞれの欄に、ファイルのどの列を使うかを選んでください。見出しから案を入れてあります。電話番号の列（会社の電話番号か、お客様が指定した電話番号）は必ず選びます。</p>
-{{ imp.mapping(ibase, key, field_words.items(), sheet, mapping, sample, token, base) }}
+{{ imp.mapping(ibase, key, field_words.items(), sheet, mapping, sample, token, base, main=words.IMPORT_MAIN_FIELDS) }}
 {% endblock %}

@@ -1285,7 +1285,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 needs, stages = [], []   # 業務のタブだけ：録音の要るもの（recordings.version_needs）と品質の段（quality_stage）。実施回のいまの版ごと
                 verification = business_id is not None and approval_core.human_for_business(tx, business_id)
                 for r in (runs if business_id is not None else []):
-                    v = tx.one("SELECT salescall.run_current_version(%s) AS v", (r["run_id"],))["v"]
+                    v = counts.run_version(tx, r["run_id"])
                     if v is not None and verification:
                         stages.append({"run": r["name"], "stage": quality_stage.current(tx, v), "used": quality_stage.used(tx, v),
                                        "metrics": quality_stage.metrics(tx, v)})
@@ -1786,9 +1786,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             if extra is not None:
                 values.update(extra(person, ctx))
             def read(tx: Any) -> dict[str, Any]:
+                run = _run_in(tx, business_id, run_id)
                 return {"client": context.client(tx, client_id),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
-                        "run": _run_in(tx, business_id, run_id)}
+                        "run": run, "script_ready": counts.version_ready(tx, counts.run_version(tx, run_id))}
             return page(request, name, person, ctx, field_words=words.IMPORT_FIELD_WORDS,
                         encodings=[(e, import_files.ENCODING_NAMES.get(e, e)) for e in import_files.ENCODINGS],   # 名前の正本は import_files の組
                         **values, **ctx.client(client_id, read, read_only=True))

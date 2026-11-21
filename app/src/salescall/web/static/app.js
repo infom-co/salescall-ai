@@ -63,7 +63,8 @@
   ["dragenter", "dragover"].forEach(function (t) {
     document.addEventListener(t, function (e) {
       var d = e.target.closest && e.target.closest(".drop"); if (!d) return;
-      e.preventDefault(); d.classList.add("dragging");
+      e.preventDefault();
+      if (!d.querySelector("input[type=file]").disabled) d.classList.add("dragging");   // 押せない形の欄（取り込めないとき）は受けない
     });
   });
   ["dragleave", "drop"].forEach(function (t) {
@@ -71,7 +72,8 @@
       var d = e.target.closest && e.target.closest(".drop"); if (!d) return;
       e.preventDefault(); d.classList.remove("dragging");
       if (t === "drop" && e.dataTransfer && e.dataTransfer.files.length) {
-        var input = d.querySelector("input[type=file]"); input.files = e.dataTransfer.files; showFile(input);
+        var input = d.querySelector("input[type=file]"); if (input.disabled) return;
+        input.files = e.dataTransfer.files; showFile(input);
       }
     });
   });

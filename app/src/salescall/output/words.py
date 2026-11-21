@@ -331,6 +331,9 @@ DEFICIT_CONFIRM = "確かめた（これ以上お知らせしない）"
 
 # 発信禁止の一覧の取り込みの欄の名前（欄の正本は core の dnc_import.FIELDS。試験が突き合わせる）
 DNC_IMPORT_FIELD_WORDS: dict[str, str] = {"phone": "電話番号", "client_ref": "依頼者の管理番号"}
+# お客様の取り込みの「列を確かめる」で、いつも上に並べる欄（ふだん使う欄。ほかの欄は、見出しから案が入ったときだけ上に出し、残りは
+# 「ほかの欄」にたたむ。2026-11-21：27個の欄が同じ重さで並び、「次へ」がずっと下にあった）。必ず要る欄（電話番号・版が求める名前と役職）を含む
+IMPORT_MAIN_FIELDS: frozenset[str] = frozenset({"phone", "designated_phone", "client_ref", "name", "person_name", "person_role"})
 
 
 # 必須の質問の答えの数の分け方（core の judge.ITEM_MARKS と、判定が伺っていないとした not_asked のすべてを書く。試験が突き合わせる）。

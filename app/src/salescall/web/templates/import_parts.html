@@ -18,10 +18,14 @@
 
 {#- 1つ目：ファイルを選ぶ -#}
 {#- note＝この取り込みが何に効くか（大事な説明はファイルを選ぶ前に読めるよう、札のいちばん上に。2026-11-21 の見直し：ボタンの下にあった） -#}
-{% macro upload(ibase, label, encodings, token, note="") -%}
+{#- blocked＝取り込めないわけ（あれば、ファイルを選ぶ前に出して、次へを押せない形にする＝作業を始めてから断らない） -#}
+{% macro upload(ibase, label, encodings, token, note="", blocked="") -%}
 <form class="card import-card" method="post" action="{{ ibase }}" enctype="multipart/form-data">
   {{ csrf(token) }}
+  {% if blocked %}<div class="flash ng" role="alert">{{ blocked }}</div>{% endif %}   {#- 取り込めないわけを、いちばん先に -#}
   {% if note %}<p class="import-note">{{ note }}</p>{% endif %}
+  {#- 取り込めないあいだは、ファイルを選ぶ欄から押せない形にする（選んでも先へ進めない作業をさせない） -#}
+  <fieldset class="plain" {% if blocked %}disabled{% endif %}>
   {{ file_pick(label, "10MB まで。選んだファイルは登録が終わるまで（長くて30分）だけ使い、保存しません。") }}
   <details class="more">
     <summary>シートや文字の決まりを指定する（ふつうは要りません）</summary>
@@ -30,30 +34,40 @@
     <label class="field" for="encoding">CSV の文字の決まり（読めなかったときだけ選ぶ）</label>
     <select id="encoding" name="encoding"><option value="">自動で見分ける</option>{% for e, label in encodings %}<option value="{{ e }}">{{ label }}</option>{% endfor %}</select>
   </details>
-  <div class="actions"><button class="btn main" type="submit">次へ（列を確かめる）</button></div>
+  <div class="actions"><button class="btn main" type="submit" {% if blocked %}disabled{% endif %}>次へ（列を確かめる）</button>{{ why_disabled("取り込めるのは、電話の台本が入ってからです" if blocked else "") }}</div>
+  </fieldset>
 </form>
 {%- endmacro %}
 
 {#- 2つ目：欄ごとに、ファイルのどの列を使うか（見出しから案を入れてある）。選んだ列のはじめの行の値を横に出し、その場で合っているかを見られる。
     fields＝[(欄の名前, 画面の言葉)] -#}
-{% macro mapping(ibase, key, fields, sheet, mapping, sample, token, cancel) -%}
+{#- main＝いつも上に並べる欄（None なら全部を上に）。ほかの欄は、見出しから案が入ったときだけ上に出し、残りは「ほかの欄」にたたむ
+    （たたんだ欄も同じ送信に入る＝選べばそのまま使う） -#}
+{% macro map_row(f, label, sheet, mapping, sample) -%}
+  {% set chosen = mapping.get(f, "") %}
+  <tr class="{{ 'on' if chosen }}">
+    <td class="nowrap"><b>{{ label }}</b></td>
+    <td><select name="map_{{ f }}" aria-label="{{ label }}の列"><option value="">使わない</option>
+      {% for h in sheet.header if h %}<option value="{{ h }}" {% if h == chosen %}selected{% endif %}>{{ h }}</option>{% endfor %}</select></td>
+    <td class="wide muted">{% if chosen and chosen in sheet.header %}{% set i = sheet.header.index(chosen) %}{% for r in sample %}{{ r.cell(i).text or "（空）" }}{% if not loop.last %} ／ {% endif %}{% endfor %}{% endif %}</td>
+  </tr>
+{%- endmacro %}
+{% macro mapping(ibase, key, fields, sheet, mapping, sample, token, cancel, main=none) -%}
+{% set fields = fields|list %}
+{% set top = fields if main is none else (fields|selectattr(0, "in", main)|list + fields|rejectattr(0, "in", main)|selectattr(0, "in", mapping)|list) %}
+{% set rest = [] if main is none else (fields|rejectattr(0, "in", main)|rejectattr(0, "in", mapping)|list) %}
 <form method="post" action="{{ ibase }}/{{ key }}/preview">
   {{ csrf(token) }}
   <div class="card">
     <div class="table-scroll"><table class="list map">
       <thead><tr><th>欄</th><th>ファイルの列</th><th class="wide">はじめの行の値</th></tr></thead>
-      <tbody>
-      {% for f, label in fields %}
-        {% set chosen = mapping.get(f, "") %}
-        <tr class="{{ 'on' if chosen }}">
-          <td class="nowrap"><b>{{ label }}</b></td>
-          <td><select name="map_{{ f }}" aria-label="{{ label }}の列"><option value="">使わない</option>
-            {% for h in sheet.header if h %}<option value="{{ h }}" {% if h == chosen %}selected{% endif %}>{{ h }}</option>{% endfor %}</select></td>
-          <td class="wide muted">{% if chosen and chosen in sheet.header %}{% set i = sheet.header.index(chosen) %}{% for r in sample %}{{ r.cell(i).text or "（空）" }}{% if not loop.last %} ／ {% endif %}{% endfor %}{% endif %}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
+      <tbody>{% for f, label in top %}{{ map_row(f, label, sheet, mapping, sample) }}{% endfor %}</tbody>
     </table></div>
+    {% if rest %}
+    <details class="more" style="margin-top:12px"><summary>ほかの欄（ファイルにあれば選ぶ）<span class="muted">{{ rest|length }}個：{% for f, label in rest[:4] %}{{ label }}{% if not loop.last %}・{% endif %}{% endfor %} など</span></summary>
+      <div class="table-scroll"><table class="list map"><tbody>{% for f, label in rest %}{{ map_row(f, label, sheet, mapping, sample) }}{% endfor %}</tbody></table></div>
+    </details>
+    {% endif %}
   </div>
   <div class="actions" style="margin-top:16px"><a class="btn" href="{{ cancel }}">やめる</a><button class="btn main" type="submit">次へ（行ごとの結果を見る。まだ登録しません）</button></div>
 </form>
