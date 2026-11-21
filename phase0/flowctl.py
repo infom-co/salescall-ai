@@ -627,11 +627,15 @@ def ladder_choice_desc(q, c: str) -> str | None:
     場面）／（避けた方）だけ合わない＝片方だけ合わないと言った（もう一方をはっきり選んだか・区切りの時刻を言ったか（分身 U の (1)）の見分けは、ここにだけ書く。もう一方で大丈夫そうかの項目 ladder_other_choices は
     名前で指す）。✅ 2026-11-20 日本時間17時台 CL-1 が決まりで決めた（9-3 の案の (2択)＝4時44分42秒の伺い60・16時13分55秒の伺い94）。⛔ 分身 S2 まで、3つとも
     「「（名前）」と答えた」で、2択の外の日（「来週の月曜日なら空いてます。」）がどれか書いていなかった（答えを伏せた読み手2人＝rv176/S の束 n の声）"""
+    if getattr(q, "held_ask", "") and c == VALUE_CHOICE:
+        return held_ask_desc(q.held_ask)
     sides = ladder_sides(q)
     if not sides:
         return None
     if c == VALUE_CHOICE:
-        return "ご都合のよい日や時刻を言った（並べた2つのどちらかを選んだのも、並べた2つの外の日や時刻を言ったのも）"
+        # 頃も答え（いつかをこちらが知らない頃＝「給料日のあと」も。月単位の理由なら、その日を伺う＝伺い99 ア。分身 AD の (1-d)＝読み手が「給料日がいつかは言っていない」で「決められない」とも
+        # 読み、正しい読みでもお給料日を伺わない読みがあった＝分身 AB の (6-1)）
+        return "ご都合のよい日・頃や時刻を言った（並べた2つのどちらかを選んだのも、並べた2つの外の日・頃や時刻を言ったのも。いつかをこちらが知らない頃を言ったのも）"
     if c == LADDER_NEITHER:
         return "並べた2つのどちらも合わない、とだけ言った"
     if c in sides:
@@ -648,6 +652,24 @@ def ladder_choice_desc(q, c: str) -> str | None:
                 f"言っただけ・そちらも不安そう・何も言っていない、のどれでも、こちら。もう一方にしてほしいと、はっきり選んで頼んだなら「{VALUE_CHOICE}」・もう一方も合わないと、"
                 f"はっきり言ったなら「{LADDER_NEITHER}」。その時刻まで・その時刻から、と区切りの時刻を言ったなら、並べた片方がその区切りで合わなくなるときも「{VALUE_CHOICE}」）")
     return None
+
+
+def held_ask_desc(kind: str) -> str:
+    """日時の2択の途中で伺い直した一言（Question.held_ask）を待つ間の答え「答えた」の説明（唯一の場所＝ladder_choice_desc が読む）。流れの制御の受け取りに合わせて書く：
+    「〇時まで」の理由の確かめ（until）は、そうだ・違う・わけ・言い直しのどれも、伺い直す前の値で受け取り（_until_take）、どのわけかは項目「〇時まで」の理由で読む（_reasons_of）。
+    お給料日（payday）は、おっしゃった日や頃のあとを頃として2択・日や頃をおっしゃらなければ今の2択に戻る（_payday_take の payday_after_words）。⛔ 02d9ec8e まで「「答えた」と答えた」
+    （名前のくり返し）で、答えを伏せた読み手 A・B が2人とも、何が「答えた」かが文から分からないと書いた（束 ab1 の #1〜#9＝rv186/AB/readers）。分身 AD の (1-a)。CL-1 が決まりで決めた"""
+    if kind == "until":
+        return (f"こちらが確かめたことに答えた（そうだ・違う、と答えたのも、その時刻までと言ったわけを言ったのも、時刻や日を言い直したのも。どのわけかは、"
+                f"{UNTIL_WHY_HEADING}で選びます）")
+    return (f"伺ったお給料日の日や頃を言った（毎月のその日、と言ったのも。日や頃を言わずに、決まった日は無い・その時々で変わる、とだけ言ったのは「{SYSTEM_LABEL['unknown']}」）")
+
+
+def held_ask_question(q: "Question", kind: str, **text) -> "Question":
+    """日時の2択の途中で伺い直す一言を待つ間の質問（唯一の作り＝Flow._ask_until・_ask_payday）：質問の文を置き換え（text）、印 held_ask を付け、並べた2つの片方だけ合わない・
+    どちらも合わないは選べるものに出さない（2択を伺っていない＝お返事を受ける until_held・payday_held は、その名前を受けない＝見せると、受けたら並べ直しの道 _ladder_neither へ
+    外れる）。⛔ 02d9ec8e まで、「〇時まで」の理由の確かめでは「どちらも合わない」を見せていた（はい・いいえの確かめに「どちら」は無い＝束 ab1 の #1〜#4）。分身 AD の (1-a)"""
+    return dataclasses.replace(q, **text, held_ask=kind, conditions=tuple(c for c in q.conditions if c != LADDER_NEITHER and c not in ladder_sides(q)))
 
 
 LADDER_KINDS = ("平日", "土日")
@@ -4035,9 +4057,12 @@ def until_choices(calling: bool, q: "Question | None" = None) -> dict:
     return {U["other_party"]: "その時刻までに、別の電話番号・別の方へかけてほしい（そちらへ連絡してほしい）と言った",
             U["unavailable"]: "その時刻までは電話に出られない・話せない（予定がある・その場にいない・手が離せない など）と言った（その時刻までには戻る（それまでは席にいない）と言ったのも）",
             U["preparing"]: "その時刻までに確かめる・用意する・どなたかに聞いておく（それが済んでから話したい）と言った",
-            U["available_until"]: "その時刻より後は電話が難しいと言った（その時刻より前に話したい、も）・こちらがそう確かめた問いに、そうだと答えた",
-            UNTIL_WHY_NOT_SAID: ("その時刻までと言った理由を言っていない（その時刻より前なら話せると言っただけで、それより後が難しいかは言っていない、ときも）・"
-                                 "その時刻までとは言っていない"),
+            U["available_until"]: "その時刻より後は電話が難しいと言った（その時刻より前に話したい、も）",
+            # こちらがどれかの理由かを確かめた問いへのお返事の決まりは、ここの1か所（どの理由でも当たる。打ち消しただけなら、打ち消した理由の反対の理由を言ったことにはならない）。
+            # ⛔ 02d9ec8e まで「こちらがそう確かめた問いに、そうだと答えた」を「それまでは出られる」の説明にだけ書き、答えを伏せた読み手 A・B が2人とも、ほかの理由を確かめた問い
+            # （伺い98 アの向きのある一言）への「はい」がそちらへ引かれうる・打ち消しの「いえ、そういうわけではないです。」に「決められない」も、と読んだ（束 ab1 の #1・#3）。分身 AD の (1-b)
+            UNTIL_WHY_NOT_SAID: ("その時刻までと言った理由を言っていない（その時刻より前なら話せると言っただけで、それより後が難しいかは言っていない、ときも。こちらがどれかの理由かを"
+                                 "確かめた問いには、そうだと答えたら、その理由。違うとだけ答えて、確かめた理由を打ち消しただけなら、こちら）・その時刻までとは言っていない"),
             UNDECIDED: "この言葉からは、どの理由か決められない"}
 
 
@@ -4053,8 +4078,13 @@ def cycle_choices(calling: bool, q: "Question | None" = None) -> dict:
     どのわけを読むかは CYCLE_WHY_OF の1か所（避けたわけも＝分身 S の (2)）。"""
     if calling or q is None or not cycle_fits(q):
         return {}
-    return {CYCLE_LABEL["month"]: f"{CYCLE_WHY_OF}に、月ごとにくり返す都合（月ぎめの業務・月の締め・振り込みや入金の日 など）を言った",
-            CYCLE_NOT_SAID: f"{CYCLE_WHY_OF}に、月ごとにくり返す都合を言っていない（日・頃だけを言った・ほかのわけを言った、ときも）",
+    # 境目（分身 AD の (1-d)）：月ごとにくり返す日を目安にした頃の頼みは、その都合を言った（伺い99 アの入口＝判定の組がそろって月単位の理由を読む）・こちらが伺った日そのもののお答え
+    # （お給料日を伺う一言へのお返事）は、言っていない（月単位の理由は伺う前の答えで受け取って持っている＝_hold_reasons）。⛔ 02d9ec8e まで書いておらず、答えを伏せた読み手 A・B が
+    # 2人とも、お給料日へのお返事（「25日です。」「毎月25日です。」「うちは月末なんですよ。」）を、どちらとも取れると読んだ（束 ab1 の #5〜#7）
+    return {CYCLE_LABEL["month"]: (f"{CYCLE_WHY_OF}に、月ごとにくり返す都合（月ぎめの業務・月の締め・振り込みや入金の日 など）を言った（月ごとにくり返す日を目安にした頃を"
+                                   "頼んだのも、その都合を言ったことになる）"),
+            CYCLE_NOT_SAID: (f"{CYCLE_WHY_OF}に、月ごとにくり返す都合を言っていない（日・頃だけを言った・ほかのわけを言った、ときも。こちらが伺った日そのものを答えただけなら、"
+                             "毎月の日を答えても、こちら）"),
             UNDECIDED: "この言葉からは、月ごとにくり返す都合かどうか決められない"}
 
 
@@ -4678,6 +4708,9 @@ class Question:
     # meeting＝顧客獲得型のアポの日時（業務の質問＝Flow._main_listen が付ける。土日でも日まで伺う＝ladder_step。分身 K2）。
     # 伺っている段の文（質問の文 text・録音の名前 recording・会話AIの声か voiced）は Flow._ladder_set の1か所が置き換える
     ladder: str = ""
+    # 日時の2択の途中で伺い直した一言を待つ間の印（"until"＝「〇時まで」の理由の確かめ Flow._ask_until・"payday"＝お給料日を伺う一言 Flow._ask_payday。held_ask_question の1か所が付け、
+    # お返事を受ける _until_take・_payday_take が伺う前の質問に戻して外す）。判定に見せる「答えた」の説明は held_ask_desc の1か所
+    held_ask: str = ""
     # 値の入る文の質問（日時の2択の曜日・時刻）＝録音ではなく会話AIの声で流す（question_play の1か所。言い直しと同じ決まり）
     voiced: bool = False
     # 選択肢の型の、選択肢ごとの意味の言葉（選択肢 → 「ご予約はお済みということ」）。答えを言い直して確かめるときに使う（choice_words）。
@@ -18000,7 +18033,7 @@ class Flow:
         it.until_asked, it.until_held = True, (value, q)
         it.set("unclear", f"「{value}」の、いま電話を続けられない理由が分からない（理由で、かけてよい時間が決まる）")
         say = until_ask_line(value, self._until_lean())   # 判定の読みが割れたら、具体的な理由の向きで（伺い98 ア）
-        self.questions[qid] = dataclasses.replace(q, text=say, recording="", voiced=True, plain=None)
+        self.questions[qid] = held_ask_question(q, "until", text=say, recording="", voiced=True, plain=None)
         hint = (f"相手の答えに、いま電話を続けられない理由（{'・'.join(UNTIL_LABEL.values())}）があれば「{ARG_LABEL['until_why']}」も選んで、"
                 f"record_answer で報告します（値は、相手が時刻を言い直さなければ「{value}」のまま）。")
         base = {"result": "ask_back", "question_id": qid, "ask_n": 0, "ask_reason": "until"}
@@ -18041,8 +18074,7 @@ class Flow:
         it, q = self.items[qid], self.questions[qid]
         it.payday_asked, it.payday_held = True, (value, q)
         it.set(it.state, f"日時の2択：月単位の理由で、こちらで日の分からない頃（{value}）＝その日を伺う")
-        self.questions[qid] = dataclasses.replace(q, text=TIME_LADDER["payday"], recording=TIME_LADDER_IDS["payday"], voiced=False, plain=None,
-                                                  conditions=tuple(c for c in q.conditions if c != LADDER_NEITHER and c not in ladder_sides(q)))
+        self.questions[qid] = held_ask_question(q, "payday", text=TIME_LADDER["payday"], recording=TIME_LADDER_IDS["payday"], voiced=False, plain=None)
         return self._ladder_ask(qid) | {"payday": True}   # 印 payday＝その日を伺った（測りの数えの名前 g53_meaning._flow_base）
 
     def _payday_take(self, qid: str, value: str | None) -> dict:
