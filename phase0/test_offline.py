@@ -20002,6 +20002,271 @@ class CompactGuardTest(unittest.TestCase):
         p = self.after()   # 止められていないときに呼んでも、何も壊さない
         self.assertEqual(p.returncode, 0, p.stderr)
 
+    def say(self, text):
+        """こちらの一言を、会話の記録に書く（本物の記録と同じ形：type が assistant・中身が text の行）。"""
+        self.add({"type": "assistant", "timestamp": "2026-11-04T21:40:02.000Z", "message": {"content": [{"type": "text", "text": text}]}})
+
+    def test_count_of_files_read_is_checked_once(self):
+        # ⛔ 帳面 0-1 の (2) の5回（11-19 0時45分台・0時55分台・6時35分30秒・14時23分22秒・11-21 4時43分37秒）：(A) を読む途中、読んだファイルの
+        #    最後の番号ではなく、次に読む予定の番号を「〜本目まで読みました」に書き、その番号の続きから読んで間を飛ばした（帳面 1 の (6) の (i) の L11）
+        #    ＝その一言のあとの次の道具と返事の終わりを1回止め、どの数とどのファイルが食い違ったかを書く（読むのを止め続けはしない）
+        self.write(self.rows())
+        self.hook(tool_name="Read", tool_input={"file_path": "x"})
+        self.assertEqual(self.after().returncode, 0)
+        out = self.dir / "out"
+        part = lambda d, n: out / d / f"p{n:02d}.txt"   # noqa: E731
+        for d in ("seg", "after", "english"):
+            self.read(part(d, 1))
+        for n in range(1, len(list((out / "book").glob("p*.txt"))) + 1):
+            self.read(part("book", n))
+        self.say("帳面を全部読みました。次に、本書の1本目から5本目を読みます。")
+        for n in range(1, 5):
+            self.read(part("intent", n))
+        self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": str(part("intent", 5))})[0], 0)   # 正しい書き方は止めない
+        self.say("本書の4本目（intent/p04）まで読みました。次に、本書の5本目を読みます。")
+        self.read(part("intent", 5))
+        self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": str(part("intent", 6))})[0], 0)
+        self.say("本書の9本目まで読みました。次に、本書の10本目から14本目を読みます。")   # 1回目の形（6〜9本目を飛ばした）
+        self.read(part("intent", 10))
+        self.assertEqual(self.hook(tool_name="Read", agent_id="a1", tool_input={"file_path": "x"})[0], 0)   # 分身の係は止めない
+        code, why = self.hook(tool_name="Read", tool_input={"file_path": str(part("intent", 11))})
+        self.assertEqual(code, 2)
+        for word in ("本書の9本目まで", "intent/p05", "10本目", "intent/p06", "intent/p10", "帳面 0-1 の (2)"):
+            self.assertIn(word, why)
+        self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": str(part("intent", 6))})[0], 0)   # 同じ一言で二度は止めない
+        self.assertIn("残り", self.hook(tool_name="Edit", tool_input={})[1])   # 読み終えるまでは、今までどおり書き換えを止める
+        # 返事の終わり：記録にまだ無い最後の返事（hook が渡す last_assistant_message）も同じ決まりで見る。あとで記録に入っても二度は止めない
+        last = "本書の12本目まで読みました。"
+        code, why = self.hook(hook_event_name="Stop", last_assistant_message=last)
+        self.assertEqual(code, 2)
+        self.assertIn("本書の12本目まで", why)
+        self.say(last)
+        self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": str(part("intent", 6))})[0], 0)
+
+    def test_count_right_after_reading_is_checked(self):
+        # 読み終えたすぐあとの一言の「〜本目まで」も見る（そのあとのふつうの一言・道具は止めない）
+        self.write(self.rows())
+        self.hook(tool_name="Read", tool_input={"file_path": "x"})
+        self.assertEqual(self.after().returncode, 0)
+        parts = sorted((self.dir / "out").rglob("p*.txt"))
+        for x in parts:
+            self.read(x)
+        last = len(list((self.dir / "out" / "intent").glob("p*.txt")))
+        self.say(f"本書の{last - 1}本目まで読み、(A) を全部読み終えました。次に、見張りの残りを確かめます。")
+        code, why = self.hook(tool_name="Edit", tool_input={})
+        self.assertEqual(code, 2)
+        self.assertIn(f"intent/p{last:02d}", why)
+        self.assertEqual(self.hook(tool_name="Edit", tool_input={})[0], 0)
+        self.say("本書の3本目まで読みました。")   # 読み終えたすぐあとの一言ではない
+        self.assertEqual(self.hook(tool_name="Edit", tool_input={})[0], 0)
+        self.assertEqual(self.hook(hook_event_name="Stop")[0], 0)
+        # 正しい数で読み終えたなら止めない・ふつうの一言も止めない
+        self.write(self.rows({"type": "system", "subtype": "compact_boundary", "timestamp": "2026-11-04T22:40:00.000Z"}))
+        self.hook(tool_name="Read", tool_input={"file_path": "x"})
+        self.assertEqual(self.after().returncode, 0)
+        for x in sorted((self.dir / "out").rglob("p*.txt")):
+            self.read(x)
+        self.say(f"本書の{last}本目（intent/p{last:02d}）まで読み、(A) を全部読み終えました。次に、本書 8章を読みます。")
+        self.assertEqual(self.hook(tool_name="Edit", tool_input={})[0], 0)
+        self.say("次に、試験を流します。")
+        self.assertEqual(self.hook(tool_name="Bash", tool_input={"command": "git status"})[0], 0)
+
+
+class CountGuardTest(unittest.TestCase):
+    """要約のあとの (A) を読む間の「〜本目まで読みました」の数を、会話の記録で読んだファイルの番号と比べる1か所（oneliner_guard._count_check。
+    読んだかの事実は _scan_reads の1か所）。⛔ 帳面 0-1 の (2) の5回の形を、その時の (A) の本数のままで1つずつ。正しい書き方（組ごとの番号・
+    通しの番号・かっこの中の番号）は止めない（11-19 の区切りで実際に書いた形）。"""
+
+    def setUp(self):
+        import tempfile
+        self.dir = Path(tempfile.mkdtemp())
+        self.log = self.dir / "t.jsonl"
+        self.log.write_text("", encoding="utf-8")
+        self.n = 0
+
+    def files(self, book, intent):
+        return [str(self.dir / d / f"p{k:02d}.txt") for d, many in (("seg", 1), ("after", 1), ("english", 1), ("book", book), ("intent", intent))
+                for k in range(1, many + 1)]
+
+    def add(self, *rows):
+        import json
+        with self.log.open("a", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def say(self, text):
+        self.add({"type": "assistant", "timestamp": "2026-11-19T05:23:00.000Z", "message": {"content": [{"type": "text", "text": text}]}})
+
+    def read(self, *names):
+        for name in names:
+            self.n += 1
+            uid = f"toolu_{self.n:04d}"
+            self.add({"type": "assistant", "timestamp": "2026-11-19T05:23:01.000Z",
+                      "message": {"content": [{"type": "tool_use", "id": uid, "name": "Read", "input": {"file_path": str(self.dir / name)}}]}},
+                     {"type": "user", "uuid": f"u{self.n}", "timestamp": "2026-11-19T05:23:02.000Z",
+                      "message": {"content": [{"type": "tool_result", "tool_use_id": uid, "content": "1\t..."}]}})
+
+    def first(self, book, intent):
+        return {"transcript": str(self.log), "boundary": "2026-11-19T05:22:28.016Z", "files": self.files(book, intent), "read": [], "uses": {}, "scanned": 0}
+
+    def bad(self, reading):
+        import oneliner_guard as g
+        g._scan_reads(reading)
+        got = [b["why"] for b in reading.get("bad") or []]
+        reading["bad"] = []
+        return got
+
+    def range_(self, d, a, b):
+        return [f"{d}/p{k:02d}.txt" for k in range(a, b + 1)]
+
+    def test_the_five_failures_are_stopped(self):
+        # (1) 11-19 0時45分台（33本：帳面16・本書14）：本書の1〜5本目のあと「本書の9本目まで」と書き、10本目から読んだ
+        # (2) 11-19 0時55分台（同じ33本）：「本書の10本目まで」と書き、11本目から読んだ
+        for said, nxt in (("本書の9本目まで読みました。次に、本書の10本目から14本目を読みます。", 10),
+                          ("本書の10本目まで読みました。次に、本書の11本目から14本目を読みます。", 11)):
+            r = self.first(16, 14)
+            self.read("seg/p01.txt", "after/p01.txt", "english/p01.txt", *self.range_("book", 1, 16))
+            self.say("帳面の16本を読み終えました。次に、本書の1本目から5本目を読みます。")
+            self.read(*self.range_("intent", 1, 5))
+            self.assertEqual(self.bad(r), [])
+            self.say(said)
+            self.read(f"intent/p{nxt:02d}.txt")
+            got = "／".join(self.bad(r))
+            for word in ("intent/p05", f"{nxt}本目", "intent/p06", f"intent/p{nxt:02d}"):
+                self.assertIn(word, got, said)
+            self.setUp()
+        # (3) 11-19 6時35分30秒（35本：帳面17・本書15）：本書の1〜5本目だけを読んで「1〜7本目まで」と書き、8本目から読んだ
+        r = self.first(17, 15)
+        self.read("seg/p01.txt", "after/p01.txt", "english/p01.txt", *self.range_("book", 1, 17))
+        self.say("帳面の17本を全部読みました。分身 L の試験も終わりましたが、見張りが (A) を読み終えるまで止めているので、次に、本書の1〜5本目を読みます。")
+        self.read(*self.range_("intent", 1, 5))
+        self.say("本書の1〜7本目まで読みました。次に、本書の8〜11本目を読みます。")
+        self.read("intent/p08.txt")
+        got = "／".join(self.bad(r))
+        for word in ("本書の1〜7本目まで", "intent/p05", "intent/p06", "intent/p07", "intent/p08"):
+            self.assertIn(word, got)
+        # (4) 11-19 14時23分22秒（35本：帳面17・本書15）：帳面の3〜7本目を読んで「8本目（book/p08）まで」と書き、9本目から読んだ
+        self.setUp()
+        r = self.first(17, 15)
+        self.say("見張りが動きました。次に、(A1)〜(A3) の3本と、帳面の1本目から5本目を読みます。")
+        self.read("seg/p01.txt", "after/p01.txt", "english/p01.txt", *self.range_("book", 1, 2))
+        self.say("帳面の2本目（book/p02）まで読みました。次に、帳面の3本目から7本目を読みます。")
+        self.read(*self.range_("book", 3, 7))
+        self.assertEqual(self.bad(r), [])
+        self.say("帳面の8本目（book/p08）まで読みました。次に、帳面の9本目から13本目を読みます。")
+        self.read("book/p09.txt")
+        got = "／".join(self.bad(r))
+        for word in ("帳面の8本目", "book/p07", "book/p08", "book/p09"):
+            self.assertIn(word, got)
+        # (5) 11-21 4時43分37秒（21本：帳面4・本書14）：本書の1〜7本目を並べて読み、「12本目まで」と書いて13・14本目を読んだ
+        self.setUp()
+        r = self.first(4, 14)
+        self.say("見張りが (A) の21本を読むよう求めています。次に、(A1)〜(A3) と帳面の4本を読みます。")
+        self.read("seg/p01.txt", "after/p01.txt", "english/p01.txt", *self.range_("book", 1, 4))
+        self.say("帳面の4本まで読みました。次に、(A5) 本書の1本目から7本目を読みます。")
+        self.read(*self.range_("intent", 1, 7))
+        self.assertEqual(self.bad(r), [])
+        self.say("本書の12本目まで読みました。次に、本書の13本目と14本目を読みます。")
+        self.read("intent/p13.txt", "intent/p14.txt")
+        got = "／".join(self.bad(r))
+        for word in ("本書の12本目まで", "intent/p07", "intent/p08", "intent/p13"):
+            self.assertIn(word, got)
+
+    def test_the_right_ways_are_not_stopped(self):
+        # 通しの番号（11-19 日本時間15時台〜18時台に書いた形）：「3本目まで」「9本目（帳面の6本目）まで」「27本目（intent/p06）まで」
+        r = self.first(18, 16)
+        self.say("次に、区切りのあいだの会話と、そのあとのご発言と、英語の一言の3本を読みます。")
+        self.read("seg/p01.txt")
+        self.say("1本目まで読みました。次に、2本目（区切りのあとのご発言）を読みます。")
+        self.read("after/p01.txt", "english/p01.txt")
+        self.say("3本目まで読みました。次に、4本目から9本目（帳面の1〜6本目）を読みます。")
+        self.read(*self.range_("book", 1, 6))
+        self.say("9本目（帳面の6本目）まで読みました。次に、10本目から15本目（帳面の7〜12本目）を読みます。")
+        self.read(*self.range_("book", 7, 12))
+        self.say("要約のあとの読み直しの途中です（帳面の12本目まで読みました）。次に、残りの帳面6本と本書16本を読みます。")
+        self.read(*self.range_("book", 13, 15))
+        self.say("18本目（book/p15）まで読みました。次に、19本目から23本目（帳面の16〜18本目と本書の1・2本目）を読みます。")
+        self.read(*self.range_("book", 16, 18), *self.range_("intent", 1, 2))
+        self.say("帳面の18本目（book/p18）まで読みました。次に、本書の3〜6本目を読みます。")
+        self.read(*self.range_("intent", 3, 6))
+        self.say("27本目（intent/p06）まで読みました。次に、28本目から33本目（本書の7〜12本目）を読みます。")
+        self.read(*self.range_("intent", 7, 12))
+        self.say("本書の12本目（p12）まで読みました。次に、本書の残り（p13〜p16）を読みます。")
+        self.read(*self.range_("intent", 13, 16))
+        self.say("本書の16本目まで読み、(A) の37本を全部読み終えました。次に、見張りの残りと、作業の木を確かめます。")
+        self.say("本書の3本目まで読みました。")   # 読み終えたすぐあとの一言ではない（見ない）
+        self.assertEqual(self.bad(r), [])
+        # 飛ばしたのに気づいて読み直したあとの「まで」（11-19 14時23分台の続き）：飛ばした所を読み終えていれば止めない
+        self.setUp()
+        r = self.first(17, 15)
+        self.read("seg/p01.txt", "after/p01.txt", "english/p01.txt", *self.range_("book", 1, 7), *self.range_("book", 9, 13))
+        self.bad(r)
+        self.say("帳面の8本目を飛ばしていました。次に、帳面の8本目を読みます。")
+        self.read("book/p08.txt")
+        self.say("帳面の8本目を読みました。次に、帳面の14本目から17本目を読みます。")
+        self.read(*self.range_("book", 14, 17))
+        self.say("帳面の17本目（book/p17）まで、飛ばした8本目も含めて全部読みました。次に、本書の1本目から5本目を読みます。")
+        self.assertEqual(self.bad(r), [])
+        # 名前の無い番号が組の中の番号のとき（11-19 日本時間22時台・11-20 0時台）・(A2)(A3) を添えた番号（11-19 14時台・20時台）・
+        # 「次に」の文の中の「まで済み」（11-18 18時台）：本物の記録に当てて、止めないと分かった形
+        self.setUp()
+        r = self.first(19, 16)
+        self.read("seg/p01.txt", "after/p01.txt")
+        self.say("次に、(A3) の1本目＝英語の一言を読みます。")
+        self.read("english/p01.txt")
+        self.say("(A3) の3本目（english/p01）まで読みました。次に、4本目から7本目（帳面の1本目から4本目）を読みます。")
+        self.read(*self.range_("book", 1, 4))
+        self.say("4本目まで読みました。次に、帳面の5本目から8本目を読みます。")
+        self.read(*self.range_("book", 5, 8))
+        self.say("次に、要約のあとの決まりの38本を順に読んでいます（いま帳面の8本目まで済み）。")
+        self.read(*self.range_("book", 9, 12))
+        self.assertEqual(self.bad(r), [])
+
+    def test_miscounts_found_in_the_real_record_are_stopped(self):
+        # 本物の記録に当てて見つけた、経過の記録に無い数え違い（分身 Y の書き置き rv184/Y/notes.md の 2）：帳面の7〜12本目を読んで
+        # 「12本目まで読みました（帳面の9本目）」と書き、帳面の10・11本目を読み直した（11-19 日本時間16時51分34秒）・帳面の1〜6本目を読んで
+        # 「6本目（帳面の3本目）まで」と書いた（17時35分31秒）・本書の1〜4本目を読んで「本書の5本を読みました。次に、本書の6本目から」と書いた（11-18 16時15分28秒）
+        r = self.first(18, 16)
+        self.read("seg/p01.txt", "after/p01.txt", "english/p01.txt", *self.range_("book", 1, 6))
+        self.say("9本目（帳面の6本目）まで読みました。次に、10本目から15本目（帳面の7〜12本目）を読みます。")
+        self.read(*self.range_("book", 7, 12))
+        self.assertEqual(self.bad(r), [])
+        self.say("12本目まで読みました（帳面の9本目）。次に、13本目から18本目（帳面の10〜15本目）を読みます。")
+        self.assertIn("book/p12", "／".join(self.bad(r)))
+        self.setUp()
+        r = self.first(18, 16)
+        self.read("seg/p01.txt", "after/p01.txt", "english/p01.txt", *self.range_("book", 1, 6))
+        self.say("6本目（帳面の3本目）まで読みました。次に、7本目から12本目（帳面の4〜9本目）を読みます。")
+        self.assertTrue(self.bad(r))
+        self.setUp()
+        r = self.first(15, 13)
+        self.read("seg/p01.txt", "after/p01.txt", "english/p01.txt", *self.range_("book", 1, 15), *self.range_("intent", 1, 4))
+        self.say("本書の5本を読みました。次に、本書の6本目から9本目を読みます。")
+        self.read("intent/p06.txt")
+        got = "／".join(self.bad(r))
+        self.assertIn("intent/p05", got)
+        self.assertIn("intent/p06", got)
+
+    def test_mismatched_numbers_in_brackets_and_gaps(self):
+        import oneliner_guard as g
+        files = self.files(18, 16)
+        f = lambda *names: {str(self.dir / n) for n in names}   # noqa: E731
+        done = f("seg/p01.txt", "after/p01.txt", "english/p01.txt", *self.range_("book", 1, 18), *self.range_("intent", 1, 5))
+        window = sorted(f(*self.range_("intent", 1, 5)))
+        check = lambda said: g._count_check(files, done, window, set(done), text=said)   # noqa: E731
+        self.assertEqual(check("26本目（intent/p05）まで読みました。次に、27本目（intent/p06）を読みます。"), [])
+        self.assertTrue(check("26本目（intent/p04）まで読みました。"))            # かっこの中の番号が別のファイル
+        self.assertTrue(check("本書の5本目まで読みました。次に、本書の7本目から読みます。"))   # 6本目を飛ばす（始めが 5＋1 でない）
+        self.assertTrue(check("本書の4本目まで読みました。"))                    # 直前に読んだ最後（p05）と違う
+        self.assertTrue(check("本書の20本目まで読みました。"))                   # 本書は16本しかない
+        self.assertEqual(check("本書の5本目まで読みました。次に、残りの本書11本を読みます。"), [])   # 本数（「〜本目」でない）は番号として見ない
+        self.assertEqual(check("帳面 0-3 の1つ目（140〜187行）まで読みました。次に、2つ目を読みます。"), [])
+        self.assertEqual(check("次に、本書の6本目から10本目を読みます。"), [])
+        # 読む道具の呼び出し：まだ読んでいない一番小さい番号からか（同じ組。読み直しは見ない）
+        self.assertTrue(g._count_check(files, done, window, set(done), call=str(self.dir / "intent/p07.txt")))
+        self.assertEqual(g._count_check(files, done, window, set(done), call=str(self.dir / "intent/p06.txt")), [])
+        self.assertEqual(g._count_check(files, done, window, set(done) | f("intent/p06.txt"), call=str(self.dir / "intent/p07.txt")), [])
+
 
 def point_ahead_read(f, read=None):
     """判定を使う通話のご承認のお断り（迷い）のあと（Flow._point_ahead）：N1 を流す前に、電話接続側がお断りの言葉を N1 について判定に読み直してもらう
