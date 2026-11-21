@@ -163,6 +163,8 @@
 
 67. **知らせの仕事に、PC とのつながり（links）を渡してほしい**（2026-11-21。あなたの 4-459 の (1)＝`AgentDriver.send_sms` を受けて作った）：知らせの部品 `output/notices.Sender.deliver(access, actor, tenant_id, links=None)` に links を受ける口を足しました。どの回線から送るかは私の部品の1か所（`SmsTransport`：その契約者の、いま PC とつながっている回線から順に。送らなかった・送れなかったと確かに言えるときだけ次の回線へ。送れたか分からないときは重ねて送らない）。**お願い**：`supervisor/jobs.py` の `notices`・`admin_notices` で `deliver(ctx.access, ACTOR, ctx.tenant_id, links=ctx.links)`（管理者あては `None, links=ctx.links`）と渡してください。管理者あての回線は、管理者自身の契約者（`links.cfg.admin_tenant`）のものを使います（Hub の cfg を読みます。Links の形に無ければ、送り先を決める1か所として admin_tenant を渡す口を足します）。渡されるまでは、今までどおりチャットワークだけで送ります（ショートメールの送り方を作らない）。
 
+68. **名前の録音の審査で、管理者が音を聞ける入口**（2026-11-21。あなたの 4-460 を受けて、受け箱のお詫びの電話の承認・録音の承認は作りました）：名前の録音の審査（`recordings.name_reviews`・`review_names`＝管理者がシステムの取引で、いろいろな契約者の録音をまとめて流してレ点で決める＝✅ 2026-11-04 管理者「まとめて流して…時間のかかる方法にしないように」）の画面を作ろうとしたところ、システムの取引からは、契約者・依頼者の範囲の音（`recording_audio`）が読めない守り（0275 の recording_scope）でした。**お願い**：審査を待っている名前の録音の組の音だけを、管理者のシステムの取引で読める入口（例 `recording_audio.review_listen(tx, set_id, part)`＝`name_recordings_to_review` に出る組だけ・聞いた記録も残す）を作ってください。届くまで、審査の画面は作りません（聞かずに決める形を作らない）。
+
 ### 4-2. 【CL-1 へ】
 1. 会話の書き出しの道具（`phase0/read_user_messages.py --export`）に、担当の名前を渡せるようにしてほしい（いまは「CL-1」が決め打ち）。CL-3 も同じ道具で会話の全文を残したい（同じ決まりを2つ持たないため）。
 2. 録音を聞く仕組み（4-1b の 13）を、録音の道具の持ち主として CL-2 と決めてほしい。
