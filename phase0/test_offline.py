@@ -51454,3 +51454,52 @@ class AJNameSamaTest(unittest.TestCase):
         self.told(f, "いや、なかしまです。")
         r = f.apply("confirm_field", {"question_id": "R1", "result": "corrected", "correction": "なかしま"})
         self.assertTrue(heard_words(r).endswith("改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？"), heard_words(r))
+
+
+class AJNameMoreTest(unittest.TestCase):
+    """分身 AJ の続き（書き置き rv191/AJ/notes.md の (6-2)・(6-4)・(6-1)。CL-1 が書いてある決まりで決めた）：
+    (2) お客様がご自分の側の方をへりくだって言った「の者」（「経理の者」「担当の者」）は、お客様に聞こえる文では「の方」に替え、「様」は足さない（「経理の方でよろしいでしょうか？」。
+        帳面 0-2 の 10-16＝お客様の側の方を失礼のないように言う・10-19）。替えるのは言う形の1か所（phrases.honored）だけ・記録の値はお客様の言葉のまま（「経理の者」）。部署の名前だけの値
+        （「総務部」）・「担当者」は今のまま「様」（部署の言葉の一覧は作らない＝「阿部」「長谷部」を取り違える）。⛔ 8007c081 まで「経理の者様でよろしいでしょうか？」
+    (3) 言い切っていない名前の答えの形は、取込で決めた質問ごとの「事実を伺う質問か」（Question.asks_fact）の1か所が選ぶ（今のまま＝見張り）"""
+
+    def test_humble_words_of_their_side_are_said_with_kata(self):
+        from flowctl import Flow, Question, spoken_value
+        from phrases import joiner
+        for words, value, shown in (("経理の者です。", "経理の者", "経理の方"), ("担当の者が分かります。", "担当の者", "担当の方"),
+                                    ("総務部です。", "総務部", "総務部様"), ("担当者です。", "担当者", "担当者様"), ("阿部です。", "阿部", "阿部様"),
+                                    ("長谷部です。", "長谷部", "長谷部様")):
+            f = Flow([AJNameSamaTest().q()])
+            AJNameSamaTest.told(f, words)
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": value})
+            said = heard_words(r)
+            AJNameSamaTest.told(f, "はい。")
+            f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+            with self.subTest(value=value):
+                self.assertEqual(said, f"はい、ありがとうございます。{shown}でよろしいでしょうか？")
+                self.assertEqual(f.export()["Q1"], value)                                   # 記録の値はお客様の言葉のまま
+                self.assertEqual((spoken_value("name", value), spoken_value("name", shown), joiner(shown)), (shown, shown, "で"))
+        # 分かる方を伺う質問（ask_who）：言い直しは「担当の方」・かけ直しの記録の person は「担当の者」
+        h = {("dont_know", "not_in_charge"): "ask_who"}
+        f = Flow([Question("Q1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), handlings=h)])
+        AJNameSamaTest.told(f, "予算は私の担当ではないので分からないですね。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown", "unknown_why": "not_in_charge"})
+        AJNameSamaTest.told(f, "担当の者なら分かると思います。")
+        r = f.apply("record_answer", {"question_id": r["question_id"], "condition_id": "答えた", "value": "担当の者"})
+        self.assertEqual(heard_words(r), "はい、ありがとうございます。担当の方でよろしいでしょうか？")
+        AJNameSamaTest.told(f, "はい。")
+        f.apply("confirm_field", {"question_id": f.awaiting_confirm, "result": "affirmed"})
+        self.assertEqual(f.facts["callback"][0]["person"], "担当の者")
+
+    def test_hedged_name_answers_follow_whether_the_question_asks_a_fact(self):
+        # 言い切っていない名前の答え（「たぶんおかだだと思います。」）：事実を伺う質問＝「それではおかだ様ということで承っておいて大丈夫でしょうか？」・そうでない質問＝
+        # 「それではおかだ様とさせていただきますね？」（Flow._hedged_after の1か所が Question.asks_fact で選ぶ）
+        from flowctl import Flow, Question
+        for fact, want in ((True, "はい、それではおかだ様ということで承っておいて大丈夫でしょうか？"), (False, "はい、それではおかだ様とさせていただきますね？")):
+            f = Flow([Question("Q1", AJNameSamaTest.Q, "name", conditions=("答えた",), topic="ご担当者様のお名前", asks_fact=fact)])
+            AJNameSamaTest.told(f, "たぶんおかだだと思います。")
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "おかだ"})
+            self.assertEqual(heard_words(r), want, fact)
+            AJNameSamaTest.told(f, "はい。")
+            f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+            self.assertEqual(f.export()["Q1"], "おかだ", fact)

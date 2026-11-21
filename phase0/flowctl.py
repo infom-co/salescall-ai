@@ -458,7 +458,8 @@ def spoken_amount(value: str | None) -> str | None:
 
 def spoken_value(qtype: str, value: str | None) -> str | None:
     """お客様の答えの値を、お客様に聞こえる文（言い直し・ひとまずの形・承る一言＝Flow._ask_confirm）で言う形にする唯一の入口：時刻は spoken_clock・金額は
-    spoken_amount・名前は「（お名前）様」（phrases.honored。もう敬称・呼び方・役職で終わる名前はそのまま＝phrases.called。つなぐ言葉はこの形から「で」＝phrases.joiner。分身 AJ）・
+    spoken_amount・名前は「（お名前）様」（phrases.honored。もう敬称・呼び方・役職で終わる名前はそのまま＝phrases.called・へりくだった「経理の者」は「経理の方」＝phrases.HUMBLE_TAIL。
+    つなぐ言葉はこの形から「で」＝phrases.joiner。分身 AJ）・
     ほかの型はそのまま（値そのものは変えない＝記録の値・依頼者へ渡す値・会話AIへの返事の value は normalize_value の形のまま）。言葉は外さない：確かめる型の値の終わりの条件の言い方
     （「なら」など＝_IF_TAIL）は、値を受け取る1か所（normalize_value）がもう外している＝言い直して確かめる文と記録の値は同じ値（10-19「見た時点でおかしい値は、おかしいと判断する」＝
     写しの崩れ・本書 9-5 の 7.）。名前の終わりの「なら」・確かめない型（自由な意見）は、お客様の言葉のまま言う。名前の読みの確かめ（reading_question）の文は、もう「様」を持つ＝ここを

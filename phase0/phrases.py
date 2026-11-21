@@ -960,8 +960,16 @@ def called(value: str) -> bool:
     return value.endswith(CALLED_TAILS)
 
 
+# お客様がご自分の側の方をへりくだって言った言葉（「経理の者」「担当の者」）は、お客様に聞こえる文では「の方」に替え、「様」は足さない（「経理の方でよろしいでしょうか？」。
+# 帳面 0-2 の 10-16＝お客様の側の方を失礼のないように言う・10-19。CL-1 が決めた＝分身 AJ の続き）。記録の値はお客様の言葉のまま（「経理の者」）。部署の名前だけの値（「総務部」）・
+# 「担当者」は「様」を足す（部署の言葉の一覧は作らない＝「阿部」「長谷部」を取り違える）。⛔ 8007c081 まで「経理の者様でよろしいでしょうか？」
+HUMBLE_TAIL, HUMBLE_AS = "の者", "の方"
+
+
 def honored(name: str) -> str:
-    """お客様の側の方のお名前を言う形（「おかだ」⇒「おかだ様」。もう敬称・呼び方・役職で終わる名前はそのまま＝called）。"""
+    """お客様の側の方のお名前を言う形（「おかだ」⇒「おかだ様」。もう敬称・呼び方・役職で終わる名前はそのまま＝called・へりくだった「の者」は「の方」＝HUMBLE_TAIL）。"""
+    if name.endswith(HUMBLE_TAIL):
+        return name.removesuffix(HUMBLE_TAIL) + HUMBLE_AS
     return name if called(name) else name + NAME_HONORIFIC
 
 
