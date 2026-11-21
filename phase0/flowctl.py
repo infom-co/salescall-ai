@@ -21,7 +21,7 @@ import functools
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
+from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, PAYDAY_FORM, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_ALSO_IDS, APOLOGY_ALSO_TEXTS, APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
 from phrases import LISTED_ASK, LISTED_DIALED_ID, UNTIL_ASK, UNTIL_LEAN_ASK, brief_sorry_text, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
@@ -660,9 +660,22 @@ def held_ask_desc(kind: str) -> str:
     お給料日（payday）は、おっしゃった日や頃のあとを頃として2択・日や頃をおっしゃらなければ今の2択に戻る（_payday_take の payday_after_words）。⛔ 02d9ec8e まで「「答えた」と答えた」
     （名前のくり返し）で、答えを伏せた読み手 A・B が2人とも、何が「答えた」かが文から分からないと書いた（束 ab1 の #1〜#9＝rv186/AB/readers）。分身 AD の (1-a)。CL-1 が決まりで決めた"""
     if kind == "until":
-        return (f"こちらが確かめたことに答えた（そうだ・違う、と答えたのも、その時刻までと言ったわけを言ったのも、時刻や日を言い直したのも。どのわけかは、"
-                f"{UNTIL_WHY_HEADING}で選びます）")
-    return (f"伺ったお給料日の日や頃を言った（毎月のその日、と言ったのも。日や頃を言わずに、決まった日は無い・その時々で変わる、とだけ言ったのは「{SYSTEM_LABEL['unknown']}」）")
+        # 聞かれたこと（その時刻までと言ったわけ）と、その時刻までに確かめる・用意するの境目は、ここの1か所（「わからない」の説明の「聞かれたことの答えを、あとで確かめる」は、どの質問にも
+        # 同じ文＝ここに何が聞かれたことかを書く）。⛔ a3b200cf まで書いておらず、答えを伏せた読み手 A・B が2人とも、「いえ、3時までに社内で確認しておくので、そのあとでお願いします。」の
+        # 確かめる言葉が「わからない」の「あとで確かめる」へ引かれうる・聞かれたことの答えが何を指すかが読み取りにくいと書いた（束 ad1 の #4）。分身 AF の (1-b)。CL-1 が決まりで決めた
+        return (f"こちらが確かめたこと（お客様がその時刻までと言ったわけ）に答えた（そうだ・違う、と答えたのも、そのわけを言ったのも、時刻や日を言い直したのも。その時刻までに何かを"
+                f"確かめる・用意する、と言ったのも、そのわけを言ったことになり、聞かれたことの答えをあとで確かめる、ではない。どのわけかは、{UNTIL_WHY_HEADING}で選びます）")
+    # 伺った日の名前（お給料日・締め日など＝payday_name）によらない文（質問の文に名前がある。分身 AF の (2)。⛔ a3b200cf まで「伺ったお給料日の」＝ほかの日の名前で伺ったときに食い違う）
+    return (f"質問で伺った日を、日や頃で言った（毎月のその日、と言ったのも。日や頃を言わずに、決まった日は無い・その時々で変わる、とだけ言ったのは「{SYSTEM_LABEL['unknown']}」）")
+
+
+def held_ask_unread(q) -> tuple:
+    """伺い直した一言（Question.held_ask）を待つ間、流れの制御がお返事で読まない、答えとは別の項目（唯一の決まり＝判定に見せる項目を決める meaning_judge.answer_items が外す＝
+    問い合わせの文・返事の形・判断のモデルの問いが、そろって外れる）。お給料日（payday）は、どの答えでも _payday_take が受ける（日や頃をおっしゃれば頃の2択・おっしゃらなければ今の
+    2択）＝わからない・答えたくない理由（WHY）を読まない。「〇時まで」の確かめ（until）は、わからない・答えたくないと読んだら、その答えで受け取って理由も記録する（_take_system の
+    _why_of）＝外さない。作りで確かめた（試験 AFHeldBordersTest＝答えの読みと理由の読みの組を流れの制御に通す）。⛔ a3b200cf まで見せていて、答えを伏せた読み手 A・B が2人とも、
+    「月によって違うんですよ。」（決まった日が無いので1つの日を言えない）の理由に当たる選べるものが無いと書いた（束 ad1 の #8）。分身 AF の (1-d)。CL-1 が決まりで決めた"""
+    return (WHY,) if getattr(q, "held_ask", "") == "payday" else ()
 
 
 def held_ask_question(q: "Question", kind: str, **text) -> "Question":
@@ -705,7 +718,9 @@ _LADDER_MONTHS = {"今月": 0, "来月": 1, "再来月": 2}
 # その日のあと（「25日のあと」「月末のあと」）の頃：その日の次の日から、その月の終わりの日まで（その日がもう過ぎていれば次の月のその日から。月に無い日はその月の終わりの日）。
 # お客様のおっしゃった日（伺い99 アの「お給料日」＝Flow._payday_take）も、お客様ご自身の「25日のあとで」も、この1か所（ladder_span）。✅ 2026-11-21 日本時間14時59分44秒
 # ユーザー「伺い96〜101：すべてアでOK、進めてください」（伺い99 ア「おっしゃった日のあとを頃として…もう過ぎていれば次の月のその日のあとから・頃の読みは「来月の頭」などと同じ1か所」）
-_LADDER_AFTER = re.compile(r"(?:(?P<d>\d{1,2})日|(?P<end>月末|末日))の?(?:あと|後)")
+# その日のあとの頃を言う言葉（「25日のあと」の「のあと」・「給料日後」の「後」）。頃を読む _LADDER_AFTER と、お給料日を伺う一言の日の名前 payday_name が同じ言葉で読む（分身 AF の (2)）
+_AFTER_TAIL = r"の?(?:あと|後)"
+_LADDER_AFTER = re.compile(r"(?:(?P<d>\d{1,2})日|(?P<end>月末|末日))" + _AFTER_TAIL)
 _LADDER_SPAN = re.compile(r"(?:(?P<mrel>今月|来月|再来月)|(?P<mon>\d{1,2})月)(?:の?(?P<part>" + "|".join(sorted(LADDER_PARTS, key=len, reverse=True))
                           + r")|(?:中|いっぱい)?(?!\d|の\d{1,2}日))|(?<!週)(?<!年)(?P<own>"
                           + "|".join(sorted((p for p in LADDER_PARTS if p not in LADDER_PARTS_MONTHLESS), key=len, reverse=True)) + ")")
@@ -843,6 +858,19 @@ def payday_after_words(value: str | None) -> str | None:
     return "月末のあと" if re.search("月末|末日", t) else None
 
 
+def payday_name(value: str | None) -> str | None:
+    """お給料日を伺う一言（Flow._ask_payday）で伺う日の名前（唯一の作り。伺う文は phrases.PAYDAY_FORM）：お客様がおっしゃった頃の値の文字（会話AIの報告の値＝「締め日のあと」）から、
+    そのあとの頃を言う言葉（_AFTER_TAIL＝頃を読む _LADDER_AFTER と同じ）を外した日の名前（「締め日」「支払日」＝「日」で終わる名前）。伺い直しの値の文字の受け方（until_ask_line＝値の文字から
+    終わりの言葉を外す）と同じ形。録音の一言の名前（phrases.PAYDAY_NAME＝お給料日。頭の「お」を外して同じ）・日の名前が読めない（あとの頃の言葉が無い・「日」で終わらない＝「入金のあと」）
+    なら None（録音の一言のまま）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」（伺い99 ア）を、9-3（お客様の言った言葉で伺う）・10-19
+    「同じ理由が当たる場面すべてに当てる」で、ほかの日の名前にも当てた＝分身 AF の (2)（分身 AB の書き置き rv186/AB/notes.md の (6-2)）。CL-1 が決まりで決めた"""
+    from phrases import PAYDAY_NAME
+    m = re.fullmatch(r"(?P<name>.+?日)" + _AFTER_TAIL, re.sub(r"\s", "", value or ""))
+    if m is None or m.group("name").removeprefix("お") == PAYDAY_NAME.removeprefix("お"):
+        return None
+    return m.group("name")
+
+
 def _ladder_pair_days(text: str, pair: tuple) -> tuple:
     """お答えの日の言葉（曜日だけ・日付）が当たる、いま並べた日の2つ pair の日（唯一の当て方＝読む所 ladder_read・決めない見分け Flow._ladder_take）：曜日だけならその曜日の日・
     日付ならその日の日。週を言った「来週の月曜日」・明日などの言葉は ()（言葉だけの読みのまま）。2つに当たる（並べた2つが同じ曜日＝「今週の金曜日と来週の金曜日」への
@@ -955,8 +983,9 @@ def _ladder_day_cands(s: dict, ctx: LadderCtx) -> tuple:
         lo, hi = ctx.today + dt.timedelta(days=1), (max(days, default=ctx.today) if shown else ctx.today + dt.timedelta(days=6))
     days = tuple(d for d in days if d not in shown)
     weekend = s.get("kind") == "土日"
-    if s.get("theirs") and not s.get("week") and theirs_today(s, ctx):
-        # お客様から折り返していただく日（theirs＝伺い67 ア）：今日の言われた時刻に間に合えば今日から（電話の日は、お客様のほうはお電話いただける日。外した今日は並べない＝theirs_today）
+    if s.get("theirs") and not s.get("week") and not s.get("span") and theirs_today(s, ctx):
+        # お客様から折り返していただく日（theirs＝伺い67 ア）：今日の言われた時刻に間に合えば今日から（電話の日は、お客様のほうはお電話いただける日。外した今日は並べない＝theirs_today）。
+        # お客様が週・頃をおっしゃった（言い直しへの直しで並べ直す2択＝分身 AF の (3)）なら、その中から（今日は足さない＝⛔ a3b200cf まで週だけを見ていて、頃の直しに「本日と明日」を並べた）
         days, lo = (ctx.today, *days), ctx.today
     ok = [d for d in sorted(set(days)) if (d > ctx.today or (s.get("theirs") and d == ctx.today)) and (d.weekday() >= 5) == weekend]
     inside = tuple(d for d in ok if lo <= d <= hi)[:2]
@@ -1232,15 +1261,27 @@ def ladder_recheck(s: dict, ctx: LadderCtx) -> dict | None:
 def _ladder_range_mend(s: dict, got: dict, known: dict, ctx: LadderCtx) -> tuple:
     """ladder_mend の、日が1つに決まらない所（週・頃・平日と土日だけ）を言い直されたときの中身（返り値も同じ形）：伺えた時刻（と印 picked）を残し、伺えた日の所を直された所に替えて
     （平日と土日は言われたときだけ替える）、直された所から先の2択で伺い直す（日を伺う段があれば「2択で伺い直す」＝Flow._ladder_redo）。日を伺わずに決まる（土日＝曜日は伺わない）なら、
-    その値（「土日の午後4時」＝今の記録の形）。伺えた時刻が無い・お客様から折り返していただく日の2択（もとの質問に戻したあと）・伺える段が無いなら None（今のまま＝お客様の言葉）。
+    その値（「土日の午後4時」＝今の記録の形）。伺えた時刻が無い・伺える段が無いなら None（今のまま＝お客様の言葉）。お客様から折り返していただく日の2択（伺い67。もとの質問に戻したあと＝
+    Item.theirs_got）も同じ（並べ直す2択は同じお客様から折り返していただく日の2択＝Flow._ladder_redo の _theirs_hold。日を伺わずに決まる値は、お客様の言葉のまま＝記録の形は伺えた日で
+    伺う前の値を言い直す _theirs_take の1か所）。
     分身 AB の (5)（CL-1 が決まりで決めた＝11-20 日本時間0時09分49秒「もう最後の日時が決まるまで必ず二者択一」・11-19 日本時間14時18分13秒「お客様がもう言った所から先の2択だけを伺う」・
-    本書 9-3「取得済みのことを重ねて聞かない」）。⛔ 21263a4a まで「改めまして来週で大丈夫でしょうか？」と言い直し、記録から日と時刻が抜けた（分身 W の書き置き rv184/W/notes.md の (6-1)）"""
-    if not (ladder_time_words(s) or s.get("any")) or s.get("theirs"):
+    本書 9-3「取得済みのことを重ねて聞かない」）。⛔ 21263a4a まで「改めまして来週で大丈夫でしょうか？」と言い直し、記録から日と時刻が抜けた（分身 W の書き置き rv184/W/notes.md の (6-1)）。
+    ⛔ a3b200cf まで、お客様から折り返していただく日の2択のあとは今のまま（同じ言い直し・記録「来週」）だった（分身 AB の書き置き rv186/AB/notes.md の (6-5)＝分身 AF の (3)）"""
+    if not (ladder_time_words(s) or s.get("any")):
         return None, known, False
     redo = {k: v for k, v in s.items() if k not in ("day", "date", "today", "week", "span", "shown_day", "shown_kind", "no_room_told")}
     redo.update({k: got[k] for k in ("kind", "week", "span") if got.get(k)})
+    if s.get("date") is not None:
+        # お客様が直した（避けた）その日は、並べ直す2択に並べない（伺い94「避けた日だけを外す」・伺い60「別の空スケジュールの2つ」と同じ理由。外すのは同じ1か所＝伺えた所の shown_day を
+        # 候補の作り _ladder_day_cands が外す）。直された週・頃の外の日なら、何も変わらない。分身 AF の (4)（⛔ a3b200cf まで、はじめに伺えた日がもう直された週の中の日（11-19 の電話の
+        # 「火曜日」＝24日）だと「来週の火曜日と来週の水曜日」＝直された火曜日がまた並んだ＝分身 AB の書き置き rv186/AB/notes.md の (6-8)）
+        redo["shown_day"] = (s["date"],)
     if (step := ladder_step(redo, ctx)) is None:
-        return ladder_value(redo), redo, False
+        return (ladder_value(redo) if not s.get("theirs") else None), redo, False
+    if s.get("theirs") and ladder_no_room(redo, ctx) is not None:
+        # お客様から折り返していただく日で、直された週・頃の中に並べる日が無い：今のまま（お客様の言葉）。こちらの空きが無いことのお詫び（伺い100 ア）は、お客様からお電話いただく日には
+        # 当たらない（決まりが無い＝分身 AF の書き置きの 6章）
+        return None, known, False
     return (None, redo, True) if step[0] in ("kind", "day") else (None, known, False)
 
 
@@ -4074,8 +4115,14 @@ def until_choices(calling: bool, q: "Question | None" = None) -> dict:
             # こちらがどれかの理由かを確かめた問いへのお返事の決まりは、ここの1か所（どの理由でも当たる。打ち消しただけなら、打ち消した理由の反対の理由を言ったことにはならない）。
             # ⛔ 02d9ec8e まで「こちらがそう確かめた問いに、そうだと答えた」を「それまでは出られる」の説明にだけ書き、答えを伏せた読み手 A・B が2人とも、ほかの理由を確かめた問い
             # （伺い98 アの向きのある一言）への「はい」がそちらへ引かれうる・打ち消しの「いえ、そういうわけではないです。」に「決められない」も、と読んだ（束 ab1 の #1・#3）。分身 AD の (1-b)
-            UNTIL_WHY_NOT_SAID: ("その時刻までと言った理由を言っていない（その時刻より前なら話せると言っただけで、それより後が難しいかは言っていない、ときも。こちらがどれかの理由かを"
-                                 "確かめた問いには、そうだと答えたら、その理由。違うとだけ答えて、確かめた理由を打ち消しただけなら、こちら）・その時刻までとは言っていない"),
+            # 決まりの文（言い直しを打ち消す返事＝meaning_judge._rules・NEG_REPLY）より先に当てることも、ここに書く（決まりの文には書かない＝判断のモデルの問いは決まりの文を受け取らず、
+            # 選べるものの説明だけを受け取る＝jev_request。2か所にすると片方だけが変わる＝NEG_REPLY の ⛔ と同じ）。確かめた問いは、お客様の答えの言い直しではない（言い直した言葉の行は無い）。
+            # 括弧は文の後ろに置く（帳面 0-3 の (12)）。⛔ a3b200cf まで、どちらが先に当たるかを書いておらず、答えを伏せた読み手 A・B が2人とも、決まりの文の「言い直した意味を打ち消した側」・
+            # 「どこを打ち消したのか決まらないときは「決められない」」との当たる順が分かりにくいと書いた（束 ad1 の #3）。分身 AF の (1-a)。CL-1 が決まりで決めた
+            UNTIL_WHY_NOT_SAID: ("その時刻までと言った理由を言っていない・その時刻までとは言っていない（その時刻より前なら話せると言っただけで、それより後が難しいかは言っていない、ときも。"
+                                 "こちらがどれかの理由かを確かめた問いへの返事は、お客様の答えを言い直して確かめたことへの返事ではないので、言い直しを打ち消す返事の決まりより先に、"
+                                 "次のとおり選ぶ：そうだと答えたら、確かめた理由。違うとだけ答えて、確かめた理由を打ち消しただけなら、こちら。確かめた理由の反対の理由や"
+                                 f"「{UNDECIDED}」にはしない）"),
             UNDECIDED: "この言葉からは、どの理由か決められない"}
 
 
@@ -4096,8 +4143,10 @@ def cycle_choices(calling: bool, q: "Question | None" = None) -> dict:
     # 2人とも、お給料日へのお返事（「25日です。」「毎月25日です。」「うちは月末なんですよ。」）を、どちらとも取れると読んだ（束 ab1 の #5〜#7）
     return {CYCLE_LABEL["month"]: (f"{CYCLE_WHY_OF}に、月ごとにくり返す都合（月ぎめの業務・月の締め・振り込みや入金の日 など）を言った（月ごとにくり返す日を目安にした頃を"
                                    "頼んだのも、その都合を言ったことになる）"),
+            # 伺った日のお答えは、日でも頃でも同じ（分身 AF の (1-c)。⛔ a3b200cf まで「毎月の日を答えても」と日だけを書き、答えを伏せた読み手 A・B が2人とも、頃のお答えが当たるかが
+            # 字面で分からないと書いた＝束 ad1 の #7）
             CYCLE_NOT_SAID: (f"{CYCLE_WHY_OF}に、月ごとにくり返す都合を言っていない（日・頃だけを言った・ほかのわけを言った、ときも。こちらが伺った日そのものを答えただけなら、"
-                             "毎月の日を答えても、こちら）"),
+                             "毎月の日や頃を答えても、こちら）"),
             UNDECIDED: "この言葉からは、月ごとにくり返す都合かどうか決められない"}
 
 
@@ -17901,14 +17950,20 @@ class Flow:
         s = ladder_read(value, {}, today)
         if not s.get("kind") or s.get("day") or s.get("week") or s.get("any"):
             return None
-        it.ladder, it.theirs_held = {**s, "theirs": today}, (value, q)
-        it.ladder_start = dict(it.ladder)
-        self._ladder_choices(qid)   # 2択に2つとも合わないお返事も選べるものに（伺い60＝分身 V の (2)。伺い終えたら _theirs_take がもとの質問 q に戻す）
+        self._theirs_hold(qid, {**s, "theirs": today}, value)
         if self._ladder_set(qid) is None:
             self.questions[qid], it.ladder, it.ladder_start, it.theirs_held = q, None, {}, None
             return None
         it.set(it.state, f"お客様から折り返していただく日：「{value}」の日を2択で伺う")
         return self._ladder_ask(qid, ahead=True)
+
+    def _theirs_hold(self, qid: str, s: dict, said: str) -> None:
+        """お客様から折り返していただく日の2択（伺い67）に入る唯一の場所（はじめの2択 _theirs_begin・伺い終えたあとの言い直しへの週・頃の直しで並べ直す 2択 _ladder_redo）：伺えた所 s を
+        段に入れ、伺う前の値 said ともとの質問を持ち（Item.theirs_held＝伺い終えたら _theirs_take が戻す）、2択に2つとも合わないお返事も選べるものに入れる（伺い60＝分身 V の (2)）。"""
+        it = self.items[qid]
+        it.ladder, it.theirs_held = s, (said, self.questions[qid])
+        it.ladder_start = dict(s)
+        self._ladder_choices(qid)
 
     def _theirs_take(self, qid: str, s: dict | None) -> str:
         """お客様から折り返していただく日の2択（_theirs_begin）の答えの値を決める唯一の場所：伺う前の値の日の種類の言葉を、伺えた日（「本日」「来週の月曜日」）に替える
@@ -17920,7 +17975,9 @@ class Flow:
         it.theirs_got = dict(s if s else it.ladder)
         self.questions[qid], it.ladder, it.ladder_start = q, None, {}
         if not s or not s.get("day"):
-            return said
+            # 日が伺えない（2択に「分からない」）：伺えた所のまま。言い直しへの週・頃の直しで並べ直した2択（_ladder_redo）なら、直された週・頃を頭に（伺う前の値は日の種類と時刻＝分身 AF の (3)）
+            head = it.theirs_got.get("week") or it.theirs_got.get("span")
+            return f"{head}の{said}" if head and head not in said else said
         kind = re.compile("平日|" + _LADDER_WEEKEND.pattern)
         return kind.sub(s["day"], said, count=1) if kind.search(said) else f"{s['day']}の{said}"
 
@@ -17993,7 +18050,11 @@ class Flow:
         _continue の repeat）・お客様の言い間違い＝次の2択と同じ相づち（_ladder_ask）。回数は値を直していただいたときと同じ数え（Item.corrections）。分身 W の (1)（CL-1 が決まりで決めた＝
         分身 V の伺いの案 rv184/V/ask_day.md のア「その日のその時刻に電話をかけられない（空いている予定に無い）ときだけ、その日の空いている予定から2択」）"""
         it = self.items[qid]
-        before = dict(it.ladder)
+        before = dict(self.ladder_got(qid))
+        if it.ladder is None and s.get("theirs"):
+            # お客様から折り返していただく日の2択（伺い67）を伺い終えて、もとの質問に戻したあとの週・頃の直し（_ladder_range_mend）：同じ2択にもう一度入る（入り方は _theirs_begin と同じ
+            # 1か所 _theirs_hold。伺う前の値＝日の種類と、伺えた時刻＝ladder_time_words。伺えた日で言い直す _theirs_take が日の種類を伺えた日に替える）。分身 AF の (3)
+            self._theirs_hold(qid, s, f"{s.get('kind') or ''}の{ladder_time_words(s)}".removeprefix("の"))
         self.awaiting_confirm = None
         it.corrections += 1
         it.condition = it.value = it.tentative = it.approx = it.hedged = None
@@ -18087,7 +18148,11 @@ class Flow:
         it, q = self.items[qid], self.questions[qid]
         it.payday_asked, it.payday_held = True, (value, q)
         it.set(it.state, f"日時の2択：月単位の理由で、こちらで日の分からない頃（{value}）＝その日を伺う")
-        self.questions[qid] = held_ask_question(q, "payday", text=TIME_LADDER["payday"], recording=TIME_LADDER_IDS["payday"], voiced=False, plain=None)
+        # お客様がほかの日の名前でおっしゃった（「締め日のあと」）なら、同じ形の文をその名前で会話AIの声で（名前は payday_name の1か所・文の形は phrases.PAYDAY_FORM。分身 AF の (2)）
+        if (name := payday_name(value)) is None:
+            self.questions[qid] = held_ask_question(q, "payday", text=TIME_LADDER["payday"], recording=TIME_LADDER_IDS["payday"], voiced=False, plain=None)
+        else:
+            self.questions[qid] = held_ask_question(q, "payday", text=PAYDAY_FORM.format(name=name), recording="", voiced=True, plain=None)
         return self._ladder_ask(qid) | {"payday": True}   # 印 payday＝その日を伺った（測りの数えの名前 g53_meaning._flow_base）
 
     def _payday_take(self, qid: str, value: str | None) -> dict:
