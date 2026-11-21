@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
-from phrases import APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
+from phrases import APOLOGY_ALSO_IDS, APOLOGY_ALSO_TEXTS, APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
 from phrases import LISTED_ASK, LISTED_DIALED_ID, UNTIL_ASK, brief_sorry_text, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
 from phrases import YES_LEADS, YES_RECEIVE, fixed_words, yes_line
 from phrases import ACQUIRE_SPECIAL, LISTEN_TIME, NAME_FORMS, PAIN_TOLD, RECEPTION_PARTS, visit_id
@@ -5684,7 +5684,8 @@ def told_kind(entry: dict | None) -> str:
 
 # 予約証のお詫びの理由（CL-2 の task_next_actions.apology_reasons の CHECK＝0216 と同じ一覧。比べる試験）と、流す順（唯一の決まり＝apology_order）：前の電話で
 # 言ってはいけないことを言ったお詫び（承認したお詫びの文＝CL-2 の apology.for_task の text）→ 前の電話が途中で切れたお詫び → 約束の時間にかけられなかったお詫び
-# （前の電話で起きたことから、そのあとのことへ＝いちばん重いお詫びを先に）。⏳ 並べ方は伺う（帳面 4-126）
+# （前の電話で起きたことから、そのあとのことへ＝いちばん重いお詫びを先に）。並べ方（つなぎ方）は伺い97 で伺った＝✅ 2026-11-21 日本時間14時59分44秒 伺い97 ア
+# （順はこのまま・2つ目からの頭に「また」＝sorry_plan の1か所）
 APOLOGY_REASONS = ("forbidden_speech", "cut_off", "missed_promise")
 
 
@@ -5727,6 +5728,9 @@ def sorry_plan(apology, told: str | None, at_end: bool, when: str | None, follow
                  (f"apology_cut_end_{when}", APOLOGY_CUT_END[when]) if k == "cut_off" and at_end
                  else (f"apology_{k}_same_day", APOLOGY_SAME_DAY[k]) if when == "same_day" and k in APOLOGY_SAME_DAY else (f"apology_{k}", APOLOGY_FIRST[k])))
            for k in apology_order(apology, approved) if talked is not False]
+    # 2つ目からのお詫びは、頭に「また」を付けた録音（phrases.APOLOGY_ALSO_IDS の1か所。✅ 2026-11-21 日本時間14時59分44秒 伺い97 ア＝3つのときは「また」が2回続く）。
+    # 言ってはいけないことのお詫び（"apology"）は apology_order がいつも1つ目に置く＝頭に付けない（2つ目以降に来れば KeyError＝黙って頭の無い文を流さない）
+    out = [x if i == 0 else (x[0], APOLOGY_ALSO_IDS[x[1]], APOLOGY_ALSO_TEXTS[APOLOGY_ALSO_IDS[x[1]]]) for i, x in enumerate(out)]
     # 申し伝え直す一言も、前の電話でお話ししていない方には流さない（同じ talked＝11-07 3時14分01秒 H6「前の電話が切れたお詫び・申し伝える一言は流さない」）
     if told is not None and talked is not False:
         out.append((None, "told_follow_up", TOLD_FOLLOW_UP) if follow_up else (None, f"told_again_{told}_{when}", TOLD_AGAIN[f"{told}_{when}"]))
