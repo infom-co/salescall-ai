@@ -189,7 +189,7 @@ class Delivery(unittest.TestCase):
     def test_the_sender_called_by_the_supervisor_reads_where_to_send_and_sends_once(self):   # CL-2 4-434・4-442（plugins.NoticeSender）
         from salescall.core import settings
         sent = FakeTransport()
-        sender = notices.Sender(chatwork_token="", sms=lambda number: sent)
+        sender = notices.Sender(chatwork_token="", sms=lambda links, owner, number: sent)
         none = World().setup()                                                    # 送り先を入れていない契約者：何も送らない・記録もしない
         app_access().in_tenant(OPERATOR, none["tenant"], lambda tx: notify.emit(tx, "stopped", key="試験：送り先の無い知らせ",
                                                                                  summary="架空の止めた知らせ"))
@@ -204,6 +204,52 @@ class Delivery(unittest.TestCase):
         before = len(sent.sent)
         sender.deliver(app_access(), SYSTEM, self.s["tenant"])
         self.assertEqual(len(sent.sent), before)                                  # 届いた知らせは、もう送らない
+
+    def test_the_short_message_goes_out_from_a_line_of_the_contractor_and_tries_the_next_line_only_when_nothing_went_out(self):
+        """ショートメールは、その契約者の、PC とつながっている回線から送る（CL-2 の 4-459＝AgentDriver.send_sms）。送らなかった・送れなかったと
+        確かに言えるときだけ次の回線へ。送れたか分からないときは重ねて送らず「送れなかった」（送る順の次＝チャットワークへ）。"""
+        import uuid
+        from salescall.link.phone import CallNotPlaced, CallWithheld
+        from salescall.supervisor.links import Attached
+        mine, other = uuid.uuid4(), uuid.uuid4()
+
+        class Driver:
+            def __init__(self, outcome, log):
+                self.outcome, self.log = outcome, log
+
+            def send_sms(self, number, text):
+                self.log.append((number, text))
+                if self.outcome is not None:
+                    raise self.outcome
+
+        class Links:
+            def __init__(self, outcomes):
+                self.outcomes, self.log = outcomes, []
+                ids = sorted(uuid.UUID(int=i) for i in range(1, len(outcomes) + 1))
+                self.at = {lid: Attached(mine, uuid.uuid4()) for lid in ids}
+                self.at[uuid.UUID(int=99)] = Attached(other, uuid.uuid4())      # ほかの契約者の回線からは送らない
+                self.order = ids
+
+            def lines(self):
+                return self.at
+
+            def driver(self, line_id, at):
+                if at.tenant_id != mine:
+                    raise AssertionError("ほかの契約者の回線を使った")
+                return Driver(self.outcomes[self.order.index(line_id)], self.log)
+
+        ok = Links([CallWithheld("通話の途中"), None])
+        notices.SmsTransport(ok, mine, "+81300000000").send("架空の知らせ")
+        self.assertEqual(len(ok.log), 2)                                       # 1本目は通話の途中＝送っていない → 2本目で送れた
+        unsure = Links([RuntimeError("分からない"), None])
+        with self.assertRaises(notices.SendFailed):
+            notices.SmsTransport(unsure, mine, "+81300000000").send("架空の知らせ")
+        self.assertEqual(len(unsure.log), 1)                                   # 送れたか分からないときは、次の回線から重ねて送らない
+        with self.assertRaises(notices.SendFailed):
+            notices.SmsTransport(Links([CallNotPlaced("連絡先に無い")]), mine, "+81300000000").send("架空の知らせ")
+        with self.assertRaises(notices.SendFailed):
+            notices.SmsTransport(Links([]), mine, "+81300000000").send("架空の知らせ")   # つながっている回線が無い
+        self.assertIsNone(notices._sms_transport(None, mine, "+81300000000"))   # 見守り役の外（つながりが無い）では作らない
 
     def test_a_delivered_notice_is_not_sent_twice(self):
         eid, sms = self._event(), FakeTransport()

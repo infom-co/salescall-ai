@@ -126,7 +126,7 @@ TIMING: dict[str, str] = {
     "complaint": DAYTIME, "judge_unknown": DAYTIME, "declared_after_settle": DAYTIME, "decision_assumed": DAYTIME,
     # (4) 仕組み・機械の不具合
     "error_notice": DAYTIME, "calendar_sync_failed": DAYTIME, "calendar_next_year_missing": DAYTIME, "program_update": DAYTIME,
-    "backup_failed": DAYTIME, "pc_down": DAYTIME, "line_undecided": DAYTIME, "task_resting": DAYTIME, "line_none_to_switch": DAYTIME,
+    "backup_failed": DAYTIME, "pc_down": DAYTIME, "line_unusable": DAYTIME, "line_undecided": DAYTIME, "task_resting": DAYTIME, "line_none_to_switch": DAYTIME,
     "pc_line_conflict": DAYTIME, "ai_version_missing": DAYTIME, "ai_version_unchecked": DAYTIME, "version_not_derived": DAYTIME,
     "setting_missing": DAYTIME,
     # (5) お金
@@ -327,22 +327,51 @@ class ChatworkTransport:
             raise SendFailed("チャットワークにつながりませんでした") from None
 
 
-def _sms_transport(number: str) -> Transport | None:
-    """Rakuten Link のショートメールを、契約者の PC の部品に頼んで送る部品。⏳ PC の部品への頼み方は、電話接続の担当と決めること（CL-2 4-434 の
-    12）。決まるまでは作らない（使える送り方に入れない＝チャットワークで送る）。"""
-    return None
+class SmsTransport:
+    """Rakuten Link のショートメールで1通送る（契約者の PC の部品に頼む。サーバーの入口は supervisor/channel の AgentDriver.send_sms＝CL-2 の 4-459）。
+    送る回線は、その契約者の、いま PC とつながっている回線から順に試す（どの回線から送るかを決めるのは、ここ1か所）：
+    - 送らなかった（通話の途中・PC が試さなかった＝CallWithheld）・送れなかったと確かに言える（連携していない・宛先が連絡先に無い＝CallNotPlaced）
+      ＝次の回線を試す（どちらも、まだ1通も出ていない）。
+    - 送れたか分からない（ほかの誤り）＝そこで止めて「送れなかった」（SendFailed）。同じ文を別の回線から重ねて送らないため（送る順の次＝チャットワークへ回る）。
+    - 試せる回線が無い・どれも送れなかった＝SendFailed。"""
+
+    def __init__(self, links: Any, tenant_id: Any, number_e164: str) -> None:
+        self.links, self.tenant_id, self.number = links, tenant_id, number_e164
+
+    def send(self, text: str) -> None:
+        from salescall.link.phone import CallNotPlaced, CallWithheld
+        lines = sorted(((lid, at) for lid, at in self.links.lines().items() if at.tenant_id == self.tenant_id), key=lambda la: str(la[0]))
+        if not lines:
+            raise SendFailed("ショートメールを送れる回線が、いま PC とつながっていません")
+        for line_id, at in lines:
+            try:
+                self.links.driver(line_id, at).send_sms(self.number, text)
+                return
+            except (CallWithheld, CallNotPlaced):
+                continue
+            except Exception:   # noqa: BLE001 送れたか分からない：重ねて送らない
+                raise SendFailed("ショートメールを送れたか分かりませんでした") from None
+        raise SendFailed("どの回線からも、ショートメールを送れませんでした")
+
+
+def _sms_transport(links: Any, tenant_id: Any, number: str) -> Transport | None:
+    """ショートメールの送り方（PC とのつながり links が無い＝見守り役の外から呼ばれたときは作らない＝チャットワークだけで送る）。
+    tenant_id＝その回線の持ち主の契約者（管理者あては、管理者自身の契約者＝見守り役の設定 admin_tenant）。"""
+    if links is None or tenant_id is None:
+        return None
+    return SmsTransport(links, tenant_id, number)
 
 
 class Sender:
     """見守り役から呼ばれる知らせの送る部品（supervisor/plugins.NoticeSender）。"""
 
-    def __init__(self, *, chatwork_token: str | None = None, sms: Callable[[str], Transport | None] = _sms_transport,
+    def __init__(self, *, chatwork_token: str | None = None, sms: Callable[[Any, Any, str], Transport | None] = _sms_transport,
                  days: int = 7) -> None:
         import os
         self.chatwork_token = chatwork_token if chatwork_token is not None else os.environ.get(CHATWORK_TOKEN_ENV)
         self.sms, self.days = sms, days
 
-    def _plan(self, tx: Tx, tenant_id: Any | None) -> tuple[dict[str, Transport], dict[str, int], list[int]]:
+    def _plan(self, tx: Tx, tenant_id: Any | None, links: Any = None) -> tuple[dict[str, Transport], dict[str, int], list[int]]:
         from salescall.core import settings
         admin = tenant_id is None
 
@@ -352,7 +381,9 @@ class Sender:
         transports: dict[str, Transport] = {}
         number, room = read(where["sms"]), read(where["chatwork"])
         if number:
-            made = self.sms(number)
+            # 送る回線の持ち主：契約者あては、その契約者。管理者あては、管理者自身の契約者（見守り役の設定。無ければショートメールでは送らない）
+            owner = tenant_id if not admin else getattr(getattr(links, "cfg", None), "admin_tenant", None)
+            made = self.sms(links, owner, number)
             if made is not None:
                 transports["sms"] = made
         if room and self.chatwork_token:
@@ -365,12 +396,12 @@ class Sender:
             " ORDER BY e.urgent DESC, e.occurred_at, e.event_id", (admin, self.days))]
         return transports, tries, events
 
-    def deliver(self, access: Access, actor: Actor, tenant_id: Any | None) -> dict[str, int]:
+    def deliver(self, access: Access, actor: Actor, tenant_id: Any | None, links: Any = None) -> dict[str, int]:
         """1回の一手：まだ届いていない知らせを1件ずつ（まとめる知らせは除く）と、送る時刻が来た、まとめる知らせを1通で。答え：一手ごとの件数。
         送り先が1つも無ければ、何も送らない（記録もしない＝送り先を入れたら送り始める。画面の「知らせ」には、どれも出ている）。"""
         def in_tx(work: Any) -> Any:
             return access.in_system(actor, work) if tenant_id is None else access.in_tenant(actor, tenant_id, work)
-        transports, tries, events = in_tx(lambda tx: self._plan(tx, tenant_id))
+        transports, tries, events = in_tx(lambda tx: self._plan(tx, tenant_id, links))
         done: dict[str, int] = {}
         if not transports:
             return done

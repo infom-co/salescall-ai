@@ -94,8 +94,8 @@ def phone(screen=None, recordings=lambda v: (b"\x01\x00" * 160, b"\x02\x00" * 16
 class Placing(unittest.TestCase):
     def test_a_call_is_placed_only_when_linked_and_the_screen_starts_calling(self):
         p, _ = phone()
-        p.start_call("+81300000001", "声A")
-        self.assertEqual(p.screen.dialed, ["+81300000001"])
+        p.start_call("+81300000001", "声A", national="0300000001")
+        self.assertEqual(p.screen.dialed, ["0300000001"])   # 番号の欄へは、サーバーが添えた国内の形のまま（部品の中で形を変えない）
         self.assertTrue(p.in_call())
 
     def test_not_linked_or_unknown_link_is_not_placed(self):
@@ -103,26 +103,26 @@ class Placing(unittest.TestCase):
             with self.subTest(linked=linked):
                 p, _ = phone(FakeScreen(linked=linked))
                 with self.assertRaises(CallNotPlaced):
-                    p.start_call("+81300000001")
+                    p.start_call("+81300000001", national="0300000001")
                 self.assertEqual(p.screen.dialed, [])
 
     def test_a_screen_that_never_starts_calling_is_not_placed(self):
         p, clock = phone(FakeScreen(goes_to="idle"))
         with self.assertRaises(CallNotPlaced):
-            p.start_call("+81300000001")
+            p.start_call("+81300000001", national="0300000001")
         self.assertGreaterEqual(clock.t, rakuten_link.DIAL_WAIT)
 
     def test_a_button_that_cannot_be_pressed_is_not_placed(self):
         p, _ = phone(FakeScreen(fails=True))
         with self.assertRaises(CallNotPlaced):
-            p.start_call("+81300000001")
+            p.start_call("+81300000001", national="0300000001")
 
     def test_a_line_in_a_call_does_not_place_another(self):
         s = FakeScreen()
         s.now = "in_call"
         p, _ = phone(s)
         with self.assertRaises(CallNotPlaced):
-            p.start_call("+81300000001")                                     # 1回線で同時に1本（計画書 8-3）
+            p.start_call("+81300000001", national="0300000001")                                     # 1回線で同時に1本（計画書 8-3）
         self.assertEqual(s.dialed, [])
 
     def test_an_unknown_screen_counts_as_in_a_call(self):
@@ -138,7 +138,7 @@ class Listening(unittest.TestCase):
         sent, events = [], []
         p.on_audio(sent.append)
         p.on_event(events.append)
-        p.start_call("+81300000001")
+        p.start_call("+81300000001", national="0300000001")
         p.sound.feed(b"".join(tone(400, 1.0) + silence(2.0) for _ in range(3)))
         self.assertIn({"kind": "ringback"}, events)
         self.assertTrue(sent and all(len(f) == audio.TO_SERVER_RATE * 20 // 1000 * 2 for f in sent))
@@ -159,13 +159,13 @@ class TestRing(unittest.TestCase):
     def test_ringback_heard_means_the_line_can_call(self):
         p, clock = phone()
         clock.on_sleep.append(lambda t: p.sound.feed(tone(400, 0.1) if int(t * 10) % 30 < 10 else silence(0.1)))
-        self.assertTrue(p.test_ring("+81300000009"))
+        self.assertTrue(p.test_ring("+81300000009", national="0300000009"))
         self.assertEqual(p.screen.hung, 1)                                   # 相手が出る前に切る
 
     def test_busy_heard_also_means_the_line_can_call(self):
         p, clock = phone()
         clock.on_sleep.append(lambda t: p.sound.feed(tone(400, 0.1) if int(t * 10) % 10 < 5 else silence(0.1)))
-        self.assertTrue(p.test_ring("+81300000009"))
+        self.assertTrue(p.test_ring("+81300000009", national="0300000009"))
 
     def test_a_call_that_ends_without_any_sound_cannot_call_but_a_voice_is_not_judged(self):
         """計画書 8-2：呼び出しの音もお知らせの声も無いまま終わった＝発信できない。何かの声が聞こえて終わったら、お知らせの声かも
@@ -178,14 +178,14 @@ class TestRing(unittest.TestCase):
                     if t > 3:
                         p.screen.now = "idle"
                 clock.on_sleep.append(step)
-                self.assertIs(p.test_ring("+81300000009"), want)
+                self.assertIs(p.test_ring("+81300000009", national="0300000009"), want)
 
     def test_not_placed_is_false_and_silence_is_unknown(self):
         p, _ = phone(FakeScreen(goes_to="idle"))
-        self.assertFalse(p.test_ring("+81300000009"))
+        self.assertFalse(p.test_ring("+81300000009", national="0300000009"))
         p, clock = phone()
         clock.on_sleep.append(lambda t: p.sound.feed(silence(0.1)))
-        self.assertIsNone(p.test_ring("+81300000009"))                      # 見分けられなければ決めつけない
+        self.assertIsNone(p.test_ring("+81300000009", national="0300000009"))                      # 見分けられなければ決めつけない
 
 
 class ShortMessage(unittest.TestCase):
@@ -194,29 +194,46 @@ class ShortMessage(unittest.TestCase):
         from salescall.agent.phones.screen_uia import NotRegistered
         from salescall.link.phone import CallWithheld
         p, _ = phone()
-        p.send_sms("0300000001", "架空の知らせ")
+        p.send_sms("+81300000001", "架空の知らせ", national="0300000001")
         self.assertEqual(p.screen.sent, ("0300000001", "架空の知らせ"))
         self.assertTrue(p.usable())
         busy = FakeScreen()
         busy.now = "in_call"
         p, _ = phone(busy)
         with self.assertRaises(CallWithheld):
-            p.send_sms("0300000001", "架空の知らせ")
+            p.send_sms("+81300000001", "架空の知らせ", national="0300000001")
         for screen in (FakeScreen(linked=False), FakeScreen(linked=None)):
             p, _ = phone(screen)
             self.assertFalse(p.usable())
             with self.assertRaises(CallNotPlaced):
-                p.send_sms("0300000001", "架空の知らせ")
+                p.send_sms("+81300000001", "架空の知らせ", national="0300000001")
         unknown = FakeScreen()
         unknown.sms_error = NotRegistered("宛先がスマホの連絡先にありません")
         p, _ = phone(unknown)
         with self.assertRaises(CallNotPlaced):
-            p.send_sms("0300000001", "架空の知らせ")
+            p.send_sms("+81300000001", "架空の知らせ", national="0300000001")
         broken = FakeScreen()
         broken.sms_error = RuntimeError("押したあとの確かめが合わない")
         p, _ = phone(broken)
         with self.assertRaises(RuntimeError):                                  # 送れたか分からない（サーバーは次の送り方へ）
-            p.send_sms("0300000001", "架空の知らせ")
+            p.send_sms("+81300000001", "架空の知らせ", national="0300000001")
+
+
+class Usable(unittest.TestCase):
+    def test_usable_answers_from_a_fresh_reading_without_reading_the_screen_each_second(self):
+        """土台は1秒ごとに usable を聞く（CL-2 の 4-459）。覚えた答えが LINKED_FRESH 秒より新しければ画面を読まず、古ければ読み直す。"""
+        screen = FakeScreen()
+        p, clock = phone(screen)
+        reads = []
+        real = screen.linked
+        screen.linked = lambda: (reads.append(1), real())[1]
+        self.assertTrue(p.usable())
+        self.assertTrue(p.usable())
+        self.assertEqual(len(reads), 1)                                      # 2回目は覚えた答え
+        clock.sleep(rakuten_link.LINKED_FRESH + 0.1)
+        screen._linked = False
+        self.assertFalse(p.usable())                                         # 古くなったら読み直す（連携が切れたのが分かる）
+        self.assertEqual(len(reads), 2)
 
 
 class Numbers(unittest.TestCase):
@@ -230,7 +247,7 @@ class Numbers(unittest.TestCase):
 class Apology(unittest.TestCase):
     def test_ask_wait_for_the_reply_then_bye_then_hang_up(self):
         p, clock = phone()
-        p.start_call("+81300000001", "声A")
+        p.start_call("+81300000001", "声A", national="0300000001")
         p.screen.now = "in_call"
         clock.on_sleep.append(lambda t: p.sound.feed(tone(300, 0.05, amp=6000) if t < 1.5 else silence(0.05)))
         p.play_apology_and_hang_up()
@@ -240,7 +257,7 @@ class Apology(unittest.TestCase):
 
     def test_without_the_recordings_it_hangs_up_at_once(self):
         p, _ = phone(recordings=lambda v: None)
-        p.start_call("+81300000001")
+        p.start_call("+81300000001", national="0300000001")
         p.play_apology_and_hang_up()
         self.assertEqual(p.sound.played, [])
         self.assertEqual(p.screen.hung, 1)

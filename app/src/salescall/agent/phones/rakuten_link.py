@@ -29,6 +29,7 @@ DIAL_WAIT = 8.0            # 番号を入れてから、画面が「かけてい
 REPLY_LISTEN = 6.0         # おわびのひとつ目のあと、お客様の返事を待つ長さ（秒）
 QUIET_END = 0.8            # お客様の声がこれだけ途切れたら、返事が終わったとみなす（秒）
 VOICE_RMS = 300.0          # これより大きい切れ目を「声がある」とみなす
+LINKED_FRESH = 3.0         # usable が覚えた「スマホと連携しているか」を使ってよい長さ（秒。土台は1秒ごとに聞く＝画面を毎回は読まない）
 
 
 class Screen(Protocol):
@@ -65,6 +66,7 @@ class RakutenLink:
         self._cadence = tones.Cadence(sound.rate)
         self._heard: list[float] = []           # 声のあった切れ目の時刻（おわびの返事を待つため）
         self._last_state = "idle"
+        self._linked, self._linked_at = False, None   # スマホとの連携（usable が返す覚え。poll_state のついでに読み直す）
         sound.listen(self._on_frame)
         # 画面の状態（呼び出し中・つながった・切れた）は、声の流れとは別の流れで watch_every 秒ごとに読む（画面を読むのは遅いので、
         # 20ms ごとの声の流れの中で読むと声が詰まる）。試験は None にして、poll_state を自分で呼ぶ
@@ -78,16 +80,18 @@ class RakutenLink:
         except Exception:
             return True
 
-    def start_call(self, phone_e164: str, voice_type: str | None = None) -> None:
+    def start_call(self, phone_e164: str, voice_type: str | None = None, *, national: str) -> None:
+        """かける。番号の欄へは、サーバーが添えた国内の形 national をそのまま入れる（部品の中で番号の形を変えない＝見張り Q1。
+        CL-2 の 4-459・やり取りの版 8）。phone_e164 は記録と照らし合わせのためだけ。"""
         with self._lock:
             self._voice = voice_type
-            self._place(phone_e164)
+            self._place(national)
 
     def hang_up(self) -> None:
         self.sound.stop()
         self.screen.hang_up()
 
-    def test_ring(self, phone_e164: str) -> bool | None:
+    def test_ring(self, phone_e164: str, *, national: str) -> bool | None:
         """テスト番号へかけ、この回線から電話網へ発信できたかを答える（計画書 8-2・8-8。答えの意味は `link.phone.Phone.test_ring`）。
         - True：呼び出しの音・話し中の音が聞こえた。
         - False：画面が「かけている」にならない（アプリが発信できない）、または、音も声も何も聞こえないまま電話が終わった。
@@ -97,7 +101,7 @@ class RakutenLink:
         with self._lock:
             self._cadence = tones.Cadence(self.sound.rate)
             try:
-                self._place(phone_e164)
+                self._place(national)
             except CallNotPlaced:
                 return False
             started = self.clock()
@@ -137,13 +141,21 @@ class RakutenLink:
 
     def usable(self) -> bool:
         """この回線が、いま発信を受けられるか（スマホと連携している。分からなければ False＝かけない側）。PC の部品の土台が、合図の
-        回線の一覧に入れるかをこれで決める（CL-2 へのお願い 62 の (2)。形ができるまで、土台はまだ呼ばない）。"""
-        try:
-            return self.screen.linked() is True
-        except Exception:
-            return False
+        回線の一覧に入れるかをこれで決める（CL-2 の 4-459 の (2)）。土台は1秒ごとに呼ぶので、画面を毎回は読まない：状態を読む流れ
+        （poll_state）のついでに覚えた答えが LINKED_FRESH 秒より新しければ、それを返す。古い・まだ無いときだけ、ここで読む。"""
+        if self._linked_at is not None and self.clock() - self._linked_at <= LINKED_FRESH:
+            return self._linked
+        return self._read_linked()
 
-    def send_sms(self, phone_national: str, text: str) -> None:
+    def _read_linked(self) -> bool:
+        try:
+            ok = self.screen.linked() is True
+        except Exception:
+            ok = False
+        self._linked, self._linked_at = ok, self.clock()
+        return ok
+
+    def send_sms(self, phone_e164: str, text: str, *, national: str) -> None:
         """ショートメールを1通送る（CL-2 へのお願い 62 の (1)）。送れたと確かに言えるときだけ返る：
         - 通話の途中（または分からない）＝CallWithheld（送ろうとしない。画面の操作で通話を乱さない）
         - スマホと連携していない・宛先がスマホの連絡先に無い・番号の形が違う＝CallNotPlaced（送っていない）
@@ -154,10 +166,10 @@ class RakutenLink:
         with self._lock:
             if self.in_call():
                 raise CallWithheld("通話の途中なので、ショートメールは送りません")
-            if not self.usable():
+            if not self._read_linked():   # 送る直前は、覚えた答えでなく画面を読む
                 raise CallNotPlaced("Rakuten Link がスマホと連携していない（または分からない）")
             try:
-                self.screen.send_sms(phone_national, text)
+                self.screen.send_sms(national, text)   # 宛先の欄へは国内の形をそのまま（start_call と同じ）
             except LookupError as e:   # 宛先が連絡先に無い（screen_uia.NotRegistered）・部品が見つからない
                 raise CallNotPlaced(str(e) or "宛先がスマホの連絡先にありません") from None
             except ValueError as e:    # 番号の形が違う（国内の形でない＝送っていない）
@@ -224,6 +236,8 @@ class RakutenLink:
     def _watch(self, every: float) -> None:
         while True:
             self.poll_state()
+            if self._linked_at is None or self.clock() - self._linked_at > LINKED_FRESH / 2:   # 覚えが古くなる前に読み直す
+                self._read_linked()
             time.sleep(every)
 
     def _wait_reply(self, until: float) -> None:

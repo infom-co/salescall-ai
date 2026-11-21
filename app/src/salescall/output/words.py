@@ -327,6 +327,7 @@ DETAIL_KIND_WORDS: dict[str, str] = {
     "carried": "新しい担当の方に引き継ぎを確かめた答え", "refusal_said": "お断りのお言葉（断り文句）", "clock24": "言い直して確かめた時刻",
     "another_day": "日を改めて締めた", "callee_questions": "お客様からのご質問", "brief": "手短にと言われて続けた答え",
     "elsewhere_whole": "ご案内全体をほかの会社に頼んでいると言われた", "elsewhere_point": "ほかの会社に決めた決め手",
+    "cut_before_choice": "方法を選んでいただく前に切れた",   # ほかのご希望の1件の印（CL-2 の 4-463。読む所は call_report.OtherWish.cut_before_choice）
 }
 
 
@@ -359,7 +360,7 @@ LIST_GO_WORDS: dict[str, str] = {"rows": "お客様リスト", "results": "依�
 # info（区別のための情報）＝青／normal（ふだんどおり・何もない・システムが進めているだけ）＝色なし
 TONES: dict[str, str] = {"stopped": "stop", "waiting": "wait", "done": "ok", "info": "info", "normal": ""}
 # 知らせの種類の役割（無い種類は、急ぎなら waiting・ほかは info。急ぎは色ではなく文の「【緊急】」で示す）
-NOTICE_ROLES: dict[str, str] = {"stopped": "stopped", "pc_down": "stopped", "resumed": "done"}
+NOTICE_ROLES: dict[str, str] = {"stopped": "stopped", "pc_down": "stopped", "line_unusable": "waiting", "resumed": "done"}
 
 
 def tone(role: str) -> str:
@@ -530,7 +531,7 @@ NOTICE_KIND_WORDS: dict[str, str] = {
     "solution_unconfirmed": "解決策を入れるか選んでください", "declared_after_settle": "「もうかけないで」が電話のあとに届きました",
     "recording_needed": "録音が要る部分があります", "recording_list_needed": "録音の一覧がまだありません",
     "version_not_derived": "業務設定の新しい版を作れませんでした", "setting_missing": "設定がされていません",
-    "pc_down": "PC からの合図が途切れました", "line_undecided": "回線のせいか番号のせいか決められません",
+    "pc_down": "PC からの合図が途切れました", "line_unusable": "スマホと電話のアプリのつながりが切れています", "line_undecided": "回線のせいか番号のせいか決められません",
     "task_resting": "こちらの不具合で休ませたお客様がいます", "line_none_to_switch": "発信番号を替える回線がありません",
     "pc_line_conflict": "同じ回線を2台の PC がつないでいます", "decision_approval": "取り消せない決定の確かめを待っています",
     "decision_assumed": "決められなかった決定を、設定どおり決まったものとしました",
