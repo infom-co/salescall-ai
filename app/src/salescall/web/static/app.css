@@ -560,6 +560,9 @@ a.go:hover { text-decoration: underline; text-underline-offset: 3px; }
 .go-links { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 18px; }
 .title-row > .go-links { flex-basis: 100%; }
 .mode-card .title-row > .go-links { flex-basis: auto; }
+.go-links { min-width: 0; }
+/* いちばん狭い幅では、長い行き先も折り返す（業務の札の「検証モードかフルオートかを変える（設定）」が 320px で横にはみ出した） */
+@media (max-width: 420px) { a.go { white-space: normal; } .mode-card .title-row > .go-links { flex-basis: 100%; } }
 /* とても狭い幅では、上の帯の「SalesCall」の文字を隠して、緊急停止が画面の端で切れないようにする（緊急停止はいつも全部見える） */
 @media (max-width: 420px) { .top > .brand { display: none; } }
 /* ログインと安全・ログインの2段目 */
