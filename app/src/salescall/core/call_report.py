@@ -288,7 +288,9 @@ NEVER_CLOSES = frozenset({"transfer_unclear", "who_unclear"})
 ANOTHER_DAY_ENDS = frozenset({"yes_used_up", "no_pain"})
 REFUSAL_WHATS = ("refused", "busy", "elsewhere")   # 断り文句の種類：通話・営業を断った（決まらない断り・答えたくないも）／忙しい／ほかの会社に頼んでいる
 REFUSAL_ATS = ("yes", "main", "reception")         # どの段のお断りか：Yes の質問の段／本題の段（アポのお断り）／受付の方の営業のお断り
-HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})   # 急いでいる・断られた・怒っている（CL-1 の Flow.hurried と同じ）
+# 断られたときの締めで終える理由（急いでいる・断られた・怒っている・番号違い。締めのあと7秒で切ってよい＝CL-1 の flowctl.DECLINED_ENDS の写し・比べる試験で止める。
+# 番号違いは 2026-11-21 CL-1 の連絡帳 4-225 の (1)）。⚠️ 業務の土台の判定は、この一覧を読まない（読む所が無い）。写しを無くす段取りは CL-2 の連絡帳 4-462
+HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party"})
 NOT_REACHED_REASONS = ("absent", "not_transferred", "departed", "other_means", "who_unclear")   # 目的のお客様に繋がらなかった理由（7-1。CL-1 の
 #   Flow.not_reached の1か所と flowctl の注の名前。⛔ 前は CL-1 の表 NOT_REACHED_LABEL を指していたが、CL-1 の連絡帳 4-160 で外された）：在籍していない＝後任の方にも繋がらなかった・終える業務／ほかの手段を望まれた。2026-10-22 の版 0.5。
 #   お名前だけではどの方か分からなかった＝who_unclear。CL-1 の連絡帳 4-65 の (e)。かけ直さずに終える＝business_rules.SYSTEM_POLICIES）
@@ -622,7 +624,7 @@ class OtherWish:
     """ほかのご希望を伺った答え（事実 other_wish。CL-1 の 4-72 の (k)）。依頼者へ返す。"""
     evidence: Said               # 根拠の発話（W1 への答え）
     question: str                # 元の質問の番号
-    wish: str | None             # W1 の選択肢の名前（聞き取れない・分からないときは None）
+    wish: str | None             # W1 の選択肢の名前（聞き取れない・分からないとき・方法を選んでいただく前に切れたとき＝`cut_before_choice` は None）
     value: str | None            # お客様が言ったご希望の値（ご連絡の方法・ほかのご希望のときだけ）
     means: str | None            # ご連絡の方法（OTHER_WISH_MEANS）
     contact: str | None          # その方法の連絡先（伺えなければ None）
@@ -633,6 +635,13 @@ class OtherWish:
     topic: str | None = None     # W1 の提案に入れた中身（同じ）
     added: str | None = None     # W1 の提案に、こちらから足した条件（受けていただいたときだけ。同じ）
     before_ways: BeforeWays | None = None   # 方法を並べて伺う前のご希望（並べて伺っていなければ・前の形の報告は None。CL-1 の連絡帳 4-169）
+
+    @property
+    def cut_before_choice(self) -> bool:
+        """方法を並べて伺い、選んでいただく前に電話が切れた記録か（読む所はここだけ。判定の中身で依頼者へ渡す印）。会話の側は、並べる前のご希望
+        before_ways だけを書き、ほかの欄（wish・value・means・contact・outcome・wish_state・via）をどれも null にする（CL-1 の連絡帳 4-225 の (3)）。"""
+        return self.before_ways is not None and all(v is None for v in (self.wish, self.value, self.means, self.contact, self.outcome,
+                                                                          self.wish_state, self.via))
 
     def to_json(self) -> dict[str, Any]:
         """報告に書く形（唯一の場所。報告の書き出し `CallReport.to_json` と、次の通話へ渡す前の通話の答えの "wish_fact"＝`conversation_io.earlier`
@@ -978,7 +987,7 @@ class CallReport:
 
     @property
     def hurried(self) -> bool:
-        """お客様が急いでいる・通話を断られた・怒っている、で締めたか。"""
+        """お客様が急いでいる・通話を断られた・怒っている・番号違い、の断られたときの締めで終えたか（締めのあと7秒で切ってよい締め）。"""
         return self.end_reason in HURRIED_ENDS
 
     def without(self, parts: frozenset[str] | set[str] | tuple[str, ...]) -> CallReport:

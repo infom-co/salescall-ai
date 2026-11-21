@@ -8369,8 +8369,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("ほかのご希望の記録の before_ways を知らない鍵として報告ごと断る（4-169 の受け）", "src/salescall/core/call_report.py",
      '"terms", "topic", "added",\n                                       "before_ways"})))', '"terms", "topic", "added"})))', ("tests.test_call_report_cl1.OtherWish1103.test_the_wish_said_before_the_ways_were_listed_is_received_and_returned",)),
     ("判定の中身のほかのご希望に、並べる前のご希望の中身を返さない", "src/salescall/core/judge.py",
-     '"before_ways": None if w.before_ways is None else {"said": w.before_ways.said, "value": w.before_ways.value}}',
-     '"before_ways": None}', ("tests.test_call_report_cl1.OtherWish1103.test_the_wish_said_before_the_ways_were_listed_is_received_and_returned",)),
+     '"before_ways": None if w.before_ways is None else {"said": w.before_ways.said, "value": w.before_ways.value},',
+     '"before_ways": None,', ("tests.test_call_report_cl1.OtherWish1103.test_the_wish_said_before_the_ways_were_listed_is_received_and_returned",)),
     ("並べる前のご希望の発話の番号を確かめない", "src/salescall/core/call_report.py",
      "    if not (unknown and turn is None) and (not isinstance(turn, int)", "    if False and (not isinstance(turn, int)", ("tests.test_call_report_cl1.OtherWish1103.test_the_wish_said_before_the_ways_were_listed_is_received_and_returned",)),
     ("ほかの会社に頼んでいると言われて伺った問題・心配事（事実 elsewhere）を読まない（concern だけ）", "src/salescall/core/call_report.py",
@@ -8819,6 +8819,15 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
             except Exception:  # noqa: BLE001 送れたか分からない''',
      '''            except Exception:  # noqa: BLE001 送れたか分からない''',
      ("tests.test_link.CallingState.test_a_short_message_is_sent_from_the_line_and_withheld_during_a_call",)),
+    ('方法を選んでいただく前に切れた印を、選んでいただいた記録にも付ける', 'src/salescall/core/call_report.py',
+     '''        return self.before_ways is not None and all(v is None for v in (self.wish, self.value, self.means, self.contact, self.outcome,
+                                                                          self.wish_state, self.via))''',
+     '''        return self.before_ways is not None''',
+     ("tests.test_call_report_cl1.OtherWish1103.test_the_wish_said_before_the_ways_were_listed_is_received_and_returned",)),
+    ('番号違いの締めを、急いでいる締めに数えない', 'src/salescall/core/call_report.py',
+     'HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party"})',
+     'HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})',
+     ("tests.test_judge.Shapes.test_facts_are_read_in_one_place",)),
 )
 
 

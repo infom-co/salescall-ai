@@ -780,6 +780,7 @@ class Shapes(unittest.TestCase):
                          (("reception", "target"), False, False, False, True, "callee_hurry"))
         self.assertEqual((r.callback.reason, r.callback.number_e164), ("other_number", "+819000000001"))
         self.assertFalse(from_json({**r.to_json(), "facts": {"end": [{"turn": 5, "said": "", "reason": "done"}]}}).hurried)
+        self.assertTrue(from_json({**r.to_json(), "facts": {"end": [{"turn": 5, "said": "", "reason": "wrong_party"}]}}).hurried)   # 番号違いの締めも（4-225）
         asked = from_json({**r.to_json(), "facts": {"ai_question": [{"turn": 3, "said": "これ機械ですか？"},
                                                                      {"turn": 6, "said": "AIなの？"}],
                                                      "end": [{"turn": 9, "said": "", "reason": "done"}]}})

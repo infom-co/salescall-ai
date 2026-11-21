@@ -560,9 +560,12 @@ def _field_types(tx: Tx) -> frozenset[str]:
 
 NameFinder = readings.NameFinder                    # 台本から名前と読みを出す処理（正本は core/readings.py。作るのは CL-1）
 
+# 取込で決める処理（下の …Decider）の決め方は、どれも CL-1 の1か所（`import_ai.decide_*`）。2つの文字のAIがそろわない材料の扱い（考える Sonnet で決める・
+# 書いてある既定）は、決め方ごとの唯一の表 `import_ai.SPLIT`（CL-1 の連絡帳 4-224）。ここの説明には決め方の中身を写さない（⛔ 2026-11-21 まで
+# 「2つがそろったときだけ」などと写していて、そろわない材料を考える Sonnet で決める形に変わったあとも古いまま残っていた）。
 UnitDecider = Callable[[list[tuple[str, str]]], dict[str, str]]
 """数の質問の単位を決める処理（(業務の目的, 質問の文) の並び → 文ごとの単位。決まらない文は入れないか空）。決め方は CL-1 の1か所
-（CL-1 の連絡帳 4-14。質問の文の数える言葉か、文字のモデル2つが合うときだけ。CL-1 の import_ai.decide_units）。管理者も契約者も
+（`import_ai.decide_units`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`。CL-1 の連絡帳 4-14）。管理者も契約者も
 確かめない。業務の目的と一緒に聞く（CL-1 の連絡帳 4-69 の 4-184 の (a)：G-41 はこの形で測った。⛔ 2026-11-02 まで：文だけを渡していた）。"""
 
 
@@ -577,7 +580,7 @@ def _names(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
 TopicDecider = Callable[[list[str]], dict[str, str]]
 """質問の「聞くこと」（聞き返しの言い方に使う）を決める処理（質問の文の並び → 文ごとの聞くこと。決まらない文は入れないか空）。
-決め方は CL-1 の1か所（`topics.decide`：質問の文の形の決まりか、文字のモデル2つが合うときだけ。G-43。CL-1 の連絡帳 4-15）。
+決め方は CL-1 の1か所（`import_ai.decide_topics`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`。CL-1 の連絡帳 4-15）。
 管理者も契約者も確かめない。"""
 
 
@@ -589,58 +592,51 @@ def _topic_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
 MeaningDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[dict[str, str]]]
 """はい／いいえ・選択肢の質問の「意味の言葉」を決める処理（(質問の文, 選択肢の並び) の並び → 同じ並びで {選択肢: 意味の言葉}。
-決まらない選択肢は入れない）。決め方は CL-1 の1か所（`meanings.by_model` を2つのモデルで1回ずつ → `meanings.decide`。CL-1 の
-連絡帳 4-17）。管理者も契約者も確かめない。"""
+決まらない選択肢は入れない）。決め方は CL-1 の1か所（`import_ai.decide_meanings`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。管理者も契約者も確かめない。"""
 
 ReplyDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[dict[str, str]]]
 """はい／いいえ・選択肢の質問の「曖昧な言葉の意味」を決める処理（(質問の文, 選択肢の並び) の並び → 同じ並びで {言葉: 選択肢}。
-決まらない言葉は入れない）。決め方は CL-1 の1か所（`meanings.by_model_replies` を2つのモデルで1回ずつ → `meanings.decide_replies`。
-CL-1 の連絡帳 4-17）。管理者も契約者も確かめない。"""
+決まらない言葉は入れない）。決め方は CL-1 の1か所（`import_ai.decide_replies`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`。CL-1 の連絡帳 4-17）。管理者も契約者も確かめない。"""
 
 
 DoWordsDecider = Callable[[list[tuple[str, tuple[str, ...], dict[str, str]]]], list[dict[str, str]]]
 """事実を伺う質問ではない（希望・申し出の）選択肢の質問の「こちらがすること（お客様がされること）」の言葉を決める処理（(質問の文, 選択肢の
 並び, その質問の意味の言葉 {選択肢: 意味の言葉}) の並び → 同じ並びで {選択肢: 言葉}。決まらない選択肢は入れない）。決め方は CL-1 の1か所
-（`meanings.by_model(…, kind="do")` を2つのモデルで1回ずつ → `meanings.decide(…, kind="do", meanings=意味の言葉)`。言葉の向きが意味の言葉の
-向きとそろうときだけ決まる＝G-72。CL-1 の連絡帳 4-65 の (a) と 11-02 2時台の追記。CL-1 が全部の言葉を見る）。意味の言葉は、入口が
+（`import_ai.decide_do_words`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`。CL-1 の連絡帳 4-65 の (a) と 11-02 2時台の追記）。意味の言葉は、入口が
 持ってきたものか、同じ取込で先に決めたもの（`ask_ai`）。管理者も契約者も確かめない。"""
 
 
 AwayDecider = Callable[[list[tuple[str, tuple[str, ...], dict[str, str]]]], list[tuple[str, ...]]]
 """事実を伺う質問ではない（希望・申し出の）選択肢の質問の、業務の目的から遠ざかる向きの選択肢を決める処理（(質問の文, 選択肢の並び, その質問の
-意味の言葉 {選択肢: 意味の言葉}) の並び → 同じ並びで、遠ざかる向きの選択肢の並び）。決め方は CL-1 の1か所（`import_ai.decide_away`＝
-`meanings.by_model(…, "away")` を2つのモデルで1回ずつ → `meanings.decide_away`。どちらか1つのモデルでも遠ざかる向きと読むか、読めない選択肢は
-入れる＝安全側。意味の言葉を添えて読ませる＝打ち消しの問いの「はい」を取り違えない。CL-1 の連絡帳 4-72 の (a)）。管理者も契約者も確かめない。
+意味の言葉 {選択肢: 意味の言葉}) の並び → 同じ並びで、遠ざかる向きの選択肢の並び）。決め方は CL-1 の1か所（`import_ai.decide_away`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`。CL-1 の連絡帳 4-72 の (a)）。管理者も契約者も確かめない。
 ⛔ 2026-11-03 日本時間8時10分 ユーザー：「今の一言や案は全くダメです。…いい加減な提案をするな！！」＝前の形（目的につなげて伺う言葉も AI が作る
 decide_keep_words）は取り下げ。目的につなげて伺う一言は、業務設定の言い切っていないときだけ伺う質問で書く。"""
 
 
 UnclearDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[str]]
 """ほかに分からない点が無いかを伺う質問（「ご不明な点はございますでしょうか？」）の、「無い」にあたる選択肢を決める処理（(質問の文, 選択肢の並び) の並び →
-同じ並びで選択肢の名前。伺う質問でない・決まらないなら空）。決め方は CL-1 の1か所（`import_ai.decide_unclear`＝`unclear.by_model` を2つのモデルで1回ずつ →
-`unclear.decide`。2つがそろったときだけ決まる＝伺うべき答えを伺わずに決める誤りを避ける側）。業務の選ぶ質問（はい／いいえ・選択肢）だけを渡す。
+同じ並びで選択肢の名前。伺う質問でない・決まらないなら空）。決め方は CL-1 の1か所（`import_ai.decide_unclear`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。業務の選ぶ質問（はい／いいえ・選択肢）だけを渡す。
 管理者も契約者も確かめない。✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」（CL-1 の連絡帳 4-82）"""
 
 
 FactDecider = Callable[[list[str]], dict[str, bool]]
 """質問ごとに「お客様に事実を伺う質問か」を決める処理（質問の文の並び → 文ごとの真偽。決まらない文は入れない）。決め方は CL-1 の
-1か所（`facts.by_model` を2つのモデルで1回ずつ → `facts.decide`。G-71。CL-1 の連絡帳 2-1 の版 0.6）。管理者も契約者も確かめない。"""
+1か所（`import_ai.decide_facts`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`。CL-1 の連絡帳 2-1 の版 0.6）。管理者も契約者も確かめない。"""
 
 
 MaybeDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[tuple[str, ...]]]
 """どちらの場合もありうると言われたとき（「どっちでもいいですよ」）に確かめる (答え, 言葉) を決める処理（(質問の文, 選択肢の並び) の並び → 同じ並びで
-(選択肢, 言葉) か空）。決め方は CL-1 の1か所（`import_ai.decide_maybes`＝2つのモデルがそろったときだけ）。業務の選ぶ質問（はい／いいえ・選択肢。事実を伺う
+(選択肢, 言葉) か空）。決め方は CL-1 の1か所（`import_ai.decide_maybes`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。業務の選ぶ質問（はい／いいえ・選択肢。事実を伺う
 質問も）だけを渡す。管理者も契約者も確かめない。⛔✅ 2026-11-09 日本時間4時36分49秒 ユーザー（CL-1 の連絡帳 4-123）"""
 
 
 PurposeDecider = Callable[[list[str]], dict[str, str]]
-"""用件の一文の中の用件の名詞を決める処理（用件の一文の並び → 文ごとの名詞。決まらなければ空）。決め方は CL-1 の1か所（`import_ai.decide_purposes`＝2つの
-モデルがそろって、文の中の言葉のときだけ）。管理者も契約者も確かめない。✅ 2026-11-09 日本時間9時48分09秒の (4)（CL-1 の連絡帳 4-128）"""
+"""用件の一文の中の用件の名詞を決める処理（用件の一文の並び → 文ごとの名詞。決まらなければ空）。決め方は CL-1 の1か所（`import_ai.decide_purposes`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。管理者も契約者も確かめない。✅ 2026-11-09 日本時間9時48分09秒の (4)（CL-1 の連絡帳 4-128）"""
 
 
 WayWordsDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[dict[str, str]]]
 """方法を申し出の中身に入れる言い方を決める処理（(こちらがすることの言葉, 方法の並び) の並び → 同じ並びで {方法: その方法を入れた言葉}。決まらない方法は入れない）。
-決め方は CL-1 の1か所（`import_ai.decide_way_words`＝2つのモデルの言葉がどちらも確かめに通るときだけ）。管理者も契約者も確かめない。2026-11-12 まとめ役の (1)
+決め方は CL-1 の1か所（`import_ai.decide_way_words`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。管理者も契約者も確かめない。2026-11-12 まとめ役の (1)
 （CL-1 の連絡帳 4-132）"""
 
 
@@ -659,25 +655,23 @@ OfferQuestion = Callable[[str], tuple[str, tuple[str, ...], dict[str, str]]]
 
 SinceDecider = Callable[[list[str]], dict[str, str]]
 """その後の文「その後（中身）かお決まりになりましたでしょうか？」の中身の言葉を決める処理（質問の文の並び → 文ごとの中身の言葉。決まらなければ空）。決め方は
-CL-1 の1か所（`import_ai.decide_since`＝2つのモデルがそろう・そろわなければ考える Sonnet。考える Sonnet は CL-1 の deciders の referee＝つなぐ所が渡す。
-こちらは受け取るだけ）。渡すのは、こちらが「わからない」でかけ直しうる必須の質問の文だけ（`business_rules.Rules.calls_back`＝`_decided_since`）。管理者も
+CL-1 の1か所（`import_ai.decide_since`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。渡すのは、こちらが「わからない」でかけ直しうる必須の質問の文だけ（`business_rules.Rules.calls_back`＝`_decided_since`）。管理者も
 契約者も確かめない。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い6は…」（CL-1 の連絡帳 4-149）"""
 
 
 AnnounceDecider = Callable[[list[tuple[str, str]]], list[str]]
-"""ご承認を伺う質問のお知らせの文を決める処理（(説明＝入る一言, 質問の文) の並び → 同じ並びで、お知らせの文か空）。決め方は CL-1 の1か所（`import_ai.decide_announces`
-＝2つのモデルがそろう・そろわなければ考える Sonnet・中身の判定。考える Sonnet は referee＝つなぐ所が渡す）。渡すのはご承認を伺う質問だけ（`_decided_approvals`）。
+"""ご承認を伺う質問のお知らせの文を決める処理（(説明＝入る一言, 質問の文) の並び → 同じ並びで、お知らせの文か空）。決め方は CL-1 の1か所（`import_ai.decide_announces`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。渡すのはご承認を伺う質問だけ（`_decided_approvals`）。
 管理者も契約者も確かめない（CL-1 の連絡帳 4-150）"""
 
 
 AtHandDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[str]]
 """資料がお手元に届いているかを伺う質問の「届いている」にあたる選択肢を決める処理（(質問の文, 選択肢の並び) の並び → 同じ並びで選択肢の名前か空）。決め方は
-CL-1 の1か所（`import_ai.decide_at_hand`）。業務の選ぶ質問だけを渡す（`_decided_choice`＝ほかに分からない点は無いにあたる答えと同じ1か所）。CL-1 の連絡帳 4-150"""
+CL-1 の1か所（`import_ai.decide_at_hand`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。業務の選ぶ質問だけを渡す（`_decided_choice`＝ほかに分からない点は無いにあたる答えと同じ1か所）。CL-1 の連絡帳 4-150"""
 
 
 RewordDecider = Callable[[list[tuple[str, tuple[str, ...], str]]], list[str]]
 """会話が繋がらないお返事のあとに「ところで」に続けて伺い直す、言い換えた質問の文を決める処理（(質問の文, 選択肢の並び, 型) の並び → 同じ並びで文か空）。決め方は
-CL-1 の1か所（`import_ai.decide_rewords`＝2つのモデルがそろう・そろわなければ考える Sonnet・中身の判定。考える Sonnet は referee＝つなぐ所が渡す）。渡す質問は
+CL-1 の1か所（`import_ai.decide_rewords`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。渡す質問は
 会話の側の決まり（flowctl.aside_fits）で並べたもの（`RewordItems`）。管理者も契約者も確かめない（CL-1 の連絡帳 4-152）"""
 
 
@@ -689,8 +683,7 @@ RewordItems = Callable[[dict[str, Any]], list[tuple[str, tuple[str, ...], str]]]
 
 SummaryDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[str]]
 """営業の要約（急いでいるが手短になら聞くと言われたとき「ありがとうございます。」のあとに流す1〜2文）を決める処理（業務の (用件の一文, 質問の文の並び) の並び →
-同じ並びで要約か空）。決め方・形の決まりは CL-1 の1か所（`import_ai.decide_summaries`＝2つのモデルがそろって形に合う文・そろわなければ考える Sonnet・中身の
-判定。考える Sonnet は referee＝つなぐ所が渡す）。管理者も契約者も確かめない。✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30。CL-1 の連絡帳 4-170 の (4)）"""
+同じ並びで要約か空）。決め方・形の決まりは CL-1 の1か所（`import_ai.decide_summaries`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。管理者も契約者も確かめない。✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30。CL-1 の連絡帳 4-170 の (4)）"""
 
 
 MatterDecider = Callable[[list[tuple[str, str, str]]], list[tuple[str, str]]]
@@ -698,15 +691,14 @@ MatterDecider = Callable[[list[tuple[str, str, str]]], list[tuple[str, str]]]
 お客様が聞くお知らせの文（入口が書いた文か、同じ質問の `AnnounceDecider` の答え。決まらなければ空。句はお客様が聞いた文から作る＝CL-1 の連絡帳 4-171。
 ⛔ 2026-11-16 まで (説明, 質問の文) の2つ組＝会話の側の新しい決める処理は止まる）。空の文＝決まらなかった。名詞が空＝
 「先ほどの内容」・句が空＝名詞の形）。名詞と句は同じ1回の問い合わせ（CL-1 の連絡帳 4-162。⛔ 2026-11-15 まで答えは名詞だけの並びだった）。決め方は CL-1 の1か所
-（`import_ai.decide_matters`＝項目ごとに2つのモデルがそろって形に合えばその言葉・そろわなければ考える Sonnet。考える Sonnet は referee＝つなぐ所が渡す）。渡すのは
+（`import_ai.decide_matters`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。渡すのは
 お知らせの文と同じご承認を伺う質問だけ（`_decided_approvals` の1か所）。管理者も契約者も確かめない。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10」
 （CL-1 の連絡帳 4-154）・2026-11-15 日本時間11時59分07秒「・(3)今：…」（4-162）"""
 
 
 AlternativesDecider = Callable[[list[tuple[Any, ...]]], list[tuple[str, tuple[str, ...]]]]
 """お客様の意向がまだ分からないまま戻るときの、選択肢を並べた質問の文を決める処理（(質問の文, 選択肢の並び, 型, 先に並べた文を作るか) の並び → 同じ並びで、質問ごとの組
-(質問の順の文, 先に並べた文の並び)。空の文＝決まらなかった）。決め方は CL-1 の1か所（`import_ai.decide_alternatives`＝2つのモデルがそろう・そろわなければ
-考える Sonnet・中身の判定。考える Sonnet は referee＝つなぐ所が渡す。先に並べた文の並びの番目は CL-1 の alternatives.orders＝こちらは並べ方を持たない）。
+(質問の順の文, 先に並べた文の並び)。空の文＝決まらなかった）。決め方は CL-1 の1か所（`import_ai.decide_alternatives`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`）。
 渡す質問は会話の側の決まり（flowctl.alternatives_fits）で並べたもの（`AlternativesItems`）。管理者も契約者も確かめない。✅ 2026-11-14 日本時間22時15分15秒・
 23時45分00秒「伺い16はイでOK」（CL-1 の連絡帳 4-156・4-157）"""
 
@@ -942,8 +934,7 @@ def _decided_facts(texts: list[str], decide: FactDecider | None) -> dict[str, bo
 
 WaysDecider = Callable[[list[str]], dict[str, bool]]
 """質問ごとに「ご案内の方法（お電話・ご訪問・説明会・オンラインの面談 など）でご案内してよいかを伺う質問か」を決める処理（質問の文の並び →
-文ごとの真偽。形は FactDecider と同じ）。決め方は CL-1 の1か所（`import_ai.decide_ways`＝2つのモデルがそろって真のときだけ真。CL-1 の連絡帳
-4-91）。管理者も契約者も確かめない。"""
+文ごとの真偽。形は FactDecider と同じ）。決め方は CL-1 の1か所（`import_ai.decide_ways`。2つの文字のAIがそろわないときの扱いは、CL-1 の表 `import_ai.SPLIT`。CL-1 の連絡帳 4-91）。管理者も契約者も確かめない。"""
 
 
 def _decided_ways(texts: list[str], decide: WaysDecider | None) -> dict[str, bool]:
