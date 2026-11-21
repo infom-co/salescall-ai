@@ -44161,6 +44161,41 @@ class LadderNoRoomTest(unittest.TestCase):
         self.assertEqual(ladder_days({"kind": "平日", "span": "下旬"}, ctx), (dt.date(2026, 11, 24), dt.date(2026, 11, 25)))
 
 
+class UntilSinceTest(unittest.TestCase):
+    """伺い101 ア（✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」）：「〇時まで」の理由が「それまでは出られない」ときは「以降」で言い直す
+    （「はい、ありがとうございます。火曜日の16時以降、午後4時以降でよろしいでしょうか？」・「3時までには戻ってます。」は「15時以降、午後3時以降」）。記録はお客様の言葉の「火曜日の午後4時まで」
+    と理由のまま（業務の土台は16時からかける）・ほかの理由と理由が分からないときは今のまま・会話AIの声（今ある文の形）。言い直しの文を作る1か所（Flow._ask_confirm の言う形＝until_since）。
+    ⛔ 21263a4a まで「火曜日の16時まで、午後4時までということでよろしいでしょうか？」（お客様には「4時までにお電話する」とも聞こえた＝伺いの文 rv184/U/ask101.md）"""
+
+    def said(self, words, value, why):
+        from flowctl import JUDGMENTS, UNTIL_LABEL as U, UNTIL_WHY_NOT_SAID as NS
+        d, f = UntilAskAgainTest().at_hours()
+        r = UntilLeanTest.said(f, words, value, [(k, U[why] if why else NS) for k in JUDGMENTS])
+        return d, f, r
+
+    def test_unavailable_is_restated_with_since(self):
+        from flowctl import CALLBACK_IDS
+        c1 = CALLBACK_IDS["time"]
+        for words, value, say in (("4時まで会議なんです。", "4時まで", "はい、ありがとうございます。火曜日の16時以降、午後4時以降でよろしいでしょうか？"),
+                                  ("3時までには戻ってます。", "3時まで", "はい、ありがとうございます。火曜日の15時以降、午後3時以降でよろしいでしょうか？")):
+            d, f, r = self.said(words, value, "unavailable")
+            self.assertEqual((r["result"], d.heard(r)), ("confirm_required", say), words)
+            # 記録はお客様の言葉と理由のまま
+            self.assertEqual((f.items[c1].value, f.items[c1].until_why), (f"火曜日の午後{value}", "unavailable"), words)
+
+    def test_other_reasons_are_as_now(self):
+        for words, why in (("3時までに担当に確認しておきます。", "preparing"), ("3時までに別の番号にかけてもらえますか。", "other_party")):
+            d, f, r = self.said(words, "3時まで", why)
+            self.assertEqual(d.heard(r), "はい、ありがとうございます。火曜日の15時まで、午後3時までということでよろしいでしょうか？", words)
+
+    def test_the_words(self):
+        from flowctl import until_since
+        self.assertEqual(until_since("火曜日の午後4時まで"), "火曜日の午後4時以降")
+        self.assertEqual(until_since("火曜日の午後3時までには"), "火曜日の午後3時以降")
+        self.assertEqual(until_since("火曜日の午後3時半までに"), "火曜日の午後3時半以降")
+        self.assertEqual(until_since("火曜日の午後4時"), "火曜日の午後4時")   # 「まで」が無ければそのまま
+
+
 class NightClockTest(unittest.TestCase):
     """伺い68（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い68：ア」）：時刻と合わない時間帯の言葉（「夜1時」「深夜2時」）は時間帯の言葉で読み（夜の0〜4時台・深夜／夜中の
     0〜5時台は日付が変わったあとの時刻）、日付まで言い直して確かめる（「明日の夜1時」⇒「21日の午前1時でよろしいでしょうか？」＝電話の日が19日）。「夕方2時」は時間帯の言葉

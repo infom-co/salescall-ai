@@ -3020,6 +3020,17 @@ UNTIL_TAIL = ("までに", "まで", "より前", "前")
 _UNTIL = re.compile(rf"\d{{1,2}}時半?(?:{'|'.join(UNTIL_TAIL[:-1])}|前(?!後))|\d{{1,2}}(?:時\d{{1,2}}分|日)(?:{'|'.join(UNTIL_TAIL[:-1])})")
 
 
+def until_since(value: str | None) -> str | None:
+    """「〇時まで」の理由が「それまでは出られない」ときに言い直す言い方（唯一の作り＝言い直しの文を作る Flow._ask_confirm の言う形）：値の「〇時まで」（_UNTIL の当たり）の終わりの
+    言葉（UNTIL_TAIL・「までには」）を「以降」に替える（「火曜日の午後4時まで」⇒「火曜日の午後4時以降」）。値と、かけ直しの記録は替えない（お客様の言葉の「まで」と理由のまま＝
+    業務の土台はその時刻からかける）。「〇時まで」が無ければそのまま。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」（伺い101 ア）"""
+    m = _UNTIL.search(value or "")
+    if m is None:
+        return value
+    head = re.sub("(?:" + "|".join(UNTIL_TAIL) + ")$", "", m.group())
+    return value[:m.start()] + head + "以降" + re.sub(r"^(?:には|は|に)", "", value[m.end():])
+
+
 def until_ask_line(value: str | None, lean: str | None = None) -> str:
     """「〇時まで」の理由を伺い直す一言（phrases.UNTIL_ASK）を作る唯一の場所（Flow._ask_until）：{t}＝お客様の言った「〇時まで」の時刻・日（_UNTIL の当たりから終わりの
     言葉 UNTIL_TAIL を外した所＝「3時までなら」⇒「3時」・「15時までに」⇒「15時」）。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い63：ア」。
@@ -18236,8 +18247,10 @@ class Flow:
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
         shown = (words if after in ("end_doubt", "hedged_do", "final_do", "hedged_noted", "sense", "maybe", "maybe_settle", "offer_again", "offer_alt")
                  else restate_words(words, self.heard_said)) if choice else (it.value or label(it.condition))
-        # お客様の答えの値は、言う形で言う（時刻は「15日の14時、午後2時」・金額は「100万円」＝spoken_value の1か所。値と、返事の value は変えない）
-        said_as = spoken_value(q.type, shown) if it.value else shown
+        # お客様の答えの値は、言う形で言う（時刻は「15日の14時、午後2時」・金額は「100万円」＝spoken_value の1か所。値と、返事の value は変えない）。「〇時まで」の理由が「それまでは
+        # 出られない」なら「以降」で言う（until_since の1か所＝伺い101 ア。⛔ 21263a4a まで「16時まで、午後4時までということで」＝「4時までにお電話する」とも聞こえた）
+        since = it.value and until_fits(q) and it.until_why == "unavailable"
+        said_as = spoken_value(q.type, until_since(shown) if since else shown) if it.value else shown
         if q.reading_of:
             shown = quote(it.value)
             it.tried_readings.append(it.value)
