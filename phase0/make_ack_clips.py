@@ -437,7 +437,7 @@ def script_table(business) -> tuple[dict, dict]:
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
     import dataclasses
     from flowctl import chooses_when, ladder_opening
-    from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, accepted_line, brief_left_counts, brief_left_line, brief_sorry_line, offer_questions, DAY_VARIANTS, approval_explanation, callback_question, day_question, day_recording_id, fill_day, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer, wish_ways,
+    from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, accepted_line, accepted_unheard, brief_left_counts, brief_left_line, brief_sorry_line, offer_questions, DAY_VARIANTS, approval_explanation, callback_question, day_question, day_recording_id, fill_day, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer, wish_ways,
                          taken_line, tell_recording_id)
     from instruction import reading_variants
     from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, again_fit, back_fit, question_clip
@@ -516,8 +516,10 @@ def script_table(business) -> tuple[dict, dict]:
             # 続きの電話の始めに、ご納得いただけなかった点を言っていただけなかったときの振り返りの一言（文は callback_question の recap＝phrases.recap_line の1か所。
             # 名前は flowctl.recap_recording_id）。説明の文の無いご承認の質問には作らない（振り返らずにご納得を伺う＝Flow._point_step）
             items.append((recap_recording_id(q), callback_question("other_point", recap=q).text, "recap"))
-        for dq in days if q.approval and q.announce and (q.matter or q.matter_clause) else ():
-            if q.matter:
+        # お知らせの文が無いご承認の質問（取込でお知らせの文が決まらなかった）も、句か名詞があれば聞き取れなかったときの最終の確かめ「番号_accepted_unheard」だけを作る
+        # （見分けは flowctl.accepted_unheard の1か所＝流れの制御の締めの前の確認と同じ。聞き取れていたときの最終の確かめ「番号_accepted」はお知らせの形だけ。L19 の (b)）
+        for dq in days if (q.approval and q.announce and (q.matter or q.matter_clause)) or accepted_unheard(q) else ():
+            if q.matter and q.announce:
                 # ご承認のお知らせの最終の確かめ（文と名前は flowctl.accepted_line の1か所＝「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」・
                 # 「番号_accepted」・日によって変わる言い方の質問は「番号_d番号_accepted」。名詞の決まらないお知らせは共通の一言の録音 announce_recheck）。
                 # ✅ 2026-11-14 日本時間14時31分38秒「●伺い10」

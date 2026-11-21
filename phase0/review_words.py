@@ -128,7 +128,12 @@ def questions() -> dict[str, Question]:
             # C1T＝お客様から折り返していただく時刻の質問（お言葉に甘えたあとの theirs_later＝本番の1か所 callback_question。番号は C1 のまま＝表の鍵だけ C1T。THEIRS_PAIR_SCENE）
             "C1T": callback_question("theirs_later"),
             "R14": Question("R14", "ご来店の日時はいつがよろしいでしょうか？", "datetime", conditions=("答えた",), required=True, topic="ご来店の日時"),
-            "R15": _meeting_question()}
+            "R15": _meeting_question(),
+            # R16＝お知らせの文が無いご承認の質問（取込でお知らせの文が決まらず、説明と質問の文で伺った）で、取込で名詞と句が決まったもの（束 ac1 の7・ae1 の7 と同じ説明と、
+            # 作った側の答えの名詞と句）。聞き取れないまま「-」にしたあとの締めの前の確認は、お知らせの形と同じ最終の確かめ（accepted_line の heard 偽・flowctl.accepted_unheard。
+            # L19 の (b)＝分身 AE の (2)。場面は g53_meaning._unheard_final_scene）
+            "R16": Question("R16", "こちらの内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=True, approval=True,
+                            intro="料金のご案内ですが月額3,000円となります。", matter="料金", matter_clause="料金は月額3,000円となる")}
 
 
 @functools.cache
@@ -214,6 +219,7 @@ def answer_words() -> list[dict]:
     qs = questions()
     accepted = accepted_line(qs["R7"])[1]
     unheard = accepted_line(qs["R7"], heard=False)[1]
+    plain_unheard = accepted_line(qs["R16"], heard=False)[1]
     budget_again = restated_line(qs["R8"])
     return [
         # 担当 D の表（基本の質問）
@@ -259,6 +265,18 @@ def answer_words() -> list[dict]:
         {**_row("R7", "はい、大丈夫ですよ。", ["はい"], AWAY_NO, asked=unheard,
                 why="聞き取れなかったお知らせの最終の確かめへのご了承（分身 O2）。束 t の #1：読み手2人とも答えは「はい」・別のお話かは「答えの話」＝そろった読みにした"
                     "（直す前の値＝別のお話か付けていない＝どちらの読みも正解。どちらの読みでも流れの制御はお礼の締め＝rv178/S4/probe/split_t.txt）"), "set": "D"},
+        # お知らせの文が無いご承認の質問（R16）を聞き取れないまま「-」にしたあとの締めの前の最終の確かめ（L19 の (b)＝分身 AE の (2)：「料金は月額3,000円となる件のお返事の
+        # お声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」）へのお返事：はい・いいえ・聞き取れない・別のお話（判定が見る文が変わった場面＝前は
+        # 質問の文の伺い直しへの答えとして読んでいた。正解は答えを伏せた読み手2人の束 ae3 で読み直す＝CL-1 が立てる）
+        {**_row("R16", "はい、大丈夫ですよ。", ["はい"], AWAY_NO, asked=plain_unheard, why="聞き取れなかったご承認の質問の最終の確かめへのご了承（R7 の聞き取れなかったお知らせの行と同じ）"),
+         "set": "D"},
+        {**_row("R16", "いや、それはちょっと困るんですけど。", ["いいえ"], AWAY_NO, asked=plain_unheard, why="ご承認いただけない（R7 の最終の確かめの行と同じ）"), "set": "D"},
+        {**_row("R16", "すみません、ちょっと聞き取れなかったんですけど。", [REPEAT], (AWAY_NO, UNDECIDED), asked=plain_unheard,
+                why="こちらの確かめが聞き取れなかったと言った＝もう一度言ってほしい（説明「直前にこちらが言ったこと…が聞こえなかった・聞き取れなかった…と言ったのも」）。"
+                    "別のお話かは境目（答えの話とも、答えに関わらない話とも読める＝R1 の待っていただく一言のあとの「すみません、ちょっと聞こえなかったんですけど。」と同じ）。"
+                    "こちらの声が届いていない様子（聞き取れなかったと言った）"), "set": "D", "hear_truth": HEAR_LOST},
+        {**_row("R16", "そういえば来週は祝日なんですよ。", [UNDECIDED], AWAY_YES, asked=plain_unheard, why="最終の確かめへの別のお話（R7 の行と同じ）", reason=WHY_OTHER),
+         "set": "D"},
         # 黙ったあとの一言のあと（分身 N・O2）
         _row("R7", "あ、それとですね、うちは月曜が定休日なんですよ。", [UNDECIDED], (AWAY_YES, AWAY_NO), prompt=PROMPT_REPLY_NO, reason=WHY_OTHER,
              why="声かけへのお返事だけではない別のお話。別のお話かは境目：声かけ（気になる点）へのお返事として話したご事情＝答えの話（CL-1 の 9-3 の案の (別のお話か)）とも、"
