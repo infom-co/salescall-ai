@@ -12,6 +12,7 @@
 <div class="grid cols-2">
   <section class="card"><h2>目的と名乗り</h2>
     <dl class="facts">
+      <dt>電話の型</dt><dd>{{ words.CALL_TYPE_WORDS.get(s.call_type, words.NO_WORD) }}</dd>
       <dt>業務の目的</dt><dd>{{ s.purpose }}</dd>
       <dt>名乗り</dt><dd>{{ s.company.text }}{% if s.company.reading %}<span class="muted">（{{ s.company.reading }}）</span>{% endif %}の{{ s.person.text }}{% if s.person.reading %}<span class="muted">（{{ s.person.reading }}）</span>{% endif %}</dd>
       <dt>用件の一文</dt><dd>{{ s.purpose_line or "（なし）" }}</dd>
@@ -23,6 +24,18 @@
     {% if s.info %}<ul class="need-list">{% for i in s.info %}<li>{{ i }}</li>{% endfor %}</ul>{% else %}{{ empty("業務の情報はありません", "お客様に質問されたとき、AI が答える材料になる情報です。業務の資料を取り込み直すと入ります。") }}{% endif %}
   </section>
 </div>
+{#- 顧客獲得型の材料（計画書 9-9。読むのは core の business_settings.load の1か所。どれも依頼者の業務の事実だけ＝事実でない特別感・事例は言わない）。
+    確認の電話の業務には無いので出さない -#}
+{% if s.call_type == "acquire" %}
+<section class="card" style="margin-top:12px"><h2>顧客獲得型の中身</h2>
+  <dl class="facts">
+    <dt>「はい」をいただく質問（伺う順）</dt><dd>{% if s.yes_asks %}<ol class="need-list">{% for y in s.yes_asks %}<li>{{ y }}</li>{% endfor %}</ol>{% else %}（なし）{% endif %}</dd>
+    <dt>特別にお電話している方の条件</dt><dd>{{ s.special or "（なし）" }}</dd>
+    <dt>伺う悩みと、その事例（伺う順）</dt><dd>{% if s.pains %}<ol class="need-list">{% for pain, case in s.pains %}<li>{{ pain }}<div class="muted">事例：{{ case }}</div></li>{% endfor %}</ol>{% else %}（なし）{% endif %}</dd>
+    <dt>お願いするお時間</dt><dd>{{ s.meeting_time or "（なし）" }}</dd>
+  </dl>
+</section>
+{% endif %}
 <h2>質問</h2>
 <div class="table-scroll"><table class="list">
   <thead><tr><th class="num">順</th><th>質問</th><th>答えの形</th><th>必須</th><th class="wide">選択肢</th></tr></thead>

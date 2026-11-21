@@ -146,6 +146,28 @@ class Web(_World):
         self.assertEqual("録音がそろうまで" in page, (not need.listed) or bool(need.parts))
         self.assertNotIn("録音がそろうまで", self.get("A", f"/c/{self.a['client']}").text)   # 概要（全業務）では出さない（業務のタブで出す）
 
+    def test_a_version_page_shows_the_call_type_and_the_materials_of_the_acquire_type(self):
+        """電話の型（確認の電話／顧客獲得型）を台本の画面に出す。顧客獲得型のときだけ、その中身（「はい」をいただく質問・特別感の条件・
+        悩みと事例・お時間）も出す（計画書 9-9。読むのは core の business_settings.load の1か所）。"""
+        import dataclasses
+        from unittest import mock
+        from salescall.core import business_settings
+        from salescall.output import words
+        ensure_rules(World(), self.a)
+        url = f"/c/{self.a['client']}/b/{self.a['business']}/versions/{self.a['version']}"
+        page = self.get("A", url).text
+        self.assertIn(words.CALL_TYPE_WORDS["confirm"], page)
+        self.assertNotIn("顧客獲得型の中身", page)
+        real = business_settings.load
+        acquire = lambda tx, v: dataclasses.replace(real(tx, v), call_type="acquire", yes_asks=("架空の求人をご掲載されていて",),
+                                                    special="架空の採用に積極的", pains=(("架空の悩み", "架空の事例"),), meeting_time="1時間")
+        with mock.patch.object(business_settings, "load", side_effect=acquire):
+            page = self.get("A", url).text
+        self.assertIn(words.CALL_TYPE_WORDS["acquire"], page)
+        part = page[page.index("顧客獲得型の中身"):]
+        for text in ("架空の求人をご掲載されていて", "架空の採用に積極的", "架空の悩み", "事例：架空の事例", "1時間"):
+            self.assertIn(text, part)
+
     def test_a_version_page_shows_the_settings_of_its_own_business_only(self):
         ensure_rules(World(), self.a)
         ok = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/versions/{self.a['version']}")

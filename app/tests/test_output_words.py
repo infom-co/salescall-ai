@@ -108,6 +108,7 @@ class EveryNameHasAWord(unittest.TestCase):
         types = app_access().in_system(SYSTEM, lambda tx: {r["t"] for r in tx.all("SELECT type_name AS t FROM salescall.field_types")})
         self.assertEqual(set(words.FIELD_TYPE_WORDS), types)
         self.assertEqual(set(words.TARGET_PERSON_WORDS), set(business_settings.TARGET_PERSON_KINDS))
+        self.assertEqual(set(words.CALL_TYPE_WORDS), set(business_settings.CALL_TYPES))   # 電話の型（計画書 9-9）
 
     def test_every_dnc_reason_has_a_word(self):
         import typing
