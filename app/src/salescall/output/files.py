@@ -96,6 +96,29 @@ def to_xlsx(rows: list[result_rows.ResultRow], *ours: str) -> bytes:
     return buf.getvalue()
 
 
+def book(sheets: list[tuple[str, list[str], list[list[Any]]]]) -> bytes:
+    """何枚ものシートの Excel（記録のすべての書き出し＝output/record_book。設計書 7-3-5b）。sheets＝[(シートの名前, 見出し, 行)]。
+    値はどれも文字として書く（式として動かさない＝`_cell` と同じ守り）。日時は日本時間の「YYYY-MM-DD HH:MM:SS」の文字にして渡す（呼ぶ側）。"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    wb.remove(wb.active)
+    for title, header, rows in sheets:
+        ws = wb.create_sheet(title=title[:31])
+        ws.append(header)
+        for c in ws[1]:
+            c.font = Font(bold=True)
+        for r in rows:
+            ws.append(["" if v is None else _cell(str(v)) for v in r])
+        for j, col in enumerate(header, start=1):   # 列の幅：見出しと中身の長いほう（上限あり。行が多いときは初めの500行で決める）
+            longest = max([len(str(col))] + [len(str(r[j - 1] or "")) for r in rows[:500]])
+            ws.column_dimensions[ws.cell(row=1, column=j).column_letter].width = min(60, max(8, longest * 2 + 2))
+        ws.freeze_panes = "A2"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def to_csv(rows: list[result_rows.ResultRow], *ours: str) -> bytes:
     check(rows, *ours)
     buf = io.StringIO()

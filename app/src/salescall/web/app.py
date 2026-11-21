@@ -40,7 +40,7 @@ from salescall.core import google_login, once, passkeys, people
 from salescall.core.access import Access
 from salescall.output import destinations as result_destinations
 from salescall.output import files as result_files
-from salescall.output import notices, result_rows, words
+from salescall.output import notices, record_book, result_rows, words
 from salescall.web import actions, context, counts, importing, inbox, links, rowfix, setting_forms, uploads, watch
 from salescall.web import login as web_login
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
@@ -1655,6 +1655,22 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         if fmt not in result_files.FORMATS:
             return problem(request, 404, "見つかりません", "住所を確かめてください。")
         return _results_file(request, client_id, business_id, run_id, submit=True, form=dict(await request.form()), fmt=fmt)
+
+    @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/records.xlsx")
+    def records_book(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> Response:
+        """記録のすべての書き出し＝基本の形（設計書 7-3-5b。契約者の手元の控え＝依頼者へは渡さない・提出用の控えに置かない）。
+        集めるのは output/record_book、Excel に書くのは output/files.book の1か所。読むだけの取引。"""
+        def render(person: Person, ctx: Ctx) -> Response:
+            def work(tx: Any) -> tuple[str, bytes]:
+                run = _run_in(tx, business_id, run_id)
+                c = tx.one("SELECT name FROM salescall.clients WHERE client_id = %s", (client_id,))
+                name = result_files.file_name(c["name"], run["name"] + "_記録のすべて", tx.today(), "xlsx")
+                return name, result_files.book(record_book.sheets(tx, run_id))
+            name, data = ctx.client(client_id, work, read_only=True)
+            return Response(data, media_type=result_files.FORMATS["xlsx"][2],
+                            headers={"Content-Disposition": f"attachment; filename=\"records.xlsx\"; filename*=UTF-8''{quote(name)}",
+                                     "Cache-Control": "no-store"})
+        return handle(request, render)
 
     # ── お客様リストの取込（docs/DASHBOARD.md 5-8）：ファイル → 列と欄の対応付け → プレビュー（行ごとの合否）→ 登録 ──────
     def _run_in(tx: Any, business_id: UUID, run_id: UUID) -> dict[str, Any]:

@@ -304,6 +304,28 @@ SCRIPT_NOT_READY = ("電話の台本を作る画面は、いま作っている�
                     "できるまでは、台本の無い業務の電話は始められません。")
 
 
+# 電話の目的（データベースの attempts.purpose の決まり attempts_purpose_kind のすべて。試験が突き合わせる）。記録のすべての書き出しで使う
+CALL_PURPOSE_WORDS: dict[str, str] = {"normal": "ふつうの電話", "ask_number_again": "番号を伺い直す電話", "apology": "お詫びの電話",
+                                      "resume": "途中で切れたあとのかけ直し"}
+
+
+# 結果の版の出どころ（データベースの result_kind のすべて。試験が突き合わせる）。記録のすべての書き出しの「結果の版」のシートで使う
+RESULT_KIND_WORDS: dict[str, str] = {"judged": "判定で決めた", "human": "契約者・管理者が直した", "rejudged": "判定し直した"}
+
+
+# 判定の中身（core の judge._detail が書く task_results.detail）の種類の名前。記録のすべての書き出し（output/record_book の「お客様のお話」の
+# シート）で使う。judge._detail が書く鍵のすべてを書く（試験が judge の作りと突き合わせる）。契約者の手元の控えだけ（依頼者へは出さない）
+DETAIL_KIND_WORDS: dict[str, str] = {
+    "cut": "切れ方（判定の読み）", "cut_recorded": "切れ方（記録したもの）", "target_unconfirmed": "目的のお客様だと確かめられなかった",
+    "not_asked": "伺っていない質問", "not_agreed": "ご納得いただけなかった点", "other_wish": "ほかのご希望", "unfinished": "手順を伺い終えていない質問",
+    "concern": "言っていただいた気になる点", "elsewhere": "ほかの会社に頼んでいると言われて伺った問題・心配事",
+    "handoff": "詳しい者へ引き継ぐ申し出への答え", "close_offer": "締める前の申し出への答え", "offer_terms": "条件つきで受けていただいた申し出",
+    "carried": "新しい担当の方に引き継ぎを確かめた答え", "refusal_said": "お断りのお言葉（断り文句）", "clock24": "言い直して確かめた時刻",
+    "another_day": "日を改めて締めた", "callee_questions": "お客様からのご質問", "brief": "手短にと言われて続けた答え",
+    "elsewhere_whole": "ご案内全体をほかの会社に頼んでいると言われた", "elsewhere_point": "ほかの会社に決めた決め手",
+}
+
+
 # 電話の型の、画面の名前（型の正本は core の business_settings.CALL_TYPES。そのすべてを書く＝試験が突き合わせる。計画書 9-9・
 # ✅ 2026-11-20 管理者「伺い78：…ア」＝業務ごとに選ぶ電話の型）
 CALL_TYPE_WORDS: dict[str, str] = {
@@ -318,6 +340,8 @@ EXPORT_WORDS: dict[str, str] = {
     "handover_xlsx": "渡すファイルを書き出す（Excel）", "handover_csv": "渡すファイルを書き出す（CSV）",
     "check": "確かめ用に書き出す（依頼者へは渡さない・控えは残さない）",
     "check_xlsx": "確かめ用（Excel）", "check_csv": "確かめ用（CSV）",
+    # 記録のすべて（基本の形＝設計書 7-3-5b。✅ 2026-11-21 管理者 伺い3「イ」＝契約者の手元の控え）
+    "records": "記録のすべてを書き出す（手元の控え・Excel）",
 }
 
 
