@@ -61,14 +61,10 @@ CL2_PENDING = frozenset({
                          "prompt_reply",
                          # 深める一言に入れる困りごとの言葉・困りごとが続く形の句を会話AIが書く道具の引数（replay_opening の trouble・kept。伺い29＝✅ 2026-11-16
                          # 日本時間0時42分38秒・12時48分22秒 ユーザー。CL-2 への知らせはまとめ役）
-                         "trouble", "kept",
-                         # 2つ目からのお詫びの頭に「また」を付けた共通の一言の録音（phrases.APOLOGY_ALSO_IDS の5本。✅ 2026-11-21 日本時間14時59分44秒 伺い97 ア。
-                         # 分身 AA。CL-2 への知らせはまとめ役＝CL-2 の名前と文の写し common_phrases.TEXTS の作り直し）
-                         "apology_missed_promise_also", "apology_cut_off_also", "apology_cut_off_same_day_also", "apology_cut_end_same_day_also",
-                         "apology_cut_end_later_also",
-                         # 日時の2択に月単位の理由で日の分からない頃を言われたときに、その日を伺う一言の共通の一言の録音（phrases.TIME_LADDER_IDS の payday＝伺い99 ア。
-                         # ✅ 2026-11-21 日本時間14時59分44秒。分身 AB の (2)。CL-2 への知らせは CL-1）
-                         "time_payday"})
+                         "trouble", "kept"})
+# （2026-11-21 日本時間23時台に外した：CL-2 の第9便・第10便が main に入った＝75a1ef48・CL-2 の連絡帳 4-467 の (1)・4-469 の (2)＝CL-1.md 4-244：共通の一言の録音の
+# 2つ目からのお詫びの頭に「また」を付けた5本（phrases.APOLOGY_ALSO_IDS＝apology_missed_promise_also・apology_cut_off_also・apology_cut_off_same_day_also・
+# apology_cut_end_same_day_also・apology_cut_end_later_also＝伺い97 ア・分身 AA）と、お給料日を伺う一言 time_payday（伺い99 ア・分身 AB））
 # CL-2 の読み手がまだ受けない値（CL2_PENDING の値の版）：{(通話の事実の種類, 欄): (CL-2 の call_report の組の名前, まだ入っていない値)}。FlowWatch は、読み手に通す前に、
 # その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
 # CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
@@ -49835,6 +49831,27 @@ class LadderSpanTest(unittest.TestCase):
                     # 読まない頃＝CL-2 も決めない・もう過ぎた範囲・月の言葉の無い「頭」「末」など（「週の頭」「週末」「年末」と取り違えない＝今のまま聞き直す）
                     self.assertTrue(theirs is None or theirs[1] < today or w in LADDER_PARTS_MONTHLESS, (today, w, theirs))
         self.assertGreater(seen, 100)
+
+    def test_z_far_days_are_named_once_and_match_cl2_spoken_time(self):
+        # 年の無い「〇月」を読むいちばん先（今日から半年）は、会話の側の名前のある1か所 flowctl.LADDER_FAR_DAYS（ladder_span が読む）で、CL-2 の時刻の読みの1か所
+        # spoken_time.FAR と同じ日数（CL-2 の第9便で、会話へ渡す電話をかけられる日時の空きの範囲も同じ1か所になった＝CL-2 の連絡帳 4-466・4-469 の (2)・
+        # CL-1.md 4-236 の (5)・4-244）。CL-2 の部品（app/）が無い所では、名前を読むことだけ確かめる。CL-2 の部品は読み込まない（ast で読む）。
+        # ⛔ 75a1ef48 まで、会話の側は ladder_span の中の数の写し（183）だった
+        import ast
+        import datetime as dt
+        import pathlib
+        from unittest import mock
+        import flowctl
+        today = dt.date(2026, 11, 19)
+        self.assertEqual(flowctl.ladder_span("12月の頭", today), (dt.date(2026, 12, 1), dt.date(2026, 12, 3)))
+        with mock.patch.object(flowctl, "LADDER_FAR_DAYS", 11):
+            self.assertIsNone(flowctl.ladder_span("12月の頭", today))   # 12月1日は今日から12日先＝名前の日数より先の月は決めない
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "spoken_time.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の時刻の読み（app/）がまだ無い")
+        node = next(n.value for n in ast.parse(src.read_text(encoding="utf-8")).body if isinstance(n, ast.Assign)
+                    and getattr(n.targets[0], "id", None) == "FAR")
+        self.assertEqual(ast.literal_eval(next(k.value for k in node.keywords if k.arg == "days")), flowctl.LADDER_FAR_DAYS)
 
 
 class UntilBackByTest(unittest.TestCase):

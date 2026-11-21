@@ -797,6 +797,12 @@ def _ladder_date(text: str, today) -> tuple:
     return None, None, None
 
 
+# 年の無い「〇月」を読むいちばん先の日数（今日からこの日数より先の月は、過ぎた月の言い違いか来年のことか決まらない＝決めない）を持つ唯一の場所（ladder_span が読む）。
+# CL-2 の時刻の読みの1か所 spoken_time.FAR と同じ日数（CL-2 の第9便で、会話へ渡す電話をかけられる日時の空き gate.call_free・call_days の範囲も同じ1か所＝CL-2 の連絡帳
+# 4-466・4-469 の (2)。比べる試験 LadderSpanTest.test_z_far_days_are_named_once_and_match_cl2_spoken_time。⛔ 75a1ef48 まで ladder_span の中の数の写しだった）
+LADDER_FAR_DAYS = 183
+
+
 def ladder_span(text: str | None, today) -> tuple | None:
     """値の文字の頃（LADDER_PARTS の月の中の頃・月まるごと＝「来月の頭」「月末」「下旬」「来月」）の日の範囲 (始まりの日, 終わりの日) を決める唯一の場所（読む所 ladder_read・
     曜日の2択の候補 ladder_days）。月の言葉の無い頃は今月・「〇月」は今日以後でいちばん近いその月（今日から半年より先なら決めない）。範囲がもう過ぎた・頃が無い・電話の日が
@@ -835,8 +841,8 @@ def ladder_span(text: str | None, today) -> tuple | None:
         lo, hi = dt.date(y, mo, a if a > 0 else last + a), dt.date(y, mo, b if b > 0 else last + b)
         if hi < today:
             continue
-        if m.group("mon") and lo > today + dt.timedelta(days=183):
-            return None   # 過ぎた月の言い違いか来年のことか決まらない（CL-2 の _FAR と同じ）
+        if m.group("mon") and lo > today + dt.timedelta(days=LADDER_FAR_DAYS):
+            return None   # 過ぎた月の言い違いか来年のことか決まらない（LADDER_FAR_DAYS＝CL-2 の spoken_time.FAR と同じ日数）
         return lo, hi
     return None
 
