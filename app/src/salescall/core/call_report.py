@@ -11,7 +11,7 @@
   食い違いようがない）。
   - かけ直しの番号と時刻は、お客様が言ったまま（確かめ済みの言葉）を受け取る。番号をそろえるのは番号の正規化（Q1。
     `phone.normalize(spoken=True)`）、時刻に直すのは `spoken_time.read`（判定が通話の時刻を起点に読む）。どちらも1か所。
-  - 版 2 から外したもの：急いでいて終えたか（締めた理由 `end` から読む＝`hurried`）・そろえた番号（言ったままの番号から読む）・
+  - 版 2 から外したもの：急いでいて終えたか（締めた理由 `end` に書いてある。業務の土台は読まない）・そろえた番号（言ったままの番号から読む）・
     かけ直しの時刻（言ったままの言葉から読む）。
 - お詫びの電話で、文面を伝えられたか（apology_delivered。無ければ None。版 2 から）。
 - **事実 connect（2026-10-22 足した。CL-1 の連絡帳 4-25。無くてもよい＝版は3のまま）**：目的のお客様に繋いだ発話と、繋いだ読み
@@ -288,9 +288,9 @@ NEVER_CLOSES = frozenset({"transfer_unclear", "who_unclear"})
 ANOTHER_DAY_ENDS = frozenset({"yes_used_up", "no_pain"})
 REFUSAL_WHATS = ("refused", "busy", "elsewhere")   # 断り文句の種類：通話・営業を断った（決まらない断り・答えたくないも）／忙しい／ほかの会社に頼んでいる
 REFUSAL_ATS = ("yes", "main", "reception")         # どの段のお断りか：Yes の質問の段／本題の段（アポのお断り）／受付の方の営業のお断り
-# 断られたときの締めで終える理由（急いでいる・断られた・怒っている・番号違い。締めのあと7秒で切ってよい＝CL-1 の flowctl.DECLINED_ENDS の写し・比べる試験で止める。
-# 番号違いは 2026-11-21 CL-1 の連絡帳 4-225 の (1)）。⚠️ 業務の土台の判定は、この一覧を読まない（読む所が無い）。写しを無くす段取りは CL-2 の連絡帳 4-462
-HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party"})
+# ⛔ 2026-11-21 に外したもの：断られたときの締めで終える理由の一覧（HURRIED_ENDS）と、それで終えたか（CallReport.hurried）。会話の側の表
+# （CL-1 の flowctl.CLOSE_KINDS＝締めのあと何秒で切ってよいかの持ち物）の写しで、業務の土台の判定はどこからも読んでいなかった（写しが2か所に
+# あると、片方だけ変わる）。会話の側は通話の報告に締めた理由（end の reason）だけを書く。CL-2 の連絡帳 4-462 の (2)・CL-1 の連絡帳 4-230 の (4)
 NOT_REACHED_REASONS = ("absent", "not_transferred", "departed", "other_means", "who_unclear")   # 目的のお客様に繋がらなかった理由（7-1。CL-1 の
 #   Flow.not_reached の1か所と flowctl の注の名前。⛔ 前は CL-1 の表 NOT_REACHED_LABEL を指していたが、CL-1 の連絡帳 4-160 で外された）：在籍していない＝後任の方にも繋がらなかった・終える業務／ほかの手段を望まれた。2026-10-22 の版 0.5。
 #   お名前だけではどの方か分からなかった＝who_unclear。CL-1 の連絡帳 4-65 の (e)。かけ直さずに終える＝business_rules.SYSTEM_POLICIES）
@@ -984,11 +984,6 @@ class CallReport:
         止まった通話でも、締めに入っていれば「途中で切れた」にしない（judge.cut_off。⛔ 2026-10-22 の見直し14：前は締めの言葉の
         あとで止まった通話にも、すぐお詫びの電話をかけた）。"""
         return bool(self.ends) or (self.cut is not None and self.cut.in_closing)
-
-    @property
-    def hurried(self) -> bool:
-        """お客様が急いでいる・通話を断られた・怒っている・番号違い、の断られたときの締めで終えたか（締めのあと7秒で切ってよい締め）。"""
-        return self.end_reason in HURRIED_ENDS
 
     def without(self, parts: frozenset[str] | set[str] | tuple[str, ...]) -> CallReport:
         """取り消せない決定の中身（DECISION_PARTS）を、この報告から外した形（1か所。差し戻し・発信禁止の取り消しのあと、その通話を

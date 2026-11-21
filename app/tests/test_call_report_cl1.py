@@ -117,8 +117,8 @@ class Accepted(unittest.TestCase):
         self.assertEqual((r.callbacks[0].read, r.callbacks[0].connected), (("ai", "judge", "judge2"), False))
         self.assertTrue(from_json(BACK_CONNECTED).callbacks[0].connected)
         r = from_json(ANSWERED)
-        self.assertEqual(([a.part for a in r.answered], len(r.not_transferred), r.end_reason, r.hurried),
-                         (["unknown"], 1, "not_transferred", False))
+        self.assertEqual(([a.part for a in r.answered], len(r.not_transferred), r.end_reason),
+                         (["unknown"], 1, "not_transferred"))
         # 「誰でも」の業務（目的のお客様のいない業務）：繋いだ事実が無くても、話していれば繋がった（業務設定から判定の入力に入れる。
         # ⛔ 見直し18b の (3)：前は報告の印だけで推し、種別 target が無いと「繋がらなかった」になった）
         anyone = from_json({"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {

@@ -8824,10 +8824,6 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
                                                                           self.wish_state, self.via))''',
      '''        return self.before_ways is not None''',
      ("tests.test_call_report_cl1.OtherWish1103.test_the_wish_said_before_the_ways_were_listed_is_received_and_returned",)),
-    ('番号違いの締めを、急いでいる締めに数えない', 'src/salescall/core/call_report.py',
-     'HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party"})',
-     'HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})',
-     ("tests.test_judge.Shapes.test_facts_are_read_in_one_place",)),
 )
 
 
