@@ -1,14 +1,16 @@
 {% extends "base.html" %}
-{% from "parts.html" import stat, tag, empty, flash %}
+{% from "parts.html" import stat, tag, empty, flash, readiness %}
 {% set active = "home" %}
 {% block title %}ホーム{% endblock %}
 {% block main %}
 <h1>ホーム</h1>
-<p class="lead">何もしなくても電話は進みます。色の付いた所だけ見てください。</p>
+{% set blocked = ready|selectattr("kind", "equalto", "stop")|list %}
+<p class="lead">{% if blocked %}いまは電話がかかりません。赤い所から整えてください。{% else %}何もしなくても電話は進みます。色の付いた所だけ見てください。{% endif %}</p>
 {{ flash(done, ok) }}
 
 {#- 1段目：いま見ること（色が付くのは、することがあるときだけ） -#}
 <h2 class="home-band">いま見ること</h2>
+{{ readiness(ready) }}
 <div class="grid cols-3 stats">
   <a class="card {{ 'attention-stop' if stops }}" href="/t/stops" style="text-decoration:none;color:inherit">
     {{ stat(words.page("stops"), stops|length, "stop") }}
@@ -33,10 +35,10 @@
     <div class="muted hint" style="margin-top:6px">お客様と話した {{ per_client|sum(attribute="talked") }}・目的のお客様と話せた {{ per_client|sum(attribute="reached") }}（日本時間の今日）</div>
   </div>
   {#- PC が無いと電話はかからない（電話をつなぐのは PC）。回線があって PC が0台なら、することがある＝橙 -#}
-  {% set no_pc = system.lines and not system.pcs %}
-  <a class="card {{ 'attention-wait' if no_pc }}" href="/t/lines" style="text-decoration:none;color:inherit">
+  {#- PC が無い・回線が無いは、上の「いま見ること」の1か所（counts.readiness）で知らせる（ここで同じことを光らせない） -#}
+  <a class="card" href="/t/lines" style="text-decoration:none;color:inherit">
     {{ stat("休んでいる回線", system.resting, "wait") }}
-    <div class="muted hint" style="margin-top:6px">{% if no_pc %}電話をつなぐ PC がまだありません（PC が無いと電話はかかりません）。{% endif %}使っている回線 {{ system.lines }}本・PC {{ system.pcs }}台{% if system.last_seen %}（最後の合図 {{ time(system.last_seen) }}）{% elif system.pcs %}（まだつながっていません）{% endif %}</div>
+    <div class="muted hint" style="margin-top:6px">使っている回線 {{ system.lines }}本・PC {{ system.pcs }}台{% if system.last_seen %}（最後の合図 {{ time(system.last_seen) }}）{% elif system.pcs %}（まだつながっていません）{% endif %}</div>
   </a>
   {#- 赤字は、承認待ち（赤字の確認）で目立たせる。ここは色を付けずに、今月の数と、お知らせ中の数を添えるだけ（同じことを2か所で目立たせない） -#}
   {% set deficits = per_client|selectattr("deficit")|list %}

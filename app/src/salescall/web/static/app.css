@@ -482,6 +482,9 @@ ol.steps-check small { color: var(--muted); }
 .listen { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .listen > span { min-width: 4.5em; color: var(--muted); font-size: 13px; }
 .listen audio { height: 36px; max-width: 100%; }
+.card.readiness { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; text-decoration: none; color: inherit; margin-bottom: 10px; }
+.card.readiness > .muted { grid-column: 1; font-size: 13px; }
+.card.readiness > .go-mark { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--muted); font-size: 18px; }
 .why-disabled { font-size: 12px; color: var(--muted); margin-left: 8px; align-self: center; }
 /* 表の中の札は折り返す（長い名前が隣の欄に重ならない） */
 table.list .tag { white-space: normal; text-align: left; }

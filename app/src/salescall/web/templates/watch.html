@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% from "parts.html" import go, tag, empty %}
+{% from "parts.html" import go, tag, empty, readiness %}
 {% block title %}{{ words.page("watch") }}{% endblock %}
 {% block main %}
 <h1>{{ words.page("watch") }}</h1>
 <p class="lead">回線と、休んでいる行・終えた電話の様子です。どれもシステムが決まりどおりに動かしています。上に出ている項目は、続くようなら確かめてください（何もない項目は、下にまとめています）。</p>
 {# 項目は web/watch.WATCHES の1か所。画面は答える場所の事実を並べるだけ（決め直さない） #}
+{{ readiness(ready) }}
 {% set busy = found|selectattr(2)|list %}
 {% set calm = found|rejectattr(2)|list %}
 {% if busy %}

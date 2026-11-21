@@ -675,9 +675,13 @@ class Web(_World):
         from salescall.output import words as w
         self.assertIn(w.SCRIPT_NOT_READY, card)                                  # 台本を作る画面がまだ無いことを、どこでも同じ1つの文で
         self.assertIn('class="next"', card)                                     # 次にすることを強める
-        self.assertEqual(card.count("済み"), 1)                                  # 回線（共有）だけが済み（試験の契約者には回線がある）
+        self.assertIn("回線と PC を用意する", card)                               # 電話をつなぐ PC も手順に入る（PC が無いと電話はかからない）
+        self.assertEqual(card.count("済み"), 0)                                  # 試験の契約者には回線はあるが PC が無い＝まだ
         running = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}").text
-        self.assertNotIn("<h2>はじめかた</h2>", running)                         # 手順がそろった業務では出さない
+        # 動いている業務でも、PC が無ければ電話はかからないので、手順は「回線と PC を用意する」だけが残る（前は PC を見ずに「そろった」としていた）
+        steps = running[running.index("<h2>はじめかた</h2>"):running.index("</section>", running.index("<h2>はじめかた</h2>"))]
+        self.assertEqual(steps.count("まだ</span>"), 1)
+        self.assertIn("回線と PC を用意する", steps)
 
     def test_a_notice_about_a_customer_says_where_and_links_to_the_row(self):   # 知らせの「どこの」「見る」（links の1か所）
         from salescall.core import notify
@@ -776,6 +780,14 @@ class Web(_World):
         self.assertIn("単価の無い電話 1本は入っていません", page)
         self.assertIn("まだ数えていません", page)                              # 会話AIの声の率は、数えていなければ 0 と書かない
 
+    def test_what_keeps_calls_from_going_out_is_shown_in_one_shape_on_three_pages(self):   # 答えは counts.readiness の1か所
+        for path in ("/t", "/t/watch", "/t/lines"):
+            with self.subTest(path=path):
+                page = self.get("A", path).text
+                self.assertIn("電話をつなぐ PC がありません", page)              # 試験の契約者には回線はあるが PC が無い
+                self.assertIn("知らせの受け先が決まっていません", page)
+        self.assertIn("いまは電話がかかりません", self.get("A", "/t").text)      # 「何もしなくても電話は進みます」と言わない
+
     def test_every_time_cell_has_one_shape(self):
         """表の時刻の升は、どの表も .when の1つの形（数字の幅はそろえ、左寄せ・折らない）。数量の右寄せ（num）では書かない
         （2026-11-20 の見直し：時刻を右寄せにした表と左寄せの表が混ざり、「いつから」の見出しと値がずれていた）。"""
@@ -795,7 +807,7 @@ class Web(_World):
             with self.subTest(word=word):
                 self.assertIn(word, home)
         self.assertIn('href="/t/lines"', home)
-        self.assertIn("電話をつなぐ PC がまだありません", home)                  # 回線があって PC が0台＝電話はかからない（全体の1か所で知らせる）
+        self.assertIn("電話をつなぐ PC がありません", home)                      # 回線があって PC が0台＝電話はかからない（counts.readiness の1か所で知らせる）
         self.assertIn('href="/t/costs"', home)
 
     def test_nothing_is_never_colored(self):

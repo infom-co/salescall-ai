@@ -470,7 +470,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                            "waiting": sum(1 for wc, _ in waiting if wc["client_id"] == c["client_id"])} for c in ctx.clients()]
             found = watch.collect(ctx)
             noticed = [(w, got) for _, w, got in found if w.attention and got]
-            return page(request, "home.html", person, ctx, stops=counts.open_stops(ctx), per_client=per_client, done=done, ok=bool(ok),
+            return page(request, "home.html", person, ctx, ready=ctx.tenant(counts.readiness), stops=counts.open_stops(ctx), per_client=per_client, done=done, ok=bool(ok),
                         waiting_total=len(waiting), first=waiting[:3], watch_total=watch.attention_count(found), watch_first=noticed[:1],
                         system=ctx.tenant(counts.tenant_system))
         return handle(request, render)
@@ -480,7 +480,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         """見張り（計画書 12-1 の監視。項目は web/watch.WATCHES の1か所。画面は答える場所の事実を並べるだけ）。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             found = watch.collect(ctx)
-            return page(request, "watch.html", person, ctx, active="watch", found=found, days=watch.DAYS)
+            return page(request, "watch.html", person, ctx, ready=ctx.tenant(counts.readiness), active="watch", found=found, days=watch.DAYS)
         return handle(request, render)
 
     @app.get("/t/badges")
@@ -935,7 +935,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     lines.append({**ln, "stage": st.stage, "wait": st.wait, "next_at": st.next_at,
                                   "resting": st.stage in health_rules.RESTS})
                 return {"lines": lines, "methods": registry.line_methods(tx), "pcs": agents.pcs(tx)}
-            return page(request, "lines.html", person, ctx, active="lines", done=done, ok=bool(ok),
+            return page(request, "lines.html", person, ctx, ready=ctx.tenant(counts.readiness), active="lines", done=done, ok=bool(ok),
                         client_names={c["client_id"]: c["name"] for c in ctx.clients()}, **ctx.tenant(read))
         return handle(request, render)
 

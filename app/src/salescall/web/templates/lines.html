@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, flash, csrf, empty %}
+{% from "parts.html" import tag, flash, csrf, empty, readiness %}
 {% block title %}{{ words.page("lines") }}{% endblock %}
 {% block main %}
 <div class="title-row"><div class="titles"><h1>{{ words.page("lines") }}</h1>
@@ -17,6 +17,7 @@
     </form>
   </details></div>
 {{ flash(done, ok) }}
+{{ readiness(ready) }}
 <h2>回線</h2>
 {% if lines %}
 <div class="table-scroll"><table class="list">

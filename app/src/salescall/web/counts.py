@@ -93,6 +93,31 @@ def tenant_system(tx: Tx) -> dict[str, Any]:
     return {"lines": len(lines), "resting": resting, "pcs": len(pcs), "last_seen": max(seen) if seen else None}
 
 
+def readiness(tx: Tx) -> list[dict[str, str]]:
+    """電話をかける・知らせを届けるための土台の抜け（契約者の取引。答える1か所＝ホームの「いま見ること」・気をつけること・回線と PC の画面が
+    同じものを出す。2026-11-21 の見直し：PC が0台で電話がかからないのに、判断がホームの1つの札の中にしか無く、上の段は「何もない」と言っていた）。
+    kind＝stop（このままでは電話がかからない）／wait（電話はかかるが、止まったことなどが届かない）。PC が止まったか（合図が途切れたか）は
+    core の agents.watch_down が知らせで決める（ここでは決め直さない）。"""
+    sysinfo = tenant_system(tx)
+    out: list[dict[str, str]] = []
+    if not sysinfo["lines"]:
+        out.append({"kind": "stop", "title": "使っている回線がありません", "how": "回線を足すと、電話をかけられます。", "link": "/t/lines"})
+    elif not sysinfo["pcs"]:
+        out.append({"kind": "stop", "title": "電話をつなぐ PC がありません", "how": "PC が無いと電話はかかりません。PC で「PC のログイン」をしてください。",
+                    "link": "/t/lines"})
+    elif sysinfo["resting"] >= sysinfo["lines"]:
+        out.append({"kind": "stop", "title": "すべての回線が休んでいます", "how": "休んでいる理由を確かめてください（決まった確かめが通れば、自動で戻ります）。",
+                    "link": "/t/lines"})
+    from salescall.core import settings
+    from salescall.output import notices
+    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
+    if not any(settings.resolve(tx, key, tenant_id=tenant, client_id=None, business_id=None) for key in notices.DESTINATIONS[False].values()):
+        out.append({"kind": "wait", "title": "知らせの受け先が決まっていません",
+                    "how": "止まったときや承認待ちを、ショートメールかチャットワークでお知らせする受け先です（決めるまでは、この画面だけに出ます）。",
+                    "link": "/t/settings#g-notify"})
+    return out
+
+
 def required_answers(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:
     """業務の必須の質問ごとの「取れた」「-」「✕」などの数（計画書 5-2「必須項目の『取れた』『-』『✕』の数（別々に）」）。数えるのは
     core の `metrics.required_items` の1か所（行ごとのいちばん新しい判定に使った答え）。期間は、これまでのすべての電話。見出しは、
@@ -162,7 +187,8 @@ def setup_steps(tx: Tx, client_id: UUID, business_id: UUID, recording_needs: lis
         " (SELECT count(*) FROM salescall.runs WHERE business_id = %s) AS runs,"
         " (SELECT r.run_id FROM salescall.runs r WHERE r.business_id = %s ORDER BY r.created_at DESC, r.run_id LIMIT 1) AS last_run,"
         " (SELECT count(*) FROM salescall.tasks t JOIN salescall.runs r ON r.run_id = t.run_id WHERE r.business_id = %s) AS rows,"
-        " (SELECT count(*) FROM salescall.lines l WHERE l.retired_at IS NULL AND (l.client_id IS NULL OR l.client_id = %s)) AS lines",
+        " (SELECT count(*) FROM salescall.lines l WHERE l.retired_at IS NULL AND (l.client_id IS NULL OR l.client_id = %s)) AS lines,"
+        " (SELECT count(*) FROM salescall.pc_agents p WHERE p.revoked_at IS NULL) AS pcs",
         (business_id, business_id, business_id, business_id, client_id))
     base = f"/c/{client_id}/b/{business_id}"
     script = _script_ready(tx, business_id)
@@ -171,7 +197,8 @@ def setup_steps(tx: Tx, client_id: UUID, business_id: UUID, recording_needs: lis
         {"name": "お客様リストを作る", "done": f["runs"] > 0, "how": "下の「＋ お客様リストを作る」から（電話の台本の版を選びます）", "link": ""},
         {"name": "お客様を取り込む", "done": f["rows"] > 0, "how": "お客様リストの画面の「お客様を取り込む」から",
          "link": f"{base}/runs/{f['last_run']}/import" if f["last_run"] else ""},
-        {"name": "回線を用意する（この依頼者で使える回線）", "done": f["lines"] > 0, "how": "「回線と PC」で足すか、使い先を決めます",
+        {"name": "回線と PC を用意する（この依頼者で使える回線と、電話をつなぐ PC）", "done": f["lines"] > 0 and f["pcs"] > 0,
+         "how": "「回線と PC」で回線を足すか使い先を決め、PC で「PC のログイン」をします（PC が無いと電話はかかりません）",
          "link": "/t/lines"},
         {"name": "録音をそろえる", "done": script and not recording_needs,
          "how": "録音の要るものは、この画面の上の警告に出ます" if script else "電話の台本ができてから、録音の要るものが分かります",
