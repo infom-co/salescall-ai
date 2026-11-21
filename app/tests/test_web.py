@@ -548,6 +548,9 @@ class Web(_World):
         self.assertIn("ok=0", no_reason.headers["location"])                     # 断られた操作では札を使わない（もう一度送れる）
         first = self.post("A", f"/c/{self.a['client']}/dnc", data)
         self.assertIn("ok=1", first.headers["location"])
+        from salescall.web import names
+        from salescall.core import phone as _phone
+        self.assertIn(f"{names.phone_text(_phone.normalize(number).e164)} を登録しました", unquote(first.headers["location"]))   # どの番号かを言う
         second = self.post("A", f"/c/{self.a['client']}/dnc", data)               # 同じ画面からもう1回（二度押し）
         self.assertIn("ok=0", second.headers["location"])
         count = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: tx.one(

@@ -1241,6 +1241,14 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         except ValueError:
             raise NotFound() from None
 
+    def _typed_phone(form: dict[str, Any]) -> str:
+        """結果の1行に添える、入れた番号（見せ方は web/names の1か所。そろえられない文字は、そのまま）。"""
+        raw = str(form.get("phone") or "").strip()
+        try:
+            return phone.normalize(raw).display or raw
+        except Exception:   # noqa: BLE001 番号として読めない文字（登録は core が断る。ここは結果の1行を作るだけ）
+            return raw
+
     @app.get("/t/dnc")
     def tenant_dnc(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
         return _dnc_page(request, None, done, ok)
@@ -1250,7 +1258,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         form = dict(await request.form())
         return _dnc_act(request, form, None, lambda tx: dnc.register_contractor(tx, str(form.get("phone") or ""),
                                                                                 str(form.get("reason") or "").strip()),
-                        "登録しました。この契約者のすべての依頼者で、この番号へはかけません。")
+                        f"{_typed_phone(form)} を登録しました。この契約者のすべての依頼者で、この番号へはかけません。")
 
     @app.post("/t/dnc/revoke")
     async def tenant_dnc_revoke(request: Request) -> HTMLResponse:
@@ -1268,7 +1276,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         # 手で入れるときは、なぜ入れたかの文が必ず要る（台帳の note に残る。無ければデータベースが断る＝CL-2 4-430 の 25）。理由の欄は共通の発信禁止と同じ
         return _dnc_act(request, form, client_id, lambda tx: dnc.register(tx, str(form.get("phone") or ""), "manual",
                                                                           note=str(form.get("reason") or "").strip()),
-                        "登録しました。この番号のお客様へは、この依頼者のどの一覧からもかけません。")
+                        f"{_typed_phone(form)} を登録しました。この番号のお客様へは、この依頼者のどの一覧からもかけません。")
 
     @app.post("/c/{client_id}/dnc/revoke")
     async def client_dnc_revoke(request: Request, client_id: UUID) -> HTMLResponse:
