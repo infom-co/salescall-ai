@@ -1035,7 +1035,7 @@ def in_ladder_opening(q: "Question | None") -> bool:
 def ladder_value(s: dict) -> str:
     """伺えた所から、かけ直しの記録の time の値を作る唯一の場所（「火曜日の午後4時」「土日の午前11時」「明日の午後2時」・日を言わない今日は時刻だけ「午後3時」・
     「いつでも」は伺えた所＋「ならいつでも」）。CL-2 の時刻の読み（spoken_time）で読む形（土日の時刻＝「土日の午前11時」は CL-2 への知らせ）。"""
-    day = s.get("day") or s.get("span") or ("" if s.get("today") else s.get("kind") or "")   # 頃の中に電話をかけられる日が無く、日を伺わなかったら頃の言葉のまま
+    day = ladder_day_words(s)   # 頃の中に電話をかけられる日が無く、日を伺わなかったら頃の言葉のまま
     clock = s.get("clock") or ""
     if clock and not AMPM_WORDS.search(clock) and not ((m := _CLOCK.search(clock)) and int(m.group("h")) >= 13):
         clock = (s.get("band") or s.get("half") or "") + clock
@@ -1047,6 +1047,38 @@ def ladder_value(s: dict) -> str:
     if s.get("any"):
         return f"{v}ならいつでも" if v else s["any"]
     return v
+
+
+def ladder_day_words(s: dict) -> str:
+    """伺えた所 s（日時の2択の段の分かっている所）の日の言葉（唯一の作り＝かけ直しの記録の値 ladder_value・直された値に足す ladder_mend）：伺えた日（「火曜日」「来週の金曜日」）・
+    頃（「来月の頭」）・無ければ平日か土日（土日は曜日を伺わない）。日を言わない今日（お呼びする段の「後ほど」）は ""。"""
+    return s.get("day") or s.get("span") or ("" if s.get("today") else s.get("kind") or "")
+
+
+LADDER_DAY_KEYS = ("kind", "day", "date", "today", "week", "span")   # 伺えた所のうち日の所（ladder_read が入れる日の言葉・その日・日を言わない今日・週・頃）
+
+
+def ladder_mend(value: str | None, s: dict, today=None) -> tuple:
+    """日時の2択の段で伺えた日時（s＝Item.ladder）を、時刻だけ言い直された値 value（会話AIの報告の値＝「4時以降」「3時」）で受ける唯一の場所（言い直しへの直した値＝Flow._op_confirm_field・
+    「〇時まで」の理由を伺い直した一言へのお返事＝Flow._until_take。言い直しの文も、かけ直しの記録も、この値を読む）：返り値＝(値, 伺えた所)。
+    - 値：時刻だけ（日・頃・平日と土日・週を言わずに時刻・午前と午後・時間帯の言葉）を言い直されたら、伺えた所のうち言っていない所＝日（ladder_day_words）と午前・午後（伺えた時間帯。
+      1〜11時で午前・午後・時間帯の言葉の無い時刻だけ）を足した値。ほか（日を言った・時刻を言っていない）は None（呼ぶ所の今の受け方＝お客様の言葉のまま。日だけを直されたときに
+      前の時刻を足さない＝並べた空いている予定の外の日時になりうる）
+    - 伺えた所：s の日の所・午前と午後を、言い直された値が言った所に替えたもの（2回目の直しでも、1回目に直した日・時間帯を足す。時刻の所は替えない＝段は決まったまま）
+    CL-1 が決めた（本書 9-3「取得済みのことを重ねて聞かない」・9-5 の確かめた値＝お客様が確かめた日を捨てない＝分身 V の (3)）。⛔ 426d4844 まで、「火曜日の16時まで、午後4時までという
+    ことでよろしいでしょうか？」への「いえ、4時以降でお願いします。」を「改めまして16時以降、午後4時以降で…」と言い直し、記録は「午後4時以降」＝伺った火曜日が抜けた（分身 U の書き置き
+    rv184/U/notes.md の (6-4)）・午前と伺えた日の「いえ、9時で」に「午前と午後どちらに…」と重ねて伺った・「〇時まで」の理由の伺い直しへの「いえ、5時でお願いします。」を、伺えた所に重ねて
+    読んで前の幅の言葉「3時までなら」が残り「火曜日の15時まで、午後3時まで…」と言い直した"""
+    got = ladder_read(value, {}, today)
+    said_day = any(got.get(k) for k in ("day", "kind", "week", "span"))
+    known = {**s, **({k: got.get(k) for k in LADDER_DAY_KEYS} if said_day else {}), **({"half": got["half"]} if got.get("half") else {})}
+    if not value or said_day or not any(got.get(k) for k in ("clock", "half", "band")):
+        return None, known
+    out = value
+    if (half := s.get("half")) in LADDER_HALVES and not AMPM_WORDS.search(out) and (m := _CLOCK.search(out)) and 1 <= int(m.group("h")) <= 11:
+        out = out[:m.start()] + half + out[m.start():]
+    head = ladder_day_words(s)
+    return (f"{head}の{out}" if head else out), known
 
 
 def night_dated(value: str | None, today) -> str | None:
@@ -10824,6 +10856,10 @@ class Flow:
             self.awaiting_confirm = None  # 言い直しの返事待ちをやめて、質問から聞き直す（6-2）
             return self._bad_form(qid, correction, why)
         if result in ("corrected", "affirmed") and correction and self.questions[qid].type in AMPM_TYPES:
+            if it.ladder is not None:
+                # 日時の2択の段で伺えた日時に、時刻だけ直された：伺えた日・午前と午後を足す（ladder_mend の1か所＝分身 V の (3)。午前・午後を補うより先＝お客様が選んだ時間帯）
+                mended, it.ladder = ladder_mend(correction, it.ladder, self._ladder_ctx(qid).today)
+                correction = mended or correction
             correction, ask = fill_ampm(correction, self.business_hours, self.designated_limit)
             if ask and result == "corrected" and not it.ampm_asked:
                 self.awaiting_confirm = None
@@ -17718,7 +17754,7 @@ class Flow:
 
     def _until_take(self, qid: str, value: str | None) -> str:
         """「〇時まで」の理由を伺い直した一言（_ask_until）へのお返事の値を決める唯一の場所：伺い直す前の質問の文に戻し、値は伺い直す前の値のまま。時刻・日を言い直されたら、
-        その値（日時の2択の段は、伺えた所に重ねて読む＝ladder_read。伺い始めの所からは読み直さない＝2択で伺えた曜日を残す）。"""
+        その値（日時の2択の段は、伺えた所に重ねて読む＝ladder_read。伺い始めの所からは読み直さない＝2択で伺えた曜日を残す。時刻だけなら、伺えた日・午前と午後を足す1か所 ladder_mend）。"""
         it = self.items[qid]
         (held, q), it.until_held = it.until_held, None
         self.questions[qid] = q
@@ -17726,9 +17762,15 @@ class Flow:
             return held
         if it.ladder is None:
             return value
-        s = ladder_read(value, it.ladder, self._ladder_ctx().today)
+        today = self._ladder_ctx().today
+        s = ladder_read(value, it.ladder, today)
         if s == it.ladder:
             return held
+        mended, known = ladder_mend(value, it.ladder, today)
+        if mended is not None:
+            # 時刻だけ言い直された：言い直しへの直した値と同じ1か所（ladder_mend＝伺えた日・午前と午後を足す。分身 V の (3)。⛔ 426d4844 まで重ねて読み、前の幅の言葉が残った）
+            it.ladder = known
+            return mended
         it.ladder = s
         return ladder_value(s)
 
