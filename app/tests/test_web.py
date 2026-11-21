@@ -516,6 +516,18 @@ class Web(_World):
         self.assertNotIn("架空の画面試験の回線", self.get("B", "/t/lines").text)
         lid = app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: tx.one(
             "SELECT line_id FROM salescall.lines WHERE name = '架空の画面試験の回線'"))["line_id"]
+        # 回線の状態（電話網の側）と、PC につながっているか（こちらの側）を分けて見せる（PC が無いと、元気な回線でも電話はかからない）
+        def row_of(text):
+            at = text.index("架空の画面試験の回線")
+            return text[at:text.index("</tr>", at)]
+        self.assertIn("どの PC にもつながっていません", row_of(page))
+        from salescall.core import agents
+        p = agents.issue(app_access(), SYSTEM, self.a["tenant"], label="架空の画面試験の PC")
+        app_access().in_system(SYSTEM, lambda tx: agents.beat(tx, p.pc_id, [lid]))
+        served = row_of(self.get("A", "/t/lines").text)
+        self.assertIn("PC「架空の画面試験の PC」", served)
+        self.assertNotIn("どの PC にもつながっていません", served)
+        app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: agents.revoke(tx, p.pc_id))   # ほかの試験の PC の数を変えない
         self.assertEqual(self.post("A", f"/t/lines/{lid}/assign", {"form_token": tok, "client_id": str(self.b["client"])}).status_code, 404)
         self.assertIn("ok=1", self.post("A", f"/t/lines/{lid}/assign", {"form_token": tok, "client_id": str(self.a["client"])}).headers["location"])
         page = self.get("A", "/t/lines").text                                  # 使用停止（元に戻せない）は、どの回線かを名前つきで見せてから（計画書 5-1）

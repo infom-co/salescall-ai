@@ -1033,7 +1033,11 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     st = health.line_of(tx, ln["line_id"])
                     lines.append({**ln, "stage": st.stage, "wait": st.wait, "next_at": st.next_at,
                                   "resting": st.stage in health_rules.RESTS})
-                return {"lines": lines, "methods": registry.line_methods(tx), "pcs": agents.pcs(tx)}
+                pcs = agents.pcs(tx)
+                # どの PC が、最後の合図でその回線を受け持っていたか（事実だけ。途切れたかの判断は core の agents.watch_lines の1か所なので、
+                # 画面では「つないでいる」と言い切らず、最後の合図の時刻を添える）
+                served = {lid: pc for pc in pcs if pc["revoked_at"] is None for lid in (pc["lines"] or [])}
+                return {"lines": lines, "methods": registry.line_methods(tx), "pcs": pcs, "served": served}
             return page(request, "lines.html", person, ctx, ready=ctx.tenant(counts.readiness), active="lines", done=done, ok=bool(ok),
                         client_names={c["client_id"]: c["name"] for c in ctx.clients()}, **ctx.tenant(read))
         return handle(request, render)

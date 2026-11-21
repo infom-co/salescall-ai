@@ -665,3 +665,6 @@ tr[data-heard] audio { height: 32px; max-width: 240px; }
 .changed-note { scroll-margin-top: calc(var(--chrome, 108px) + 12px); margin-top: 8px; }
 .changed-note .flash { margin: 0 0 6px; }
 details.setting.just-changed { border-color: var(--ok); box-shadow: 0 0 0 2px var(--ok-soft); }
+
+/* 回線が PC につながっていないこと（lines.html）：急ぎの色は使わず、文で（「止まっている」の赤とは別のこと） */
+.pc-none { font-size: 12px; color: var(--wait); margin-top: 2px; }
