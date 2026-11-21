@@ -47916,3 +47916,76 @@ class UntilCycleJudgedTest(unittest.TestCase):
                 else:
                     self.assertNotIn(key, it["label"], (key, it["text"]))
         self.assertGreaterEqual(min(seen.values()), 20)
+
+
+class LadderHeldReasonsTest(unittest.TestCase):
+    """分身 R（CL-1 の頼み rv184/R の (1)＝分身 Q の書き置き (6-1)）：日時の2択の途中の段（曜日の2択）・「〇時まで」の理由を伺い直す前の答えで言われた理由（月単位の理由・「〇時まで」の
+    理由）を、最後の段まで持ってかけ直しの記録に残す（午前・午後の伺いと同じ形＝段をまたいで持つ1か所 it.pending_reasons。置くのは Flow._hold_reasons・重ねるのは Flow._reasons_of）。
+    CL-1 が決まりで決めた：✅ 2026-10-19「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の場合は、月単位で考えた方がいい」は、その日・頃を選んだ理由を記録する決まり＝どの段で
+    言われても同じ（同じ問いに答える所を1つ）。持つのは、答えを受け取って次の段を伺ったときだけ（読めない値の聞き直しは受け取っていない＝持たない）。
+    ⛔ 20109859 まで、次の2択を返す所が理由を読む所より前で返り、記録に入るのは最後の段の言葉の理由だけだった"""
+    J = UntilCycleJudgedTest
+
+    def weekday_pairs(self):
+        d = DateTimePairsTest()
+        f, _ = d.first()
+        r = d.answer(f, "平日でお願いします。", "平日")
+        self.assertEqual(d.asked(r), d.pair("金曜日", "火曜日"))
+        return d, f
+
+    def test_month_reason_on_the_day_pair_reaches_the_record(self):
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID
+        d, f = self.weekday_pairs()
+        r = self.J.say(f, "月初は忙しいので、金曜日でお願いします。", "金曜日", cycle_read=CYCLE_LABEL["month"])
+        self.assertEqual(d.asked(r), d.HALF)
+        r = self.J.say(f, "午後がいいですね。", "午後", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(d.asked(r), d.pair("2時", "4時"))
+        r = self.J.say(f, "4時で。", "4時", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        self.assertEqual((lambda g: (g.get("time"), g.get("cycle")))(self.J().agreed(f)), ("金曜日の午後4時", "month"))
+
+    def test_held_reason_survives_the_until_ask(self):
+        # 月単位の理由を言った曜日の2択のあと、時刻の2択に「3時までなら大丈夫です。」（理由は言っていない）＝伺い63 で伺い直す・お返事「はい」でも、月単位の理由は残る
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID, UNTIL_LABEL, UNTIL_WHY_NOT_SAID
+        d, f = self.weekday_pairs()
+        self.J.say(f, "月初は忙しいので、金曜日でお願いします。", "金曜日", cycle_read=CYCLE_LABEL["month"])
+        self.J.say(f, "午後がいいですね。", "午後", cycle_read=CYCLE_NOT_SAID)
+        r = self.J.say(f, "3時までなら大丈夫です。", "3時まで", until_read=UNTIL_WHY_NOT_SAID, cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r.get("ask_reason"), "until")
+        r = self.J.say(f, "はい、3時から会議なんです。", "3時まで", until_read=UNTIL_LABEL["available_until"], cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        got = self.J().agreed(f)
+        self.assertEqual((got.get("until_why"), got.get("cycle")), ("available_until", "month"))
+
+    def test_same_reason_on_the_last_pair_is_kept_too(self):
+        # 時刻の2択（最後の段）で言われた理由は今のまま。伺い直しの前の答えの理由も、伺い直しのお返事に重ねる（同じ1か所）
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID, UNTIL_LABEL, UNTIL_WHY_NOT_SAID
+        d, f = UntilAskAgainTest().at_hours()
+        r = self.J.say(f, "振り込みが毎月25日なので、3時までなら大丈夫です。", "3時まで", until_read=UNTIL_WHY_NOT_SAID, cycle_read=CYCLE_LABEL["month"])
+        self.assertEqual(r.get("ask_reason"), "until")
+        r = self.J.say(f, "はい、そうです。", "3時まで", until_read=UNTIL_LABEL["available_until"], cycle_read=CYCLE_NOT_SAID)
+        got = self.J().agreed(f)
+        self.assertEqual((got.get("until_why"), got.get("cycle")), ("available_until", "month"))
+
+    def test_unread_value_holds_nothing(self):
+        # 読めない値（2択の外で読めない頃）は受け取っていない＝理由も持たない（いま伺った2択の文で聞き直す＝【決まりで決めた】(a)）
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID
+        d, f = self.weekday_pairs()
+        r = self.J.say(f, "給料日のあとでお願いします。", "給料日のあと", cycle_read=CYCLE_LABEL["month"])
+        self.assertIn(d.pair("金曜日", "火曜日"), d.heard(r))
+        self.assertFalse(any(f.items[r["question_id"]].pending_reasons.values()))
+        for words, value in (("金曜日で。", "金曜日"), ("午後で。", "午後"), ("4時で。", "4時")):
+            r = self.J.say(f, words, value, cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        self.assertIsNone(self.J().agreed(f).get("cycle"))
+
+    def test_the_count_marks_the_held_reason(self):
+        # 帳面 0-3 の (1)：数える1か所（g53_meaning.step_act）は、次の2択を伺う動きにも、持った理由を付ける（読み違いで記録が変わる＝外れと数える）
+        import g53_meaning as G
+        from flowctl import CYCLE_LABEL
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        it = next(i for i in answer_words() if i["text"] == "月初は忙しいので、金曜日でお願いします。")
+        self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), {f"{G.LADDER_NEXT_ACT}〔理由：{CYCLE_LABEL['month']}〕"})
+        plain = next(i for i in answer_words() if i["text"] == "金曜日でお願いします。")
+        self.assertEqual(G.flow_wants(plain, qmap[plain["qid"]]), {G.LADDER_NEXT_ACT})

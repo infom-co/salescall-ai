@@ -6154,7 +6154,9 @@ class Item:
     confirmed_again: bool = False
     history: list = field(default_factory=list)
     pending_value: str | None = None  # 午前・午後を聞いている値（答えが届いたら、そこへ入れる）
-    pending_reasons: dict = dataclasses.field(default_factory=dict)  # その値と一緒に受け取った理由（until_why・cycle。午前・午後の答えで消さない）
+    # 答えを受け取って次の段を伺ったときの、その答えと一緒に受け取った理由（until_why・cycle。段をまたいで持つ唯一の場所＝Flow._hold_reasons が置き、Flow._reasons_of が
+    # 次の答えの理由に重ね、値を受け取った答えで外す。日時の2択の次の2択・午前と午後・「〇時まで」の理由の伺い直し。分身 R の (1)）
+    pending_reasons: dict = dataclasses.field(default_factory=dict)
     ampm_asked: bool = False          # 午前・午後を聞いたか（1項目1回まで）
     ladder: dict | None = None        # 日時の2択の段で、もう伺えた所（ladder_read の slots。段で伺う質問だけ＝Flow._ladder_begin）
     ladder_start: dict = field(default_factory=dict)  # 日時の2択の段を伺い始めたときの所（お呼びする段の「後ほど」＝今日。Flow._ladder_take が読む）
@@ -9153,9 +9155,11 @@ class Flow:
             # ⛔ 2026-10-13 G-25 で見つけた漏れ：値の要る質問で値の無い答えを受け付け、言い直しに「Noneで、よろしいでしょうか。」を
             #    入れていた（確かめない型なら、依頼主へ値の代わりに条件の名前が渡っていた）
             return self._reject(f"答えの値がありません。相手が答えた値を「{ARG_LABEL['value']}」に入れて、もう一度報告してください。")
-        # 時刻の答えと一緒に受け取る理由（月単位の理由・「〇時まで」の理由＝判定の読み。_reasons_of の1か所）。午前・午後を伺ったときは、前の報告の理由を引き継ぐ（⛔ 2026-10-24 の
-        # 見直し：午前・午後の答えの報告には理由が無いので、理由が消え、承認済みの時刻の問いでもう一度伺っていた）
-        reasons = self._reasons_of(a)
+        # 時刻の答えと一緒に受け取る理由（月単位の理由・「〇時まで」の理由＝判定の読み。_reasons_of の1か所）。答えを受け取って次の段を伺ったとき（日時の2択の次の2択・午前と午後・
+        # 「〇時まで」の理由の伺い直し）は、その答えの理由を段をまたいで持ち（it.pending_reasons＝_hold_reasons の1か所）、次の段の答えの理由に重ねる（_reasons_of）。⛔ 2026-10-24 の
+        # 見直し：午前・午後の答えの報告には理由が無いので、理由が消え、承認済みの時刻の問いでもう一度伺っていた。⛔ 20109859 まで、日時の2択の途中の段（曜日の2択）・伺い直しの
+        # 前の答えで言われた理由は持たず、最後の段の言葉の理由だけを記録した（分身 Q の書き置き (6-1)＝分身 R の (1)）
+        reasons = self._reasons_of(a, it)
         if it.until_held is not None and (answered or cond == UNDECIDED):
             # 「〇時まで」の理由を伺い直した一言（_ask_until）へのお返事：はい・いいえ・理由（判定の決められないも）は、伺い直す前の値で受け取る（伺い直しは1回まで＝
             # 10-24。理由は判定の読み＝_reasons_of）。値を言い直されたら、その値（2択の段は伺えた所に重ねる）＝_until_take の1か所
@@ -9165,20 +9169,19 @@ class Flow:
             value, cond, answered = self._theirs_take(qid, None), VALUE_CHOICE, True
         elif answered and it.ladder is not None and it.pending_value is None and ladder_took is None:
             # 日時の2択の段（✅ 2026-11-19 日本時間14時18分13秒）：伺えた所に入れ、まだ決まっていない所があれば次の2択を伺う（_ladder_take の1か所）
+            held = dict(it.ladder)
             took = self._ladder_take(qid, value)
             if isinstance(took, dict):
-                return took
+                # 伺えた所に入れて次の2択へ（伺えた所が増えた）＝受け取った答えの理由を持つ。読めない値の聞き直し・決めない（並べた2つが同じ曜日）は受け取っていない＝持たない
+                return self._hold_reasons(it, reasons, took) if it.ladder != held else took
             value = took
         elif answered and (asked := self._theirs_begin(qid, value)) is not None:
-            return asked
+            return self._hold_reasons(it, reasons, asked)
         if answered and q.type in AMPM_TYPES:
-            if it.pending_value is not None:
-                reasons = {k: v or it.pending_reasons.get(k) for k, v in reasons.items()}
-            value, it.pending_value, it.pending_reasons = merge_ampm(it.pending_value, value), None, {}
+            value, it.pending_value = merge_ampm(it.pending_value, value), None
             value, ask = fill_ampm(value, self.business_hours, self.designated_limit)
             if ask and not it.ampm_asked:
-                it.pending_reasons = reasons
-                return self._ask_ampm(qid, value)
+                return self._hold_reasons(it, reasons, self._ask_ampm(qid, value))
             # 夜中の時刻（日付が変わったあと）は日付まで言う形に（night_dated の1か所。✅ 2026-11-20 日本時間4時44分42秒「伺い68：ア」）
             value = night_dated(value, self._ladder_ctx().today)
         if cycle_fits(q):
@@ -9193,7 +9196,9 @@ class Flow:
             # 日時の2択の段で伺った質問も同じ（伺い直す一言は phrases.UNTIL_ASK＝2択の文ではない。✅ 2026-11-20 日本時間4時44分42秒「伺い63：ア」。⛔ f1c0af7e まで、
             # 2択の段では伺い直さずに受け取った＝10-24 の「1回だけ伺い直す」に合っていなかった）
             if until and not it.until_why and not it.until_asked:
-                return self._ask_until(qid, value)
+                return self._hold_reasons(it, reasons, self._ask_until(qid, value))
+        if answered:
+            it.pending_reasons = {}   # 段をまたいで持った理由は、この答えで受け取った（決められない・聞き直しの答えでは外さない＝次の答えに重ねる）
         if cond in SYSTEM_CONDITIONS and judged is None and (taken := self._ambiguous_only(f"「{SYSTEM_LABEL[cond]}」")):
             # 相手の言葉が「大丈夫です」「結構です」だけなのに、AIが「わからない」「答えたくない」を選んだ：その言葉だけで決めない（判定の組の確かな読みが
             # あれば、その読みで決まっている＝会話AIの報告は判定に加えない）
@@ -10453,16 +10458,28 @@ class Flow:
             return self._ask_pending(qid)   # 決められないのが最終の決定：保留を言い渡さず、保留でよいかを伺う（✅ 2026-11-09 日本時間3時46分53秒）
         return self._advance("受け付けました（わからない）。")
 
-    def _reasons_of(self, a: dict) -> dict:
+    def _reasons_of(self, a: dict, it: "Item") -> dict:
         """答えと一緒に受け取る理由（{"cycle": 月単位の理由の中の名前, "until_why": 「〇時まで」の理由の中の名前}。言っていない・決まらない ⇒ None）を決める唯一の場所
         （答えの報告の入口 _op_record_answer）：判定を使う通話は、答えを当てる言葉（heard_check）への判定の読みの項目 CYCLE・UNTIL_WHY がそろって指す理由（judged_item＝
         割れた・届かない・言っていない・決められない ⇒ None＝「〇時まで」なら1回伺い直す側）。会話AIの報告の cycle・until_why は使わない（判定を待つきっかけと値の文字だけ）。
         判定を使わない通話だけ、会話AIの報告の理由（_why_of と同じ形）。✅ 2026-11-08 日本時間12時11分40秒「会話AIは判定に加えない」・11-06 日本時間15時20分30秒
-        「(3)「わからない」の理由は判定が読む（OK）」（分身 Q の (4)＝n9）。⛔ それまでは、判定を使う通話でも会話AIの報告の理由だけで決めていた"""
+        「(3)「わからない」の理由は判定が読む（OK）」（分身 Q の (4)＝n9）。⛔ それまでは、判定を使う通話でも会話AIの報告の理由だけで決めていた。
+        前の段の答えで受け取って持った理由（it.pending_reasons＝_hold_reasons）に、いまの答えの理由を重ねる（いまの答えが言っていない理由は、前の段の理由のまま）。
+        CL-1 が決まりで決めた（✅ 2026-10-19「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の場合は、月単位で考えた方がいい」＝その日・頃を選んだ理由を記録する決まりは、
+        どの段で言われても同じ＝同じ問いに答える所を1つ。分身 R の (1)）"""
         if not self.judging:
-            return {k: a.get(k) for k in ("cycle", "until_why")}
-        readings = [self.heard_check.get(k) for k in JUDGMENTS]
-        return {"cycle": judged_item(readings, CYCLE, CYCLE_OF), "until_why": judged_item(readings, UNTIL_WHY, UNTIL_OF)}
+            now = {k: a.get(k) for k in ("cycle", "until_why")}
+        else:
+            readings = [self.heard_check.get(k) for k in JUDGMENTS]
+            now = {"cycle": judged_item(readings, CYCLE, CYCLE_OF), "until_why": judged_item(readings, UNTIL_WHY, UNTIL_OF)}
+        return {k: v or it.pending_reasons.get(k) for k, v in now.items()}
+
+    @staticmethod
+    def _hold_reasons(it: "Item", reasons: dict, reply: dict) -> dict:
+        """答えを受け取って次の段を伺う返事 reply（日時の2択の次の2択・お客様から折り返していただく日の2択・午前と午後・「〇時まで」の理由の伺い直し）の前に、その答えと一緒に
+        受け取った理由（_reasons_of）を、段をまたいで持つ唯一の場所（it.pending_reasons。外すのは、値を受け取った答えの所＝_op_record_answer）。"""
+        it.pending_reasons = dict(reasons)
+        return reply
 
     def _why_of(self, cond: str, reason: str | None = None) -> str:
         """「わからない」「答えたくない」の理由（DONT_KNOW_LABEL・REFUSED_LABEL の鍵。唯一の決まり＝_take_system）：答えを当てる言葉（heard_check）への
