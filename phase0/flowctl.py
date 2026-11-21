@@ -34,7 +34,7 @@ from phrases import NAME_HEAD_IDS, NAME_HEADS, NAME_PART_TAILS
 from phrases import ASKED_PROMPT_IDS, CONCERN_PROMPT_IDS, QUIET_LINES, THINKING_PROMPT_IDS, WAIT, WAIT_ASK_PLAIN_ID
 from phrases import OMATASE, ROLE_PARTS, SUCCESSOR_IF_PART, WAIT_SOON, WRONG_NUMBER_ASK, ladder_kept_head, ladder_no_room_head, ladder_topic_head, question_body
 from phrases import DECLINE_RECEIPT
-from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
+from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, honored, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
 from phrases import HANDOFF_DO, OFFER_DO_END, WISH_DO, offer_words, recall_do
@@ -458,11 +458,16 @@ def spoken_amount(value: str | None) -> str | None:
 
 def spoken_value(qtype: str, value: str | None) -> str | None:
     """お客様の答えの値を、お客様に聞こえる文（言い直し・ひとまずの形・承る一言＝Flow._ask_confirm）で言う形にする唯一の入口：時刻は spoken_clock・金額は
-    spoken_amount・ほかの型はそのまま（値そのものは変えない）。言葉は外さない：確かめる型の値の終わりの条件の言い方（「なら」など＝_IF_TAIL）は、値を受け取る1か所
-    （normalize_value）がもう外している＝言い直して確かめる文と記録の値は同じ値（10-19「見た時点でおかしい値は、おかしいと判断する」＝写しの崩れ・本書 9-5 の 7.）。名前の終わりの
-    「なら」・確かめない型（自由な意見）は、お客様の言葉のまま言う。⛔ f74974fd まで「火曜日の15時まで、午後3時までならということでよろしいでしょうか？」（rv120/X/notes.md の 5 の (3)・分身 Z の (2)）。
-    ⛔ c33e742d まで、ここで外し、記録の値には残した（分身 AI）"""
-    return spoken_clock(value) if qtype in AMPM_TYPES else spoken_amount(value) if qtype == "amount" else value
+    spoken_amount・名前は「（お名前）様」（phrases.honored。もう敬称・呼び方・役職で終わる名前はそのまま＝phrases.called。つなぐ言葉はこの形から「で」＝phrases.joiner。分身 AJ）・
+    ほかの型はそのまま（値そのものは変えない＝記録の値・依頼者へ渡す値・会話AIへの返事の value は normalize_value の形のまま）。言葉は外さない：確かめる型の値の終わりの条件の言い方
+    （「なら」など＝_IF_TAIL）は、値を受け取る1か所（normalize_value）がもう外している＝言い直して確かめる文と記録の値は同じ値（10-19「見た時点でおかしい値は、おかしいと判断する」＝
+    写しの崩れ・本書 9-5 の 7.）。名前の終わりの「なら」・確かめない型（自由な意見）は、お客様の言葉のまま言う。名前の読みの確かめ（reading_question）の文は、もう「様」を持つ＝ここを
+    通さない（_ask_confirm の reading_of）。⛔ f74974fd まで「火曜日の15時まで、午後3時までならということでよろしいでしょうか？」（rv120/X/notes.md の 5 の (3)・分身 Z の (2)）。
+    ⛔ c33e742d まで、ここで外し、記録の値には残した（分身 AI）。⛔ 9deb385c まで、名前は値のまま言い「はい、ありがとうございます。おかだということでよろしいでしょうか？」（分身 AI の
+    書き置き rv190/AI/notes.md の (6-1)）"""
+    if value is None:
+        return None
+    return spoken_clock(value) if qtype in AMPM_TYPES else spoken_amount(value) if qtype == "amount" else honored(value) if qtype == "name" else value
 
 
 # 夜中の時刻（日付が変わったあと）と読む、夜・晩のいちばん遅い時（「夜1時」〜「夜4時」は夜中＝午前。「夜5時」からは午後）。深夜・夜中は 5時まで（前からの決まり）。
@@ -18555,7 +18560,8 @@ class Flow:
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
         shown = (words if after in ("end_doubt", "hedged_do", "final_do", "hedged_noted", "sense", "maybe", "maybe_settle", "offer_again", "offer_alt")
                  else restate_words(words, self.heard_said)) if choice else (it.value or label(it.condition))
-        # お客様の答えの値は、言う形で言う（時刻は「15日の14時、午後2時」・金額は「100万円」＝spoken_value の1か所。値と、返事の value は変えない）。「〇時まで」の理由が「それまでは
+        # お客様の答えの値は、言う形で言う（時刻は「15日の14時、午後2時」・金額は「100万円」・名前は「おかだ様」＝spoken_value の1か所。値と、返事の value は変えない。名前の読みの
+        # 確かめは、下の質問と同じ言い方＝文の形がもう「様」を持つ＝said_as を使わない）。「〇時まで」の理由が「それまでは
         # 出られない」なら「以降」で言う（until_since の1か所＝伺い101 ア。⛔ 21263a4a まで「16時まで、午後4時までということで」＝「4時までにお電話する」とも聞こえた）
         since = it.value and until_fits(q) and it.until_why == "unavailable"
         said_as = spoken_value(q.type, until_since(shown) if since else shown) if it.value else shown
