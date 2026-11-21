@@ -25,7 +25,7 @@ from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, 
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices, LADDER_OTHER, LADDER_SIDE_TAIL, ladder_choice_desc, ladder_other_choices, ladder_sides,
                      NEAR, near_choices, near_fits, MISGIVING, misgiving_choices, misgiving_fits,
-                     UNTIL_WHY, until_choices, until_fits, CYCLE, CYCLE_WHY_OF, cycle_choices, cycle_fits, VALUE_CHOICE, reason_items)
+                     UNTIL_WHY, until_choices, until_fits, CYCLE, CYCLE_WHY_OF, cycle_choices, cycle_fits, VALUE_CHOICE, reason_items, held_ask_unread)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -888,8 +888,11 @@ def answer_items(q, asked: str | None = None) -> dict:
     # 月単位の理由（CYCLE＝かけ直しの時刻・日の質問 flowctl.cycle_fits）。読みを組み合わせるのは flowctl.judged_item の1か所（Flow._reasons_of）・使うのは答えの報告の入口
     # Flow._op_record_answer。ほかの質問の文・返事の形は変わらない（分身 Q の (4)＝n9）
     reasons = ({UNTIL_WHY: until_choices(False, q)} if until_fits(q) else {}) | ({CYCLE: cycle_choices(False, q)} if cycle_fits(q) else {})
-    return (side_items(False) | purpose | own | ({PROMPT_REPLY: prompt_reply_choices(False, q.prompted)} if getattr(q, "prompted", "") and not asks_wrong(q.prompted) else {})
-            | ({AWAY: away_choices(False, True, PROMPTED if getattr(q, "prompted", "") else "")} if away_fits(q, bool(asked)) else {}) | ladder | near | misgiving | reasons)
+    # 伺い直した一言を待つ間、流れの制御がお返事で読まない項目は外す（flowctl.held_ask_unread の1か所。ほかの質問の文・返事の形は変わらない。分身 AF の (1-d)）
+    unread = held_ask_unread(q)
+    items = (side_items(False) | purpose | own | ({PROMPT_REPLY: prompt_reply_choices(False, q.prompted)} if getattr(q, "prompted", "") and not asks_wrong(q.prompted) else {})
+             | ({AWAY: away_choices(False, True, PROMPTED if getattr(q, "prompted", "") else "")} if away_fits(q, bool(asked)) else {}) | ladder | near | misgiving | reasons)
+    return {k: c for k, c in items.items() if k not in unread}
 
 
 def items_text(q, asked: str | None = None) -> str:

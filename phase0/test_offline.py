@@ -61,14 +61,10 @@ CL2_PENDING = frozenset({
                          "prompt_reply",
                          # 深める一言に入れる困りごとの言葉・困りごとが続く形の句を会話AIが書く道具の引数（replay_opening の trouble・kept。伺い29＝✅ 2026-11-16
                          # 日本時間0時42分38秒・12時48分22秒 ユーザー。CL-2 への知らせはまとめ役）
-                         "trouble", "kept",
-                         # 2つ目からのお詫びの頭に「また」を付けた共通の一言の録音（phrases.APOLOGY_ALSO_IDS の5本。✅ 2026-11-21 日本時間14時59分44秒 伺い97 ア。
-                         # 分身 AA。CL-2 への知らせはまとめ役＝CL-2 の名前と文の写し common_phrases.TEXTS の作り直し）
-                         "apology_missed_promise_also", "apology_cut_off_also", "apology_cut_off_same_day_also", "apology_cut_end_same_day_also",
-                         "apology_cut_end_later_also",
-                         # 日時の2択に月単位の理由で日の分からない頃を言われたときに、その日を伺う一言の共通の一言の録音（phrases.TIME_LADDER_IDS の payday＝伺い99 ア。
-                         # ✅ 2026-11-21 日本時間14時59分44秒。分身 AB の (2)。CL-2 への知らせは CL-1）
-                         "time_payday"})
+                         "trouble", "kept"})
+# （2026-11-21 日本時間23時台に外した：CL-2 の第9便・第10便が main に入った＝75a1ef48・CL-2 の連絡帳 4-467 の (1)・4-469 の (2)＝CL-1.md 4-244：共通の一言の録音の
+# 2つ目からのお詫びの頭に「また」を付けた5本（phrases.APOLOGY_ALSO_IDS＝apology_missed_promise_also・apology_cut_off_also・apology_cut_off_same_day_also・
+# apology_cut_end_same_day_also・apology_cut_end_later_also＝伺い97 ア・分身 AA）と、お給料日を伺う一言 time_payday（伺い99 ア・分身 AB））
 # CL-2 の読み手がまだ受けない値（CL2_PENDING の値の版）：{(通話の事実の種類, 欄): (CL-2 の call_report の組の名前, まだ入っていない値)}。FlowWatch は、読み手に通す前に、
 # その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
 # CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
@@ -30409,6 +30405,91 @@ class MatterPromptWordsTest(unittest.TestCase):
         self.assertTrue(announces.matter_fits("ご利用日の変更は前日までにご連絡いただく決まりになっております。", self.ASK, "ご利用日の変更"))
 
 
+class UnheardPlainApprovalTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L19 の (b)（分身 AE の (2)・CL-1 が書いてある決まりで決めた）：お知らせの文が無いご承認の質問（取込でお知らせの文が決まらず、説明と質問の文で
+    伺った）へのお返事が聞き取れないまま「-」にしたとき、締めの前の念のための確認も、お知らせの形と同じ1か所（flowctl.accepted_line の heard 偽＝Flow._accepted_ask）で
+    「（句）件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」と伺う（句が無ければ名詞の「（名詞）の件のお返事の…」・どちらも無ければ
+    今の伺い直し）。理由＝11-15 日本時間11時59分07秒の (3)（何へのお返事が聞き取れなかったのかを言う）と同じ理由（10-19）・11-12 日本時間19時32分21秒「…こちらの内容で
+    ご承認いただけますでしょうか？⇒こんな言い方だと誰でも、警戒してしまう」・帳面 0-2「決まりの細かいほうを先に当てる」（10-14 の聞き返しの最後の1回より、同じ場面の
+    11-15 の (3) の形）。録音は依頼主の単位の「（番号）_accepted_unheard」（録音の表 make_ack_clips.script_table の条件を同じ1か所 flowctl.accepted_unheard で広げた）。
+    ⛔ それまで「申し訳ございません、お声が聞き取れませんでしたのでこちらの内容でご承認いただけますでしょうか？」（お客様には「こちらの内容」が何を指すか分からない）"""
+    EXPL = "料金のご案内ですが月額3,000円となります。"
+    LINE = "料金は月額3,000円となる件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？"
+
+    def flow(self, matter="料金", clause="料金は月額3,000円となる", play=True):
+        import dataclasses
+        from flowctl import Flow
+        qs = AnnounceTest().questions(announce="")
+        qs[1] = dataclasses.replace(qs[1], intro=self.EXPL, matter=matter, matter_clause=clause)
+        f = Flow(qs, play_recordings=play)
+        f.use_checks("judge")
+        AnnounceTest.say(f, "届いていないです。", "record_answer", "いいえ", question_id="Q1", condition_id="いいえ")
+        for _ in range(3):
+            RecheckAckTest.unclear(f, "Q2")
+        self.assertEqual((f.current, f.items["Q2"].state, f.items["Q2"].dash_heard), ("Q3", "unresolved", False))
+        return f
+
+    def test_the_unheard_plain_approval_says_what_it_was_about(self):
+        from flowctl import accepted_line, accepted_unheard, in_announce_form
+        from phrases import ACK
+        for play in (True, False):
+            f = self.flow(play=play)
+            self.assertFalse(in_announce_form(f.questions["Q2"]))
+            self.assertTrue(accepted_unheard(f.questions["Q2"]))
+            r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+            self.assertEqual((f.phase, f.current, f.awaiting_confirm, f.items["Q2"].final), ("rechecking", "Q2", "Q2", True), play)
+            self.assertEqual(accepted_line(f.questions["Q2"], heard=False), ("Q2_accepted_unheard", self.LINE))
+            if play:
+                self.assertEqual(RecheckAckTest.heard(r), ACK[r["ack"]] + ACK["moushiwake_heavy"] + self.LINE)
+                self.assertEqual([p["id"] for p in r["play"]], ["moushiwake_heavy", "Q2_accepted_unheard"])
+            else:
+                self.assertEqual(r["say"], self.LINE)
+            self.assertEqual(f.judge_context()[1], self.LINE, play)   # 判定はこの確かめの文へのお返事として読む（お知らせの形と同じ）
+        # お返事は最終の確かめへのお返事と同じ受け方（合っている＝ご承認いただける・違う＝ご承認いただけない手順）
+        f = self.flow()
+        AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+        r = AnnounceTest.say(f, "はい、大丈夫です。", "confirm_field", "affirmed", question_id="Q2", result="affirmed")
+        self.assertEqual((r["result"], f.export()["Q2"]), ("end", "はい"))
+
+    def test_the_noun_and_nothing(self):
+        # 句が無ければ名詞の「（名詞）の件のお返事の…」・句も名詞も無ければ今の伺い直し（質問の文を伺い直す＝お知らせの形の「先ほどの件の…」にはしない）
+        from phrases import ACK
+        f = self.flow(clause="")
+        r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+        self.assertEqual(RecheckAckTest.heard(r),
+                         ACK[r["ack"]] + ACK["moushiwake_heavy"] + "料金の件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？")
+        f = self.flow(matter="", clause="")
+        r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+        self.assertEqual((r["result"], f.awaiting_confirm), ("recheck", None))
+        self.assertEqual(RecheckAckTest.heard(r), ACK[r["ack"]] + ACK["moushiwake_heavy"] + "お声が聞き取れませんでしたのでこちらの内容でご承認いただけますでしょうか？")
+
+    def test_a_heard_plain_approval_is_asked_again_as_now(self):
+        # 聞き取れていた（別のお話・意味が決まらない答えで「-」にした＝Item.dash_heard）お知らせの文が無いご承認の質問は、今までどおり質問の文で伺い直す（変えたのは
+        # 聞き取れなかったときだけ＝お知らせの文が無い質問には、聞き取れていたときの最終の確かめ「それでは（名詞）の件は…」が無い）
+        f = self.flow()
+        f.items["Q2"].dash_heard = True
+        r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+        self.assertEqual((r["result"], f.awaiting_confirm), ("recheck", None))
+        self.assertTrue(r["say"].startswith("恐れ入りますがこちらの内容でご承認いただけますでしょうか？"), r["say"])
+
+    def test_the_recording_table_has_the_line(self):
+        # 録音の表（make_ack_clips.script_table）：お知らせの文が無く句か名詞のあるご承認の質問にも「（番号）_accepted_unheard」（聞き取れていたときの「_accepted」は作らない＝
+        # 最終の確かめはお知らせの形だけ）。句も名詞も無ければ作らない
+        import dataclasses
+        from instruction import Business
+        from make_ack_clips import script_table
+        qs = AnnounceTest().questions(announce="")
+        for matter, clause, want in (("料金", "料金は月額3,000円となる", {"Q2_accepted_unheard": self.LINE}),
+                                     ("料金", "", {"Q2_accepted_unheard": "料金の件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？"}),
+                                     ("", "", {})):
+            qs[1] = dataclasses.replace(qs[1], intro=self.EXPL, matter=matter, matter_clause=clause)
+            b = Business(company="株式会社テスト", company_reading="てすと", caller="山田", caller_reading="やまだ", purpose="ご予約の確認",
+                         purpose_line="ご予約の確認でお電話いたしました。", questions=list(qs))
+            table = script_table(b)[0]
+            got = {k: v[0] for k, v in table.items() if k.startswith("Q2_accepted")}
+            self.assertEqual(got, want, (matter, clause))
+
+
 class MatterPromptPrefaceTest(unittest.TestCase):
     """帳面 1 の (6) の (i) の L19 の (a)（分身 AE の (1)）：束 ac1 で答えを伏せた読み手 A・B が2人とも挙げた取込の問い合わせ（announces.MATTER_PROMPT）の言葉を、
     帳面 0-3 の決まり（初めて読む人がそのまま分かる言葉で・(a) 境目の決まりは1か所だけに書く）で直した：(1-a) 前置きの中の事柄の言葉を使うのは、前置きのあとの文に
@@ -30462,12 +30543,44 @@ class MatterPromptPrefaceTest(unittest.TestCase):
     def test_the_matter_rule_points_to_the_clause_rule_for_times_and_values(self):
         # 名詞に入れない時期や値（「当日の」）は、句には数と期限の言葉の決まりのとおり入れる（名詞の決まりから句の決まりを指す。句の決まりは1か所のまま）
         import announces
-        self.assertIn("clause には、下の「数・金額・日にち・期限・回数は…」の決まりのとおり入れます", announces.MATTER_NOT)
-        self.assertIn("数・金額・日にち・期限・回数は、お客様が聞いた文にあるものを全部", announces.MATTER_PROMPT)
+        # L19 の (5)（MatterPromptValuesTest）で、句の決まりの言い方を「時期や値（上の決まり）は…」に替えた（時期や値の決まりは TIME_VALUE の1か所）
+        self.assertIn("clause には入れます", announces.MATTER_NOT)
+        self.assertIn("時期や値（上の決まり）は、お客様が聞いた文にあるものを全部", announces.MATTER_PROMPT)
         rule = HeardLineClauseTest
         self.assertTrue(announces.matter_fits(rule.RULE, rule.ASK, "キャンセル"))
         self.assertTrue(announces.clause_fits(rule.RULE, rule.ASK, "当日のキャンセルは前日までにご連絡いただく必要がある", rule.LINE))
         self.assertFalse(announces.clause_fits(rule.RULE, rule.ASK, "キャンセルは前日までにご連絡いただく必要がある", rule.LINE))
+
+
+class MatterPromptValuesTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L19 の (5)（分身 AE の (5)）：束 ae1 で答えを伏せた読み手 A・B が挙げた境目（答えは13行とも作った側と同じ＝言葉だけの直し）を、取込の
+    問い合わせ（announces.MATTER_PROMPT）の1か所（時期や値の決まり announces.TIME_VALUE）に書いた＝帳面 0-3「初めて読む人がそのまま分かる言葉で」・(a)「境目の決まりは
+    1か所だけに書く」：(5-a) 「期限」「料金」のように何についての話かを言う言葉は事柄の名前の一部で、時期や値ではない（#13「お支払いの期限」の「期限」を値の仲間と読む余地）
+    (5-b) 「月額」「年額」「一律」のような値の数え方の言葉は値の側（#7・#10＝前置きのあとの「月額」を事柄の言葉と読むと前置きの「料金」が使えなくなる）
+    (5-c) 句の決まりは「時期や値（上の決まり）は…全部…入れます」＝時期（「当日の」）も句に残すことが句の決まりの1か所で読める（#4＝前は「数・金額・日にち・期限・回数」
+    の並びに「時期」が無かった）。名詞の決まり MATTER_NOT も同じ「時期や値」を指す（並びを2か所に書かない）"""
+    ASK = UnheardCautionClauseTest.ASK
+
+    def test_the_time_and_value_rule_is_one_place(self):
+        import announces
+        p = announces.MATTER_PROMPT
+        self.assertEqual(p.count(announces.TIME_VALUE), 1)
+        self.assertIn(f"- {announces.TIME_VALUE}。", p)
+        self.assertNotIn("数・金額・日にち・期限・回数", p)   # 前の並び（時期の無い並び）は書かない
+        for w in ("「当日の」", "「月額」「年額」「一律」", "事柄の名前の一部で、時期や値ではありません", "時期や値は、事柄の名前ではなく"):
+            self.assertIn(w, announces.TIME_VALUE, w)
+        self.assertIn("時期や値（上の決まり）は matter には入れません", announces.MATTER_NOT)
+        self.assertIn("時期や値（上の決まり）は、お客様が聞いた文にあるものを全部、書いてあるとおりに入れます", p)
+        self.assertLess(p.index(announces.TIME_VALUE), p.index(announces.MATTER_NOT))
+
+    def test_the_example_answers_pass_the_import_checks(self):
+        # 決まりの例（「お届けの時間は午前中」＝事柄「お届けの時間」・時期や値「午前中」）と、前置きのあとに値の数え方の言葉しか無い文（前置きの事柄を使う）の答えが本番の形の確かめを通る
+        import announces
+        self.assertIn("「お届けの時間は午前中となります。」なら、事柄は「お届けの時間」、時期や値は「午前中」", announces.TIME_VALUE)
+        t = "お届けの時間は午前中となります。"
+        self.assertTrue(announces.matter_fits(t, self.ASK, "お届けの時間") and announces.clause_fits(t, self.ASK, "お届けの時間は午前中となる"))
+        y = "会員のご案内ですが年額5,000円となります。"
+        self.assertTrue(announces.matter_fits(y, self.ASK, "会員") and announces.clause_fits(y, self.ASK, "会員は年額5,000円となる"))
 
 
 class ImportFormsReviewTest(unittest.TestCase):
@@ -39736,6 +39849,7 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
         # 見直し (12) の形の質問：その後の形（R3・R4）・「ところで」の形（R5）・選択肢を並べた形（R6）・ご承認のお知らせ（R7）を、本番の流れの制御がその形で
         # 伺う所まで組む（判定に見せる質問は、お客様が聞いた文）。聞き取れなかったお知らせの締めの前の確かめ（R7 の1行）だけは、まだ組めない（理由つき）
         import g53_meaning
+        from phrases import head_join
         from review_words import NEW_SCENES, answer_words, questions
         qs = questions()
         missing = []
@@ -39747,7 +39861,9 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
             except g53_meaning.NoScene as e:
                 missing.append((it["qid"], str(e)))
                 continue
-            want = qs[it["qid"]].announce or qs[it["qid"]].text
+            q = qs[it["qid"]]
+            # お知らせの文の無いご承認の質問（R16＝L19 の (b)）は、入る一言（説明）＋質問の文（お客様が聞いた文＝Flow.for_judge）
+            want = q.announce or (head_join(q.intro, q.text) if q.intro else q.text)
             self.assertEqual(shown.text, want, it)
             if it.get("asked"):
                 self.assertEqual(asked, it["asked"], it)   # 最終の確かめは、正解の表の行と同じ本番の1か所（accepted_line）の文
@@ -41928,7 +42044,16 @@ class RereadRowsTest(unittest.TestCase):
              "「〇時まで」の理由を向きのある一言で伺い直したあと（時刻の2択に「3時までには戻ってます。」・判定の読みが割れた）": (
                  "C1", "恐れ入ります。3時まではお電話が難しいということでしょうか？", ""),
              # 分身 AB の (2)：お給料日を伺った一言のあと（review_words.ASK_ROWS）
-             "お給料日を伺った一言のあと（曜日の2択に「給料日のあとでお願いします。」）": ("C1", "恐れ入りますがお給料日は何日になりますでしょうか？", "")}
+             "お給料日を伺った一言のあと（曜日の2択に「給料日のあとでお願いします。」）": ("C1", "恐れ入りますがお給料日は何日になりますでしょうか？", ""),
+             # 分身 AF の (5)：判定に見せる文の新しい場面のうち、行の無かったもの（review_words.AF_ROWS）
+             "頃の中に空いている予定が無いことをお詫びしてお伝えする2択（曜日の2択に「来月の頭でお願いします。」・来月の頭は電話をかけられる日に無い）": (
+                 "C1", "あいにく来月の頭は空きがございませんので来週の金曜日と30日の月曜日ではどちらがよろしいでしょうか？", ""),
+             "日時の2択の段の言い直しに週だけ直されたあとの曜日の2択（「いえ、来週でお願いします。」・はじめに伺えた火曜日を外した「来週の水曜日と来週の木曜日」）": (
+                 "C1", "来週の水曜日と来週の木曜日ではどちらがよろしいでしょうか？", ""),
+             "お給料日のあとの頃の2択（お給料日を伺った一言に「25日です。」）": ("C1", "来週の木曜日と来週の金曜日ではどちらがよろしいでしょうか？", ""),
+             "締め日を伺った一言のあと（曜日の2択に「締め日のあとでお願いします。」）": ("C1", "恐れ入りますが締め日は何日になりますでしょうか？", ""),
+             "お客様から折り返していただく日の言い直しに週だけ直されたあとの2択（「いえ、来週になります。」のあとの「来週の火曜日と来週の水曜日」）": (
+                 "C1", "それでは来週の火曜日と来週の水曜日ではどちらになりますでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -41945,13 +42070,13 @@ class RereadRowsTest(unittest.TestCase):
     def test_1_new_scenes_are_built_by_the_one_count(self):
         import g53_meaning as g
         from flowctl import AWAY, AWAY_NO, PROMPT_REPLY, PROMPT_REPLY_YES, VALUE_CHOICE, WRONG, WRONG_NOT_SAID
-        from review_words import AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
+        from review_words import AF_ROWS, AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
         qs = questions()
         rows = [it for it in answer_words() if it.get("scene") in NEW_SCENES]
         self.assertEqual({it["scene"] for it in rows}, set(NEW_SCENES))
         self.assertEqual(set(self.SHOWN), set(NEW_SCENES))
-        # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行・ASK_ROWS＝分身 AB が足した行
-        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS) if it.get("scene") in NEW_SCENES])
+        # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行・ASK_ROWS＝分身 AB が足した行・AF_ROWS＝分身 AF の (5) が足した行
+        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS, *AF_ROWS) if it.get("scene") in NEW_SCENES])
         for it in rows:
             with self.subTest(text=it["text"], scene=it["scene"]):
                 q = qs[it["qid"]]
@@ -44641,6 +44766,42 @@ class AskRowsTest(unittest.TestCase):
             self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), acts, text)
 
 
+
+class AFRowsTest(unittest.TestCase):
+    """分身 AF の (5)（分身 AB の書き置き rv186/AB/notes.md の (6-4)）：判定に見せる文の新しい場面のうち、試しの言葉の表に行が無かったもの（伺い100 アのお詫びしてお伝えする2択・日が1つに
+    決まらない直しのあとに伺い直す2択・お給料日のあとの頃の2択・お客様の言った日の名前で伺う一言・お客様から折り返していただく日の言い直しに週だけ直されたあとの2択）に、試しの言葉の行を
+    足した（review_words.AF_ROWS。場面は測りの数えの1か所 g53_meaning._new_scene が本番の流れの制御で組む）。測りの前に正解の表まで整える（帳面 0-3・分身 V の (6-5)・分身 W の (5) と同じ形）。
+    ⛔ a3b200cf まで、この場面の行は無かった"""
+
+    def test_every_scene_has_its_rows_and_items(self):
+        from flowctl import CYCLE, LADDER_OTHER, MISGIVING, UNTIL_WHY
+        from review_words import AF_ROWS, NO_ROOM_SCENE, PAYDAY_NAMED_SCENE, PAYDAY_SPAN_SCENE, RANGE_REDO_SCENE, THEIRS_REDO_SCENE
+        n = {s: sum(1 for it in AF_ROWS if it["scene"] == s) for s in (NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, THEIRS_REDO_SCENE, PAYDAY_NAMED_SCENE)}
+        self.assertEqual(list(n.values()), [6, 6, 6, 6, 4])
+        for it in AF_ROWS:
+            # その場面の判定が読む項目には、正解がある（こちらからかけ直す日時＝迷っている点を言ったか・「〇時まで」の理由・月単位の理由・2択なら合わないと言わなかったほうで大丈夫そうか／
+            # お客様から折り返していただく日＝月単位の理由・2択の項目）
+            want = ((CYCLE, LADDER_OTHER) if it["qid"] == "C1T" else (CYCLE, MISGIVING, UNTIL_WHY) + ((LADDER_OTHER,) if it["scene"] != PAYDAY_NAMED_SCENE else ()))
+            for k in want:
+                self.assertIn(k, it["label"], (it["text"], it["scene"], k))
+
+    def test_the_wanted_acts(self):
+        # 数える1か所（g53_meaning.flow_wants）で、正しい読みの組み合わせから決まる動き（流れの制御に通して確かめた形＝rv187/AF/probe/af/rows_acts.py）
+        import g53_meaning as G
+        from review_words import AF_ROWS, NO_ROOM_SCENE, PAYDAY_NAMED_SCENE, RANGE_REDO_SCENE, THEIRS_REDO_SCENE, questions
+        qmap = G.question_map() | questions()
+        month = "〔理由：月単位の理由（月ぎめ・締め・振り込みや入金の間隔など）〕"
+        want = {(NO_ROOM_SCENE, "来週の金曜日はちょっと…。"): {"避けた方だけを外して2つを伺う：来週の木曜日と30日の月曜日ではどちらがよろしいでしょうか？"},
+                (RANGE_REDO_SCENE, "木曜日でお願いします。"): {"念のため確かめる：答えた（来週の木曜日の午後4時）"},
+                (RANGE_REDO_SCENE, "水曜日はちょっと…。"): {"避けた方だけを外して2つを伺う：来週の木曜日と来週の金曜日ではどちらがよろしいでしょうか？"},
+                (THEIRS_REDO_SCENE, "水曜日になります。"): {"念のため確かめる：答えた（水曜日の午後4時まで）"},
+                (THEIRS_REDO_SCENE, "ちょっと分からないですね。"): {"念のため確かめる：答えた（来週の平日の午後4時まで）"},
+                (PAYDAY_NAMED_SCENE, "20日です。"): {f"{G.PAYDAY_TOOK_ACT}：火曜日と水曜日ではどちらがよろしいでしょうか？{month}"},
+                (PAYDAY_NAMED_SCENE, "月によって違うんですよ。"): {f"{G.PAYDAY_TOOK_ACT}：金曜日と火曜日ではどちらがよろしいでしょうか？{month}"}}
+        for (scene, text), acts in want.items():
+            it = next(i for i in AF_ROWS if i["scene"] == scene and i["text"] == text)
+            self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), acts, text)
+
 class HeldAskChoicesTest(unittest.TestCase):
     """分身 AD の (1)：日時の2択の途中で伺い直した一言（「〇時まで」の理由の確かめ＝Flow._ask_until・お給料日を伺う一言＝Flow._ask_payday）を待つ間に判定へ見せる選べるものと、
     束 ab1（rv186/AB/readers）で答えを伏せた読み手 A・B が2人とも挙げた説明の文の穴（帳面 0-3「判定（AI）への文も、初めて読む人がそのまま分かる言葉で書く」・(a)「境目の決まりは1か所
@@ -44719,6 +44880,115 @@ class HeldAskChoicesTest(unittest.TestCase):
             self.assertEqual(rows[(PAYDAY_ASK_SCENE, text)]["label"][CYCLE], [CYCLE_NOT_SAID], text)
         self.assertEqual(rows[(PAYDAY_ASK_SCENE, "月によって違うんですよ。")]["label"]["accept"], ["unknown"])
 
+
+
+class AFHeldBordersTest(unittest.TestCase):
+    """分身 AF の (1)：束 ad1（rv187/AD/readers）で答えを伏せた読み手 A・B が2人とも挙げた判定への説明の文の境目（帳面 0-3「判定（AI）への文も、初めて読む人がそのまま分かる言葉で書く」・
+    (a)「境目の決まりは1か所だけに書く」）。(1-a) 確かめた問いへのお返事の決まりは「理由は言っていない」の説明の1か所（判断のモデルにも渡る選べるものの説明＝決まりの文は渡らない）に、
+    言い直しを打ち消す返事の決まりより先に当てることまで書く (1-b)「〇時まで」の理由の確かめの「答えた」に、その時刻までに確かめる・用意するは、わけ（聞かれたことの答えをあとで確かめる、
+    ではない）を書く (1-c) 月単位の理由の「言っていない」の伺った日のお答えは「日や頃」(1-d) お給料日を伺う一言を待つ間は、流れの制御が読まない「わからない・答えたくない理由」を
+    見せない（「〇時まで」の確かめは、わからない・答えたくないなら理由も記録する＝見せる）"""
+
+    def test_the_confirmed_reason_goes_before_the_denial_rule(self):
+        from flowctl import UNTIL_WHY, UNTIL_WHY_NOT_SAID, until_choices
+        from meaning_judge import jev_request
+        from review_words import UNTIL_LEAN_SCENE, questions
+        d = until_choices(False, questions()["C1"])[UNTIL_WHY_NOT_SAID]
+        self.assertIn("言い直しを打ち消す返事の決まりより先に", d)
+        self.assertIn("「決められない」", d)
+        q, p = HeldAskChoicesTest.judged(UNTIL_LEAN_SCENE)
+        self.assertEqual(p.count("言い直しを打ち消す返事の決まりより先に"), 1)
+        # 判断のモデル（決まりの文を渡さない）にも、同じ説明が渡る
+        self.assertIn("言い直しを打ち消す返事の決まりより先に", jev_request("j", q, "いえ、そういうわけではないです。")["questions"][UNTIL_WHY]["criteria"][UNTIL_WHY_NOT_SAID])
+
+    def test_getting_ready_by_then_is_the_reason(self):
+        from flowctl import held_ask_desc
+        self.assertIn("聞かれたことの答えをあとで確かめる、ではない", held_ask_desc("until"))
+        self.assertNotIn("あとで確かめる", held_ask_desc("payday"))
+
+    def test_the_asked_day_may_be_a_part_of_the_month(self):
+        from flowctl import CYCLE_NOT_SAID, cycle_choices
+        from review_words import questions
+        self.assertIn("毎月の日や頃を答えても", cycle_choices(False, questions()["C1"])[CYCLE_NOT_SAID])
+
+    def test_the_why_item_is_shown_only_where_it_is_read(self):
+        from flowctl import WHY, WHY_HEADING
+        from meaning_judge import answer_items
+        from review_words import PAYDAY_ASK_SCENE, UNTIL_ASK_SCENE, UNTIL_LEAN_SCENE
+        q, p = HeldAskChoicesTest.judged(PAYDAY_ASK_SCENE)
+        self.assertNotIn(WHY, answer_items(q))
+        self.assertNotIn(WHY_HEADING, p)
+        for scene in (UNTIL_ASK_SCENE, UNTIL_LEAN_SCENE):
+            q, p = HeldAskChoicesTest.judged(scene)
+            self.assertIn(WHY, answer_items(q), scene)
+            self.assertIn(WHY_HEADING, p, scene)
+
+    def test_the_flow_reads_the_why_item_only_for_until(self):
+        # 作りで確かめる：お給料日を伺う一言へのお返事は、どの答えの読みでも、理由の読みで返事・記録が変わらない（_payday_take）。「〇時まで」の確かめは、わからない・答えたくないの
+        # 読みで、理由の読みが記録に入る（_take_system の _why_of）
+        import json
+        import g53_meaning as G
+        from flowctl import AWAY, AWAY_NO, UNDECIDED, VALUE_CHOICE, WHY, why_choices
+        from review_words import questions
+        q = questions()["C1"]
+
+        def outs(build, cond, op):
+            got = set()
+            for why in why_choices(False):
+                f = build(q)
+                args = {"question_id": q.id, "condition_id": cond} if op else {}
+                r = G._scene_say(f, "（言葉）", G._scene_read(cond, **{WHY: why, AWAY: AWAY_NO}), op, **args)
+                it = f.items[q.id]
+                got.add(json.dumps([r, it.condition, it.value, it.reason, it.state], ensure_ascii=False, sort_keys=True, default=str))
+            return len(got)
+        for cond in (VALUE_CHOICE, "unknown", "refused", UNDECIDED):
+            for op in (None, "record_answer"):
+                self.assertEqual(outs(G._payday_ask_scene, cond, op), 1, (cond, op))
+        self.assertGreater(outs(G._until_ask_scene, "unknown", "record_answer"), 1)
+
+
+
+class AFPaydayNameTest(unittest.TestCase):
+    """分身 AF の (2)（分身 AB の書き置き rv186/AB/notes.md の (6-2)）：お給料日を伺う一言（Flow._ask_payday＝伺い99 ア）は、入口を言葉の形で分けない（判定の組がそろって月単位の理由を
+    読んだ答えで、日の言葉に読めない値）ので、お客様がほかの日の名前でおっしゃった頃（「締め日のあとでお願いします。」）にも伺う。その日の名前で伺う（9-3 お客様の言った言葉で伺う・
+    10-19「同じ理由が当たる場面すべてに当てる」）：名前は値の文字から、そのあとの頃を言う言葉（「の」「あと」「後」＝_LADDER_AFTER と同じ）を外した日の名前（flowctl.payday_name の1か所＝
+    伺い直しの値の文字の受け方 until_ask_line と同じ形）。録音の一言「恐れ入りますがお給料日は何日になりますでしょうか？」はお言葉の文のまま（名前が同じ＝頭の「お」を外して同じ・日の名前が
+    読めない）・名前が違うときだけ同じ形の文を会話AIの声で。⛔ a3b200cf まで「締め日のあとで」にも「お給料日は何日」と伺った"""
+
+    @staticmethod
+    def ask(words, value):
+        from flowctl import CYCLE_LABEL
+        t = PaydayAskTest()
+        d, f = t.at_days()
+        month = CYCLE_LABEL["month"]
+        return d, f, PaydayAskTest.said(f, words, value, (month, month))
+
+    def test_another_day_name_is_asked_by_that_name(self):
+        from flowctl import CALLBACK_IDS
+        d, f, r = self.ask("締め日のあとでお願いします。", "締め日のあと")
+        ask = "恐れ入りますが締め日は何日になりますでしょうか？"
+        self.assertEqual((r["result"], r.get("ack"), d.heard(r)), ("ask_back", "shouchi", "承知しました。" + ask))
+        self.assertEqual([p["kind"] for p in r["play"]], ["said"])   # 名前の入る文＝会話AIの声
+        q = f.questions[CALLBACK_IDS["time"]]
+        self.assertEqual((q.text, q.held_ask, q.recording, q.voiced), (ask, "payday", "", True))
+        r = d.answer(f, "20日です。", "20日")
+        # 20日のあとの頃の2択（伺い99 アと同じ1か所＝payday_after_words・ladder_span。11-19（木曜日）の電話＝21日からの電話をかけられる日の 24日・25日＝1〜6日先は曜日だけ）
+        self.assertEqual((r["result"], d.asked(r)), ("ask_back", d.pair("火曜日", "水曜日")))
+
+    def test_the_payday_name_is_the_recording(self):
+        from phrases import PAYDAY_ASK_ID
+        for words, value in (("給料日のあとでお願いします。", "給料日のあと"), ("お給料日のあとでお願いします。", "お給料日のあと"), ("給料日後でお願いします。", "給料日後")):
+            d, f, r = self.ask(words, value)
+            self.assertEqual([(p["kind"], p.get("id")) for p in r["play"]], [("recorded", PAYDAY_ASK_ID)], words)
+
+    def test_the_name_and_the_line_are_made_in_one_place(self):
+        from flowctl import held_ask_desc, payday_name
+        from phrases import PAYDAY_FORM, PAYDAY_NAME, TIME_LADDER
+        self.assertEqual(TIME_LADDER["payday"], PAYDAY_FORM.format(name=PAYDAY_NAME))
+        self.assertEqual([payday_name(v) for v in ("締め日のあと", "締め日の後", "支払日後", "給料日のあと", "お給料日のあと", "入金のあと", None, "")],
+                         ["締め日", "締め日", "支払日", None, None, None, None, None])
+        # 判定に見せる「答えた」の説明は、伺った日の名前によらない
+        self.assertNotIn(PAYDAY_NAME, held_ask_desc("payday"))
 
 class PaydayAskTest(unittest.TestCase):
     """伺い99 ア（✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」）：曜日の2択への「給料日のあとでお願いします。」には「承知しました。
@@ -45008,6 +45278,29 @@ class LadderRangeMendTest(unittest.TestCase):
         self.assertTrue(ladder_fill({"half": "午後"}, "clock", 16).get("picked"))
         self.assertFalse(ladder_fill({}, "half", "午後").get("picked"))
 
+
+
+class AFRangeMendAvoidTest(unittest.TestCase):
+    """分身 AF の (4)（分身 AB の書き置き rv186/AB/notes.md の (6-8)）：言い直しへの週の直し（「いえ、来週でお願いします。」）で、はじめに伺えた日がもうその週の中の日だったとき（11-19 の
+    電話の「火曜日」＝24日＝来週の火曜日）、並べ直す2択から、お客様が直した（避けた）その日を外す（伺い94「避けた日だけを外す」・伺い60「別の空スケジュールの2つ」と同じ理由。外す所は
+    伺い60・伺い94 と同じ1か所＝伺えた所の shown_day を候補の作り _ladder_day_cands が外す）。⛔ a3b200cf まで「来週の火曜日と来週の水曜日」＝直された火曜日がまた並んだ"""
+
+    def test_the_corrected_day_is_not_offered_again(self):
+        t = LadderRangeMendTest()
+        t.setUp()
+        d, f = t.at_clock(day="火曜日")
+        r = t.m.reply(f, "いえ、来週でお願いします。", "corrected", "来週")
+        self.assertEqual(d.heard(r), "失礼いたしました。来週の水曜日と来週の木曜日ではどちらがよろしいでしょうか？")
+        r = d.answer(f, "木曜日でお願いします。", "木曜日")
+        self.assertIn("木曜日の16時、午後4時", d.heard(r))
+
+    def test_a_day_outside_the_new_week_changes_nothing(self):
+        # はじめに伺えた日が直された週の外（金曜日＝20日）なら、今のまま（LadderRangeMendTest と同じ2択）
+        t = LadderRangeMendTest()
+        t.setUp()
+        d, f = t.at_clock(day="金曜日")
+        r = t.m.reply(f, "いえ、来週でお願いします。", "corrected", "来週")
+        self.assertEqual(d.heard(r), "失礼いたしました。来週の火曜日と来週の水曜日ではどちらがよろしいでしょうか？")
 
 class LadderNamedDayTest(unittest.TestCase):
     """言い直しに日だけ直された日（お客様の名指しの日）に空いている予定が1つも無いとき（依頼者の休みの日など）も、伺えた時刻のまま言い直す（分身 W の形のまま＝
@@ -49539,6 +49832,27 @@ class LadderSpanTest(unittest.TestCase):
                     self.assertTrue(theirs is None or theirs[1] < today or w in LADDER_PARTS_MONTHLESS, (today, w, theirs))
         self.assertGreater(seen, 100)
 
+    def test_z_far_days_are_named_once_and_match_cl2_spoken_time(self):
+        # 年の無い「〇月」を読むいちばん先（今日から半年）は、会話の側の名前のある1か所 flowctl.LADDER_FAR_DAYS（ladder_span が読む）で、CL-2 の時刻の読みの1か所
+        # spoken_time.FAR と同じ日数（CL-2 の第9便で、会話へ渡す電話をかけられる日時の空きの範囲も同じ1か所になった＝CL-2 の連絡帳 4-466・4-469 の (2)・
+        # CL-1.md 4-236 の (5)・4-244）。CL-2 の部品（app/）が無い所では、名前を読むことだけ確かめる。CL-2 の部品は読み込まない（ast で読む）。
+        # ⛔ 75a1ef48 まで、会話の側は ladder_span の中の数の写し（183）だった
+        import ast
+        import datetime as dt
+        import pathlib
+        from unittest import mock
+        import flowctl
+        today = dt.date(2026, 11, 19)
+        self.assertEqual(flowctl.ladder_span("12月の頭", today), (dt.date(2026, 12, 1), dt.date(2026, 12, 3)))
+        with mock.patch.object(flowctl, "LADDER_FAR_DAYS", 11):
+            self.assertIsNone(flowctl.ladder_span("12月の頭", today))   # 12月1日は今日から12日先＝名前の日数より先の月は決めない
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "spoken_time.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の時刻の読み（app/）がまだ無い")
+        node = next(n.value for n in ast.parse(src.read_text(encoding="utf-8")).body if isinstance(n, ast.Assign)
+                    and getattr(n.targets[0], "id", None) == "FAR")
+        self.assertEqual(ast.literal_eval(next(k.value for k in node.keywords if k.arg == "days")), flowctl.LADDER_FAR_DAYS)
+
 
 class UntilBackByTest(unittest.TestCase):
     """分身 R（CL-1 の頼み rv184/R の (3)）：時刻の2択への「3時までには戻ってます。」は、「〇時まで」の理由の説明の文で「それまでは出られない」とも「理由は言っていない」とも取れた（答えを伏せた
@@ -50280,6 +50594,59 @@ class TheirsDayMendTest(unittest.TestCase):
         self.assertTrue(heard_words(r).endswith("改めまして明後日の16時まで、午後4時までということで大丈夫でしょうか？"), heard_words(r))
         self.assertEqual(self.done(o, f), "明後日の午後4時まで")
 
+
+
+class AFTheirsRangeMendTest(unittest.TestCase):
+    """分身 AF の (3)（分身 AB の書き置き rv186/AB/notes.md の (6-5)）：お客様から折り返していただく日の2択（伺い67）で伺えた日の言い直しに、日が1つに決まらない直し（「いえ、来週に
+    なります。」＝週だけ・「いえ、来月の頭になります。」＝頃だけ・「いえ、土日になります。」＝平日と土日だけ）をされたら、日時の2択と同じ1か所（ladder_mend の _ladder_range_mend）で、
+    伺えた時刻を残し、直された所から先の2択を伺う（11-20 日本時間0時09分49秒「もう最後の日時が決まるまで必ず二者択一」・10-19「同じ理由が当たる場面すべてに当てる」）。2択は同じ
+    お客様から折り返していただく日の2択（「それでは（a）と（b）ではどちらになりますでしょうか？」・入り方は _theirs_begin と同じ1か所 _theirs_hold）。⛔ a3b200cf まで「改めまして来週で
+    大丈夫でしょうか？」と言い直し、記録「来週」＝伺えた時刻が抜けた"""
+    m = TheirsDayMendTest()
+
+    def redo(self, words, value):
+        o, f, _ = self.m.at()
+        return o, f, self.m.fix(o, f, words, value)
+
+    @staticmethod
+    def pick(o, f, words, value):
+        o.heard(f, words)
+        return f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": value})
+
+    def test_a_week_keeps_the_time_and_asks_the_days(self):
+        o, f, r = self.redo("いえ、来週になります。", "来週")
+        # 頭はこちらの聞き違いのお詫び＋もう伺った質問へ戻る今の形（日時の2択の _ladder_redo と同じ＝LadderRangeMendTest）
+        self.assertEqual((r["result"], heard_words(r)), ("replayed", "失礼いたしました。それでは来週の火曜日と来週の水曜日ではどちらになりますでしょうか？"))
+        r = self.pick(o, f, "水曜日になります。", "水曜日")
+        self.assertEqual(r["result"], "confirm_required", heard_words(r))
+        # 言い直しは2択で伺い直したあとの今の形（本書 9-4 の分身 W の段の (d)）。値は伺えた日と残した時刻
+        self.assertIn("水曜日の16時まで、午後4時まで", heard_words(r))
+        self.assertEqual(self.m.done(o, f), "水曜日の午後4時まで")
+
+    def test_a_span_and_the_kind_of_day(self):
+        o, f, r = self.redo("いえ、土日になります。", "土日")
+        self.assertEqual(r["result"], "replayed", heard_words(r))
+        self.assertTrue(heard_words(r).startswith("失礼いたしました。それでは") and heard_words(r).endswith("ではどちらになりますでしょうか？"), heard_words(r))
+        # 頃（来月の頭）：その中の日から（今日は足さない）。電話の日 11-19 から 16日先までをお客様からお電話いただける日に
+        import datetime as dt
+        o, f, _ = self.m.at()
+        f.call_days = tuple(f.today + dt.timedelta(days=i) for i in range(1, 17) if f.today + dt.timedelta(days=i) != dt.date(2026, 11, 23))
+        r = self.m.fix(o, f, "いえ、来月の頭になります。", "来月の頭")
+        self.assertEqual((r["result"], heard_words(r)), ("replayed", "失礼いたしました。それでは12月1日の火曜日と12月2日の水曜日ではどちらになりますでしょうか？"))
+        r = self.pick(o, f, "1日になります。", "1日")
+        self.assertIn("12月1日の火曜日の16時まで、午後4時まで", heard_words(r))
+        # 頃の中に並べる日が無い：今のまま（こちらの空きのお詫び＝伺い100 アは、お客様からお電話いただく日には当たらない）
+        o, f, r = self.redo("いえ、来月の頭になります。", "来月の頭")
+        self.assertEqual(r["result"], "confirm_required", heard_words(r))
+        self.assertNotIn("空きがございません", heard_words(r))
+
+    def test_unknown_keeps_the_corrected_week(self):
+        # 並べ直した2択に「分からない」：伺えた所（直された週）のまま
+        o, f, r = self.redo("いえ、来週になります。", "来週")
+        o.heard(f, "ちょっと分からないですね。")
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "unknown"})
+        self.assertIn("来週の平日の16時まで、午後4時まで", heard_words(r))
+        self.assertEqual(self.m.done(o, f), "来週の平日の午後4時まで")
 
 class LadderNeitherOnePlaceTest(unittest.TestCase):
     """分身 W（CL-1 の頼み rv184/W の (3)＝分身 V の書き置き rv184/V/notes.md の (6-3)）：日時の2択の判定の選べるものに「どちらも合わない」（LADDER_NEITHER＝伺い60）を足すのは、段を始める

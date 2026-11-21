@@ -606,13 +606,22 @@ class AgentDriver:
             raise kind(why)
         raise RuntimeError("電話の部品が、ショートメールを送れたか分からない誤りを返しました")
 
-    def send_audio(self, audio: bytes) -> None:
-        """AI の声・録音を、通話へ流す（PC の部品が電話の部品の play へ渡す。待たずに返す）。"""
+    def send_audio(self, audio: bytes, *, ref: str) -> None:
+        """AI の声・録音を、通話へ流す（PC の部品が電話の部品の play へ渡す。待たずに返す）。ref＝声のひと続きの印（通話を進める部品＝CL-1 が決める。
+        流し終えた・止めたの出来事に、この印が返る＝`protocol.PLAYED`・`STOPPED`。形は `protocol.voice_frame` の1か所）。"""
+        self._push(p.voice_frame(self.line_id, ref, audio))
+
+    def stop_playing(self) -> None:
+        """その回線で流している声と、まだ流していない声を止める（答えを待たない。止めたひと続きごとに出来事 stopped が返る。CL-3 の連絡帳 69）。"""
+        self._push(p.dumps("stop_playing", line=self.line_id))
+
+    def _push(self, message: str | bytes) -> None:
+        """通話の声・声の頼みを、待たずに送る（1か所。通話の声・頼みのあった時刻を覚える＝控えの送る速さ）。"""
         session, loop = self._session(), self.hub.loop
         if loop is None or not loop.is_running():
             raise ConnectionError("つなぎ口が動いていません")
         session.voice()
-        asyncio.run_coroutine_threadsafe(session.ws.send(p.frame(p.AUDIO, self.line_id, audio)), loop)
+        asyncio.run_coroutine_threadsafe(session.ws.send(message), loop)
 
     def on_audio(self, sink: Callable[[bytes], None]) -> None:
         """お客様の声の受け口を決める（通話を進める部品＝CL-1）。つなぎ口の流れから呼ばれるので、待たずに返すこと（中から PC への

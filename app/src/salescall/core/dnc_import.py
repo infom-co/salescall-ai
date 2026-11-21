@@ -85,7 +85,7 @@ def register(tx: Tx, sheet: Sheet, mapping: dict[str, str], *, expected_digest: 
     """確かめたプレビューと同じなら、台帳に登録し、取込と行ごとの結果を記録する（1つの取引）。"""
     plan = _plan(tx, sheet, mapping)
     if plan.digest != expected_digest:
-        raise PlanChanged("プレビューのあとで結果が変わりました（発信禁止の台帳・一覧の行）。もう一度プレビューを確かめてください")
+        raise PlanChanged("プレビューのあとで結果が変わりました（発信禁止の台帳・お客様リストのお客様）。もう一度プレビューを確かめてください")
     import_id = tx.one(
         "INSERT INTO salescall.dnc_imports (tenant_id, client_id, ledger, file_name, file_sha256, file_kind, encoding,"
         "                                   sheet_name, mapping, plan_digest, created_by)"
@@ -166,7 +166,7 @@ def _plan(tx: Tx, sheet: Sheet, mapping: dict[str, str]) -> Plan:
                 "SELECT 1 FROM salescall.tasks WHERE client_ref = %s LIMIT 1", (ref,)) is None:
             # 管理番号に当たる行がまだ無い（あとで取り込む行は取込が止める）。表計算ソフトで先頭の 0 が消えた管理番号は、別の
             # 管理番号に見えるので、確かめてもらう（どちらの番号が正しいかは決めつけない）
-            note = ("ref_matches_no_row", "この管理番号の行は、まだありません（あとで取り込む行は止めます）。"
+            note = ("ref_matches_no_row", "この管理番号のお客様は、まだ取り込まれていません（あとで取り込むお客様は止めます）。"
                     + ("管理番号の欄が数の型なので、先頭の 0 が消えていないか確かめてください" if row.cell(cols["client_ref"]).numeric
                        else "管理番号が依頼者の一覧と同じ書き方か確かめてください"))
         if ledger == "client":

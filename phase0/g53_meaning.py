@@ -1063,6 +1063,86 @@ def _payday_ask_scene(q: Question) -> Flow:
     return f
 
 
+SCENE_SPAN = "来月の頭でお願いします。"
+
+
+def _no_room_scene(q: Question) -> Flow:
+    """頃の中に空いている予定が無いことをお詫びしてお伝えする2択（review_words.NO_ROOM_SCENE）：曜日の2択（_ladder_scene）に「来月の頭でお願いします。」と答えていただき、来月の頭は電話を
+    かけられる日（_ladder_day＝電話の日から11日先まで）に無いので、そのすぐ前の空いている予定から「申し訳ございません、あいにく来月の頭は空きがございませんので…ではどちらがよろしい
+    でしょうか？」（伺い100 ア＝Flow._ladder_set の no_room）を伺った所まで（試験 LadderNoRoomTest と同じ種類）。分身 AF の (5)"""
+    from flowctl import VALUE_CHOICE
+    f = _ladder_scene(q)
+    r = _scene_say(f, SCENE_SPAN, _scene_read(VALUE_CHOICE), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value="来月の頭")
+    if not (r or {}).get("no_room"):
+        raise NoScene("頃の中に空きが無いことをお伝えする2択を伺わない")
+    return f
+
+
+SCENE_WEEK_FIX = "いえ、来週でお願いします。"
+
+
+def _range_redo_scene(q: Question) -> Flow:
+    """日時の2択の段の言い直しに週だけ直されたあとの曜日の2択（review_words.RANGE_REDO_SCENE）：時刻の2択（_ladder_clock_scene「火曜日」「午後」→「2時と4時」）に「4時でお願いします。」と
+    答えていただき、言い直しに「いえ、来週でお願いします。」（判定の読みは違う値を言われた・会話AIの報告は「来週」）と直され、伺えた時刻を残して直された所から先の2択（分身 AB の (5)＝
+    ladder_mend の _ladder_range_mend）を、はじめに伺えた火曜日（24日＝来週の火曜日）を外して（分身 AF の (4)）「失礼いたしました。来週の水曜日と来週の木曜日ではどちらがよろしいでしょうか？」と
+    伺った所まで（試験 AFRangeMendAvoidTest と同じ手順）。分身 AF の (5)"""
+    from flowctl import VALUE_CHOICE
+    f = _ladder_clock_scene(q)
+    r = _scene_say(f, SCENE_FOUR, _scene_read(VALUE_CHOICE), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value="4時")
+    if (r or {}).get("result") != "confirm_required":
+        raise NoScene("時刻の2択のお答えを言い直して確かめない")
+    r = _scene_say(f, SCENE_WEEK_FIX, _scene_read("corrected"), "confirm_field", question_id=q.id, result="corrected", correction="来週")
+    if (r or {}).get("result") != "replayed" or f.current != q.id or "来週の水曜日" not in f.questions[q.id].text:
+        raise NoScene("週だけ直された所から先の2択を伺わない")
+    return f
+
+
+def _payday_span_scene(q: Question) -> Flow:
+    """お給料日のあとの頃の2択（review_words.PAYDAY_SPAN_SCENE）：お給料日を伺った一言（_payday_ask_scene）に「25日です。」と答えていただき、25日のあとの頃の中の空いている予定から
+    「来週の木曜日と来週の金曜日ではどちらがよろしいでしょうか？」（伺い99 ア＝Flow._payday_take）を伺った所まで（試験 PaydayAskTest と同じ手順）。分身 AF の (5)"""
+    from flowctl import VALUE_CHOICE
+    f = _payday_ask_scene(q)
+    r = _scene_say(f, "25日です。", _scene_read(VALUE_CHOICE), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value="25日")
+    if not (r or {}).get("payday_took") or (r or {}).get("payday_back") or f.items[q.id].ladder.get("span") != "25日のあと":
+        raise NoScene("お給料日のあとの頃の2択を伺わない")
+    return f
+
+
+SCENE_CLOSING_DAY = "締め日のあとでお願いします。"
+
+
+def _payday_named_scene(q: Question) -> Flow:
+    """締め日を伺った一言のあと（review_words.PAYDAY_NAMED_SCENE）：曜日の2択（_ladder_scene）に「締め日のあとでお願いします。」（判定の読みは答えた・月単位の理由）と答えていただき、
+    「恐れ入りますが締め日は何日になりますでしょうか？」（Flow._ask_payday の、お客様の言った日の名前で伺う形＝分身 AF の (2)）を伺った所まで（試験 AFPaydayNameTest と同じ手順）。
+    判定に見せる質問は、この一言。分身 AF の (5)"""
+    from flowctl import CYCLE, CYCLE_LABEL, VALUE_CHOICE
+    f = _ladder_scene(q)
+    _scene_say(f, SCENE_CLOSING_DAY, _scene_read(VALUE_CHOICE, **{CYCLE: CYCLE_LABEL["month"]}), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value="締め日のあと")
+    if f.items[q.id].payday_held is None or "締め日" not in f.questions[q.id].text:
+        raise NoScene("締め日を伺わない")
+    return f
+
+
+SCENE_THEIRS_PICK = "明日になります。"
+SCENE_THEIRS_WEEK_FIX = "いえ、来週になります。"
+
+
+def _theirs_redo_scene(q: Question) -> Flow:
+    """お客様から折り返していただく日の言い直しに週だけ直されたあとの2択（review_words.THEIRS_REDO_SCENE）：お客様から折り返していただく日の2択（_theirs_pair_scene「本日と明日」）に
+    「明日になります。」と答えていただき、言い直しに「いえ、来週になります。」（判定の読みは違う値を言われた・会話AIの報告は「来週」）と直され、伺えた時刻を残して直された所から先の2択
+    「失礼いたしました。それでは来週の火曜日と来週の水曜日ではどちらになりますでしょうか？」（分身 AF の (3)＝_ladder_range_mend・Flow._ladder_redo の _theirs_hold）を伺った所まで
+    （試験 AFTheirsRangeMendTest と同じ手順）。分身 AF の (5)"""
+    from flowctl import VALUE_CHOICE
+    f = _theirs_pair_scene(q)
+    r = _scene_say(f, SCENE_THEIRS_PICK, _scene_read(VALUE_CHOICE), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value="明日")
+    if (r or {}).get("result") != "confirm_required":
+        raise NoScene("お客様から折り返していただく日のお答えを言い直して確かめない")
+    r = _scene_say(f, SCENE_THEIRS_WEEK_FIX, _scene_read("corrected"), "confirm_field", question_id=q.id, result="corrected", correction="来週")
+    if (r or {}).get("result") != "replayed" or not (f.items[q.id].ladder or {}).get("theirs") or "来週の火曜日" not in f.questions[q.id].text:
+        raise NoScene("週だけ直された所から先の、お客様から折り返していただく日の2択を伺わない")
+    return f
+
+
 def _ladder_day(f: Flow) -> None:
     """日時の2択の段の場面の電話の日と時刻・電話をかけられる日（唯一の場所＝LADDER_TODAY・LADDER_HOLIDAY。曜日の2択は「金曜日と火曜日」）。"""
     import datetime as dt
@@ -1457,7 +1537,8 @@ def _new_scene(it: dict, q: Question) -> Flow:
     """試しの言葉の表の場面の印（review_words.NEW_SCENES）の場面を組む唯一の入口（_flow_scene）。"""
     from review_words import (ACCEPT_PAIR_SCENE, ANSWERED_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, LADDER_SCENE, MEETING_PAIR_SCENE, OFFER_FINAL_SCENE,
                               PAIN_SCENE, THEIRS_PAIR_SCENE, WAIT_SCENE, WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, WRONG_ASK_SCENE,
-                              UNTIL_ASK_SCENE, THEIRS_SIDE_AGAIN_SCENE, THEIRS_NEITHER_AGAIN_SCENE, LADDER_REDO_SCENE, UNTIL_LEAN_SCENE, PAYDAY_ASK_SCENE)
+                              UNTIL_ASK_SCENE, THEIRS_SIDE_AGAIN_SCENE, THEIRS_NEITHER_AGAIN_SCENE, LADDER_REDO_SCENE, UNTIL_LEAN_SCENE, PAYDAY_ASK_SCENE,
+                              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE)
     build = {LADDER_SCENE: _ladder_scene, LADDER_CLOCK_SCENE: _ladder_clock_scene, WRONG_ASK_SCENE: _wrong_ask_scene, WAIT_SCENE: _wait_scene,
              PAIN_SCENE: _pain_scene, CONCERN_SCENE: _concern_scene, CONFIRM_CONCERN_SCENE: _confirm_concern_scene, ANSWERED_SCENE: _answered_scene,
              OFFER_FINAL_SCENE: _offer_final_scene, WITHDRAW_TIME_SCENE: _withdraw_time_scene, WITHDRAW_SEND_SCENE: _withdraw_send_scene,
@@ -1465,7 +1546,8 @@ def _new_scene(it: dict, q: Question) -> Flow:
              THEIRS_PAIR_SCENE: _theirs_pair_scene, ACCEPT_PAIR_SCENE: _accept_pair_scene, MEETING_PAIR_SCENE: _meeting_pair_scene,
              THEIRS_SIDE_AGAIN_SCENE: lambda q: _theirs_again_scene(q, "本日"), THEIRS_NEITHER_AGAIN_SCENE: lambda q: _theirs_again_scene(q, None),
              LADDER_REDO_SCENE: _ladder_redo_scene, UNTIL_LEAN_SCENE: _until_lean_scene,
-             PAYDAY_ASK_SCENE: _payday_ask_scene}.get(it["scene"])
+             PAYDAY_ASK_SCENE: _payday_ask_scene, NO_ROOM_SCENE: _no_room_scene, RANGE_REDO_SCENE: _range_redo_scene, PAYDAY_SPAN_SCENE: _payday_span_scene,
+             PAYDAY_NAMED_SCENE: _payday_named_scene, THEIRS_REDO_SCENE: _theirs_redo_scene}.get(it["scene"])
     if build is None:
         raise NoScene(f"場面の印の場面を組む作りが無い（{it['scene']}）")
     return build(q)
@@ -1554,7 +1636,7 @@ def flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
 
 
 def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
-    from flowctl import CALLBACK_IDS, in_aside_form, in_alternatives_form
+    from flowctl import CALLBACK_IDS, accepted_unheard, in_aside_form, in_alternatives_form
     from g73_system_words import wish_scenes
     if it.get("scene") and it["scene"] not in CONNECTED_SCENES:
         # 試しの言葉の表の場面の印（review_words.NEW_SCENES＝日時の2択の段・番号違いを伺う一言のあと・待っていただく一言のあと・顧客獲得型の悩みの伺いと本心を伺う一言）：
@@ -1584,7 +1666,8 @@ def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
         f = _form_scene(q)
     elif q.id == CALLBACK_IDS["wait_or_later"]:
         f = _wait_ask_scene()
-    elif q.approval and q.announce and (s == "D" or it.get("asked")):
+    elif q.approval and (q.announce or accepted_unheard(q)) and (s == "D" or it.get("asked")):
+        # お知らせの文が無いご承認の質問（accepted_unheard＝流れの制御と同じ1か所の見分け）も、聞き取れなかったときの最終の確かめの場面（L19 の (b)）
         f = _final_scene(q, it.get("asked"))
         return f, q.id
     elif prompted_row(it):

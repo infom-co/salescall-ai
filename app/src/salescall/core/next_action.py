@@ -372,11 +372,11 @@ def after_more_calls(tx: Tx, task_id: UUID, *, cause: str) -> int:
     相手が違えば `_onto_dial` が新しい担当の方への形にする。戻せない（承認したお詫びの案が無い・営業を続けない）なら LookupError（承認も書かない）。"""
     cur, now = _fix_start(tx, task_id)
     if cur is None or cur["kind"] != "end":
-        raise LookupError("その行は、終えていません（さらにかける承認はできません）")
+        raise LookupError("そのお客様は、終えていません（さらにかける承認はできません）")
     again = _restart(tx, task_id, _last_call_plan(tx, task_id, cur["seq"]), now=now,
                      rule=f"{cause}（{cur['end_reason']} で終えた行を、契約者の承認で、さらにかける）")
     if again is None:
-        raise LookupError("その行は、もうかけられません（お詫びの案が無い・業務を終えた）")
+        raise LookupError("そのお客様には、もうかけられません（お詫びの案が無い・業務を終えた）")
     return _write(tx, task_id, again)
 
 
@@ -1200,7 +1200,7 @@ def end(tx: Tx, task_id: UUID, reason: str, *, cause: str, apology: Apology = No
         # 押されなければ、かけない。終えた予定ごとに1回＝知らせの鍵）
         notify.emit(tx, "more_calls", key=f"more_calls:{task_id}:{seq}", refs={"task_id": task_id, "end_seq": seq, "end_reason": reason},
                     summary=MORE_CALLS_SUMMARY.get(reason, "お客様と約束した電話・お詫びの電話が、決めた回数かけてもお客様に届きませんでした。")
-                    + "ダッシュボードの行の「さらにかける」を押すと、その行だけ、もう一度かけ始めます（押されなければ、かけません）。")
+                    + "ダッシュボードのお客様リストで、そのお客様の「さらにかける」を押すと、そのお客様だけ、もう一度かけ始めます（押されなければ、かけません）。")
     return seq
 
 
@@ -2112,7 +2112,7 @@ def _notice_old_promise(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:
     1回。✅ 2026-11-07 ユーザー＝計画書 7-1 (23)「契約者に知らせて選んでもらう」）。"""
     notify.emit(tx, "old_promise_choice", key=f"old_promise_choice:{attempt_id}", refs={"attempt_id": attempt_id, "task_id": task_id},
                 summary="番号を直す前の担当の方が、新しいかけ直しの約束をしました。ダッシュボードで、前の担当の方との約束を守るか、新しい担当の方へ"
-                        "かけるかを選んでください（選ぶまで、この行にはかけません）。")
+                        "かけるかを選んでください（選ぶまで、このお客様にはかけません）。")
 
 
 def after_old_promise_choice(tx: Tx, task_id: UUID, *, keep_old_promise: bool, cause: str) -> int | None:

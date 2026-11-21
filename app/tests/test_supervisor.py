@@ -131,8 +131,8 @@ SENT_TO: list = []   # 知らせを送る部品の代わりが呼ばれた先（
 class NoticeSender:
     """知らせを送る部品の代わり（CL-3 の output/notices。呼ばれた先を残すだけ）。"""
 
-    def deliver(self, access, actor, tenant_id):
-        SENT_TO.append((actor.name, actor.kind, tenant_id))
+    def deliver(self, access, actor, tenant_id, *, links=None, sms_owner=None):
+        SENT_TO.append((actor.name, actor.kind, tenant_id, links, sms_owner))
 
 
 def make_notice_sender():
@@ -598,6 +598,7 @@ class Rounds(SupervisorBase):
         class Finishing(support.OpensConvo):
             def __init__(self, slow, finish=True, freeze=1.6, beating=False, flush=False):
                 self.slow, self.finish, self.freeze, self.release = slow, finish, freeze, threading.Event()
+                self.written = []        # 遅い書き込みが書き終わった時刻（おわびが、書き込みを待たずに先かを、同じ1回の中で比べる）
                 self.beating = beating   # 知らせを続ける（元気な通話。終えられたら戻る）
                 self.flush = flush       # 書いた結果を続けて読む（書き手を待つ）
 
@@ -606,7 +607,8 @@ class Rounds(SupervisorBase):
                 access.in_client(actor, tenant_id, client_id, lambda tx: [
                     attempts.move(tx, claim.attempt_id, st) for st in ("ringing", "answered", "in_conversation")])
                 for s in self.slow:
-                    call.write(lambda tx, s=s: tx.execute("SELECT pg_sleep(%s)", (s,)))   # データベースが遅い
+                    call.write(lambda tx, s=s: (tx.execute("SELECT pg_sleep(%s)", (s,)),   # データベースが遅い
+                                                self.written.append(time.monotonic())))
                 if self.finish:
                     call.write(conversation_io.move_work(claim.attempt_id, "ending"))    # 話し終えた（頼んだだけ）
                     call.write(conversation_io.move_work(claim.attempt_id, "ended"))
@@ -636,24 +638,25 @@ class Rounds(SupervisorBase):
                     apologized.append(time.monotonic())
                     super().apologize_and_hang_up()
             d, runner = Timed(), Finishing([0.7, 0.7, 0.7, 0.7], finish=False, freeze=10)
-            began = time.monotonic()
             timer = threading.Timer(6.0, runner.release.set)
             timer.start()
             with mock.patch.object(line, "report"):
                 got = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, d, runner)
             timer.cancel()
             self.assertEqual((row(got, t)["st"], row(got, t)["trouble"], d.apologized), ("technical_error", "frozen", 1))
-            self.assertLess(apologized[0] - began, 1.8)                       # 書き込み（合わせて2.8秒）を待たずに、すぐ
+            # 書き込み（合わせて2.8秒）を待たずに、すぐ：最後の書き込みが書き終わるより前におわびした（⛔ 2026-11-21 まで：通話を始める前からの
+            # 秒を 1.8 秒と比べたので、ほかの試験と並べて重いときに、通話の支度の遅れだけで落ちた。比べるのは、同じ1回の書き込みの終わり）
+            self.assertEqual(len(runner.written), 4)
+            self.assertLess(apologized[0], runner.written[-1])
             u = self.ready()                                                   # (3)
             d, runner = Timed(), Finishing([2.5], finish=False, freeze=10, beating=True, flush=True)
             apologized.clear()
-            began = time.monotonic()
             timer = threading.Timer(6.0, runner.release.set)
             timer.start()
             end_for_trouble = attempts.end_for_trouble
 
-            def slow_record(*args, **kw):   # データベースが止まっている：記録が遅い（おわびは、記録を待たずに先）
-                time.sleep(2.0)
+            def slow_record(*args, **kw):   # データベースが止まっている：記録が遅い（おわびは、記録を待たずに先。記録を待つと、おわびは
+                time.sleep(3.0)             # 固まったと見る1秒＋記録の3秒のあと＝書き込み2.5秒の終わりより必ず後）
                 return end_for_trouble(*args, **kw)
             with mock.patch.object(line, "report"), mock.patch.object(line.attempts, "end_for_trouble", slow_record):
                 got = line.one_round(self.w.a, SYSTEM, u["tenant"], u["line"], HOLDER, d, runner)
@@ -665,7 +668,8 @@ class Rounds(SupervisorBase):
                     time.sleep(0.1)
             timer.cancel()
             self.assertEqual((row(got, u)["st"], row(got, u)["trouble"], d.apologized), ("technical_error", "storage_stuck", 1))
-            self.assertLess(apologized[0] - began, 1.8)                       # 書き込みが終わるのを待たずに、すぐ
+            self.assertEqual(len(runner.written), 1)
+            self.assertLess(apologized[0], runner.written[0])                 # 書き込みが終わるのを待たずに、すぐ（同じ1回の書き込みの終わりと比べる）
             told = self.tx(u, lambda tx: [(r["source"], r["kind"]) for r in tx.all(
                 "SELECT source, kind FROM salescall.error_events WHERE attempt_id = %s", (got.called,))])
             self.assertEqual(told, [("storage", "call_storage_stuck")])       # 出どころ「保存」
@@ -2799,11 +2803,14 @@ class AIVersions(SupervisorBase):
         """知らせを送る仕事（CL-3 の 4）：部品があれば、契約者ごとに1回（その契約者）と、管理者あてに1回（None）、部品を呼ぶだけ。部品が無ければ
         仕事にしない（送る順・文・送り直し・記録は部品の中の1か所）。"""
         s = self.ready()
-        cfg = self.cfg(s, SALESCALL_NOTICE_SENDER="tests.test_supervisor:make_notice_sender")
+        admin = uuid.uuid4()
+        cfg = self.cfg(s, SALESCALL_NOTICE_SENDER="tests.test_supervisor:make_notice_sender", SALESCALL_ADMIN_TENANT=str(admin))
         SENT_TO.clear()
-        jobs.notices(jobs.Context(self.w.a, cfg, HOLDER, NoLinks(), tenant_id=s["tenant"]))
-        jobs.admin_notices(jobs.Context(self.w.a, cfg, HOLDER, NoLinks()))
-        self.assertEqual(SENT_TO, [(jobs.ACTOR.name, "system", s["tenant"]), (jobs.ACTOR.name, "system", None)])
+        links = NoLinks()
+        jobs.notices(jobs.Context(self.w.a, cfg, HOLDER, links, tenant_id=s["tenant"]))
+        jobs.admin_notices(jobs.Context(self.w.a, cfg, HOLDER, links))
+        # ショートメールを送る回線の持ち主（CL-3 の 67）：契約者あては、その契約者・管理者あては設定の管理者自身の契約者（決めるのは見守り役の1か所）
+        self.assertEqual(SENT_TO, [(jobs.ACTOR.name, "system", s["tenant"], links, s["tenant"]), (jobs.ACTOR.name, "system", None, links, admin)])
         wanted = {j.name: j.wanted for j in jobs.JOBS if j.name in ("notices", "admin_notices")}
         self.assertEqual({n: (w(cfg), w(self.cfg(s))) for n, w in wanted.items()},
                          {"notices": (True, False), "admin_notices": (True, False)})

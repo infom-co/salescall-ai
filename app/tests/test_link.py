@@ -63,6 +63,7 @@ class FakePhone:
         self.ring, self.rings = None, []   # テスト番号の答え（True・False・None）と、試した番号
         self.nationals = []                # 届いた番号の国内の形（かけた番号・試した番号の順）
         self.ok, self.texts = True, []     # 使えるか（スマホと連携している）・送ったショートメール（国内の形・文）
+        self.refs, self.stops = [], 0      # 届いた声のひと続きの印（played と同じ順）・流すのをやめた回数
 
     def usable(self):
         return self.ok
@@ -100,8 +101,12 @@ class FakePhone:
     def on_event(self, send):
         self.send_event = send
 
-    def play(self, audio):
+    def play(self, audio, *, ref):
         self.played.append(audio)
+        self.refs.append(ref)
+
+    def stop_playing(self):
+        self.stops += 1
 
 
 class Running:
@@ -253,8 +258,36 @@ class Connect(LinkBase):
         sender.start()
         sender.join()
         until(lambda: heard == [b"\x01\x02"] and events == [{"kind": "answered"}], "お客様の声と出来事がサーバーへ届く")
-        driver.send_audio(b"\x03")
-        until(lambda: phone.played == [b"\x03"], "サーバーの声が電話の部品へ届く")
+        driver.send_audio(b"\x03", ref="v1")
+        until(lambda: (phone.played, phone.refs) == ([b"\x03"], ["v1"]), "サーバーの声が、ひと続きの印つきで電話の部品へ届く")
+
+    def test_the_voice_is_marked_stopped_and_its_end_comes_back(self):
+        """声のひと続きの印・流すのをやめる頼み・声の出来事（やり取りの形の版 9。CL-3 の連絡帳 69・CL-1 の連絡帳 4-226 の (2)・4-227 の (1)）：
+        サーバーの声は印つきで届き（何回かに分けても同じ印）、stop_playing は答えを待たずに電話の部品へ届く。流し終えた・止めたの出来事は、
+        電話の出来事の道のまま、中身を変えずにサーバーへ届く（名前は protocol.PLAYED・STOPPED の1か所）。印の形が違う声は送らない。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        events = []
+        driver.on_event(events.append)
+        driver.send_audio(b"\x01", ref="turn-7")
+        driver.send_audio(b"\x02", ref="turn-7")
+        until(lambda: (phone.played, phone.refs) == ([b"\x01", b"\x02"], ["turn-7", "turn-7"]), "同じひと続きは同じ印")
+        driver.stop_playing()
+        until(lambda: phone.stops == 1, "流すのをやめる頼みが電話の部品へ届く")
+        phone.send_event({"kind": protocol.STOPPED, "ref": "turn-7", "played_s": 1.25})
+        phone.send_event({"kind": protocol.PLAYED, "ref": "turn-8"})
+        until(lambda: events == [{"kind": "stopped", "ref": "turn-7", "played_s": 1.25}, {"kind": "played", "ref": "turn-8"}],
+              "声の出来事がサーバーへ届く")
+        for bad in ("", "あ", "a" * 65, "a b"):
+            with self.subTest(ref=bad), self.assertRaises(protocol.BadMessage):
+                driver.send_audio(b"\x03", ref=bad)
+        self.assertEqual(protocol.voice_of(protocol.voice_frame(s["line"], "x_1", b"\x05")[17:]), ("x_1", b"\x05"))
+        with self.assertRaises(protocol.BadMessage):                       # 印の長さと中身が合わない枠は読まない
+            protocol.voice_of(bytes([9]) + b"ab")
+        self.assertEqual(protocol.VERSION, 9)
 
     def test_the_phone_answers_and_failures_map_to_the_dial_exit(self):
         """通話中か・かける・切るは、PC の部品を通して電話の部品へ。かけようとして、かけられなかった＝CallNotPlaced（だれのせいかは
@@ -311,7 +344,7 @@ class Connect(LinkBase):
             "SELECT 1 FROM salescall.notification_events WHERE kind = 'pc_line_conflict'"))
         until(notes, "同じ回線を2台の PC がつないでいると知らせる")
         driver.start_call("+81300000000")                                   # 通話の途中の頼み・声は、前の PC のまま
-        driver.send_audio(b"\x09")
+        driver.send_audio(b"\x09", ref="r1")
         until(lambda: first.agent.phones[s["line"]].played == [b"\x09"], "前の PC へ届く")
         until(lambda: phone2.send_audio is not None, "新しい PC の電話の部品の送る口")
         phone2.send_audio(b"\x07")                                           # 新しい PC の声は、前の PC の通話へ混ぜない
@@ -457,7 +490,7 @@ class CallingState(LinkBase):
         with self.assertRaises(RuntimeError):
             driver.send_sms("+819000000001", "架空の知らせ")
         self.assertEqual(len(phone.texts), 1)
-        self.assertEqual(protocol.VERSION, 8)
+        self.assertGreaterEqual(protocol.VERSION, 8)
 
     def test_a_line_the_phone_cannot_use_is_left_out_of_the_beat_and_comes_back(self):
         """電話の部品が「使えない」と答えた回線は、合図の lines から外れ、サーバーはその回線を見せない（かけない）。使えるに戻れば、すぐ戻る

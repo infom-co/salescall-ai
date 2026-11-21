@@ -93,7 +93,7 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
         # こちらの不具合で終えた電話（per_call）は、その行が復旧を待っていること（何が直れば動くか）も文に入れる（0143。⛔ 見直し21a の 4：
         # 最後に残った行が復旧待ちで動かないとき、だれも知らなかった。新しい知らせは増やさない）
         summary = ((f"{fixer} に修正依頼：" if fixer else "エラー：") + errors.LABELS[kind]
-                   + (f"。この行は復旧を待っています（{errors.RECOVERY_WAIT}）" if action.per_call else ""))
+                   + (f"。このお客様は復旧を待っています（{errors.RECOVERY_WAIT}）" if action.per_call else ""))
         notify.emit(tx, "error_notice", key=f"error:{key}", summary=summary,
                     refs={**refs, "fixer": fixer}, admin=admin, contractor=action.notify)
     return kind
@@ -209,9 +209,9 @@ def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str, begun_a
         "SELECT event_id, scope, cause::text AS cause, tenant_id, line_id, actor_kind::text AS actor_kind, at"
         " FROM salescall.open_stop_events s WHERE s.event_id = %s", (stop_event_id,))
     if s is None:
-        raise LookupError(f"まだ解かれていない停止ではありません（または、取引の範囲の外）：{stop_event_id}")
+        raise LookupError(f"まだ再開していない停止ではありません（または、取引の範囲の外）：{stop_event_id}")
     if s["actor_kind"] != "system" or s["cause"] not in PROBE_SETTINGS:
-        raise NotProbeable(f"確かめで解ける停止ではありません（原因 {s['cause']}・止めたのは {s['actor_kind']}）")
+        raise NotProbeable(f"確かめで再開できる停止ではありません（原因 {s['cause']}・止めたのは {s['actor_kind']}）")
     if begun_at is None:
         raise ValueError("確かめを始めた時刻（check_begins）が要ります")
     now = tx.one("SELECT now() AS t")["t"]

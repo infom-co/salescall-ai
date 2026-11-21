@@ -137,7 +137,9 @@ _YEAR_OF = re.compile(r"(?:(?P<y>\d{4})年|(?P<rel>今年|来年|再来年))の?
 _YEAR_OFFSET = {"今年": 0, "来年": 1, "再来年": 2}
 # 年の無い「○月」「○月○日」を来年と読むのは、今日から半年の内だけ。それより先は、過ぎた日の言い違いか来年のことかが決まらない
 # ⇒ 確かめる（⚠️ 前は昨日の日付を、1年後の同じ日と読んだ＝2026-10-19 の見直し）。日だけ（「13日」）は、今月か来月だけ
-_FAR = timedelta(days=183)
+# 同じ半年は、会話へ渡す「電話をかけられる日時の空き」の範囲でもある（`gate.call_free`。お客様が言った頃の日を、この空きから伺う＝CL-1 の連絡帳 4-232・
+# 会話の側の頃の日の範囲 flowctl.ladder_span と同じ。片方だけ変えると、読める頃に空きが無く見える）
+FAR = timedelta(days=183)
 _WEEKEND = re.compile(r"(?:(?P<week>今週|来週|再来週)(?:の?週末|の?土日|末)|週末|土日)(?!祝)")
 _MIDWEEK = re.compile(r"(?:(?P<week>今週|来週|再来週)の?(?:週中|週の半ば|週半ば|週の中ごろ|週の中頃|半ば|中ごろ|中頃)"
                       r"|週中|週の半ば|週半ば|週の中ごろ|週の中頃)")
@@ -279,7 +281,7 @@ def _named_month(today: date, mrel: str | None, mon: str | None, part: str | Non
         for y in _years(today, year):
             r = _month_range(y, m, part)
             if r[1] >= today:
-                if year is None and r[0] > today + _FAR:
+                if year is None and r[0] > today + FAR:
                     raise _Ambiguous("過ぎた月の言い違いか、来年のことか決まりません")
                 return r
         raise _Ambiguous("過ぎた月です")
@@ -401,7 +403,7 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
                 break
         if found is None:
             raise _Ambiguous("その日は、今月・来月に無いか、過ぎています" if mon is None else "過ぎた日です")
-        if mon is not None and year is None and found > today + _FAR:
+        if mon is not None and year is None and found > today + FAR:
             raise _Ambiguous("過ぎた日の言い違いか、来年のことか決まりません")
         days, end = _check_wday(t, m.end(), (found, found))
         days, end = _day_tail(t, end, days)
