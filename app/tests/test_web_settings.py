@@ -189,9 +189,9 @@ class Screens(unittest.TestCase):
                                                                       business_id=self.a["business"]))
         self.assertEqual((got["value"], got["from"]), (5, "business"))
         page = self.get("A", biz).text
-        self.assertIn("この段で決めた値", page)
-        anchor = "s-" + self.key.replace(".", "-")                                 # 上の「この段で決めている値」から、その行へ飛べる
-        self.assertIn(f'href="#{anchor}"', page.split("この段で決めている値", 1)[1].split("</section>", 1)[0])
+        self.assertIn("ここで決めた値", page)
+        anchor = "s-" + self.key.replace(".", "-")                                 # 上の「ここで決めている値」から、その行へ飛べる
+        self.assertIn(f'href="#{anchor}"', page.split("ここで決めている値", 1)[1].split("</section>", 1)[0])
         self.assertIn(f'id="{anchor}"', page)
 
     def test_the_everyday_groups_are_open_and_the_rest_is_folded_once(self):

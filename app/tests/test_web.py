@@ -594,6 +594,9 @@ class Web(_World):
                 problems.append((path, "言葉の抜け"))
             problems += [(path, m) for m in internal.findall(visible)]
             problems += [(path, "開発の覚え書き：" + m.group(0)) for m in re.finditer(DEV_NOTE, visible)]   # 画面に開発の根拠を出さない
+            if who != "ADMIN":   # 契約者の画面に内部の言い方を出さない（何が内部の言い方かは words.CONTRACTOR_INNER の1か所。管理者には覚え書きも出してよい）
+                from salescall.output import words as _w
+                problems += [(path, "内部の言い方：" + m.group(0)) for m in _w.CONTRACTOR_INNER.finditer(visible)]
             todo += [h for h in re.findall(r'href="(/[^"#?]*)', r.text)   # /t/group はタブのグループを選ぶ操作（選んで元の画面へ戻す）
                      if not h.startswith(("/static", "/pc-login")) and h != "/t/group" and h not in seen]
         self.assertGreater(len(seen), 10)

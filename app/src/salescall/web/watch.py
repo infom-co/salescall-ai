@@ -147,7 +147,7 @@ WATCHES: dict[str, Watch] = {
                             _rows(health_rules.TaskStage.AWAIT_DECISION, lambda st: health_rules.TaskStage.AWAIT_DECISION.value)),
     "fault_calls": Watch("こちらの不具合で終えた電話（直近7日）", "こちらのプログラムの不具合で終えた電話です。番号・回線・行の回数には数えません。"
                          "直す担当へ修正依頼が出ています。", "client", _calls("ours"), attention=False),
-    "runner_stuck": Watch("お詫びのあとも通話の部品が戻らない（直近7日）", "通話の部品が、お詫びして終えたあとも戻らなかった記録です。",
+    "runner_stuck": Watch("お詫びのあとも電話を進めるプログラムが戻らない（直近7日）", "電話を進めるプログラムが、お詫びして終えたあとも戻らなかった記録です。",
                           "tenant", _runner_stuck, attention=False),
     "resting_rows": Watch("こちらの不具合で休ませている行", "同じ行で、こちらの不具合が続けて起きたので休ませています。", "client",
                           _rows(health_rules.TaskStage.RESTING, _resting)),

@@ -19,7 +19,7 @@
       <div class="title-row"><b>{{ d.name }}</b>
         <span class="btn-row">{{ tag(d.method_label, "" if d.sendable else "wait") }}
           {% if d.auto_writeback %}{{ tag("確定するたびに自動で書き戻す", "info") }}{% elif d.upsert_capable %}{{ tag("自動では書き戻さない", "") }}{% endif %}</span></div>
-      {% if not d.sendable %}<p class="muted">この送り方で送る部品がまだ無いため、いまは何も送りません（結果はファイルで渡してください）。</p>{% endif %}
+      {% if not d.sendable %}<p class="muted">この送り方で送る仕組みがまだ無いため、いまは何も送りません（結果はファイルで渡してください）。</p>{% endif %}
       <details class="adder-block"><summary class="btn small">直す</summary>
         <form method="post" action="/c/{{ client.client_id }}/destinations" class="stack">{{ csrf(token) }}
           <input type="hidden" name="op" value="update"><input type="hidden" name="id" value="{{ d.destination_id }}">
@@ -32,7 +32,7 @@
   {% else %}
   {{ empty("送り先はまだありません。いまは、結果をファイル（Excel・CSV）で渡します",
            "送り先を足すと、確定した結果を依頼者の仕組みへ直接書き戻せます（業務ごとに渡し方も選べます）。" if methods
-           else "依頼者の仕組みへ直接書き戻す部品は、その仕組みを使う依頼者が決まったときに用意します。結果のファイルは「依頼者へ渡す結果」の画面から書き出します。") }}
+           else "依頼者の仕組みへ直接書き戻す仕組みは、その仕組みを使う依頼者が決まったときに用意します。結果のファイルは「依頼者へ渡す結果」の画面から書き出します。") }}
   {% endif %}
   {% if methods %}
   <details class="adder-block" style="margin-top:12px" {% if not dests %}open{% endif %}><summary class="btn small">送り先を足す</summary>
