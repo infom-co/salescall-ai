@@ -246,7 +246,10 @@ dialog::backdrop { background: rgba(15,17,21,.45); }
 dialog .body { padding: 22px 24px; } dialog .foot { padding: 14px 24px; background: var(--surface-2); }
 label.choice { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
                 margin-bottom: 8px; cursor: pointer; font-weight: 600; }
-label.choice:has(input:checked) { border-color: var(--stop); background: var(--stop-soft); color: var(--stop); }
+/* 選んだ印は藍（ふつうの選び）。赤は止める操作の範囲を選ぶ緊急停止の窓だけ（2026-11-21 の見直し：初めの色が赤で、「すべて選ぶ」まで
+   危ないものに見えた。前は場所ごとに藍へ上書きしていた） */
+label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+#emergency-dialog label.choice:has(input:checked) { border-color: var(--stop); background: var(--stop-soft); color: var(--stop); }
 .scope-name { font-size: 18px; font-weight: 800; padding: 10px 12px; border-radius: 8px; background: var(--stop-soft); color: var(--stop); margin: 8px 0 12px; }
 
 /* 数が変わった所を少し光らせる */
@@ -294,7 +297,6 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   .top { gap: 6px; padding: 0 8px; }
   .top .menu-toggle { padding: 4px 8px; }
 }
-.question label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 /* 飛び先（#…）は、上に留まる帯とタブの下に出す（どの飛び先も同じ1か所。前は「直す」の札だけにあった） */
 [id] { scroll-margin-top: calc(var(--chrome, 108px) + 12px); }
 /* お客様リストのレ点と一括の印 */
@@ -310,6 +312,9 @@ tr.excluded td { color: var(--muted); }
 .inline-mark input[type=text] { flex: 1; min-width: 140px; }
 .bulk select { width: auto; flex: 0 0 auto; }
 .table-scroll { overflow-x: auto; border-radius: var(--radius); }
+/* 右にまだ欄があるときは、右の端をぼかして続きを見せる（印は app.js の表の部品の1か所が付け外す。2026-11-21 の見直し：右の欄が枠で切れて、
+   横に送れることが分からなかった） */
+.table-scroll.more-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 56px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 56px), transparent); }
 /* 表の幅（表の部品の1か所。2026-11-20 の見直し：PC でも中身の幅のまま横に伸ばしていて、右の列＝「見る」などの操作が画面の外に出ていた）：
    PC は枠の幅に収め、長い文の欄だけ折り返す。中くらいの幅（601〜900px）は、欄を押しつぶさず表ごと横に送る。600px 以下は札の形（下） */
 .table-scroll > table.list { width: 100%; }
@@ -378,7 +383,7 @@ details.setting > summary { list-style: none; cursor: pointer; display: grid; gr
   grid-template-areas: "meaning change" "now change"; gap: 4px 16px; align-items: center; padding: 14px 18px; }
 details.setting > summary::-webkit-details-marker { display: none; }
 details.setting[open] > summary { border-bottom: 1px solid var(--line); }
-details.setting.own { border-left: 4px solid var(--info); }
+/* ここで決めた値は「ここで決めた値」の札で示す（左の色帯は急ぐ度合い＝赤・橙だけに使う。2026-11-21 の見直し） */
 /* その場で開くことを示す印（閉じているとき「変える」、開いたら「閉じる」）。移るリンク（›）ではなく、ほかのその場で変える操作と
    同じ小さなボタンの形（.btn.small と同じ見た目） */
 details.setting .change { align-self: center; display: inline-flex; align-items: center; min-height: 30px; padding: 4px 12px; border: 1px solid var(--line);
@@ -541,7 +546,6 @@ form.handover { display: grid; gap: 8px; margin: 12px 0; }
 .group-pick .panel a[aria-current] { background: var(--wait-soft); font-weight: 600; }
 .group-pick .panel a.manage { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 8px; color: var(--primary); }
 .check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 12px; }
-.check-grid label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }  /* 入れる・外すは止める操作ではないので、赤にしない */
 .inline-form { display: flex; gap: 8px; flex-wrap: wrap; }
 /* 結果の送り先（destinations.html）：送り先ごとに区切った一覧 */
 ul.dest-list { list-style: none; margin: 0; padding: 0; }
@@ -612,4 +616,7 @@ ul.done-steps span { color: var(--ok); margin-right: 4px; }
 /* その場で広がる操作の中身（adder-block の中。小窓にしない＝画面の下の方でも切れない） */
 .panel-inline { margin-top: 12px; display: grid; gap: 6px; max-width: 520px; }
 .panel-inline .field { font-weight: 600; font-size: 13px; }
+/* 説明の文（.lead）の無い見出しにも、下の余白を（見出しのすぐ下の札・入れる欄がくっついていた。2026-11-21 の見直し） */
+.content > h1:not(:has(+ .lead)) { margin-bottom: 16px; }
+.fix-card label.choice { margin-top: 8px; }
 

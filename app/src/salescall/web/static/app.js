@@ -225,6 +225,16 @@
   });
 })();
 
+// 表の右にまだ欄があるか（表の部品の1か所）。あれば .more-right（CSS が右の端をぼかす）。開いたとき・横に送ったとき・幅が変わったときに見直す
+(function () {
+  function edge(w) { w.classList.toggle("more-right", w.scrollWidth - w.clientWidth - w.scrollLeft > 2); }
+  function all() { document.querySelectorAll(".table-scroll").forEach(edge); }
+  document.addEventListener("scroll", function (e) { if (e.target.classList && e.target.classList.contains("table-scroll")) edge(e.target); }, true);
+  window.addEventListener("resize", all);
+  document.addEventListener("DOMContentLoaded", all);
+  document.addEventListener("htmx:afterSwap", all);
+})();
+
 // 表の各升に、その列の見出しの名前を付ける（表の部品の1か所。2026-11-20 の見直し：狭い画面で表を「見出し：値」の札に並べ替えるとき、
 // 見出しの名前が無くて数字だけが並び、何の数か分からなかった）。どの表にも自動で付くので、画面ごとに書かない。
 (function () {
