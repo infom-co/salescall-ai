@@ -870,7 +870,7 @@ class Web(_World):
         shown["setting_labels.json"] = (src / "output/setting_labels.json").read_text(encoding="utf-8")
         for name, text in shown.items():
             odd += [f"{name}: {m.group(0)}" for m in re.finditer(
-                r"(?:この|その|ほかの|まだ|止めた|休んでいる|休ませている|待っている|かけられない|次の)行|行を選ぶ|次の回|「かけないで」の一覧|本番", text)]   # 本番＝画面では「フルオート」（words.MODE_WORDS）
+                r"(?:この|その|ほかの|まだ|止めた|休んでいる|休ませている|待っている|かけられない|次の)行|行を選ぶ|次の回|「かけないで」の一覧|本番|決め直し中", text)]   # 本番＝画面では「フルオート」（words.MODE_WORDS）・決め直し中＝「結果を確かめ中」（words.NEXT_KINDS の hold）
         # 設定の名前は、どれもお客様の扱いの話（ファイルの行の話は無い）なので、「行」そのものを使わない（実行・行う などの言葉は別）
         odd += [f"setting_labels.json: {m.group(0)}" for m in re.finditer(r"\S{0,6}(?<![実銀旅運])行(?![うっいわ])\S{0,4}", shown["setting_labels.json"])]
         for f in sorted(tpl.glob("*.html")):
@@ -935,6 +935,14 @@ class Web(_World):
             items=cards, place={"client_id": uuid4(), "name": "依頼者X"})
         self.assertEqual(visible_primary_buttons(page), ["確かめた"])
         self.assertEqual(page.count("確かめた"), 3)                              # ほかの札のボタンも出ている（白い枠で）
+
+    def test_the_script_reads_form_attributes_not_shadowable_properties(self):
+        """画面の動き（app.js）は、form の method・action などを属性で読む（form.method は、名前が method の欄があるとその欄を指す。
+        2026-11-21：回線を足す欄で画面の動きが止まり、二度押しの守りが働いていなかった）。"""
+        import pathlib
+        js = pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/static/app.js").read_text(encoding="utf-8")
+        code = "\n".join(line.split("//")[0] for line in js.splitlines())
+        self.assertEqual(re.findall(r"\bform\.(?:method|action|target|encoding|enctype)\b", code), [])
 
     def test_every_i_mark_on_the_screens_has_its_text_in_one_place(self):
         """ひな形で使う i マークの鍵は、どれも core の help_texts.FIELDS にある（説明を画面に写さない・書き漏れを試験で見つける。設計書 6-7）。"""

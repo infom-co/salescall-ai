@@ -146,7 +146,8 @@ def _waiting(ctx: Ctx, client_id: UUID | None = None, business_id: UUID | None =
 
 def _templates() -> Jinja2Templates:
     t = Jinja2Templates(directory=str(HERE / "templates"))   # 文字は必ず「文字として」出す（自動のエスケープ）
-    t.env.globals.update(words=words, time=_time, phone=_phone, yen=_yen, token_field=actions.TOKEN_FIELD, explain=_explain)
+    t.env.globals.update(words=words, time=_time, phone=_phone, yen=_yen, token_field=actions.TOKEN_FIELD, explain=_explain,
+                         line_label=names.line_label)   # 回線の名指しは web/names の1か所（「名前（発信番号）」）
     return t
 
 
@@ -1068,7 +1069,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         form = dict(await request.form())
         return _line_act(request, form, lambda tx, ctx: registry.create_line(
             tx, actions.name_of(form), method=str(form.get("method") or ""), caller=str(form.get("caller") or ""),
-            client_id=_client_or_shared(tx, form.get("client_id"))), "回線を作りました。")
+            client_id=_client_or_shared(tx, form.get("client_id"))), f"回線「{str(form.get('name') or '').strip()}」を作りました。")   # 名前の確かめは作る所（name_of）の1か所。ここは送られた文字を言うだけ
 
     @app.post("/t/lines/{line_id}/assign")
     async def line_assign(request: Request, line_id: UUID) -> HTMLResponse:

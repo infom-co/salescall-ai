@@ -251,7 +251,8 @@
   });
   document.addEventListener("submit", function (e) {
     var form = e.target;
-    if ((form.method || "").toLowerCase() !== "post" || form.hasAttribute("data-download")) return;   // 書き出しは画面が替わらない
+    // form.method は、名前が method の欄があるとその欄を指すので、属性で読む（2026-11-21：回線を足す欄で止まり、二度押しの守りが働いていなかった）
+    if ((form.getAttribute("method") || "").toLowerCase() !== "post" || form.hasAttribute("data-download")) return;   // 書き出しは画面が替わらない
     if (form.dataset.sending) { e.preventDefault(); return; }
     form.dataset.sending = "1";
     setTimeout(function () {

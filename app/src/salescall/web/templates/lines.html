@@ -42,13 +42,13 @@
         {% if l.resting %}
         <details class="adder"><summary class="btn small">手で再開</summary>
           <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/resume" data-needs-reason data-confirm-ok="再開する"
-                data-confirm="回線「{{ l.name }}」を再開します。この回線で、またおかけします（同じ不具合で続けて終われば、また休みます）。">{{ csrf(token) }}
+                data-confirm="回線「{{ line_label(l.name, l.caller_e164) }}」を再開します。この回線で、またおかけします（同じ不具合で続けて終われば、また休みます）。">{{ csrf(token) }}
             <p class="muted">直ったことを確かめてから再開してください。</p>
             <input type="text" name="reason" placeholder="理由（例：端末を再起動し、テストで鳴った）"><button class="btn main small" type="submit" data-submit disabled>再開する</button></form></details>
         {% endif %}
         <details class="adder"><summary class="btn small danger-text">使用停止</summary>
           <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/retire" data-needs-reason data-confirm-tone="danger" data-confirm-ok="使用停止にする"
-                data-confirm="回線「{{ l.name }}」を使用停止にします。この回線ではもうかけません（元に戻せません）。まだ発信していない予約は取り消します。">{{ csrf(token) }}
+                data-confirm="回線「{{ line_label(l.name, l.caller_e164) }}」を使用停止にします。この回線ではもうかけません（元に戻せません）。まだ発信していない予約は取り消します。">{{ csrf(token) }}
             {#- 取り消せない操作は、どれに効くかを名前つきで見せてから（計画書 5-1） -#}
             <p><b>回線「{{ l.name }}」</b>（発信番号 <span class="tel">{{ phone(l.caller_e164) }}</span>・{{ (client_names[l.client_id] ~ " の専用") if l.client_id else "共有" }}）</p>
             <p class="muted">この回線ではもうかけません（元に戻せません）。まだ発信していない予約は取り消します。</p>
