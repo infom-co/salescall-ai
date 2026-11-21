@@ -50,8 +50,10 @@
 
 <h2>依頼者ごと</h2>
 {% if per_client %}
+{#- 列は、電話の本数（今日）と、お客様の数（いまの予定ごと）が混ざるので、どれが何の数かを表の上に1行で書く（2026-11-21 の見直し） -#}
+<p class="muted">「今日かけた」「話せた」は今日の電話の本数、「{{ words.NEXT_KINDS["call"].screen }}」から「{{ words.NOT_PLANNED }}」まではお客様の数です（{{ words.NEXT_KINDS["hold"].screen }}＝判定し直すのを待っているお客様で、することはありません）。</p>
 <div class="table-scroll"><table class="list">
-  <thead><tr><th>依頼者</th><th class="num">今日かけた</th><th class="num">話せた</th><th class="num">かけ直し待ち</th><th class="num">{{ words.NEXT_KINDS["hold"].screen }}</th><th class="num">済み</th><th class="num wide">これから</th><th class="num">承認待ち</th></tr></thead>
+  <thead><tr><th>依頼者</th><th class="num">今日かけた</th><th class="num">話せた</th><th class="num">{{ words.NEXT_KINDS["call"].screen }}</th><th class="num">{{ words.NEXT_KINDS["hold"].screen }}</th><th class="num">{{ words.NEXT_KINDS["end"].screen }}</th><th class="num wide">{{ words.NOT_PLANNED }}</th><th class="num">承認待ち</th></tr></thead>
   <tbody>
   {% for c in per_client %}
     <tr>

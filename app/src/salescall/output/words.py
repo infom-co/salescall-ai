@@ -93,6 +93,10 @@ NEXT_KINDS: dict[str, Word] = {
     "end": Word("済み", "済み"),
 }
 
+# 次の予定がまだ1つも無いお客様（取り込んだまま、まだ一度もかけていない）の、画面の呼び方（ホームの依頼者ごとの表・お客様リストの札＝parts.next_tag）。
+# 2026-11-21 の見直し：前は「これから」で、何の数か分からなかった
+NOT_PLANNED = "まだかけていない"
+
 # 終わりの理由のうち、門の理由・業務の状態・再発信の方針の鍵のどれでもないもの（docs/DESIGN.md 7-2・next_action.py）
 END_REASONS: dict[str, str] = {
     "number_unusable": "つながらない電話が続いた番号",

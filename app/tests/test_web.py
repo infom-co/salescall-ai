@@ -240,7 +240,7 @@ class Web(_World):
         r = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}")
         self.assertEqual(r.status_code, 200)
         self.assertIn("お客様リスト", r.text)
-        self.assertIn("これから", r.text)   # まだ次の予定が無い行
+        self.assertIn("まだかけていない", r.text)   # まだ次の予定が無いお客様（words.NOT_PLANNED）
 
     # ── お客様の行の画面と直し（docs/DASHBOARD.md 5-7） ──
     def _row_url(self, w=None, task=None):

@@ -41,7 +41,7 @@
 {%- elif kind == "hold" -%}{{ tag(words.word(words.NEXT_KINDS, "hold").screen, words.tone("normal")) }}
 {%- elif kind == "call" -%}{{ tag(words.word(words.NEXT_KINDS, "call").screen ~ ("（" ~ time(call_at) ~ "）" if call_at else ""), "info") }}
 {%- elif kind == "end" -%}{{ tag(words.word(words.NEXT_KINDS, "end").screen ~ "：" ~ words.end_reason(end_reason), "ok") }}
-{%- else -%}{{ tag("これから") }}{%- endif -%}
+{%- else -%}{{ tag(words.NOT_PLANNED) }}{%- endif -%}
 {%- endmacro %}
 
 {% macro csrf(token) -%}<input type="hidden" name="{{ token_field }}" value="{{ token }}">{%- endmacro %}
