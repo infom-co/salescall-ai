@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "parts.html" import tag, flash, csrf, empty %}
 {% block title %}発信禁止{% endblock %}
+{% block crumb %}{% if client %}発信禁止{% endif %}{% endblock %}
 {% block main %}
 {% set base = ("/c/" ~ client.client_id ~ "/dnc") if client else "/t/dnc" %}
 <div class="title-row"><div class="titles"><h1>{{ ("発信禁止（依頼者「" ~ client.name ~ "」）") if client else ("共通の発信禁止（「" ~ ctx.tenant_name ~ "」のすべての依頼者）") }}</h1>

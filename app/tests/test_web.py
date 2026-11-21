@@ -619,7 +619,8 @@ class Web(_World):
                 "UPDATE salescall.clients SET name = '依頼者Y' WHERE client_id = %s", (self.y["client"],)))
 
     def test_every_linked_page_opens_in_japanese_only(self):   # 全部のリンクをたどる（画面を足しても漏れを見つける）
-        self._crawl("A", ["/t", f"/c/{self.a['client']}/b/{self.a['business']}"])
+        # 探すの画面は、リンクでなく探す欄から開くので、はじめから入れる
+        self._crawl("A", ["/t", f"/c/{self.a['client']}/b/{self.a['business']}", f"/c/{self.a['client']}/search?q=架空"])
 
     def test_every_page_the_admin_sees_opens_in_japanese_only(self):   # 管理者だけの画面（システムの初めの値・全体の知らせ など）も
         self._crawl("ADMIN", ["/t", "/admin/settings", "/t/notices", f"/c/{self.a['client']}/b/{self.a['business']}"])
@@ -645,6 +646,13 @@ class Web(_World):
                 problems.append((path, "言葉の抜け"))
             problems += [(path, m) for m in internal.findall(visible)]
             problems += [(path, "開発の覚え書き：" + m.group(0)) for m in re.finditer(DEV_NOTE, visible)]   # 画面に開発の根拠を出さない
+            # 道しるべの最後（いまいる所）が依頼者・業務・お客様リストの名前なら、その画面そのものにいるときだけ（中の画面が名前を渡し
+            # 忘れると、依頼者の画面にいるように見える＝3回目の見直し「中」の9）
+            here = re.search(r'<span class="here" aria-current="page">(.*?)</span>', r.text)
+            where = path.split("?")[0].split("#")[0]
+            for head, own in (("依頼者「", r"/c/[^/]+"), ("業務「", r"/c/[^/]+/b/[^/]+"), ("お客様リスト「", r"/c/[^/]+/b/[^/]+/runs/[^/]+")):
+                if here and here.group(1).startswith(head) and not re.fullmatch(own, where):
+                    problems.append((path, "いまいる所の名前が無い：" + here.group(1)))
             # 取り消せない操作・電話を再開させる操作の送信は、どれも確かめの窓（data-confirm＝名前つきの文）を通す（計画書 5-1。3回目の見直し「高」の2）
             for tag_ in re.findall(r"<form\b[^>]*>", r.text):
                 act = re.search(r'action="([^"]*)"', tag_)

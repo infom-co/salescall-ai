@@ -2,6 +2,7 @@
 {% from "parts.html" import empty %}
 {% set active = "client" %}
 {% block title %}お客様を探す{% endblock %}
+{% block crumb %}お客様を探す{% endblock %}
 {% block main %}
 <h1>お客様を探す：{{ client.name }}</h1>
 <form class="search-inline big" method="get" action="/c/{{ client.client_id }}/search"><input type="search" name="q" value="{{ q }}" placeholder="会社名・お呼びする方・管理番号の一部、または電話番号" aria-label="お客様を探す" autofocus></form>
