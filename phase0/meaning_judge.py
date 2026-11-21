@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, DATE_TIME_TYPES, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices, LADDER_OTHER, LADDER_SIDE_TAIL, ladder_choice_desc, ladder_other_choices, ladder_sides,
                      NEAR, near_choices, near_fits, MISGIVING, misgiving_choices, misgiving_fits,
@@ -74,6 +74,13 @@ REFUSED_FACT = (REFUSED_HEAD + "お客様に事実を伺う質問なので、こ
                 "入れない。" + REFUSED_TAIL)
 
 
+# 日や時刻を伺う質問（DATE_TIME_TYPES）の「わからない」に足す境目（system_desc の1か所。わからないの説明は全部の質問に出るので、日や時刻を伺う質問にだけ出す＝帳面 0-3 の (b)）：
+# 日や頃を言わずに、決まった日は無い・その時々で変わる、とだけ言って、1つの日を言えないのも「わからない」（どちらにもなりうると確かめる答え MAYBE_DESC は選ぶ質問だけ＝重ならない）。
+# 分身 AG の (5-c)。⛔ 3ccaced6 まで、お給料日を伺う一言を待つ間の「答えた」の説明（flowctl.held_ask_desc）に書き、「わからない」の説明「ご自分がいまは答えを持っていない」と食い違うと
+# 答えを伏せた読み手 A・B が2人とも書いた（束 af1 の #8・#37）
+UNKNOWN_DATE = "日や頃を言わずに、決まった日は無い・その時々で変わる、とだけ言って、1つの日を言えないのも、こちら"
+
+
 def system_desc(q, c: str) -> str:
     """システムが足す選べるもの（どちらでも・わからない・答えたくない）の説明（唯一の場所。options が使う）：事実を伺う質問（Question.asks_fact）の
     「答えたくない」は、控える・断る返事も入れる（⛔ 2026-10-31 の夜：「ご予約はされていますでしょうか？」への「差し控えさせていただきます」を、
@@ -81,6 +88,8 @@ def system_desc(q, c: str) -> str:
     ある質問（Question.maybe）の「どちらでも」は、どちらにもなりうると言った答え（MAYBE_DESC）。"""
     if c == ANY and getattr(q, "maybe", ()):
         return MAYBE_DESC
+    if c == "unknown" and getattr(q, "type", "") in DATE_TIME_TYPES:
+        return SYSTEM_DESC[c].removesuffix("）") + "。" + UNKNOWN_DATE + "）"
     return REFUSED_FACT if c == "refused" and getattr(q, "asks_fact", False) else SYSTEM_DESC[c]
 # ⛔ 2026-10-31：取り次ぎを待つを「取り次ぐので」と書いていた＝「確認してまいります。少々お待ちください。」を「決められない」と読んだ（待つ側と同じ）
 # ⛔ 2026-10-31 早朝（直した文の測り・G-53bf_fix）：上の「確かめてくる など」で、あとで家の人に聞く必要があると言っただけの「ちょっと家の人に
@@ -520,9 +529,12 @@ ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電
                 # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い23）：「この場合は、会話の途中に悩んでいて、事後にするという流れではないので、「はい。」と言って
                 #    黙って待つ。」＝この電話の中で考えると言い終えたのも、こちら（言い終えているかではなく、この電話の中で考えるのか・あとで考えて連絡するのかで分ける。
                 #    あとで考えて連絡する・かけ直してほしいは、あとでかけ直す・お客様から折り返す）。境目はこの説明の1か所だけ（ほかの説明に「考える」を書かない）
+                # 並べた答えの一つを避けて言いさしただけは、言いよどみではない＝こちらではない（境目は、この「言いよどんでいる最中」の1か所＝分身 AG の (5-b)。
+                # ⛔ 3ccaced6 まで書いておらず、答えを伏せた読み手 A・B が2人とも、日時の2択の片方を避けた言いさしを、この説明が引き寄せうると書いた＝束 af1 の #12・#18・#24）
                 THINKING: "この電話の中で、いま答えを考えている（言いよどんでいる最中で、このあと続けて答えそうなときのほか、この場で少し考えたい・考えさせて"
                           f"ほしい、と言い終えたのも。答えではない）。この電話を終えてあとで考える、と言ったのは、こちらではなく「{LATER}」か「{LATER_THEIRS}」。"
-                          "決められない・まだ決めていない・迷っている、とだけ言い終えたときも、こちらではない",
+                          "決められない・まだ決めていない・迷っている、とだけ言い終えたときも、こちらではない。並べた答えの一つを避けて言いさしただけも、"
+                          "答えを考えて言いよどんでいる最中ではないので、こちらではない",
                 # ✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「…のように促すのが一番いいんじゃないでしょうか。迷っていると言っているのに途中で話を終わらしたり
                 # どうなさいましたか と 急かすのは最悪な手ですよ。」・18時03分49秒「(1) ア」（flowctl.HESITATING・Flow._hesitation＝選ぶ助けを伝えて促す）
                 HESITATING: "どの答えにするかを迷っている・決めかねている、と言い終えた（答えのあいだで迷っている気持ちを言った。答えではない）",

@@ -80,10 +80,14 @@ RANGE_REDO_SCENE = "日時の2択の段の言い直しに週だけ直された�
 PAYDAY_SPAN_SCENE = "お給料日のあとの頃の2択（お給料日を伺った一言に「25日です。」）"
 PAYDAY_NAMED_SCENE = "締め日を伺った一言のあと（曜日の2択に「締め日のあとでお願いします。」）"
 THEIRS_REDO_SCENE = "お客様から折り返していただく日の言い直しに週だけ直されたあとの2択（「いえ、来週になります。」のあとの「来週の火曜日と来週の水曜日」）"
+# 時期の2択（伺い102 イ＝分身 AG の (1)）：平日と土日の2択に2つとも合わないと言われたあとの「来週と再来週」（共通の一言の録音）と、それにも2つとも合わないと言われたあとの日付で言う週
+# （会話AIの声）
+PERIOD_SCENE = "時期の2択（平日と土日の2択に「どちらもちょっと難しいですね。」のあとの「来週と再来週」）"
+PERIOD_AGAIN_SCENE = "時期の2択の2回目（時期の2択にも「どちらもちょっと難しいですね。」のあとの「12月7日からの週と12月14日からの週」）"
 NEW_SCENES = (LADDER_SCENE, WRONG_ASK_SCENE, WAIT_SCENE, PAIN_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, ANSWERED_SCENE, OFFER_FINAL_SCENE,
               WITHDRAW_TIME_SCENE, WITHDRAW_SEND_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, UNTIL_ASK_SCENE, THEIRS_PAIR_SCENE, ACCEPT_PAIR_SCENE,
               MEETING_PAIR_SCENE, THEIRS_SIDE_AGAIN_SCENE, THEIRS_NEITHER_AGAIN_SCENE, LADDER_REDO_SCENE, UNTIL_LEAN_SCENE, PAYDAY_ASK_SCENE,
-              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE)
+              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE, PERIOD_SCENE, PERIOD_AGAIN_SCENE)
 # 申し出の手順で選んでいただく方法（業務設定 handoff_ways。試験 EndJudgedTest.test_an_unlinked_reply_to_an_offer_is_answered_then_the_offer_is_put_again の to_offer と同じ）
 HANDOFF_WAYS = ("訪問", "お電話")
 
@@ -280,9 +284,10 @@ def answer_words() -> list[dict]:
         {**_row("R16", "はい、大丈夫ですよ。", ["はい"], AWAY_NO, asked=plain_unheard, why="聞き取れなかったご承認の質問の最終の確かめへのご了承（R7 の聞き取れなかったお知らせの行と同じ）"),
          "set": "D"},
         {**_row("R16", "いや、それはちょっと困るんですけど。", ["いいえ"], AWAY_NO, asked=plain_unheard, why="ご承認いただけない（R7 の最終の確かめの行と同じ）"), "set": "D"},
-        {**_row("R16", "すみません、ちょっと聞き取れなかったんですけど。", [REPEAT], (AWAY_NO, UNDECIDED), asked=plain_unheard,
+        {**_row("R16", "すみません、ちょっと聞き取れなかったんですけど。", [REPEAT], AWAY_NO, asked=plain_unheard,
                 why="こちらの確かめが聞き取れなかったと言った＝もう一度言ってほしい（説明「直前にこちらが言ったこと…が聞こえなかった・聞き取れなかった…と言ったのも」）。"
-                    "別のお話かは境目（答えの話とも、答えに関わらない話とも読める＝R1 の待っていただく一言のあとの「すみません、ちょっと聞こえなかったんですけど。」と同じ）。"
+                    "別のお話かは答えの話（説明「聞き返しも、いま伺っていることについての話で、答えの話」＝分身 AG の (4-b)。直す前の値＝答えの話／決められない＝束 ae3 の #3 で"
+                    "読み手2人とも「別のお話」「決められない」も挙げた境目）。"
                     "こちらの声が届いていない様子（聞き取れなかったと言った）"), "set": "D", "hear_truth": HEAR_LOST},
         {**_row("R16", "そういえば来週は祝日なんですよ。", [UNDECIDED], AWAY_YES, asked=plain_unheard, why="最終の確かめへの別のお話（R7 の行と同じ）", reason=WHY_OTHER),
          "set": "D"},
@@ -330,6 +335,7 @@ def answer_words() -> list[dict]:
         *AGAIN_ROWS,
         *ASK_ROWS,
         *AF_ROWS,
+        *AG_ROWS,
     ]
 
 
@@ -804,6 +810,15 @@ AF_ROWS = [
 ]
 
 
+# 時期の2択（伺い102 イ＝分身 AG の (1)）の場面の試しの言葉（はじめの2択・並べ直した2回目の2択の行と同じ種類の6行＝_af_pair_rows の1か所）。並べる2つは週（「来週」「再来週」・日付で
+# 言う週「12月7日からの週」）。言葉は流れの制御に通して場面に合うことを確かめた（rv188/AG/probe/ag）。判定が見る文の変わった行（足した行の全部）は、答えを伏せた読み手への束 ag1
+# （rv188/AG/readers）に入れた
+AG_ROWS = [
+    *_af_pair_rows(PERIOD_SCENE, "C1", "来週", "再来週", "来週", "再来週"),
+    *_af_pair_rows(PERIOD_AGAIN_SCENE, "C1", "12月7日からの週", "12月14日からの週", "7日からの週", "14日からの週"),
+]
+
+
 # 測りの前に0円で済ませる残り（帳面 1 の (1) の ⏳ と本書 9-4 の ⏳ に、言葉と正解の候補が書いてある試しの言葉。分身 S3＝まとめ役 CL-1 の頼み rv178/S3 の (2)）。言葉と正解は ⏳ に
 # 書いてあるとおり（書いていない項目は、説明の文と言葉だけから決めた）。場面は測りの数えの1か所（g53_meaning._flow_scene）が本番の流れの制御で組む。⏳ どの行も、答えを伏せた
 # 読み手2人の束（rv178/S3/readers）で読み直してから数える（帳面 0-3「試しの正解は…別の目で読み直してから数える」）
@@ -820,12 +835,13 @@ PREP3_ROWS = [
          why=f"待っていただく一言へのお返事だけ＝候補のとおり{_WAIT_TRUTH}。別のお話かは同じ（答えの話）", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
     _row("R1", "はい、大丈夫です。あ、それとお支払いはカードで。", ["カード"], AWAY_NO, prompt=PROMPT_REPLY_NO, scene=WAIT_SCENE, value="カード",
          why=f"お返事だけではない＝候補のとおり{_WAIT_TRUTH}。待つことに応えたあと、支払いの答えを「カード」と言った（答え＝カード）", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
-    {**_row("R1", "すみません、ちょっと聞こえなかったんですけど。", [REPEAT], (AWAY_NO, UNDECIDED), prompt=PROMPT_REPLY_NO, scene=WAIT_SCENE,
+    {**_row("R1", "すみません、ちょっと聞こえなかったんですけど。", [REPEAT], AWAY_NO, prompt=PROMPT_REPLY_NO, scene=WAIT_SCENE,
          why="待っていただく一言が聞こえなかったと言った＝もう一度言ってほしい（帳面 1 の (1) の 11-19 日本時間23時台の段＝伺い76 の試しの言葉そのまま・説明「直前にこちらが言ったこと"
              "（…お待ちいただくようにお願いしたことなど）が聞こえなかった…と言ったのも」）。声かけへのお返事だけではない（説明の「お返事だけ＝待ってよい・分かった、と言っただけ」に"
              "当たらない＝聞こえなかったと言った）。束 s の #4：別のお話かは読み手2人とも「答えの話」「決められない」の両方＝境目にした・こちらの声が届いていない様子かは2人とも"
              "「届いていない様子」（聞こえなかったと言った＝10-30 の管理者のご決定の材料）＝替えた（直す前の値＝答えの話／そういう様子は無い）。声かけへのお返事だけかは読み手の1人が"
-             "決められないも挙げた＝説明の文で決めたまま", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY), "hear_truth": HEAR_LOST},
+             "決められないも挙げた＝説明の文で決めたまま。分身 AG の (4-b)：別のお話かは答えの話だけにした（説明「聞き返しも、いま伺っていることについての話で、答えの話」・"
+             "直す前の値＝答えの話／決められない）", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY), "hear_truth": HEAR_LOST},
     # (2) 待つかかけ直すかの伺い H2（支払いの質問に「上司に相談してみるので、少し待っていてください。」と言われて伺った所＝g53_meaning._wait_ask_scene）
     _row("H2", "そういえば、うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, reason=WHY_OTHER,
          why="H2 と関わりのないご事情＝別のお話（帳面 1 の (1) の 11-19 日本時間21時06分08秒の段の (b)＝分身 AG の flowctl.AWAY_ROLES の試しの言葉そのまま）"),
@@ -850,11 +866,12 @@ PREP3_ROWS = [
              "＝そろった読みにした（直す前の値＝[はい, 決められない]）"),
     _row("R7", "分かりました。キャンセルの件も大丈夫です。", ["はい"], AWAY_NO, prompt=PROMPT_REPLY_NO, scene=ANSWERED_SCENE,
          why="こちらの答えに応え、お知らせ（キャンセル）も了承した＝答え「はい」・お返事だけではない（同じ (a) の試しの言葉と正解そのまま）"),
-    {**_row("R7", "え、何ておっしゃいました？", [REPEAT], (AWAY_NO, UNDECIDED), prompt=PROMPT_REPLY_NO, scene=ANSWERED_SCENE,
+    {**_row("R7", "え、何ておっしゃいました？", [REPEAT], AWAY_NO, prompt=PROMPT_REPLY_NO, scene=ANSWERED_SCENE,
          why="こちらの答えが聞き取れなかった＝もう一度言ってほしい（帳面 1 の (1) の 11-19 日本時間23時台の段＝伺い76 の試しの言葉「お答え「はい、店舗の前に駐車場がございます。」への"
              "「え、何ておっしゃいました？」」そのまま）。こちらへ尋ねた問いは無い（言い直しを頼んだだけ＝正解の表の HEAR の「すみません、今なんて言いました？」と同じ）。声かけへの"
              "お返事だけではない（説明の「お返事だけ＝分かった、と言っただけ」に当たらない・「こちらに尋ねた など」はお返事だけではない側。お返事だけと読むと、流れの制御は答えを"
-             "言い直さずに最終の確かめへ進む）。束 s の #13：#4 と同じ（別のお話かは境目・届いていない様子に替えた）"), "hear_truth": HEAR_LOST},
+             "言い直さずに最終の確かめへ進む）。束 s の #13：#4 と同じ（別のお話かは境目・届いていない様子に替えた）。分身 AG の (4-b)：別のお話かは答えの話だけにした（説明"
+             "「聞き返しも、いま伺っていることについての話で、答えの話」・直す前の値＝答えの話／決められない）"), "hear_truth": HEAR_LOST},
     # (5) 申し出の最終の確かめ（OFFER_FINAL_SCENE＝パンフレットの申し出に「うーん、送ってもらおうかな…。」→ 言い直し → 「送ってもらったほうがいいですかね？」に答えた → 「そうなんですね。」→
     #     「はい、それではパンフレットをお送りさせていただきましょうか？」）
     _row("R9", "そういえば来週は祝日なんですよ。", [UNDECIDED], AWAY_YES, scene=OFFER_FINAL_SCENE, reason=WHY_OTHER,
