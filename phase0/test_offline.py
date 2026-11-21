@@ -29498,9 +29498,12 @@ class HeardLineClauseTest(unittest.TestCase):
                "当日のキャンセルは前日までにご連絡いただく必要がございます": "常体でない"}
         for clause, why in bad.items():
             self.assertFalse(announces.clause_fits(self.RULE, self.ASK, clause, self.LINE), why)
-        # 良い点と気をつけていただくことの2つの文のお知らせ（お言葉の文）：句も、お客様が聞いた文の期限の言葉（前日・以降）を落とさない（keeps_facts の1か所）
+        # 良い点と気をつけていただくことの2つの文のお知らせ（お言葉の文）：句は気をつけていただく文の中身だけで、「それ以降」は「前日を過ぎた」と言う（伺い96 ア＝
+        # 試験 UnheardCautionClauseTest）。期限の言葉（前日）は落とさない（keeps_facts の1か所）。⛔ 伺い96 アの前は、2つの文の中身を全部持つ句（「キャンセルや変更は
+        # 前日までにご連絡いただければ料金がかからずそれ以降はキャンセル料がかかる」）を通していた
         ex, ask, line = announces.EXAMPLE_EXPL, announces.EXAMPLE_ASK, announces.EXAMPLE_LINE
-        self.assertTrue(announces.clause_fits(ex, ask, "キャンセルや変更は前日までにご連絡いただければ料金がかからずそれ以降はキャンセル料がかかる", line))
+        self.assertTrue(announces.clause_fits(ex, ask, "前日を過ぎたキャンセルや変更はキャンセル料がかかる", line))
+        self.assertFalse(announces.clause_fits(ex, ask, "キャンセルや変更は前日までにご連絡いただければ料金がかからずそれ以降はキャンセル料がかかる", line))
         self.assertFalse(announces.clause_fits(ex, ask, "キャンセルや変更は前日までにご連絡いただければ料金がかからない", line))   # 以降を落とした
 
     def test_the_import_asks_with_the_line_the_customer_heard(self):
@@ -29552,6 +29555,96 @@ class HeardLineClauseTest(unittest.TestCase):
             import_ai.decide_matters(askers, [(self.RULE, self.ASK)])
         # CL-2 の取込に渡す処理（deciders）も同じ形
         self.assertEqual(import_ai.deciders(askers)["decide_matters"](items), [("キャンセル", self.CLAUSE), ("料金", "料金は月額3,000円となる")])
+
+
+class UnheardCautionClauseTest(unittest.TestCase):
+    """伺い96 ア（✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」）：良い点と気をつけていただくことの2つの文のお知らせへの
+    お返事が聞き取れなかったときの締めの前の確かめの句は、「気をつけていただくこと」の文だけから作る＝「ありがとうございます。申し訳ございません、前日を過ぎた
+    キャンセルや変更はキャンセル料や変更料がかかる件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」（期限の言葉と料金は残し、
+    「それ以降」は期限の言葉で「前日を過ぎた」と言う）。1つの文・良い点だけ・お知らせの文が無いときは今のまま。取込が説明と違う期限（「前日以降」＝前日も入る）に
+    しないよう、句の形の確かめ（announces.clause_fits の1か所）で止める。問い合わせ（announces.MATTER_PROMPT）の例も同じ形。⛔ 伺い96 アの前は、2つの文の中身を
+    全部持つ句（「キャンセルや変更は前日までにご連絡いただければ料金がかからずそれ以降はキャンセル料や変更料がかかる件の…」＝一言が112字）を作っていた"""
+    EXPL = ("ご予約の内容ですがキャンセルや変更は前日までのご連絡でしたら料金はかからない決まりになっております。"
+            "それ以降のご連絡ですとキャンセル料や変更料がかかる決まりになっております。")   # 伺いの文の例の業務（依頼主の説明）
+    ASK = "こちらの内容でご承認いただけますでしょうか？"
+    LINE = ("ご予約の内容ですがキャンセルや変更は前日までにご連絡いただければ料金はかかりません。"
+            "それ以降になってしまいますとキャンセル料や変更料がかかってしまうのでお気を付けください。")   # 取込で決まったお知らせの文（2つの文）
+    CLAUSE = "前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる"
+    WHOLE = "キャンセルや変更は前日までにご連絡いただければ料金がかからずそれ以降はキャンセル料や変更料がかかる"   # 伺い96 アの前の形（ウ）
+    USER = ("ありがとうございます。申し訳ございません、前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる件のお返事のお声が聞き取れなかったのですがご了承と"
+            "いうことでよろしかったでしょうか？")
+
+    def test_the_two_sentence_clause_is_made_from_the_caution_sentence_only(self):
+        import announces
+        self.assertTrue(announces.fits(self.EXPL, self.ASK, self.LINE))   # 例の業務のお知らせの文は今の取込の形の確かめを通る
+        self.assertEqual(announces.caution(self.LINE), "それ以降になってしまいますとキャンセル料や変更料がかかってしまうのでお気を付けください。")
+        self.assertTrue(announces.clause_fits(self.EXPL, self.ASK, self.CLAUSE, self.LINE))
+        bad = {"前日以降のキャンセルや変更はキャンセル料や変更料がかかる": "「前日以降」＝前日も入ってしまい、説明と違う",
+               "前日までのキャンセルや変更はキャンセル料や変更料がかかる": "期限を過ぎたと言っていない（前日までは料金がかからない）",
+               self.WHOLE: "2つの文の中身を全部持つ（伺い96 アの前の形）",
+               "当日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる": "お知らせに無い期限（当日）",
+               "キャンセルや変更はキャンセル料や変更料がかかる": "期限の言葉を落とした（前日）",
+               "前日を過ぎたキャンセルや変更は前日を過ぎたキャンセル料がかかる": "「を過ぎた」を2回",
+               "キャンセルを過ぎた前日はキャンセル料や変更料がかかる": "「を過ぎた」の前が良い点の文の期限でない",
+               "前日を過ぎたキャンセルや変更はキャンセル料や変更料が2倍かかる": "お知らせに無い数",
+               "前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかります": "常体でない"}
+        for clause, why in bad.items():
+            self.assertFalse(announces.clause_fits(self.EXPL, self.ASK, clause, self.LINE), why)
+        # 期限が時刻まであるとき（「前日の18時まで」）：「を過ぎた」の前は良い点の文の「（期限）まで」の期限・数と期限の言葉は全部
+        expl = "キャンセルは前日の18時までのご連絡でしたら料金はかからない決まりになっております。それ以降のご連絡ですとキャンセル料がかかる決まりになっております。"
+        line = "キャンセルは前日の18時までにご連絡いただければ料金はかかりません。それ以降になってしまいますとキャンセル料がかかってしまうのでお気を付けください。"
+        self.assertTrue(announces.fits(expl, self.ASK, line))
+        self.assertTrue(announces.clause_fits(expl, self.ASK, "前日の18時を過ぎたキャンセルはキャンセル料がかかる", line))
+        for clause in ("前日を過ぎたキャンセルはキャンセル料がかかる", "18時を過ぎたキャンセルはキャンセル料がかかる", "前日の18時以降のキャンセルはキャンセル料がかかる"):
+            self.assertFalse(announces.clause_fits(expl, self.ASK, clause, line), clause)
+
+    def test_other_announcements_keep_the_whole_clause(self):
+        # 1つの文（「…のでご了承ください。」）・良い点だけ・お知らせの文が無いときは今のまま（文の中身を全部持つ句・「を過ぎた」は足さない）
+        import announces
+        rule = HeardLineClauseTest
+        self.assertEqual([announces.caution(x) for x in (rule.LINE, announces.EXAMPLE_BENEFIT_LINE, "")], ["", "", ""])
+        self.assertTrue(announces.clause_fits(rule.RULE, rule.ASK, rule.CLAUSE, rule.LINE))
+        one = "キャンセルや変更は前日までにご連絡いただければ料金はかからずそれ以降はキャンセル料がかかりますのでご了承ください。"
+        self.assertTrue(announces.fits(one, self.ASK, one))
+        self.assertTrue(announces.clause_fits(one, self.ASK, "キャンセルや変更は前日までにご連絡いただければ料金はかからずそれ以降はキャンセル料がかかる", one))
+        self.assertFalse(announces.clause_fits(one, self.ASK, "前日を過ぎたキャンセルや変更はキャンセル料がかかる", one))   # 「過」も「以降」の落としも今のまま止める
+        self.assertTrue(announces.clause_fits(announces.EXAMPLE_BENEFIT_EXPL, self.ASK, "キャンセルは前日までにご連絡いただければ料金はかからない",
+                                              announces.EXAMPLE_BENEFIT_LINE))
+
+    def test_the_import_ask_teaches_the_caution_clause(self):
+        # 問い合わせの例（お知らせの文の問いと同じ2つの文の例）の句も同じ形で、形の確かめを通る。前の例（2つの文の中身を全部持つ句）は教えない
+        import announces
+        p = announces.MATTER_PROMPT
+        self.assertIn(f"clause は「{announces.EXAMPLE_CLAUSE}」", p)
+        self.assertEqual(announces.EXAMPLE_CLAUSE, "前日を過ぎたキャンセルや変更はキャンセル料がかかる")
+        self.assertNotIn("料金がかからずそれ以降は", p)
+        self.assertIn(f"「{announces.BACK}」は、良い点の文の期限の言葉を使って「（期限）{announces.PAST}」と言います", p)
+        self.assertIn("「前日以降」とは書きません", p)
+        self.assertTrue(announces.clause_fits(announces.EXAMPLE_EXPL, announces.EXAMPLE_ASK, announces.EXAMPLE_CLAUSE, announces.EXAMPLE_LINE))
+
+    def test_the_import_takes_the_caution_clause_and_the_line_is_the_users(self):
+        # 取込（import_ai.decide_matters の1か所）：2つの文字のAIがそろって伺い96 アの形の句を答えれば、その句（形の確かめは announces.clause_fits の1か所）。
+        # 2つの文の中身を全部持つ句は通さない（考える Sonnet にも無ければ空＝名詞の形「（名詞）の件のお返事の…」）。文を組むのは今の flowctl.accepted_line の1か所
+        import json
+        from types import SimpleNamespace
+        import import_ai
+        from flowctl import Question, accepted_line
+        from phrases import ACK
+
+        def gemini(got):
+            class Models:
+                def generate_content(self, model, contents, config):
+                    return SimpleNamespace(text=json.dumps({"items": got}))
+            return SimpleNamespace(models=Models())
+
+        items = [(self.EXPL, self.ASK, self.LINE)]
+        for clause, want in ((self.CLAUSE, self.CLAUSE), (self.WHOLE, "")):
+            got = [{"no": 1, "matter": "キャンセルや変更", "clause": clause}]
+            self.assertEqual(import_ai.decide_matters([(gemini(got), "m1"), (gemini(got), "m2")], items), [("キャンセルや変更", want)], clause)
+        q = Question("Q2", self.ASK, "yes_no", conditions=("はい", "いいえ"), approval=True, intro=self.EXPL, announce=self.LINE, matter="キャンセルや変更",
+                     matter_clause=self.CLAUSE)
+        self.assertEqual(ACK["arigatou"] + ACK["moushiwake_heavy"] + accepted_line(q, heard=False)[1], self.USER)
+        self.assertEqual(len(self.USER), 92)   # 伺いの文の数（「ありがとうございます。」から「？」まで）
 
 
 class ImportFormsReviewTest(unittest.TestCase):
@@ -31543,7 +31636,7 @@ class SpokenFeeNoBracketsTest(unittest.TestCase):
         for b in ("キャンセル料（変更料）", "キャンセル料(変更料)"):
             line = self.EXPL.replace("キャンセル料や変更料", b)
             self.assertFalse(announces.fits(line, self.ASK, line), line)
-        clause = "キャンセルや変更は前日までにご連絡いただければ料金がかからずそれ以降はキャンセル料や変更料がかかる"
+        clause = "前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる"   # 2つの文のお知らせの句は気をつけていただく文から（伺い96 ア＝UnheardCautionClauseTest）
         self.assertTrue(announces.clause_fits(self.EXPL, self.ASK, clause, self.EXPL))
         bad = clause.replace("キャンセル料や変更料", "キャンセル料（変更料）")
         src = self.EXPL.replace("キャンセル料や変更料", "キャンセル料（変更料）")
