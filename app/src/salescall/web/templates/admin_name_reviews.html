@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty, flash, csrf %}
+{% block title %}名前の録音の審査{% endblock %}
+{% block main %}
+<h1>名前の録音の審査</h1>
+<p class="lead">契約者が作った名前の録音（役職・お名前・続く言葉）を、まとめて流して聞き、システムの共通の録音に入れるかを1回で決めます。入れた録音は、すべての契約者の電話で使われます。入れなかった録音も、作った業務では使い続けます。</p>
+{{ flash(done, ok) }}
+{#- 一覧・聞く・決める・チェック不要は、どれも core の recordings / recording_audio の1か所（画面は並べて送るだけ）。聞かずに決める形は作らない -#}
+{% if count %}
+<form method="post" action="/admin/name-reviews" data-must-hear
+      data-confirm="表の {{ count }}件の名前の録音のうち、{radio:marks}。入れた録音は、すべての契約者の電話で使われます（決めたあとは戻せません）。" data-confirm-ok="決める">
+  {{ csrf(token) }}
+  <div class="card review-head">
+    <fieldset class="plain">
+      <legend class="field">レ点の意味（どちらか選んでください）</legend>
+      <label class="choice"><input type="radio" name="marks" value="admit" required data-word="レ点を付けた {checked:marked}件をシステムの共通の録音に入れ、ほかの {unchecked:marked}件は入れません"> レ点を付けた録音だけ入れる<span class="muted">（ほかは入れない）</span></label>
+      <label class="choice"><input type="radio" name="marks" value="exclude" required data-word="レ点を付けた {checked:marked}件は入れず、ほかの {unchecked:marked}件をシステムの共通の録音に入れます"> レ点を付けた録音だけ入れない<span class="muted">（ほかは入れる）</span></label>
+    </fieldset>
+    <div class="actions">
+      <button class="btn" type="button" data-play-all>▶ まとめて流す</button>
+      <span class="muted" aria-live="polite">聞いた録音：<b data-heard-count>{{ heard|length }}</b> / {{ count }}</span>
+    </div>
+  </div>
+  {% for items in groups %}{% set first = items[0] %}
+  <section class="card review-group">
+    <h2>{{ first.tenant_name }}{% if first.skipped %} {{ tag("チェック不要の契約者", "info") }}{% endif %}<span class="muted small"> {{ items|length }}件</span></h2>
+    <div class="table-scroll"><table class="list">
+      <thead><tr><th class="check">レ点</th><th>依頼者・業務</th><th>録音</th><th>聞く</th><th></th></tr></thead>
+      <tbody>{% for i in items %}
+        <tr data-heard="{{ 1 if i.set_id in heard else 0 }}">
+          <td class="check"><input type="hidden" name="shown" value="{{ i.set_id }}"><input type="checkbox" name="marked" value="{{ i.set_id }}" aria-label="「{{ i.key }}」にレ点"></td>
+          <td>{{ i.client_name }}<div class="muted">{{ i.business_name }}</div></td>
+          <td><b>{{ i.key }}</b><div class="muted">「{{ i.part.spoken_text }}」・声 {{ i.voice_name }}</div></td>
+          <td><audio controls preload="none" src="/admin/name-reviews/{{ i.set_id }}/{{ i.part.part }}.wav"></audio></td>
+          <td class="nowrap"><span class="heard-mark">{{ tag("聞いた", "ok") }}</span></td>
+        </tr>{% endfor %}
+      </tbody>
+    </table></div>
+    <div class="actions">
+      <button class="btn small" type="submit" form="skip-{{ first.tenant_id }}">{{ 'この契約者をチェックする形に戻す' if first.skipped else 'この契約者をチェック不要にする' }}</button>
+    </div>
+  </section>
+  {% endfor %}
+  <div class="actions">
+    <button class="btn main" type="submit" data-needs-heard {% if heard|length < count %}disabled{% endif %}>決める</button>
+    <span class="why-disabled" data-needs-heard-why {% if heard|length >= count %}hidden{% endif %}>押せない理由：まだ聞いていない録音があります（「まとめて流す」で全部聞けます）</span>
+  </div>
+</form>
+{% for items in groups %}{% set first = items[0] %}
+<form id="skip-{{ first.tenant_id }}" method="post" action="/admin/name-reviews/skip" hidden
+      data-confirm="契約者「{{ first.tenant_name }}」の名前の録音を、{{ 'これから管理者が聞いて決める形に戻します' if first.skipped else 'これから管理者のチェックなしでシステムの共通の録音に入れます（契約者が承認すれば入ります）' }}。"
+      data-confirm-ok="{{ 'チェックする形に戻す' if first.skipped else 'チェック不要にする' }}">{{ csrf(token) }}
+  <input type="hidden" name="tenant_id" value="{{ first.tenant_id }}"><input type="hidden" name="skip" value="{{ 0 if first.skipped else 1 }}"></form>
+{% endfor %}
+{% else %}
+<div class="card">{{ empty("いま審査を待っている名前の録音はありません", "契約者が名前の録音を作って承認すると、ここに並びます。チェック不要にした契約者の録音は、決まった間隔の仕事が聞かずに入れます。") }}</div>
+{% endif %}
+{% endblock %}

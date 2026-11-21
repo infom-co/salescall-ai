@@ -85,6 +85,33 @@
     if (e.key !== "Escape") return;
     document.querySelectorAll("details.info[open]").forEach(function (d) { d.open = false; d.querySelector("summary").focus(); });
   });
+  // 聞いてから決める表（data-must-hear。名前の録音の審査）：録音を最後まで流したら「聞いた」にし、全部聞くまで「決める」を押せない形にする
+  // （本当に聞いたかの記録と断りはサーバーの1か所＝core の review_listen と画面のサーバーの確かめ。ここは見た目を合わせるだけ）。
+  // 「まとめて流す」は、表の録音を上から順に1つずつ流す（流している行に印）。
+  function hearState(form) {
+    var rows = form.querySelectorAll("tr[data-heard]"), n = 0;
+    rows.forEach(function (r) { if (r.getAttribute("data-heard") === "1") n++; });
+    var c = form.querySelector("[data-heard-count]"); if (c) c.textContent = n;
+    var all = n === rows.length, b = form.querySelector("[data-needs-heard]"), why = form.querySelector("[data-needs-heard-why]");
+    if (b) b.disabled = !all; if (why) why.hidden = all;
+  }
+  document.addEventListener("ended", function (e) {
+    var r = e.target.closest && e.target.closest("form[data-must-hear] tr[data-heard]"); if (!r) return;
+    r.setAttribute("data-heard", "1"); r.classList.remove("playing"); hearState(r.closest("form"));
+  }, true);
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-play-all]"); if (!b) return;
+    var list = Array.prototype.slice.call(b.closest("form").querySelectorAll("tr[data-heard] audio"));
+    var i = 0;
+    function next() {
+      if (i >= list.length) return;
+      var a = list[i++], row = a.closest("tr"); row.classList.add("playing"); row.scrollIntoView({ block: "nearest" });
+      a.addEventListener("ended", next, { once: true });
+      a.addEventListener("error", function () { row.classList.remove("playing"); next(); }, { once: true });
+      a.play().catch(function () { row.classList.remove("playing"); next(); });
+    }
+    next();
+  });
   // 依頼者のタブが横に入りきらないとき、いま開いている依頼者のタブを見える所へ送る
   document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll("[data-scroll-current]").forEach(function (s) {
@@ -176,7 +203,16 @@
   // 文の {n} は選んだお客様の数、{select:名前} はその選ぶ欄でいま選んでいる言葉（送る直前の値で書く）
   var pendingConfirm = null;
   function confirmText(form) {
+    function count(name, on) {
+      return String(Array.prototype.filter.call(form.querySelectorAll("input[name=" + name + "]"), function (b) { return b.checked === on; }).length);
+    }
     return form.getAttribute("data-confirm")
+      // 選んだ丸の言葉（data-word。中にレ点の数の印を書ける）→ レ点の数 {checked:名前}・{unchecked:名前}
+      .replace(/\{radio:([a-z_]+)\}/g, function (_, name) {
+        var r = form.querySelector("input[type=radio][name=" + name + "]:checked");
+        return r ? (r.getAttribute("data-word") || "") : "";
+      })
+      .replace(/\{(un)?checked:([a-z_]+)\}/g, function (_, un, name) { return count(name, !un); })
       .replace(/\{n\}/g, String(form.querySelectorAll("input[name=task_id]:checked").length))
       .replace(/\{select:([a-z_]+)\}/g, function (_, name) {
         var sel = form.querySelector("select[name=" + name + "]");

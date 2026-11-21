@@ -113,9 +113,17 @@ def playable_parts(tx: Tx, set_id: Any, only: list[str] | None = None) -> list[s
 
 def unheard_parts(tx: Tx, set_id: Any) -> list[str]:
     """その録音の組のうち、いま操作している方（取引の方）がまだ聞いていない部分（聞いた記録は core の recording_audio.listen が残す）。"""
-    return [r["part"] for r in tx.all(
-        "SELECT r.part FROM salescall.recordings r WHERE r.set_id = %s AND NOT EXISTS (SELECT 1 FROM salescall.recording_listens l"
-        " WHERE l.set_id = r.set_id AND l.part = r.part AND l.listened_by = salescall.cur_actor()) ORDER BY r.part", (set_id,))]
+    parts = [r["part"] for r in tx.all("SELECT part FROM salescall.recordings WHERE set_id = %s ORDER BY part", (set_id,))]
+    return unheard_of(tx, set_id, parts)
+
+
+def unheard_of(tx: Tx, set_id: Any, parts: list[str]) -> list[str]:
+    """渡した部分のうち、いま操作している方がまだ聞いていない部分（聞いたかを決めるのは、ここ1か所）。部分を渡す形にしたのは、名前の録音の審査
+    （管理者のシステムの取引）からは契約者の録音の部分が見えず、部分は審査の一覧（core の recordings.name_reviews）が答えるため
+    （⛔ 2026-11-21：見えない部分を読むと「聞いていない部分は無い」になり、聞かずに決められた＝試験で見つけた）。"""
+    heard = {r["part"] for r in tx.all("SELECT DISTINCT part FROM salescall.recording_listens WHERE set_id = %s AND part = ANY(%s)"
+                                        " AND listened_by = salescall.cur_actor()", (set_id, list(parts)))}
+    return [p for p in parts if p not in heard]
 
 
 def _audio(set_id: Any, parts: list[str]) -> tuple[tuple[str, str], ...]:
@@ -450,6 +458,21 @@ def _fixes(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     return items
 
 
+def _name_reviews(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
+    """名前の録音の審査（管理者だけ。全体の取引）：1件ずつのカードにせず、1つの束で出す（✅ 2026-11-04 管理者「まとめて流して…1回の操作」＝
+    設計書 4章の (1)）。聞いて決めるのは審査の画面（/admin/name-reviews）。一覧は core の recordings.name_reviews の1か所。"""
+    if task is not None or run is not None:
+        return []
+    items = recordings.name_reviews(tx)
+    if not items:
+        return []
+    tenants = list(dict.fromkeys(i.tenant_name for i in items))
+    return [Item("name_review", {}, "名前の録音の審査", f"契約者が作った名前の録音 {len(items)}件を、システムの共通の録音に入れるか",
+                 evidence=[("契約者", "・".join(tenants))], at=min(i.created_at for i in items),
+                 if_not="決めるまで、その録音は作った業務の電話だけで使われます（ほかの契約者の電話には入りません）。",
+                 buttons=(Button("open", "まとめて聞いて決める", main=True, go="/admin/name-reviews"),))]
+
+
 KINDS: dict[str, Kind] = {
     "apology": Kind("お詫びの電話の承認", _apologies, {
         "approve": (_approve_apology, "承認しました。お詫びの電話をかけます。"),
@@ -496,6 +519,7 @@ KINDS: dict[str, Kind] = {
     "fix": Kind("修正依頼の承認", _fixes, {
         "approve": (lambda tx, k: fix_requests.approve(tx, int(k["request_id"])), "承認しました。"),
     }, where="system"),
+    "name_review": Kind("名前の録音の審査", _name_reviews, {}, where="system"),   # 決めるのは審査の画面（束で決める）
 }
 
 

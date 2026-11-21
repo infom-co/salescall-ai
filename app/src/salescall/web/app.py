@@ -790,6 +790,84 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             return page(request, "admin_tenants.html", person, ctx, tenants=rows, active="admin_tenants")
         return handle(request, render)
 
+    # ── 名前の録音の審査（管理者だけ。✅ 2026-11-04 管理者「まとめて流して、私がレ点を入れたものをのみ登録、もしくは除外を入れたもののみ、
+    #    登録されないという登録方法に」・「どの契約者・どの業務のものかは出るようにしとかないとダメ」。一覧＝core の recordings.name_reviews、
+    #    聞く＝recording_audio.review_listen、決める＝recordings.review_names、チェック不要の契約者＝set_name_review_skip。docs/DASHBOARD.md 5-15）
+    @app.get("/admin/name-reviews")
+    def name_reviews(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        from salescall.core import recordings
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                items = recordings.name_reviews(tx)
+                heard = {i.set_id for i in items if not inbox.unheard_of(tx, i.set_id, [i.part.part])}   # 聞いた記録は core の review_listen が残す
+                groups: dict[UUID, list[Any]] = {}
+                for i in items:
+                    groups.setdefault(i.tenant_id, []).append(i)
+                return {"groups": list(groups.values()), "heard": heard, "count": len(items)}
+            return page(request, "admin_name_reviews.html", person, ctx, active="name_reviews", done=done, ok=bool(ok),
+                        marks=recordings.REVIEW_MARKS, **ctx.system(read))
+        return handle(request, render)
+
+    @app.get("/admin/name-reviews/{set_id}/{part}.wav")
+    def name_review_listen(request: Request, set_id: UUID, part: str) -> Response:
+        """審査で名前の録音の1つの部分を聞く（音を読むのも聞いた記録を残すのも core の recording_audio.review_listen の1か所）。"""
+        from salescall.core import recording_audio
+        def render(person: Person, ctx: Ctx) -> Response:
+            try:
+                data = ctx.system(lambda tx: recording_audio.review_listen(tx, set_id, part))
+            except recording_audio.AudioMissing:
+                return problem(request, 404, "見つかりません", "その録音は、いま聞けません（もう決めた録音かもしれません）。")
+            return Response(data, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+        return handle(request, render)
+
+    @app.post("/admin/name-reviews")
+    async def name_reviews_decide(request: Request) -> HTMLResponse:
+        """一覧に出した録音を、1回の操作でまとめて決める（決めるのは core の recordings.review_names の1か所。1つの組は1回だけ＝データベース）。
+        まだ聞いていない録音があれば決めない（聞かずに決める形を作らない＝受け箱の録音の承認と同じ決まり）。"""
+        from salescall.core import recordings
+        form = await request.form(max_fields=20_000)
+        def ids(name: str) -> list[UUID]:
+            try:
+                return [UUID(str(v)) for v in form.getlist(name)]
+            except ValueError:
+                raise NotFound() from None
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            shown, marked, marks = ids("shown"), ids("marked"), str(form.get("marks") or "")
+            def do(tx: Any) -> dict[UUID, UUID | None]:
+                if marks not in recordings.REVIEW_MARKS:
+                    raise actions.Refused("レ点の意味を選んでください")
+                if not shown:
+                    raise actions.Refused("決める録音がありません")
+                parts = {i.set_id: i.part.part for i in recordings.name_reviews(tx)}   # 審査を待っている組の部分（決めたあとの組は core が断る）
+                left = [x for x in shown if x in parts and inbox.unheard_of(tx, x, [parts[x]])]
+                if left:
+                    raise actions.Refused(f"録音をすべて聞いてから決めてください（まだ聞いていない録音が {len(left)} つあります）")
+                return recordings.review_names(tx, shown, marked, marks=marks)
+            out = actions.act(secret, person.login_id, dict(form), lambda: ctx.system(do), done="")
+            if out.ok:
+                admitted = sum(1 for v in out.value.values() if v is not None)
+                out = actions.Outcome(True, f"{len(out.value)}件を決めました：システムの共通の録音に入れた {admitted}件・入れなかった "
+                                            f"{len(out.value) - admitted}件（入れなかった録音も、その業務では使い続けます）。")
+            return _back("/admin/name-reviews", out)
+        return handle(request, render)
+
+    @app.post("/admin/name-reviews/skip")
+    async def name_reviews_skip(request: Request) -> HTMLResponse:
+        """その契約者の名前の録音を、管理者のチェックなしでシステムの共通の録音に入れるか（core の recordings.set_name_review_skip。変えた記録は残る）。"""
+        from salescall.core import recordings
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            try:
+                tenant = UUID(str(form.get("tenant_id") or ""))
+            except ValueError:
+                raise NotFound() from None
+            skip = str(form.get("skip") or "") == "1"
+            out = actions.act(secret, person.login_id, form, lambda: ctx.system(lambda tx: recordings.set_name_review_skip(tx, tenant, skip)),
+                              done=("この契約者の名前の録音は、これから管理者のチェックなしで入ります（決まった間隔の仕事が入れます）。" if skip
+                                    else "この契約者の名前の録音は、これから管理者が聞いて決めます。"))
+            return _back("/admin/name-reviews", out)
+        return handle(request, render)
+
     @app.get("/admin/settings")
     def system_settings(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
         """システムの初めの値（管理者だけ。管理者でなければ「見つかりません」）。"""

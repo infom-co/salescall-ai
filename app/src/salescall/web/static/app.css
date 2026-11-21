@@ -652,3 +652,11 @@ details.info > summary:focus-visible { outline: 2px solid var(--primary); outlin
 details.info .info-body { position: absolute; left: 12px; right: 12px; z-index: 8; display: block; margin-top: 8px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: 0 8px 24px rgba(16,24,40,.16);
   color: var(--text); font-size: 13px; font-weight: 400; line-height: 1.75; text-align: left; overflow-wrap: anywhere; white-space: normal; }
+
+/* 名前の録音の審査（admin_name_reviews）：聞いた行に「聞いた」の札、流している行に印 */
+tr[data-heard] .heard-mark { visibility: hidden; }
+tr[data-heard="1"] .heard-mark { visibility: visible; }
+tr.playing { background: var(--primary-soft); }
+tr[data-heard] audio { height: 32px; max-width: 240px; }
+.review-head .actions { margin-top: 12px; align-items: center; }
+.review-group { margin-top: 12px; }

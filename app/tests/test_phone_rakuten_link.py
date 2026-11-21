@@ -313,3 +313,26 @@ class Apology(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SameShapeAsThePhoneOfTheLink(unittest.TestCase):
+    """電話の部品は、PC の部品の土台が呼ぶ形（CL-2 の `link/phone.Phone`）とそろっている（ずれると、土台が呼んだときに落ちる。2026-11-21：知らせの部品で
+    見守り役の呼び方とずれていたのを見つけた＝同じことを電話の部品でも起こさないための見張り）。名前で渡す引数（* のあと）は、名前がそろっていること。"""
+
+    def test_every_operation_of_the_phone_is_there_with_the_same_named_arguments(self):
+        import inspect
+        from salescall.link.phone import Phone
+        ops = [n for n, f in vars(Phone).items() if callable(f) and not n.startswith("_")]
+        self.assertIn("play", ops)
+        for name in ops:
+            with self.subTest(op=name):
+                self.assertTrue(hasattr(rakuten_link.RakutenLink, name))
+                want = inspect.signature(getattr(Phone, name)).parameters.values()
+                have = inspect.signature(getattr(rakuten_link.RakutenLink, name)).parameters
+                for p in want:
+                    if p.kind is p.KEYWORD_ONLY:
+                        self.assertIn(p.name, have)                                  # 名前で渡す引数は同じ名前で受ける
+                pos = lambda ps: [p for p in ps if p.kind is p.POSITIONAL_OR_KEYWORD]   # noqa: E731
+                self.assertGreaterEqual(len(pos(have.values())), len(pos(want)))         # 呼ぶ側の位置の引数を、すべて受ける
+                self.assertLessEqual(len([p for p in pos(have.values()) if p.default is p.empty]),
+                                     len([p for p in pos(want) if p.default is p.empty]))   # 呼ぶ側が渡さないものを求めない
