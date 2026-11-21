@@ -627,6 +627,10 @@ ul.done-steps span { color: var(--ok); margin-right: 4px; }
 /* パソコンの幅では、道しるべを画面の高さに収め、道しるべだけを送れる形に（本文を下へ送っても残り、いちばん下の「管理者だけ」にも届く。
    2026-11-21 の見直し：依頼者・業務の段が足されると、道しるべが画面の高さを超えて「管理者だけ」が押し出されていた）。狭い幅は ≡ の中（上の @media） */
 @media (min-width: 901px) {
-  .nav { position: sticky; top: var(--chrome, 108px); align-self: start; max-height: calc(100vh - var(--chrome, 108px)); overflow-y: auto; }
+  .nav { position: sticky; top: var(--chrome, 108px); align-self: start; height: calc(100vh - var(--chrome, 108px)); overflow-y: auto; }   /* 高さは画面ちょうど（上限にすると、中身が短いとき地の色が途中で切れた） */
 }
+/* 「本文へ」：ふだんは隠し、Tab で選んだときだけ左上に出す */
+.skip-link { position: absolute; left: 8px; top: -60px; z-index: 100; padding: 8px 14px; border-radius: 8px; background: var(--primary); color: var(--primary-ink); font-weight: 700; }
+.skip-link:focus { top: 8px; }
+main.content:focus { outline: none; }
 

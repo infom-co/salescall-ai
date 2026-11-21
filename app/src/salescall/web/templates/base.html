@@ -10,6 +10,8 @@
 <script src="/static/app.js" defer></script>
 </head>
 <body hx-headers='{"X-Form-Token": "{{ token }}"}'>
+{#- キーボードで使う方のための「本文へ」（Tab で選んだときだけ見える。2026-11-21：本文まで Tab を32回押す必要があった） -#}
+<a class="skip-link" href="#main">本文へ</a>
 <header class="top">
   <button class="btn small menu-toggle" type="button" aria-label="メニューを開く">≡<span class="menu-word"> メニュー</span></button>
   <a class="brand" href="/t">Sales<b>Call</b></a>
@@ -77,7 +79,7 @@
       <form method="post" action="/logout" class="logout"><input type="hidden" name="{{ token_field }}" value="{{ token }}"><button class="btn small" type="submit">ログアウト</button></form>
     </div>
   </nav>
-  <main class="content">
+  <main class="content" id="main" tabindex="-1">
     {% if ctx.acting_for_other %}
     <form class="acting" method="post" action="/admin/acting">
       <input type="hidden" name="{{ token_field }}" value="{{ token }}">
