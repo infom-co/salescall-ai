@@ -82,8 +82,9 @@ CL2_PENDING_VALUES: dict = {}
 CL2_PENDING_ANSWER_RESERVED: frozenset[str] = frozenset({"yes", "Yesの質問の中身", "but", "ただに続ける中身", "ahead", "今後の心配の句"})
 # CL-2 の名前の組（比べる試験 Cl2Answers1119Test の test_6_names_match_cl2 の表の組の名前）に、まだ入っていない会話の側の値（名前の組ごと）。名前そのものは CL-2 の
 # ほかの組にもう在る（例：番号違い wrong_party は PARTY_KINDS に在る）ので CL2_PENDING には入れられない。CL-2 の組に入ったら落ちる＝外す。
-# HURRIED_ENDS の wrong_party＝番号違いの締めのあとも7秒で切ってよい（分身 B（rv179 の束1 の E1）。CL-2 へ知らせる＝rv179/B/notes.md）
-CL2_PENDING_IN: dict[str, frozenset[str]] = {"HURRIED_ENDS": frozenset({"wrong_party"})}
+# （2026-11-21 に HURRIED_ENDS の wrong_party を外した：CL-2 の業務の土台は HURRIED_ENDS・hurried をどこからも読んでいない＝締めのあと何秒で切ってよいかの持ち物は会話の側の
+# flowctl.CLOSE_KINDS の1か所。比べる組から HURRIED_ENDS を外し、CL-2 が写しを消す＝CL-2 の連絡帳 4-462 の (2)・CL-1.md 4-230）
+CL2_PENDING_IN: dict[str, frozenset[str]] = {}
 # （2026-11-20 日本時間21時台に外した：CL-2 の第3便が main に入った＝15c02cea・CL-2 の連絡帳 4-445＝CL-1.md 4-219・4-220：CL2_PENDING の recall・顧客獲得型の1つ目と2つ目の
 # 名前（Y1・Y2・refusal_said・yes_used_up・no_pain・共通の一言の録音と名前の録音の台帳の続く言葉）・分身 M の共通の一言の録音3つ（wrong_number_ask・omatase・wait_soon）と
 # 役職の方の名乗りの部分4つと to_role・role_call・名前の前の言葉の録音5つ（name_head_*）・分身 N の available_until・clock24・mobile_owner・空いている予定と連絡先
@@ -38962,7 +38963,7 @@ class Cl2Answers1119Test(unittest.TestCase):
         # CL-2 の 4-405 の (4)：同じ決まりが両側にあるのに比べる試験が無かった名前（片方だけ変えると本番で報告が丸ごと断られる・判定が割れる）。会話の側に対の名前が
         # 無かったもの（値を聞く質問の選択肢・はい／いいえの選択肢・W1 の答えの状態・申し出の結び）は名前を作り、作りがその名前を読む（1か所）。根拠の発話の長さの
         # 上限の写し（[:80]）は FACT_SAID_MAX の1か所（fact_said）
-        from flowctl import (AMBIGUOUS_WORDS, CHOICE_TYPES, CYCLE_LABEL, DECLINED_ENDS, FACT_SAID_MAX, JUDGMENTS, LINE_HOW, NOT_A_PERSON, OFFER_ENDS,
+        from flowctl import (AMBIGUOUS_WORDS, CHOICE_TYPES, CYCLE_LABEL, FACT_SAID_MAX, JUDGMENTS, LINE_HOW, NOT_A_PERSON, OFFER_ENDS,
                              OFFER_ROLES, PARTY_LABEL, POINT_ENDS, PROPOSAL_TERMS, SMS_KINDS, TAKEN, TARGET_IS_THERE, CARRIED_YES, UNTIL_LABEL, GOT,
                              VALUE_CHOICE, WISH_MEANS, WISH_STATES, YES_NO_CHOICES, callback_question, label)
         from phrases import NUMBER_AGAIN
@@ -38975,7 +38976,7 @@ class Cl2Answers1119Test(unittest.TestCase):
                  ("call_report.py", ("CARRIED_ANSWERS", "CARRIED_YES"), {label(c) for c in carried.all_conditions}),
                  ("call_report.py", "OTHER_WISH_MEANS", set(WISH_MEANS)), ("call_report.py", "OTHER_WISH_VIA", {via for via, _ in LINE_HOW.values()}),
                  ("call_report.py", "WISH_STATES", set(WISH_STATES)), ("call_report.py", "OFFER_OUTCOMES", set(OFFER_ENDS)),
-                 ("call_report.py", "NOT_AGREED_OUTCOMES", set(POINT_ENDS)), ("call_report.py", "HURRIED_ENDS", set(DECLINED_ENDS)),
+                 ("call_report.py", "NOT_AGREED_OUTCOMES", set(POINT_ENDS)),
                  ("call_report.py", "MACHINE_ENDS", set(NOT_A_PERSON)), ("call_report.py", "OFFER_KINDS", set(OFFER_ROLES)),
                  ("call_report.py", "PROPOSAL_KEYS", set(PROPOSAL_TERMS)),
                  ("business_settings.py", "REPLY_WORDS", set(AMBIGUOUS_WORDS)), ("business_settings.py", "CHOICE_TYPES", set(CHOICE_TYPES)),
@@ -42025,7 +42026,7 @@ class DeclinedCloseTableTest(unittest.TestCase):
     中で直に書いた断り・苦情で持ち、番号違い（wrong_party）で食い違った（締めの言葉は断られたときの締め・DECLINED_ENDS には無い＝読む担当 G が見つけ、CL-1 が作りで
     確かめた）。番号違いも同じ締め（本書 9-4「番号違いも同じ締めで終える」）＝締めのあと7秒で切ってよい側（本書 9-4 の「この締めのあと7秒以上たったら切ってよい」は
     断られたときの締めの言葉に付いた決まり。20秒は「質問が全部済んだ」お礼の締めのあと）。⛔ 59b4aa37 まで、番号違いは締めの言葉だけ同じ種類（declined）で、7秒に入れて
-    いなかった（分身 B（rv179 の束1 の E1）＝CL-1 が書いてある決まりで決めた。CL-2 の call_report.HURRIED_ENDS に入るまでは CL2_PENDING_IN が待つ）。"""
+    いなかった（分身 B（rv179 の束1 の E1）＝CL-1 が書いてある決まりで決めた。締めのあと何秒で切ってよいかの持ち物はこの表の1か所＝CL-2 の業務の土台は写しの HURRIED_ENDS を読んでいない＝比べる試験から外した＝CL-2 の連絡帳 4-462 の (2)）。"""
 
     def test_one_table_makes_the_close_sets(self):
         from flowctl import CLOSE_KINDS, DECLINED_ENDS, END_REASONS, REFUSED_ENDS, THANKS_ENDS
