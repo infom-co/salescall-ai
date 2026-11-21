@@ -30107,6 +30107,48 @@ class MatterItemsTest(unittest.TestCase):
         self.assertEqual(accepted_line(q)[1], "それではキャンセルや変更の件はご了承ということでよろしかったでしょうか？")
 
 
+class ItemsLinkTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L19 の (d)（分身 AE の (4)・分身 AA の書き置きの (6-3)）：並びの見分け（announces.keeps_items の1か所＝名詞 matter_fits・句 clause_fits）は、
+    並べた事柄（事柄の名前を「や」「と」「・」「および」「または」でつないだもの）の一部だけを言わない決まり。つなぐ言葉のあとが事柄の名前でなく、送り仮名で続く言葉の頭
+    （漢字1字のすぐあとに、事柄のあとに付く言葉＝助詞でないひらがなが続く＝「前日と同じ」の「同」・「山田と申します」の「申」）なら、そこは並びではない（「と」は比べる・
+    引く言葉）。⛔ それまで、「前日と同じ」も「前日」「同」の並びと読み、説明のどこかに「前日と同じ」があると、「前日」を言う句（「前日を過ぎた…」）がどれも通らなかった
+    （通さない側＝名詞の形）。今の試しの業務・束 aa1・ac1 の言葉には無く、作った例で起きた（分身 AE の書き置きの 2 章）。事柄の名前が2字より長い言葉の頭
+    （「キャンセルと同時に」の「同時」）は、言葉の形では事柄の名前と分けられないので、今までどおり並びと読む（通さない側）"""
+    ASK = UnheardCautionClauseTest.ASK
+
+    def test_a_word_that_goes_on_with_kana_is_not_a_listed_item(self):
+        import announces
+        for text, words in (("キャンセルは前日までにご連絡いただく決まりになっております。変更も前日と同じく承ります。", "キャンセルは前日までにご連絡いただく必要がある"),
+                            ("当日のキャンセルは通常料金と異なりキャンセル料がかかる決まりになっております。", "通常料金"),
+                            ("お支払いは18時と致します。", "お支払いは18時となる"),
+                            ("担当の山田と申します。キャンセルは前日までです。", "山田")):
+            self.assertTrue(announces.keeps_items(text, words), text)
+            self.assertEqual(announces._ITEMS.findall(text), [], text)
+
+    def test_listed_items_are_still_lists(self):
+        # 並べた事柄は今までどおり（つなぐ言葉は問わない・2字からの漢字の事柄の名前は「する」が続いても事柄・漢字1字の事柄の名前のあとに助詞が続く）
+        import announces
+        for text, part in (("キャンセルと変更は前日までにご連絡いただく決まりになっております。", "キャンセル"),
+                           ("キャンセルと変更される場合は前日までにご連絡いただく決まりになっております。", "キャンセル"),
+                           ("キャンセルや変更しますと料金がかかる決まりになっております。", "キャンセル"),
+                           ("朝と夜は料金が変わる決まりになっております。", "朝"),
+                           ("朝と夜まで受け付けております。", "朝"),
+                           ("朝と夜しか受け付けておりません。", "朝"),
+                           ("キャンセル料や変更料がかかる決まりになっております。", "キャンセル料"),
+                           ("キャンセルと同時にご返金いたします。", "キャンセル")):
+            self.assertFalse(announces.keeps_items(text, part), text)
+
+    def test_the_clause_with_the_deadline_passes_when_the_explanation_compares(self):
+        # 説明のどこかに「前日と同じ」があっても、「前日」を言う句（伺い96 アの形）が通る（前は通らず名詞の形）
+        import announces
+        expl = ("キャンセルは前日までのご連絡でしたら料金はかからない決まりになっております。それ以降のご連絡ですとキャンセル料がかかる決まりになっております。"
+                "変更も前日と同じ扱いになっております。")
+        line = "キャンセルは前日までにご連絡いただければ料金はかかりません。それ以降になってしまいますとキャンセル料がかかってしまうのでお気を付けください。"
+        self.assertTrue(announces.fits(expl, self.ASK, line))
+        self.assertTrue(announces.clause_fits(expl, self.ASK, "前日を過ぎたキャンセルはキャンセル料がかかる", line))
+        self.assertTrue(announces.matter_fits(expl, self.ASK, "キャンセル"))
+
+
 class CautionClauseFactsTest(unittest.TestCase):
     """帳面 1 の (6) の (i) の L18 の (1)（分身 AA の書き置きの (6-1)）：良い点と気をつけていただくことの2つの文のお知らせの句に求める数と期限の言葉は、気をつけて
     いただく文と、それが「それ以降」で指す良い点の文の期限（「（期限）まで」の言葉）だけ（伺い96 ア「確かめの句は気をつけていただくことの文だけから作る」＝✅ 2026-11-21
