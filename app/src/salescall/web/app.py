@@ -465,12 +465,13 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     @app.get("/t")
     def home(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
-            waiting = _waiting(ctx)
-            per_client = [{**c, **ctx.client(c["client_id"], counts.client_home, read_only=True),
+            waiting, stops_now = _waiting(ctx), counts.open_stops(ctx)
+            stopped = counts.stopped_clients(stops_now)
+            per_client = [{**c, **ctx.client(c["client_id"], counts.client_home, read_only=True), "stopped": str(c["client_id"]) in stopped,
                            "waiting": sum(1 for wc, _ in waiting if wc["client_id"] == c["client_id"])} for c in ctx.clients()]
             found = watch.collect(ctx)
             noticed = [(w, got) for _, w, got in found if w.attention and got]
-            return page(request, "home.html", person, ctx, ready=ctx.tenant(counts.readiness), stops=counts.open_stops(ctx), per_client=per_client, done=done, ok=bool(ok),
+            return page(request, "home.html", person, ctx, ready=ctx.tenant(counts.readiness), stops=stops_now, per_client=per_client, done=done, ok=bool(ok),
                         waiting_total=len(waiting), first=waiting[:3], watch_total=watch.attention_count(found), watch_first=noticed[:1],
                         system=ctx.tenant(counts.tenant_system))
         return handle(request, render)
@@ -489,7 +490,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             stops_now, waiting = counts.open_stops(ctx), _waiting(ctx)
             # 依頼者のタブの印（同じ数え方の内訳。依頼者の範囲の停止・その依頼者の承認待ち。契約者・全体の範囲の停止は帯の印だけ＝全部のタブに付けない）
-            stop_clients = sorted({str(r["client_id"]) for r in stops_now if r.get("client_id")})
+            stop_clients = sorted(counts.stopped_clients(stops_now))
             wait_clients = sorted({str(c["client_id"]) for c, _ in waiting if c.get("client_id")})
             return templates.TemplateResponse(request, "badges.html", {"n_stops": len(stops_now), "n_wait": len(waiting),
                                                                        "stop_clients": stop_clients, "wait_clients": wait_clients})

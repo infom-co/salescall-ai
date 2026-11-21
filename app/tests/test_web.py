@@ -450,6 +450,8 @@ class Web(_World):
         self.assertIn("この依頼者は無効です", page)
         self.assertIn("架空の取引を終えた", page)
         self.assertIn("（無効）", page)                                                     # タブにも
+        home = self.get("A", "/t").text
+        self.assertIn("無効</span>", home[home.index(f'<td><a href="/c/{cid}">'):].split("</tr>")[0])   # ホームの依頼者ごとの表にも
         self.assertIn("有効に戻す", self.get("A", f"/c/{cid}/settings").text)
         self.assertEqual(self.post("B", f"/c/{cid}/active", {"form_token": self.token("B"), "active": "1", "reason": "乗っ取り"}).status_code, 404)
         self.assertIn("ok=1", self.post("A", f"/c/{cid}/active", {"form_token": tok, "active": "1", "reason": "架空の取引を再開"}).headers["location"])
@@ -1027,6 +1029,11 @@ class EmergencyStop(_World):
             marks = re.search(r'data-tab-marks data-stop="([^"]*)"', self.get("A", "/t/badges").text).group(1).split()
             self.assertIn(str(self.y["client"]), marks)
             self.assertNotIn(str(self.a["client"]), marks)
+            # ホームの依頼者ごとの表も同じ答え（counts.stopped_clients）：止めた依頼者の行だけに「止めています」
+            home = self.get("A", "/t").text
+            row = lambda c: home[home.index(f'<td><a href="/c/{c}">'):].split("</tr>")[0]   # noqa: E731
+            self.assertIn("止めています", row(self.y["client"]))
+            self.assertNotIn("止めています", row(self.a["client"]))
         finally:
             self._resume_all(self.a["tenant"], self.y["client"], "client")
 

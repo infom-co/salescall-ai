@@ -18,6 +18,12 @@ _OPEN = ("SELECT event_id, scope::text AS scope, cause::text AS cause, reason, a
          " FROM salescall.open_stop_events")
 
 
+def stopped_clients(stops: list[dict[str, Any]]) -> set[str]:
+    """依頼者の範囲（依頼者・業務）の停止がある依頼者（タブの印とホームの依頼者ごとの表が同じ答えを使う。契約者・全体の範囲の停止は
+    帯とホームの上だけに出す＝全部の依頼者に付けない）。stops＝open_stops の答え。"""
+    return {str(r["client_id"]) for r in stops if r.get("client_id")}
+
+
 def open_stops(ctx: Ctx) -> list[dict[str, Any]]:
     """その契約者で、まだ解かれていない停止のすべて（新しい順）。
 
