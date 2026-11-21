@@ -22,7 +22,7 @@
 from __future__ import annotations
 
 from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, END_ANGRY, END_BRIEF, END_HURRY, END_NONE, END_PRESSED, END_REASONED, END_REFUSED, END_UNCLEAR, END_UPSET, END_WHO,
-                     LATER, QUERY, QUERY_NO, QUERY_YES, REFUSED_LABEL, THINKING, UNDECIDED, WHY_NOT_SAID)
+                     HESITATING, LATER, MISGIVING, MISGIVING_OFF, QUERY, QUERY_NO, QUERY_YES, REFUSED_LABEL, THINKING, UNDECIDED, WHY_NOT_SAID, misgiving_fits)
 
 YES_NO = ("はい", "いいえ")
 HEDGED = "（言い切っていない）"   # 答えの正解の印：その答えに寄っているが言い切っていない（判定の firm＝偽）
@@ -162,6 +162,33 @@ SIDE = {
     (DOCS, "上の者を出してください。"): {**_Q, AWAY: [AWAY_YES, UNDECIDED], "reason": _WHY_UNSAID},
 }
 
+# 迷っている点を言ったか（flowctl.MISGIVING＝項目を見せる質問 misgiving_fits の行だけ）の正解の理由（g53_labels.json の行の misgiving_why と同じ欄・同じ決め方＝帳面 0-3 の (2)
+# 一括で既定を付けない）：行の答えの正解を1行ずつ読み、どの行も「迷っている」が無い＝項目の説明「答えの選べるものが「迷っている」ではない」から「迷っていない」。分身 Q（CL-1 の頼み
+# rv183/Q の (3)＝分身 P の書き置き (6-5)）。項目を読まない質問の行には付けない（付けていない行は読んでいない＝g53_meaning.misgiving_truths）
+_MG = "答えの正解（{}）に「迷っている」が無い＝項目の説明から「迷っていない」"
+MISGIVING_WHY = {
+    (OFFER, "いま時間がないので結構です。"): _MG.format("いいえ・決められない＝急いでいる"),
+    (OFFER, "かけてこないでください。"): _MG.format("いいえ"),
+    (SEMINAR, "そういった案内はお断りします。"): _MG.format("参加しない"),
+    (SEMINAR, "こういう営業の電話、迷惑なんですけど。"): _MG.format("決められない＝営業の電話を断った"),
+    (HURRY_Q, "はい、急いでます。"): _MG.format("いいえ・決められない＝急いでいる"),
+    (VISIT, "訪問自体お断りします。"): _MG.format("いいえ"),
+    (PAMPHLET, "結構です。もうかけてこないでください。"): _MG.format("いいえ"),
+    (CONTACT, "今ちょっと立て込んでるので、手短にお願いできますか。"): _MG.format("決められない＝手短になら聞く"),
+    (CONTACT, "あとでかけ直してもらえますか。"): _MG.format("あとでかけ直す"),
+    (CONTACT, "今ちょっと忙しいので、あとでかけ直してもらえますか。"): _MG.format("あとでかけ直す"),
+    (PAY, "さっきから何なんですか、失礼じゃないですか。"): _MG.format("決められない＝怒っている"),
+    (PAMPHLET, "もういいです。"): _MG.format("いいえ"),
+    (PAMPHLET, "んーん。"): _MG.format("いいえ"),
+    (PAMPHLET, "うーん。"): _MG.format("決められない・考えている途中"),
+    (PAMPHLET, "うーん、送ってもらおうかな…。"): _MG.format("はい（言い切っていない）"),
+    (PAMPHLET, "うーん、今回はいいかなあ…。"): _MG.format("いいえ（言い切っていない）"),
+    (PAY, "たぶんカードかなと思います。"): _MG.format("カード（言い切っていない）"),
+    (PAMPHLET, "しつこいですね。いらないって言ってるでしょう。"): _MG.format("いいえ＝念を押して断った"),
+    (PAMPHLET, "もう切りますね。"): _MG.format("決められない＝この電話を終えたい"),
+    (PAY, "いい加減にしてください！"): _MG.format("決められない＝怒っている"),
+}
+
 # お呼びする段：(電話口の方, お客様の言葉, 電話を終える言葉かの正解, 理由, 項目ごとの正解の字)。項目ごとの正解の字は、お呼びする段の測り（g59_calling_judge
 # の F と同じ字＝前と同じ方か・誰か・電話のやり取り・お呼びした方の事情・5つ目は書いた行だけ＝お呼びした方が電話に出られない理由。並べた字のどれでもよい）。正解は、判定に見せる言葉（呼ぶ一言・その前に相手が
 # 言ったこと・お客様の言葉）だけから決める：受付の方の行は、呼ぶ一言への最初の言葉（その前の言葉は無い）・ご本人の行は、受付の方の
@@ -202,10 +229,17 @@ def answer_truths() -> dict:
     missing = set(SIDE) - {(qtext, words) for qtext, words, *_ in ANSWER}
     if missing:
         raise ValueError(f"足しの正解（SIDE）に、表の行に無い言葉がある：{sorted(missing)}")
+    # 迷っている点を言ったかの正解は、項目を見せる質問（misgiving_fits）の行ごとに1つ（足りない・余る・答えの正解に「迷っている」がある行は止める＝付け方の誤りを黙って通さない）
+    fits = {(qtext, words) for qtext, words, *_ in ANSWER if misgiving_fits(question(qtext))}
+    if set(MISGIVING_WHY) != fits:
+        raise ValueError(f"迷っている点を言ったかの正解（MISGIVING_WHY）が、項目を読む質問の行と合わない：{sorted(set(MISGIVING_WHY) ^ fits)}")
     out: dict = {}
     for qtext, words, ends, answers, _, why in ANSWER:
         acc = [a.removesuffix(HEDGED) for a in answers]
-        got = {"accept": acc, "hedged": any(a.endswith(HEDGED) for a in answers), "end": list(ends), "why": why, **SIDE.get((qtext, words), {})}
+        mg = {MISGIVING: [MISGIVING_OFF], "misgiving_why": MISGIVING_WHY[(qtext, words)]} if (qtext, words) in MISGIVING_WHY else {}
+        if mg and HESITATING in acc:
+            raise ValueError(f"答えの正解に「迷っている」がある行に「迷っていない」：{qtext}「{words}」")
+        got = {"accept": acc, "hedged": any(a.endswith(HEDGED) for a in answers), "end": list(ends), "why": why, **SIDE.get((qtext, words), {}), **mg}
         old = out.setdefault((qtext, words), got)
         if any(old[k] != got[k] for k in ("accept", "hedged", "end")):
             raise ValueError(f"同じ質問・同じ言葉の行で正解が違う：{qtext}「{words}」")

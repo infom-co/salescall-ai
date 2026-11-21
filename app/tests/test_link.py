@@ -61,18 +61,30 @@ class FakePhone:
         self.calls, self.busy, self.fail, self.hung, self.apologies, self.played = [], busy, fail, 0, 0, []
         self.send_audio = self.send_event = None
         self.ring, self.rings = None, []   # テスト番号の答え（True・False・None）と、試した番号
+        self.nationals = []                # 届いた番号の国内の形（かけた番号・試した番号の順）
+        self.ok, self.texts = True, []     # 使えるか（スマホと連携している）・送ったショートメール（国内の形・文）
+
+    def usable(self):
+        return self.ok
+
+    def send_sms(self, phone, text, *, national):
+        if self.fail:
+            raise self.fail
+        self.texts.append((national, text))
 
     def in_call(self):
         return self.busy
 
-    def test_ring(self, phone):
+    def test_ring(self, phone, *, national):
         self.rings.append(phone)
+        self.nationals.append(national)
         return self.ring
 
-    def start_call(self, phone, voice_type=None):
+    def start_call(self, phone, voice_type=None, *, national):
         if self.fail:
             raise self.fail
         self.calls.append(phone)
+        self.nationals.append(national)
         self.voice_type = voice_type
 
     def hang_up(self):
@@ -260,6 +272,7 @@ class Connect(LinkBase):
         driver.start_call("+81300000000")
         driver.hang_up()
         self.assertEqual((phone.calls, phone.hung), (["+81300000000"], 1))
+        self.assertEqual(phone.nationals, ["0300000000"])   # 国内の形はサーバーの番号の正規化の1か所が添える（CL-3 の連絡帳 60）
         phone.fail = CallNotPlaced("試験：アプリが番号を受け付けない")
         with self.assertRaises(CallNotPlaced) as e:
             driver.start_call("+81300000001")
@@ -369,9 +382,10 @@ class CallingState(LinkBase):
             with self.assertRaises(CallWithheld):
                 driver.test_ring("+81300000009")
         self.assertEqual(len(phone.rings), 3)
+        self.assertEqual(set(phone.nationals), {"0300000009"})
         phone.ring = True
         slow = phone.test_ring
-        phone.test_ring = lambda number: (time.sleep(0.6), slow(number))[1]   # 鳴らしているあいだに、答えの期限を過ぎた
+        phone.test_ring = lambda number, national: (time.sleep(0.6), slow(number, national=national))[1]   # 鳴らしているあいだに、答えの期限を過ぎた
         with mock.patch.object(protocol, "ANSWER_BY", 0.3):                     # 届く前にサーバーが待つのをやめた答え＝試さなかった
             with self.assertRaises(CallWithheld):                             # （見直し22 の 8：外しても落ちる試験が無かった）
                 driver.test_ring("+81300000009")
@@ -384,7 +398,7 @@ class CallingState(LinkBase):
         gone = self.hub.driver(s["line"], Attached(s["tenant"], uuid.uuid4(), 0))   # つながっていない
         with self.assertRaises(CallWithheld):
             gone.test_ring("+81300000009")
-        self.assertEqual(protocol.VERSION, 6)
+        self.assertGreaterEqual(protocol.VERSION, 6)
 
     def test_an_old_answer_does_not_unmark_a_new_call(self):
         """「通話中ではない」の答えは、聞いたときの印にだけ効く（聞いているあいだに、かけ直していれば外さない）。"""
@@ -399,6 +413,69 @@ class CallingState(LinkBase):
         session.call_began(line_id)
         session.call_over(line_id)                                             # 切った・おわびして切った：印を問わず外す
         self.assertFalse(session.open_calls)
+
+    def test_the_pc_dials_the_national_form_the_server_made_and_withholds_without_it(self):
+        """PC の電話の部品へは、かける番号の国内の形も渡る（電話のアプリの番号の欄は国内の形しか受けない。CL-3 の連絡帳 60）。国内の形を作るのはサーバーの
+        番号の正規化の1か所（core/phone）で、PC の部品は番号の形を変えない（見張り Q1）。国内の形の無い頼み（前の版のサーバー）は、かけようとしない・試さない
+        （withheld＝どの数にも入れない）。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        session = self.hub.sessions[got.pc_id]
+        for op in ("start_call", "test_ring"):
+            with self.subTest(op=op):
+                answer = self.hub.ask(session, "request", op=op, line=s["line"], phone="+81300000000")
+                self.assertEqual((answer.get("ok"), answer.get("error")), (False, "withheld"))
+        self.assertEqual((phone.calls, phone.rings), ([], []))
+        driver.start_call("+81300000001")
+        self.assertEqual((phone.calls, phone.nationals), (["+81300000001"], ["0300000001"]))
+        self.assertGreaterEqual(protocol.VERSION, 7)   # 国内の形を渡す形の版から（前の版の PC の部品は、つなぐと更新を求められる）
+
+
+    def test_a_short_message_is_sent_from_the_line_and_withheld_during_a_call(self):
+        """ショートメール（CL-3 の連絡帳 62 の (1)）：その回線のスマホから、宛先の国内の形と文を電話の部品へ渡す。通話の途中は送らない（画面の操作で通話を
+        乱さない＝withheld）。送れなかったと確かに言える＝CallNotPlaced・送れたか分からない＝RuntimeError（知らせを送る部品は、どれも次の送り方へ）。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver.send_sms("+819000000001", "架空の知らせ")
+        self.assertEqual(phone.texts, [("09000000001", "架空の知らせ")])
+        phone.busy = True
+        with self.assertRaises(CallWithheld):
+            driver.send_sms("+819000000001", "架空の知らせ")
+        phone.busy = False
+        with self.assertRaises(CallWithheld):                                  # 文が無い：送らない
+            driver.send_sms("+819000000001", " ")
+        phone.fail = CallNotPlaced("試験：宛先がスマホの連絡先にありません")
+        with self.assertRaises(CallNotPlaced):
+            driver.send_sms("+819000000001", "架空の知らせ")
+        phone.fail = RuntimeError("試験：送れたか分からない")
+        with self.assertRaises(RuntimeError):
+            driver.send_sms("+819000000001", "架空の知らせ")
+        self.assertEqual(len(phone.texts), 1)
+        self.assertEqual(protocol.VERSION, 8)
+
+    def test_a_line_the_phone_cannot_use_is_left_out_of_the_beat_and_comes_back(self):
+        """電話の部品が「使えない」と答えた回線は、合図の lines から外れ、サーバーはその回線を見せない（かけない）。使えるに戻れば、すぐ戻る
+        （CL-3 の連絡帳 62 の (2)）。答えられない電話の部品は、使えないとみなす。通話の途中の回線は外さない（お客様を無言で放置しない）。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        until(lambda: s["line"] in self.hub.lines(), "使える回線は見せる")
+        phone.ok, phone.busy = False, True
+        time.sleep(2.5)
+        self.assertIn(s["line"], self.hub.lines())                            # 通話の途中は外さない（声・おわびを通す）
+        phone.busy = False
+        until(lambda: s["line"] not in self.hub.lines(), "使えない回線は、すぐ外す")
+        phone.ok = True
+        until(lambda: s["line"] in self.hub.lines(), "使えるに戻れば、すぐ戻る")
+        phone.usable = lambda: (_ for _ in ()).throw(RuntimeError("試験：答えない"))
+        until(lambda: s["line"] not in self.hub.lines(), "答えられない回線は外す")
 
 
 class Refusals(LinkBase):
@@ -522,9 +599,9 @@ class LostConnection(LinkBase):
         release = threading.Event()
 
         class SlowPhone(FakePhone):
-            def start_call(self, phone, voice_type=None):
+            def start_call(self, phone, voice_type=None, *, national):
                 release.wait(10)
-                super().start_call(phone)
+                super().start_call(phone, national=national)
         phone = SlowPhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
         driver = self.hub.driver(s["line"], self.attached(s, got))
@@ -591,7 +668,7 @@ class LostConnection(LinkBase):
         order = []
 
         class SlowPhone(FakePhone):
-            def start_call(self, phone, voice_type=None):
+            def start_call(self, phone, voice_type=None, *, national):
                 time.sleep(1.0)
                 order.append("かけた")
 
@@ -618,7 +695,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
 
         class SlowPhone(FakePhone):
-            def start_call(self, phone, voice_type=None):
+            def start_call(self, phone, voice_type=None, *, national):
                 time.sleep(1.0)
                 self.calls.append(phone)
         phone = SlowPhone()
@@ -785,7 +862,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
 
         class Refusing(FakePhone):
-            def start_call(self, phone, voice_type=None):
+            def start_call(self, phone, voice_type=None, *, national):
                 time.sleep(0.5)
                 raise CallNotPlaced("試験：アプリが受け付けない")
         phone = Refusing()

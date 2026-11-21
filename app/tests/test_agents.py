@@ -280,6 +280,33 @@ class Down(unittest.TestCase):
             self.assertEqual(watch(listening_for=120.0), [p.pc_id])          # 途切れの長さがたっても、つながってこない
         self.assertEqual(len(self.notices(t)), 1)
 
+    def test_a_line_left_out_of_the_beat_is_noticed_once_while_its_pc_is_alive(self):
+        """電話の部品が「使えない」と答えて合図から外れた回線は、外れたまま PC の途切れと同じ長さたったら、その契約者へ知らせる（外れて1回。CL-3 の連絡帳 62 の (2)。
+        0276）。合図に戻れば、次に外れたらまた知らせる。PC が動いていなければ知らせない（PC の途切れを知らせる＝同じことを2つ知らせない）。止めた回線は知らせない。"""
+        t = self.w.tenant()
+        line = self.a.in_tenant(OPERATOR, t, lambda tx: registry.create_line(tx, "架空の回線", method="rakuten_link", caller=fictional_caller()))
+        p = agents.issue(self.a, SYSTEM, t, label="架空の PC")
+        notes = lambda: self.a.in_tenant(OPERATOR, t, lambda tx: tx.all(   # noqa: E731
+            "SELECT event_key FROM salescall.notification_events WHERE kind = 'line_unusable'"))
+        watch = lambda **kw: self.a.in_tenant(SYSTEM, t, lambda tx: agents.watch_lines(tx, **kw))   # noqa: E731
+        beat = lambda lines: self.a.in_system(SYSTEM, lambda tx: agents.beat(tx, p.pc_id, lines))   # noqa: E731
+        self.assertEqual(beat([line]), [line])
+        self.assertEqual(watch(), [])                                       # 合図に入っている
+        beat([])                                                            # 使えないと答えて外れた（PC は動いている）
+        self.assertEqual(watch(), [])                                       # まだ途切れの長さに足りない
+        with mock.patch.object(settings, "system_value", side_effect=lambda tx, key: 0 if key == "pc.down_after" else None):
+            self.assertEqual(watch(listening_for=-1.0), [])                  # つなぎ口を立ち上げた直後は知らせない
+            self.assertEqual(watch(alive=frozenset({p.pc_id})), [line])
+            self.assertEqual(watch(alive=frozenset({p.pc_id})), [])          # 同じ外れは1回だけ
+            beat([line])
+            self.assertEqual(watch(alive=frozenset({p.pc_id})), [])          # 合図に入っている
+            beat([])
+            self.assertEqual(watch(alive=frozenset({p.pc_id})), [line])      # 戻って、また外れた
+            beat([line])
+            beat([])
+            self.assertEqual(watch(), [])                                     # PC が動いていない（合図も途切れの長さより古い）：PC の途切れが知らせる
+        self.assertEqual(len(notes()), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

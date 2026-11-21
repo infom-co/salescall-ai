@@ -33,15 +33,16 @@ class Phone(Protocol):
         """スマホが、いま通話の途中か（呼び出し中を含む）。分からなければ True（かけない側）。"""
         ...
 
-    def start_call(self, phone_e164: str, voice_type: str | None = None) -> None:
-        """かける。voice_type＝この通話で話す声の型（門が決めたもの）。通話の途中でおわびの録音を流すとき
+    def start_call(self, phone_e164: str, voice_type: str | None = None, *, national: str) -> None:
+        """かける。national＝同じ番号の国内の形（例 "0300000001"。番号の欄に国内の形しか受けない電話のアプリのため。作るのはサーバーの番号の正規化の1か所＝
+        core/phone。電話の部品は番号の形を変えない＝見張り Q1。CL-3 の連絡帳 60）。voice_type＝この通話で話す声の型（門が決めたもの）。通話の途中でおわびの録音を流すとき
         （`play_apology_and_hang_up`）は、この声の型の録音を流す（AI の声と違う声にしない。2026-10-22 の見直し14）。"""
         ...
 
     def hang_up(self) -> None: ...
 
-    def test_ring(self, phone_e164: str) -> bool | None:
-        """テスト番号（契約者が用意した、お客様ではない電話）へかけ、**この回線から電話網へ発信できたか**を答える（0141。2026-10-25 夜
+    def test_ring(self, phone_e164: str, *, national: str) -> bool | None:
+        """テスト番号（契約者が用意した、お客様ではない電話。national＝その国内の形＝`start_call` と同じ）へかけ、**この回線から電話網へ発信できたか**を答える（0141。2026-10-25 夜
         管理者：「テスト番号が話し中・電源オフ・圏外だと分かるのなら、回線の問題じゃないんじゃないの？」）。
         - True＝回線から発信できた：呼び出しの音が出た（お客様の電話でいう「鳴った」。相手が出る前に切る）・話し中の音が返った・
           電源が切れている／圏外のお知らせの声が返った（どれも、電話網がこの回線の発信を受け付けた証拠＝回線は元気）。
@@ -66,6 +67,16 @@ class Phone(Protocol):
         共通の一言の組にこれがそろっている声だけ＝core/recordings.COMMON_PARTS）。かけ直しは、サーバーが途中で切れた通話として
         お詫びから始める（core/next_action）。流し終えて切るまでを `protocol.APOLOGY_WAIT` 秒のうちに（サーバーは、それまで答えを
         待つ。返事を待つ「決まった秒数」も、その中に収める）。"""
+        ...
+
+    def send_sms(self, phone_e164: str, text: str, *, national: str) -> None:
+        """その回線のスマホから、ショートメールを送る（national＝宛先の国内の形。`start_call` と同じ）。送れたと確かめてから返す。送れなかったと確かに言えるときは
+        CallNotPlaced（スマホと連携していない・宛先がスマホの連絡先に無い・画面の部品が見つからない）、送れたか分からなければほかの例外（CL-3 の連絡帳 62 の (1)）。"""
+        ...
+
+    def usable(self) -> bool:
+        """この回線で、いま発信を受けられるか（スマホと連携している。分からなければ False）。PC の部品は、真の回線だけを合図の lines に入れる（外れた回線は
+        発信の出口・門が使わない。回線のせいの数えにも入れない。CL-3 の連絡帳 62 の (2)）。"""
         ...
 
     def on_audio(self, send: Callable[[bytes], None]) -> None:
