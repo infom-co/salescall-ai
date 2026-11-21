@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import agents, approval, business_settings, health, health_rules, metrics, reward, stops, usage
+from salescall.core import agents, approval, business_settings, health, health_rules, metrics, reward, ring_test, stops, usage
 from salescall.core.access import Tx
 from salescall.output import notices, words
 from salescall.web.context import Ctx
@@ -118,6 +118,13 @@ def readiness(tx: Tx) -> list[dict[str, Any]]:
     elif sysinfo["resting"] >= sysinfo["lines"]:
         out.append({"kind": "stop", "title": "すべての回線が休んでいます", "how": "休んでいる理由を確かめてください（決まった確かめが通れば、自動で戻ります）。",
                     "link": "/t/lines"})
+    # テスト番号（計画書 8-8）：鳴らなかった電話が回線のせいか番号のせいかを、お客様ではない電話へかけて決める。無ければ決めずに待つ
+    # （あるかは core の ring_test.usable の1か所＝鳴らす側と同じ答え）
+    if not ring_test.usable(tx):
+        out.append({"kind": "wait", "title": "テスト番号が決まっていません",
+                    "how": "お客様のところで鳴らなかった電話が、回線のせいか番号のせいかを、お客様ではない電話（テスト番号）へかけて確かめます。"
+                           "決めるまでは、その確かめを待ち、休んだ回線も再開しません（そのあいだも、ほかのお客様へは電話します）。",
+                    "link": "/t/settings#s-line-test_number", "keys": ["line.test_number"]})
     if not notify_destination_set(tx):
         out.append({"kind": "wait", "title": "知らせの受け先が決まっていません",
                     "how": "止まったときや承認待ちを、ショートメールかチャットワークでお知らせする受け先です（決めるまでは、ダッシュボードの中だけでお知らせします）。",

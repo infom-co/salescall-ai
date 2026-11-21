@@ -868,6 +868,13 @@ class Web(_World):
                 self.assertIn("電話をつなぐ PC がありません", page)              # 試験の契約者には回線はあるが PC が無い
                 self.assertIn("知らせの受け先が決まっていません", page)
         self.assertIn("いまは電話がかかりません", self.get("A", "/t").text)      # 「何もしなくても電話は進みます」と言わない
+        # テスト番号（計画書 8-8）：あるかは core の ring_test.usable の1か所。無ければ同じ形で出し、設定の行に「決めてください」
+        from salescall.core import ring_test
+        usable = app_access().in_tenant(OPERATOR, self.a["tenant"], ring_test.usable)
+        home, settings_page = self.get("A", "/t").text, self.get("A", "/t/settings").text
+        self.assertEqual("テスト番号が決まっていません" in home, not usable)
+        row = settings_page[settings_page.index('id="s-line-test_number"'):]
+        self.assertEqual("決めてください" in row[:row.index("</summary>")], not usable)
 
     def test_every_time_cell_has_one_shape(self):
         """表の時刻の升は、どの表も .when の1つの形（数字の幅はそろえ、左寄せ・折らない）。数量の右寄せ（num）では書かない
