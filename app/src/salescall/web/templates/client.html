@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import go, stat, tag, empty, flash, csrf, deficit_card, rename %}
+{% from "parts.html" import go, stat, tag, empty, flash, csrf, deficit_card, rename, why_disabled %}
 {% set active = "client" %}
 {% block title %}{{ business.name ~ "（" ~ client.name ~ "）" if business else client.name }}{% endblock %}
 {% block main %}
@@ -48,16 +48,16 @@
 {# はじめかた：まだ動き出していない業務で、次にすることを並べる（どの手順も、データにあるかを読むだけ＝counts.setup_steps） #}
 <section class="card setup" style="margin-top:16px">
   <h2>はじめかた</h2>
-  {#- 残っている手順だけを並べ（番号は全体の中の順番のまま）、済んだ手順は下にたたむ（2026-11-21 の見直し：動いている業務でも、済んだ手順が
+  {#- 残っている手順だけを1から数えて並べ（2026-11-21 の見直し：全体の番号のままで 1・4・5・6 と飛んでいた）、済んだ手順は下にたたむ（2026-11-21 の見直し：動いている業務でも、済んだ手順が
       全部並んで、スマホでは札が画面2枚分になり、お客様リストが下へ押し出されていた） -#}
   <ol class="steps-check">
-    {% for st in steps %}{% if not st.done %}
-    <li class="{{ 'next' if loop.index0 == (steps|map(attribute='done')|list).index(false) else '' }}">
+    {% for st in steps|rejectattr("done") %}
+    <li class="{{ 'next' if loop.first else '' }}">
       <span class="mark" aria-hidden="true">{{ loop.index }}</span>
       <span class="what"><b>{{ st.name }}</b><small>{% if st.link %}<a href="{{ st.link }}">{{ st.how }}</a>{% else %}{{ st.how }}{% endif %}</small></span>
       <span class="state">{{ tag("まだ", "wait") }}</span>
     </li>
-    {% endif %}{% endfor %}
+    {% endfor %}
   </ol>
   {% set finished = steps|selectattr("done")|list %}
   {% if finished %}<details class="more"><summary>済んだ手順（{{ finished|length }}つ）</summary>
@@ -77,23 +77,25 @@
 <section id="runs">
 <div class="title-row" style="margin-top:20px"><h2 style="margin:0">お客様リスト</h2>
 {% if business %}
+  {#- 台本の版がまだ無いあいだは、作るボタンを押せない形にして、横に理由を出す（2026-11-21 の見直し：押せる主のボタンに見えるのに、
+      開くと「まだ作れません」だった。何から始めればよいかが分からなかった） -#}
+  {% set ready = versions|selectattr("ready")|list %}
+  {% if ready %}
   <details class="adder inline">
     <summary class="btn main">＋ お客様リストを作る</summary>
     <form class="panel" method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs">
       {{ csrf(token) }}
-      {% set ready = versions|selectattr("ready")|list %}
-      {% if ready %}
       <p class="muted">版の中身：{% for v in ready[:3] %}<a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/versions/{{ v.version_id }}">版 {{ v.version_no }}</a>{% if not loop.last %}・{% endif %}{% endfor %}</p>
       <label class="field" for="new-run">お客様リストの名前</label>
       <input id="new-run" type="text" name="name" required placeholder="例：12月分のお客様">
       <label class="field" for="run-version">使う電話の台本の版</label>
       <select id="run-version" name="version_id">{% for v in ready %}<option value="{{ v.version_id }}">版 {{ v.version_no }}（{{ time(v.created_at) }}）{% if loop.first %}・いちばん新しい版{% endif %}</option>{% endfor %}</select>
       <button class="btn main small" type="submit">作って、お客様を取り込む</button>
-      {% else %}
-      <p class="muted">この業務には、まだ電話の台本がありません。お客様リストは、台本ができてから作れます。{{ words.SCRIPT_NOT_READY }}</p>
-      {% endif %}
     </form>
   </details>
+  {% else %}
+  <span class="btn-row"><button class="btn" type="button" disabled>＋ お客様リストを作る</button>{{ why_disabled("電話の台本が入ってから作れます（上の「はじめかた」）") }}</span>
+  {% endif %}
 {% endif %}
 </div>
 {% if runs %}

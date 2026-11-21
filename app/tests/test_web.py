@@ -744,6 +744,9 @@ class Web(_World):
         from salescall.output import words as w
         self.assertIn(w.SCRIPT_NOT_READY, card)                                  # 台本を作る画面がまだ無いことを、どこでも同じ1つの文で
         self.assertIn('class="next"', card)                                     # 次にすることを強める
+        self.assertIn('<button class="btn" type="button" disabled>＋ お客様リストを作る</button>', page)   # 台本が無いあいだは押せない形
+        self.assertIn("電話の台本が入ってから作れます", page)                   # 押せない理由を横に（parts.why_disabled）
+        self.assertIn('<span class="mark" aria-hidden="true">1</span>', card)   # 残っている手順は1から数える
         self.assertIn("回線と PC を用意する", card)                               # 電話をつなぐ PC も手順に入る（PC が無いと電話はかからない）
         self.assertEqual(card.count("済み"), 0)                                  # 試験の契約者には回線はあるが PC が無い＝まだ
         running = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}").text
