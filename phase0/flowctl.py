@@ -7064,6 +7064,9 @@ class Flow:
         # （W1 をほかの質問に伺う・N2 を2回目に伺う）あとの答えには当たらない（決め直したときは、決め手の答えの材料はまだ書かれていない＝_record_taken はあと）
         self.rests_on: dict[str, tuple[str, "Item"]] = {}
         self.report_before: dict | None = None   # 受けている報告の前の項目の状態（apply の間だけ。_turned_down_now）
+        # 受けている報告で、お客様のわからない・答えたくないのお返事を、伺い直す前の値・伺えた所のまま受け取った質問（置くのは _keep_unknown の1か所・読むのは _unknown_now の1か所。
+        # 報告の間だけ＝report_before を外す所で一緒に外す）
+        self.kept_unknown: tuple = ()
         # 相手が取り次いでいる最中か（意味の判定が HOLD と決め、AIに黙って待たせた。次の相手の発話で解く）。電話接続側は、この間、
         # 相手が黙っている秒を数える見張り（6-7・6-15 のつなぎの一言・張り替え）を止める（相手はいま電話口にいない。DESIGN.md 6-8）
         self.holding = False
@@ -8772,7 +8775,7 @@ class Flow:
         try:
             return self._apply_one(name, args)
         finally:
-            self.report_before = None
+            self.report_before, self.kept_unknown = None, ()
 
     def _received_now(self) -> list:
         """受けている報告で受け取った答え（その報告で、取れた・わからない・答えたくないになった項目＝TAKEN の (番号, 項目)。唯一の場所）。相づち（_ack_choice）と
@@ -8787,10 +8790,27 @@ class Flow:
         うちの相づち _ack の same_turn・こちらがすることの言い切り _taken_plays）。"""
         return [qid for qid, _ in self._received_now() if self._offer_taken(qid)]
 
-    def _thanks_barred(self, reply: dict) -> bool:
-        """この報告で、お礼（「ありがとうございます。」）を返さない答えを受け取ったか（お断り・目的から遠ざかる向き＝turned_down・わからない・答えたくない。本書 9-7。
-        同じ発話の2つの報告の受けの言葉を1つに選ぶ所＝Flow._ack の same_turn が読む）。"""
-        return bool(reply.get("turned_down")) or any(it.state in ("dont_know", "refused") for _, it in self._received_now())
+    def _thanks_barred(self, reply: dict | None = None) -> bool:
+        """この報告で、お礼（「ありがとうございます。」）を返さない答えを受け取ったか（お断り・目的から遠ざかる向き＝turned_down・わからない・答えたくない＝_unknown_now。本書 9-7。
+        唯一の決まり＝同じ発話の2つの報告の受けの言葉を1つに選ぶ所 Flow._ack の same_turn・取っておく相づち ahead_ack・言い直しの頭 _lead が読む）。reply＝相づちを選ぶ返事（お断り・
+        遠ざかる向きの印 turned_down は _apply_one が返事に付ける）。返事を作っている途中（言い直しの頭 _lead）は reply 無し＝いままでに受け取った答えで決める（_turned_down_now＝その印と
+        同じ読み）。"""
+        turned = self._turned_down_now() if reply is None else bool(reply.get("turned_down"))
+        return turned or self._unknown_now()
+
+    def _unknown_now(self) -> bool:
+        """受けている報告で、お客様のわからない・答えたくないのお返事を受け取ったか（唯一の読み＝お礼を返さない答え _thanks_barred・「わからない」の相づち _ack_choice）：わからない・
+        答えたくないとして受け取った答え（_received_now）と、わからない・答えたくないのお返事を、伺い直す前の値・伺えた所のまま受け取った答え（kept_unknown＝_keep_unknown の1か所。
+        「〇時まで」の理由の確かめ・お客様から折り返していただく日の2択へのお返事＝分身 AH）。どちらも、お客様はわからない・答えたくないとおっしゃった＝お礼を返さない（本書 9-7・
+        10-19「同じ理由が当たる場面すべてに当てる」）。⛔ 01b3c462 まで、伺えた値のまま受け取る所は答えの状態がわからない・答えたくないでなくなるので、ここで読めず、言い直しの頭の
+        順番が当たると「ありがとうございます。火曜日の15時まで、…」とお礼を返した"""
+        return bool(self.kept_unknown) or any(it.state in ("dont_know", "refused") for _, it in self._received_now())
+
+    def _keep_unknown(self, qid: str, cond: str | None) -> None:
+        """わからない・答えたくない（cond が SYSTEM_CONDITIONS）のお返事を、答えの状態をわからない・答えたくないにせずに、伺い直す前の値・伺えた所のまま受け取る所（_op_record_answer の
+        until_held・theirs_held の受け取り）が、受け取る前に置く印（唯一の場所。報告の間だけ＝apply・judged_turn の終わりで外す・読むのは _unknown_now の1か所）。報告の外では置かない。"""
+        if cond in SYSTEM_CONDITIONS and self.report_before is not None:
+            self.kept_unknown += (qid,)
 
     def _turned_down_now(self) -> bool:
         """受けている報告で、お断り・目的から遠ざかる向きの答え（Question.turned_down）を受け取ったか（唯一の場所＝相づちの目印 _apply_one と、
@@ -9142,7 +9162,7 @@ class Flow:
             elif ack not in RECEIPTS or (reply["result"] == "end" and not self._taken_now()):
                 ack, src = None, None
             elif barred or self._thanks_barred(reply):
-                ack = "shouchi" if ack == "arigatou" else ack
+                ack = self._fresh_receipt(ack, barred=True) if ack == "arigatou" else ack   # お礼を承りに替える1か所（_fresh_receipt の barred）
             elif "arigatou" in (ack, carried):
                 ack, src = "arigatou", "own" if ack == "arigatou" else "carried"
             elif carried in RECEIPTS:
@@ -9200,13 +9220,20 @@ class Flow:
                 self.last_receipt, self.receipt_turn = head, self.callee_turns
         return ack
 
-    def _fresh_receipt(self, word: str) -> str:
+    def _fresh_receipt(self, word: str, barred: bool = False) -> str:
         """返事の頭に言う受けの言葉 word（相づちの名前・言い直しの頭の文）を、直前の返事の頭の受けの言葉（last_receipt）と続けない唯一の決まり（相づち _ack・順番の
         相づち _ack_choice・言い直しの頭 _lead が呼ぶ）：同じ言葉なら、替える言葉（SAME_RECEIPT＝回す順の次）。表に無い言葉・違う言葉はそのまま。
         理由は 10-14（「はい」が続くときは他の相づち）・2026-11-02 日本時間7時12分（「承知しました。」が続くときは「かしこまりました。」）と同じ（同じ受けの言葉を続けない）。
         ⛔ 8aa3b4ef まで、相づち（直前の相づちだけと比べる SAME_RECEIPT）と言い直しの頭（LEAD_IN を別に順番で回す）が別々で、「ありがとうございます。いつ頃
-        おかけ直し…」→「はい、ありがとうございます。17時以降…」とお礼が続いた（まとめ役の確かめ）"""
-        return SAME_RECEIPT.get(word, word) if ACK.get(word, word) == self.last_receipt else word
+        おかけ直し…」→「はい、ありがとうございます。17時以降…」とお礼が続いた（まとめ役の確かめ）。
+        barred＝お礼を返さない答えを受け取った報告（_thanks_barred の1か所が決める）：お礼の受けの言葉（相づち arigatou・言い直しの頭「ありがとうございます。」）も、回す順の次の承りに
+        替える（相づちは「承知しました。」・言い直しの頭は「かしこまりました。」。替えた言葉が直前の返事の頭と同じなら、また次＝「かしこまりました。」・「承知いたしました。」）。
+        本書 9-7「お断り・目的から遠ざかる向きの答えにお礼は返さない」（相づちの same_turn・言い直しの頭 _lead が渡す＝お礼を承りに替える1か所。分身 AH）"""
+        for _ in LEAD_IN["言い直し"]:   # 替えるのは多くて2回（お礼の次が直前と同じとき）
+            if not ((barred and ACK.get(word, word) == ACK["arigatou"]) or ACK.get(word, word) == self.last_receipt):
+                break
+            word = SAME_RECEIPT.get(word, word)
+        return word
 
     @staticmethod
     def _sorry_led(reply: dict) -> bool:
@@ -9537,9 +9564,10 @@ class Flow:
             # 確認させていただきますね。」（✅ 2026-11-13 日本時間20時06分19秒「伺い2はア」の文。お礼は合わない）
             return "shouchi"
         received = self._received_now()
-        if any(it.state in ("dont_know", "refused") for _, it in received):
+        if self._unknown_now():
             # 相手が「わからない」「答えたくない」と答えた：「承知しました。」（お礼は場面に合わない）。答えの報告でも、言い直しへの返事でも、締めるときも同じ
-            # （受け取った答えで選ぶ＝_received_now。締めの前の念のための確認は、上のお詫びが先）
+            # （受け取った答えで選ぶ＝_received_now。締めの前の念のための確認は、上のお詫びが先）。伺い直す前の値・伺えた所のまま受け取ったお返事も同じ（読みは _unknown_now の
+            # 1か所＝お礼を返さない答え _thanks_barred と同じ。分身 AH）
             return "shouchi"
         b = self.report_before
         if (not self._unheard_now() and not received and result in ("next", "end") and b is not None
@@ -9727,10 +9755,14 @@ class Flow:
             # わからない・答えたくない（理由を言えない・言いたくない）も、伺い直す前の値のまま受け取り、理由は言っていない（reason_items＝わからない・答えたくないの答えは理由の項目を
             # 読まない）。CL-1 が書いてある決まりで決めた（10-24「「〇時まで」と言われたら理由を記録し、分からなければ時刻を1回だけ伺い直す」＝伺い直しても理由が無ければ、そのまま受け取る・
             # 9-3「取得済みのことを重ねて聞かない」・本書 9-5 の 11-15 の見直し (12) の (3)「言い直した値は捨てない」）。⛔ 3ccaced6 まで、伺い直す前の値（「3時まで」）を捨てて、かけ直しの
-            # 時刻を「わからない」で受け取り、質問を終えて締めた（分身 AF の書き置き rv187/AF/notes.md の (6-1)）
+            # 時刻を「わからない」で受け取り、質問を終えて締めた（分身 AF の書き置き rv187/AF/notes.md の (6-1)）。
+            # わからない・答えたくないのお返事なら、お礼は返さない（印＝_keep_unknown の1か所・読むのはお礼を返さない答えの1か所 _thanks_barred。分身 AH）
+            self._keep_unknown(qid, cond)
             value, cond, answered = self._until_take(qid, value if answered else None), VALUE_CHOICE, True
         elif it.theirs_held is not None and not answered and cond in SYSTEM_CONDITIONS:
-            # お客様から折り返していただく日の2択（_theirs_begin）に「分からない」：伺えた所のまま（「平日の4時まで」）で受け取る（伺い67 ア の伺いの文の「分からない」の行）
+            # お客様から折り返していただく日の2択（_theirs_begin）に「分からない」：伺えた所のまま（「平日の4時まで」）で受け取る（伺い67 ア の伺いの文の「分からない」の行）。
+            # お礼は返さない（伺いの文の「はい、かしこまりました。平日の16時まで…」＝_keep_unknown の1か所。分身 AH）
+            self._keep_unknown(qid, cond)
             value, cond, answered = self._theirs_take(qid, None), VALUE_CHOICE, True
         elif answered and it.ladder is not None and it.pending_value is None and ladder_took is None:
             # 日時の2択の段（✅ 2026-11-19 日本時間14時18分13秒）：伺えた所に入れ、まだ決まっていない所があれば次の2択を伺う（_ladder_take の1か所）
@@ -16001,7 +16033,7 @@ class Flow:
                 self.unreported_aloud = bool(reply.get("play") or reply.get("say"))
             return reply
         finally:
-            self.report_before = None
+            self.report_before, self.kept_unknown = None, ()
 
     def _replied_now(self) -> bool:
         """いまのお客様の発話に、もう返事をしたか（唯一の決まり＝報告の無いターン judged_turn・待っていただく一言へのお返事 _wait_answered・ほかの「この発話に
@@ -20660,9 +20692,11 @@ class Flow:
             return ""
         n = self.lead_counts.get(kind, 0)
         word = lead_in_phrase(kind, n)
-        # 直前の返事の頭の受けの言葉と同じなら、回す順の次（_fresh_receipt の1か所。順番は替えた言葉から続ける）
-        fresh = self._fresh_receipt(word)
-        self.lead_counts[kind] = n + 1 + (fresh != word)
+        # 直前の返事の頭の受けの言葉と同じなら、回す順の次。この報告でお礼を返さない答えを受け取ったら（_thanks_barred の1か所＝わからない・答えたくないのお返事を伺い直す前の値・
+        # 伺えた所のまま受け取った言い直しも）、お礼の「ありがとうございます。」も回す順の次の承り（_fresh_receipt の1か所＝分身 AH）。順番は替えた言葉から続ける（替えた数だけ進める）
+        fresh = self._fresh_receipt(word, barred=self._thanks_barred())
+        forms = LEAD_IN[kind]
+        self.lead_counts[kind] = n + 1 + (forms.index(fresh) - forms.index(word)) % len(forms)
         return fresh
 
     def _reject(self, why: str) -> dict:
