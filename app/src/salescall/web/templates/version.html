@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, empty, flash, csrf %}
+{% from "parts.html" import tag, empty, flash, csrf, info %}
 {% set active = "client" %}
 {% block title %}電話の台本 版 {{ version.version_no }}{% endblock %}
 {% block crumb %}電話の台本{% endblock %}
@@ -13,14 +13,14 @@
   <section class="card"><h2>目的と名乗り</h2>
     <dl class="facts">
       <dt>電話の型</dt><dd>{{ words.CALL_TYPE_WORDS.get(s.call_type, words.NO_WORD) }}</dd>
-      <dt>業務の目的</dt><dd>{{ s.purpose }}</dd>
-      <dt>名乗り</dt><dd>{{ s.company.text }}{% if s.company.reading %}<span class="muted">（{{ s.company.reading }}）</span>{% endif %}の{{ s.person.text }}{% if s.person.reading %}<span class="muted">（{{ s.person.reading }}）</span>{% endif %}</dd>
+      <dt>業務の目的{{ info("business.purpose", "業務の目的") }}</dt><dd>{{ s.purpose }}</dd>
+      <dt>名乗り{{ info("business.caller", "名乗り") }}</dt><dd>{{ s.company.text }}{% if s.company.reading %}<span class="muted">（{{ s.company.reading }}）</span>{% endif %}の{{ s.person.text }}{% if s.person.reading %}<span class="muted">（{{ s.person.reading }}）</span>{% endif %}</dd>
       <dt>用件の一文</dt><dd>{{ s.purpose_line or "（なし）" }}</dd>
-      <dt>目的のお客様</dt><dd>{{ words.TARGET_PERSON_WORDS.get(s.target_person.kind, words.NO_WORD) }}{% if s.target_person.role %}：{{ s.target_person.role }}{% endif %}</dd>
-      <dt>留守番電話の伝言</dt><dd>{{ s.voicemail_message or "（残さない）" }}</dd>
-      <dt>「忙しい」のときの一言</dt><dd>{{ s.busy_line or "（引き止めない）" }}</dd>
+      <dt>目的のお客様{{ info("business.target_person", "目的のお客様") }}</dt><dd>{{ words.TARGET_PERSON_WORDS.get(s.target_person.kind, words.NO_WORD) }}{% if s.target_person.role %}：{{ s.target_person.role }}{% endif %}</dd>
+      <dt>留守番電話の伝言{{ info("business.voicemail_message", "留守番電話の伝言") }}</dt><dd>{{ s.voicemail_message or "（残さない）" }}</dd>
+      <dt>「忙しい」のときの一言{{ info("business.busy_line", "「忙しい」のときの一言") }}</dt><dd>{{ s.busy_line or "（引き止めない）" }}</dd>
     </dl></section>
-  <section class="card"><h2>業務の情報</h2>
+  <section class="card"><h2>業務の情報{{ info("business.info", "業務の情報") }}</h2>
     {% if s.info %}<ul class="need-list">{% for i in s.info %}<li>{{ i }}</li>{% endfor %}</ul>{% else %}{{ empty("業務の情報はありません", "お客様に質問されたとき、AI が答える材料になる情報です。業務の資料を取り込み直すと入ります。") }}{% endif %}
   </section>
 </div>
@@ -36,21 +36,21 @@
   </dl>
 </section>
 {% endif %}
-<h2>質問</h2>
+<h2>質問{{ info("business.questions", "質問") }}</h2>
 <div class="table-scroll"><table class="list">
   <thead><tr><th class="num">順</th><th>質問</th><th>答えの形</th><th>必須</th><th class="wide">選択肢</th></tr></thead>
   <tbody>{% for q in s.questions %}
     <tr><td class="num">{{ loop.index }}</td><td>{{ q.text }}</td><td class="nowrap">{{ words.FIELD_TYPE_WORDS.get(q.type, words.NO_WORD) }}{% if q.unit %}（{{ q.unit }}）{% endif %}</td>
       <td>{{ tag("必須", "info") if q.required else "" }}</td><td class="wide">{{ words.question_choices(q) }}</td></tr>
   {% endfor %}</tbody></table></div>
-<h2>想定問答</h2>
+<h2>想定問答{{ info("business.answers", "想定問答") }}</h2>
 {% if s.answers %}
 <div class="table-scroll"><table class="list"><thead><tr><th>お客様の問い</th><th>答え</th></tr></thead>
   <tbody>{% for name, text in s.answers %}<tr><td>{{ name }}</td><td>{{ text }}</td></tr>{% endfor %}</tbody></table></div>
 {% else %}<div class="card">{{ empty("この版で書いた想定問答はありません", "システムの標準の想定問答を使います。") }}</div>{% endif %}
 {% endif %}
 {% if policies %}
-<h2 id="retry">結果ごとのかけ直し</h2>
+<h2 id="retry">結果ごとのかけ直し{{ info("business.retry", "結果ごとのかけ直し") }}</h2>
 <p class="muted">電話の結果ごとに、かけ直すか・何回まで・どれだけあけるかです（この業務で決めた値）。</p>
 {{ flash(done, ok) }}
 <div class="table-scroll"><table class="list"><thead><tr><th>電話の結果</th><th class="wide">かけ直し</th></tr></thead>

@@ -638,3 +638,17 @@ ul.done-steps span { color: var(--ok); margin-right: 4px; }
 .skip-link:focus { top: 8px; }
 main.content:focus { outline: none; }
 
+
+/* i マーク（parts.info）：見出し・項目名の横の小さな丸。開くと、その下に説明の札（狭い幅でも横にはみ出さない） */
+details.info { display: inline; }
+details.info > summary { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 6px;
+  border-radius: 50%; border: 1px solid var(--line); color: var(--muted); font: 600 11px/1 var(--font, inherit); font-style: italic;
+  cursor: pointer; list-style: none; vertical-align: 2px; }
+details.info > summary::-webkit-details-marker { display: none; }
+details.info > summary:hover, details.info[open] > summary { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+details.info > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* 開いた説明は（上の帯・タブ＝重なりの順 9・10 の下に）、札（なければ本文）の幅いっぱいに、そのすぐ下へ重ねて出す（項目名の細い欄に押し込まない・横にはみ出さない） */
+.card, .content { position: relative; }
+details.info .info-body { position: absolute; left: 12px; right: 12px; z-index: 8; display: block; margin-top: 8px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: 0 8px 24px rgba(16,24,40,.16);
+  color: var(--text); font-size: 13px; font-weight: 400; line-height: 1.75; text-align: left; overflow-wrap: anywhere; white-space: normal; }

@@ -77,6 +77,14 @@
       }
     });
   });
+  // i マーク（parts.info）：開いた説明は下の値に重なるので、ほかの所を押す・Esc で閉じる（1つ開くと、ほかの説明は閉じる）
+  document.addEventListener("click", function (e) {
+    document.querySelectorAll("details.info[open]").forEach(function (d) { if (!d.contains(e.target)) d.open = false; });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    document.querySelectorAll("details.info[open]").forEach(function (d) { d.open = false; d.querySelector("summary").focus(); });
+  });
   // 依頼者のタブが横に入りきらないとき、いま開いている依頼者のタブを見える所へ送る
   document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll("[data-scroll-current]").forEach(function (s) {

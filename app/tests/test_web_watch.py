@@ -45,8 +45,15 @@ class WatchOnScreen(OurTroubles):
         got = self.claim(s)                                                      # 門が、休んでいる行を止める（理由 task_resting）
         self.assertEqual(getattr(got, "reason", None), "task_resting")
         biz = http.get(f'/c/{s["client"]}/b/{s["business"]}').text
-        part = biz[biz.index("今日、電話を見送ったお客様"):]
+        part = biz[biz.index("いま電話を見送っているお客様"):]
         self.assertIn(words.gate_reason("task_resting"), part)                   # 理由の言葉は core の gate.REASONS
+        # 数えるのは core の gate.denied_now の1か所（業務で絞る）。ほかの業務のタブには、この業務の見送りを数えない（CL-2 の 4-468 の 63 の (1)）
+        from tests.support import World as _W
+        other_biz, _ = _W().business_with_version(s["tenant"], s["client"])
+        elsewhere = http.get(f'/c/{s["client"]}/b/{other_biz}').text
+        self.assertNotIn(words.gate_reason("task_resting"), elsewhere)
+        overview = http.get(f'/c/{s["client"]}').text                          # 依頼者の概要（全業務）には出る
+        self.assertIn(words.gate_reason("task_resting"), overview[overview.index("いま電話を見送っているお客様"):])
         other = World().setup()
         self.assertNotIn(f'/rows/{s["task"]}', _http(other["tenant"]).get("/t/watch").text)   # ほかの契約者には見えない
 

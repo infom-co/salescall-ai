@@ -371,7 +371,8 @@ class Sender:
         self.chatwork_token = chatwork_token if chatwork_token is not None else os.environ.get(CHATWORK_TOKEN_ENV)
         self.sms, self.days = sms, days
 
-    def _plan(self, tx: Tx, tenant_id: Any | None, links: Any = None) -> tuple[dict[str, Transport], dict[str, int], list[int]]:
+    def _plan(self, tx: Tx, tenant_id: Any | None, links: Any = None,
+              sms_owner: Any = None) -> tuple[dict[str, Transport], dict[str, int], list[int]]:
         from salescall.core import settings
         admin = tenant_id is None
 
@@ -381,9 +382,9 @@ class Sender:
         transports: dict[str, Transport] = {}
         number, room = read(where["sms"]), read(where["chatwork"])
         if number:
-            # 送る回線の持ち主：契約者あては、その契約者。管理者あては、管理者自身の契約者（見守り役の設定。無ければショートメールでは送らない）
-            owner = tenant_id if not admin else getattr(getattr(links, "cfg", None), "admin_tenant", None)
-            made = self.sms(links, owner, number)
+            # 送る回線の持ち主（sms_owner）は、見守り役の仕事の1か所が決めて渡す（契約者あては、その契約者・管理者あては設定の admin_tenant。
+            # None＝ショートメールでは送らない）。ここでは links の中身から探さない（CL-2 の 4-468 の 67）
+            made = self.sms(links, sms_owner, number)
             if made is not None:
                 transports["sms"] = made
         if room and self.chatwork_token:
@@ -396,12 +397,14 @@ class Sender:
             " ORDER BY e.urgent DESC, e.occurred_at, e.event_id", (admin, self.days))]
         return transports, tries, events
 
-    def deliver(self, access: Access, actor: Actor, tenant_id: Any | None, links: Any = None) -> dict[str, int]:
-        """1回の一手：まだ届いていない知らせを1件ずつ（まとめる知らせは除く）と、送る時刻が来た、まとめる知らせを1通で。答え：一手ごとの件数。
+    def deliver(self, access: Access, actor: Actor, tenant_id: Any | None, *, links: Any = None,
+                sms_owner: Any = None) -> dict[str, int]:
+        """links＝PC とのつながり・sms_owner＝ショートメールを送る回線の持ち主の契約者（形は supervisor/plugins.NoticeSender.deliver）。
+        1回の一手：まだ届いていない知らせを1件ずつ（まとめる知らせは除く）と、送る時刻が来た、まとめる知らせを1通で。答え：一手ごとの件数。
         送り先が1つも無ければ、何も送らない（記録もしない＝送り先を入れたら送り始める。画面の「知らせ」には、どれも出ている）。"""
         def in_tx(work: Any) -> Any:
             return access.in_system(actor, work) if tenant_id is None else access.in_tenant(actor, tenant_id, work)
-        transports, tries, events = in_tx(lambda tx: self._plan(tx, tenant_id, links))
+        transports, tries, events = in_tx(lambda tx: self._plan(tx, tenant_id, links, sms_owner))
         done: dict[str, int] = {}
         if not transports:
             return done

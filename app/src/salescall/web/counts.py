@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import agents, approval, business_settings, health, health_rules, metrics, reward, ring_test, stops, usage
+from salescall.core import agents, approval, business_settings, gate, health, health_rules, metrics, reward, ring_test, stops, usage
 from salescall.core.access import Tx
 from salescall.output import notices, words
 from salescall.web.context import Ctx
@@ -168,15 +168,16 @@ def business_figures(tx: Tx, business_id: UUID | None = None) -> dict[str, Any]:
     - results：行ごとの最新の結果の状態 → 行の数（結果の無い行は open＝まだ結果なし。正本は latest_task_results）。
     - unconfirmed：確定していない結果を3つに分けた数（確かめ待ち＝検証モードで契約者の確かめを待つ・決定待ち＝取り消せない決定や
       あとの通話を待つ・判定できない）。3つは重ならない。
-    - denied_today：今日（日本時間）門が止め始めた行の数（理由ごと。門は理由が変わったときだけ記録する＝その日に新しく止めた数）。"""
+    - denied_now：門がいま見送っているお客様の数（理由ごと・多い順。数えるのは core の gate.denied_now の1か所＝業務で絞れる。CL-2 の 4-468 の 63 の (1)。
+      ⛔ 2026-11-21 まで：門の記録を「今日、止め始めた数」として数えていた＝昨日から見送っているお客様が出ず、計画書 5-2 の「門で止めた件数（理由別）」
+      （かけ直し待ち・判定待ちと並ぶ、いまの状態の数）と合っていなかった）。"""
     b = (business_id, business_id)
     results = {r["state"]: r["n"] for r in tx.all(
         "SELECT coalesce(l.business_state::text, 'open') AS state, count(*) AS n FROM salescall.tasks t"
         " LEFT JOIN salescall.latest_task_results l ON l.task_id = t.task_id WHERE " + _IN_BUSINESS + " GROUP BY 1", b)}
     u = approval.unconfirmed_counts(tx, business_id=business_id)
-    denied = tx.all("SELECT d.reason, count(DISTINCT d.task_id) AS n FROM salescall.gate_denials d JOIN salescall.tasks t ON t.task_id = d.task_id"
-                    " WHERE " + _IN_BUSINESS + " AND salescall.jst(d.denied_at)::date = %s GROUP BY 1 ORDER BY 2 DESC, 1", (*b, tx.today()))
-    return {"results": results, "unconfirmed": dict(u), "denied_today": [(r["reason"], r["n"]) for r in denied]}
+    denied = sorted(gate.denied_now(tx, business_id=business_id).items(), key=lambda rn: (-rn[1], rn[0]))
+    return {"results": results, "unconfirmed": dict(u), "denied_now": denied}
 
 
 # ── はじめかた（業務のタブ。docs/DASHBOARD.md 5-8）：まだ動き出していない業務で、次にすることを並べる。どの手順も「データにあるか」を

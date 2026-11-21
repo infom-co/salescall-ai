@@ -205,6 +205,23 @@ class Delivery(unittest.TestCase):
         sender.deliver(app_access(), SYSTEM, self.s["tenant"])
         self.assertEqual(len(sent.sent), before)                                  # 届いた知らせは、もう送らない
 
+    def test_the_line_owner_for_short_messages_is_the_one_the_supervisor_passes(self):   # CL-2 の 4-468 の 67
+        """ショートメールを送る回線の持ち主は、見守り役の仕事の1か所（jobs.notices・admin_notices）が決めて sms_owner で渡す。部品は links の
+        中身から探さない。部品の形は見守り役の受け口（plugins.NoticeSender.deliver）と同じ（ずれると、見守り役が呼んだときに落ちる）。"""
+        import inspect
+        from salescall.core import settings
+        from salescall.supervisor import plugins
+        self.assertEqual(list(inspect.signature(notices.Sender.deliver).parameters),
+                         list(inspect.signature(plugins.NoticeSender.deliver).parameters))
+        seen = []
+        sender = notices.Sender(chatwork_token="", sms=lambda links, owner, number: seen.append(owner) or FakeTransport())
+        app_access().in_tenant(OPERATOR, self.s["tenant"], lambda tx: settings.set_value(
+            tx, "notify.sms_to", "+81300000000", scope="tenant", status="decided", rationale="試験：架空の番号", review_when="試験のあいだ",
+            tenant_id=self.s["tenant"]))
+        owner = object()
+        sender.deliver(app_access(), SYSTEM, self.s["tenant"], links=object(), sms_owner=owner)
+        self.assertEqual(seen, [owner])                                          # 渡された持ち主のまま（links から探さない）
+
     def test_the_short_message_goes_out_from_a_line_of_the_contractor_and_tries_the_next_line_only_when_nothing_went_out(self):
         """ショートメールは、その契約者の、PC とつながっている回線から送る（CL-2 の 4-459＝AgentDriver.send_sms）。送らなかった・送れなかったと
         確かに言えるときだけ次の回線へ。送れたか分からないときは重ねて送らず「送れなかった」（送る順の次＝チャットワークへ）。"""

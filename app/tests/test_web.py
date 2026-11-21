@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from markupsafe import escape
 from urllib.parse import quote
 import unittest
 from uuid import UUID, uuid4
@@ -174,6 +175,11 @@ class Web(_World):
         self.assertEqual(ok.status_code, 200)
         self.assertIn("電話の台本", ok.text)
         self.assertNotIn(words_missing(), ok.text)
+        # i マーク：説明の文は core の help_texts の1か所をそのまま（画面に写さない。設計書 6-7）
+        from salescall.core import help_texts
+        self.assertIn('<summary aria-label="「業務の目的」の説明">i</summary>', ok.text)
+        self.assertIn(str(escape(help_texts.FIELDS["business.purpose"])), ok.text)
+        self.assertIn(str(escape(help_texts.FIELDS["business.retry"])), ok.text)
         from salescall.core import business_rules
         from salescall.output import words
         rules = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: business_rules.load(tx, self.a["version"]))
@@ -924,11 +930,24 @@ class Web(_World):
         self.assertEqual(visible_primary_buttons(page), ["確かめた"])
         self.assertEqual(page.count("確かめた"), 3)                              # ほかの札のボタンも出ている（白い枠で）
 
+    def test_every_i_mark_on_the_screens_has_its_text_in_one_place(self):
+        """ひな形で使う i マークの鍵は、どれも core の help_texts.FIELDS にある（説明を画面に写さない・書き漏れを試験で見つける。設計書 6-7）。"""
+        import pathlib
+        from salescall.core import help_texts
+        used = set()
+        for f in pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/templates").glob("*.html"):
+            used |= set(re.findall(r'info\("([^"]+)"', f.read_text(encoding="utf-8")))
+        self.assertTrue(used)
+        self.assertEqual(sorted(used - set(help_texts.FIELDS)), [])
+
     def test_a_line_is_named_with_its_caller_number(self):   # 同じ名前の回線を見分ける（web/names の1か所。2026-11-21 の見直し）
         from salescall.web import names
-        self.assertEqual(names.line_label("スマホ1", "+819000000000"), "スマホ1（09000000000）")
+        self.assertEqual(names.line_label("スマホ1", "+819000000000"), "スマホ1（090-0000-0000）")
         self.assertEqual(names.line_label("スマホ1", None), "スマホ1")
         self.assertEqual(names.line_label(None, None), "回線")
+        # 番号の見せ方は core の phone の1か所（PhoneNumber.display）：区切りが1つに決まる種類だけ区切り、固定電話は推し量って区切らない
+        self.assertEqual(names.phone_text("+81312345678"), "0312345678")
+        self.assertEqual(names.phone_text("+81120000001"), "0120-000-001")
 
     def test_every_time_cell_has_one_shape(self):
         """表の時刻の升は、どの表も .when の1つの形（数字の幅はそろえ、左寄せ・折らない）。数量の右寄せ（num）では書かない

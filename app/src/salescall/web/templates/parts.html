@@ -20,6 +20,11 @@
 </label>
 {%- endmacro %}
 
+{#- i マーク（設定でない登録の項目の詳しい説明。説明の文は core の help_texts の1か所＝explain(key)。押すかキーで開き、もう一度で閉じる） -#}
+{% macro info(key, label) -%}
+<details class="info"><summary aria-label="「{{ label }}」の説明">i</summary><div class="info-body" role="note">{{ explain(key) }}</div></details>
+{%- endmacro %}
+
 {% macro stat(label, value, tone="") -%}
 {%- set tone = "" if value == 0 or value == "0" else tone -%}   {#- 0件は色を付けない（色の役割の「何もない」） -#}
 <div class="stat {{ tone }}"><span class="label">{{ label }}</span><span class="value">{{ value }}</span></div>

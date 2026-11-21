@@ -1,6 +1,7 @@
 """画面で物を名指す1か所（持ち主 CL-3）。
 
-- 番号の書き方：そろえるのは core の phone.normalize の1か所（国内の番号は 0 から。そろえられなければ、そのまま）。
+- 番号の書き方：そろえるのも区切るのも core の phone の1か所（`PhoneNumber.display`＝区切りが1つに決まる種類だけ「-」で区切る。固定電話などは
+  国内の形のまま。そろえられなければ、記録の値のまま）。画面だけの形：依頼者へ渡すファイル・手元の控えは、相手の表と突き合わせやすい国内の形のまま。
 - 回線の名指し：名前に発信番号を添える（2026-11-21 の見直し：どの回線も同じ名前だと、気をつけることの画面で見分けられなかった）。
 """
 
@@ -13,7 +14,7 @@ def phone_text(e164: str | None) -> str:
     """番号の書き方（ひな形の phone() と、画面のサーバーの文が同じものを使う）。"""
     if not e164:
         return ""
-    return phone.normalize(e164).national or e164
+    return phone.normalize(e164).display or e164
 
 
 def line_label(name: str | None, caller_e164: str | None) -> str:

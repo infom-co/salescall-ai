@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, flash, csrf, empty, readiness, rename %}
+{% from "parts.html" import tag, flash, csrf, empty, readiness, rename, info %}
 {% block title %}{{ words.page("lines") }}{% endblock %}
 {% block main %}
 <div class="title-row"><div class="titles"><h1>{{ words.page("lines") }}</h1>
@@ -11,7 +11,7 @@
       <label class="field" for="ln-method">方式</label>
       <select id="ln-method" name="method">{% for m in methods %}<option value="{{ m.method }}">{{ m.label }}</option>{% endfor %}</select>
       <label class="field" for="ln-caller">発信番号（日本の携帯か固定電話。あとから変えられません）</label><input id="ln-caller" type="text" inputmode="tel" name="caller" required placeholder="例：070-0000-0000">
-      <label class="field" for="ln-client">使い先</label>
+      <label class="field" for="ln-client">使い先{{ info("line.client", "使い先") }}</label>
       <select id="ln-client" name="client_id"><option value="">共有（どの依頼者にも使う）</option>{% for cid, n in client_names.items() %}<option value="{{ cid }}">{{ n }} の専用</option>{% endfor %}</select>
       <button class="btn main small" type="submit">足す</button>
     </form>

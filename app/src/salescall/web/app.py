@@ -32,7 +32,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
-from salescall.core import (agents, ai_plans, calling_hours, conversation_io, customer_contacts, customer_rows, destinations, dnc, dnc_import, exclusions,
+from salescall.core import (agents, ai_plans, calling_hours, help_texts, conversation_io, customer_contacts, customer_rows, destinations, dnc, dnc_import, exclusions,
                             gate, health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
@@ -103,6 +103,15 @@ def _yen(v: Any, *, unit_price: bool = False) -> str:
     return (text.rstrip("0").rstrip(".") if "." in text else text) + "円"
 
 
+def _explain(key: str) -> str:
+    """i マークの説明（設定でない登録の項目。説明の正本は core の help_texts.explain の1か所＝画面に説明を写さない。設計書 6-7）。
+    設定の説明は設定の画面が設定の定義から読むので、ここでは設定でない項目（help_texts.FIELDS）だけを受ける（取引の要らない側）。
+    無い名前は LookupError（書き漏れを黙って空にしない）。"""
+    if key not in help_texts.FIELDS:
+        raise LookupError(f"i マークの説明がありません：{key}")
+    return help_texts.explain(None, key)   # type: ignore[arg-type]  FIELDS の項目は取引を使わない
+
+
 _phone = names.phone_text   # 番号の書き方（1か所＝web/names。そろえるのは core の phone.normalize）
 
 
@@ -135,7 +144,7 @@ def _waiting(ctx: Ctx, client_id: UUID | None = None, business_id: UUID | None =
 
 def _templates() -> Jinja2Templates:
     t = Jinja2Templates(directory=str(HERE / "templates"))   # 文字は必ず「文字として」出す（自動のエスケープ）
-    t.env.globals.update(words=words, time=_time, phone=_phone, yen=_yen, token_field=actions.TOKEN_FIELD)
+    t.env.globals.update(words=words, time=_time, phone=_phone, yen=_yen, token_field=actions.TOKEN_FIELD, explain=_explain)
     return t
 
 
