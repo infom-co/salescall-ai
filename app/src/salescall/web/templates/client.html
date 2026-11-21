@@ -47,20 +47,75 @@
 {# はじめかた：まだ動き出していない業務で、次にすることを並べる（どの手順も、データにあるかを読むだけ＝counts.setup_steps） #}
 <section class="card setup" style="margin-top:16px">
   <h2>はじめかた</h2>
+  {#- 残っている手順だけを並べ（番号は全体の中の順番のまま）、済んだ手順は下にたたむ（2026-11-21 の見直し：動いている業務でも、済んだ手順が
+      全部並んで、スマホでは札が画面2枚分になり、お客様リストが下へ押し出されていた） -#}
   <ol class="steps-check">
-    {% for st in steps %}
-    <li class="{{ 'done' if st.done else ('next' if loop.index0 == (steps|map(attribute='done')|list).index(false) else '') }}">
-      <span class="mark" aria-hidden="true">{{ "✓" if st.done else loop.index }}</span>
-      <span class="what"><b>{{ st.name }}</b>{% if not st.done %}<small>{% if st.link %}<a href="{{ st.link }}">{{ st.how }}</a>{% else %}{{ st.how }}{% endif %}</small>{% endif %}</span>
-      <span class="state">{{ tag("済み", "ok") if st.done else tag("まだ", "wait") }}</span>
+    {% for st in steps %}{% if not st.done %}
+    <li class="{{ 'next' if loop.index0 == (steps|map(attribute='done')|list).index(false) else '' }}">
+      <span class="mark" aria-hidden="true">{{ loop.index }}</span>
+      <span class="what"><b>{{ st.name }}</b><small>{% if st.link %}<a href="{{ st.link }}">{{ st.how }}</a>{% else %}{{ st.how }}{% endif %}</small></span>
+      <span class="state">{{ tag("まだ", "wait") }}</span>
     </li>
-    {% endfor %}
+    {% endif %}{% endfor %}
   </ol>
+  {% set finished = steps|selectattr("done")|list %}
+  {% if finished %}<details class="more"><summary>済んだ手順（{{ finished|length }}つ）</summary>
+    <ul class="done-steps">{% for st in finished %}<li><span aria-hidden="true">✓</span> {{ st.name }}</li>{% endfor %}</ul></details>{% endif %}
   <p class="muted">手順がそろうと、この枠は消えます。電話をかけてよいかは、かける直前に、そのつど決まりどおりに確かめます（発信禁止・かけてよい時間帯・回数など）。</p>
 </section>
 {% endif %}
+{#- 並び（2026-11-21 の見直し）：気をつけること（承認待ち）→ お客様リスト（この画面から入る先）→ 今日の数と成果。前はお客様リストが
+    いちばん下で、スマホでは数の札を10枚ほど送らないと届かなかった。どの幅でも同じ並び -#}
+{% if waiting %}
+<a class="card attention-wait notice-link" href="/t/inbox?client={{ client.client_id }}">
+  <b>承認待ちが {{ waiting|length }} 件あります</b>
+  <span class="muted">いちばん急ぐもの：{{ waiting[0][1].title }}</span>
+  <span class="go">承認待ちを開く</span>
+</a>
+{% endif %}
+<section id="runs">
+<div class="title-row" style="margin-top:20px"><h2 style="margin:0">お客様リスト</h2>
+{% if business %}
+  <details class="adder inline">
+    <summary class="btn main">＋ お客様リストを作る</summary>
+    <form class="panel" method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs">
+      {{ csrf(token) }}
+      {% set ready = versions|selectattr("ready")|list %}
+      {% if ready %}
+      <p class="muted">版の中身：{% for v in ready[:3] %}<a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/versions/{{ v.version_id }}">版 {{ v.version_no }}</a>{% if not loop.last %}・{% endif %}{% endfor %}</p>
+      <label class="field" for="new-run">お客様リストの名前</label>
+      <input id="new-run" type="text" name="name" required placeholder="例：12月分のお客様">
+      <label class="field" for="run-version">使う電話の台本の版</label>
+      <select id="run-version" name="version_id">{% for v in ready %}<option value="{{ v.version_id }}">版 {{ v.version_no }}（{{ time(v.created_at) }}）{% if loop.first %}・いちばん新しい版{% endif %}</option>{% endfor %}</select>
+      <button class="btn main small" type="submit">作って、お客様を取り込む</button>
+      {% else %}
+      <p class="muted">この業務には、まだ電話の台本がありません。お客様リストは、台本ができてから作れます。{{ words.SCRIPT_NOT_READY }}</p>
+      {% endif %}
+    </form>
+  </details>
+{% endif %}
+</div>
+{% if runs %}
+<div class="table-scroll"><table class="list">
+  <thead><tr><th>お客様リスト</th>{% if not business %}<th>業務</th>{% endif %}<th></th></tr></thead>
+  <tbody>
+  {% for r in runs %}
+    <tr>
+      <td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}/runs/{{ r.run_id }}">{{ r.name }}</a></td>
+      {% if not business %}<td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}">{{ r.business }}</a></td>{% endif %}
+      {% set rb = "/c/" ~ client.client_id ~ "/b/" ~ r.business_id ~ "/runs/" ~ r.run_id %}
+      <td><span class="go-links">{{ go(rb, words.LIST_GO_WORDS.rows) }}{{ go(rb ~ "/results", words.LIST_GO_WORDS.results) }}</span></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<div class="card">{{ empty("お客様リストはまだありません", "右上の「＋ お客様リストを作る」から作ります。" if business else "業務のタブを選んで、お客様リストを作ります（業務がまだ無ければ、上の「＋ 業務」から）。") }}</div>
+{% endif %}
+</section>
 {% set fresh = not figures.results %}
 {% if not fresh %}
+<h2 class="home-band" style="margin-top:28px">今日の動きと成果</h2>
 {#- 今日の電話（計画書 5-2「発信状況」。数えるのは core の metrics.day の1か所＝web/counts.client_today） -#}
 <div class="grid cols-4 stats">
   <div class="card">{{ stat("今日かけた電話", today.dialed) }}<div class="muted hint" style="margin-top:6px">うち電話に出た {{ today.answered }}（留守番電話・自動音声も入ります）</div></div>
@@ -68,13 +123,6 @@
   <div class="card">{{ stat("目的のお客様と話せた", today.reached) }}<div class="muted hint" style="margin-top:6px">今日。お呼びする方ご本人と話せた電話</div></div>
   <div class="card">{{ stat("かけ直し待ち", today.call) }}<div class="muted hint" style="margin-top:6px">次の電話の予定があるお客様{% if today.hold %}。ほかに{{ words.NEXT_KINDS["hold"].screen }} {{ today.hold }}（することはありません）{% endif %}</div></div>
 </div>
-{% endif %}
-{% if waiting %}
-<a class="card attention-wait notice-link" href="/t/inbox?client={{ client.client_id }}">
-  <b>承認待ちが {{ waiting|length }} 件あります</b>
-  <span class="muted">いちばん急ぐもの：{{ waiting[0][1].title }}</span>
-  <span class="go">承認待ちを開く</span>
-</a>
 {% endif %}
 {# 業務の成果（計画書 5-2）。数えるのは web/counts.business_figures の1か所・言葉は output/words の1か所。画面は数を並べるだけ #}
 {% set f = figures %}
@@ -150,43 +198,5 @@
     {% endfor %}</tbody></table></div>
   {% endfor %}
 </section>
-{% endif %}
-<div class="title-row" style="margin-top:28px"><h2 style="margin:0">お客様リスト</h2>
-{% if business %}
-  <details class="adder inline">
-    <summary class="btn main">＋ お客様リストを作る</summary>
-    <form class="panel" method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs">
-      {{ csrf(token) }}
-      {% set ready = versions|selectattr("ready")|list %}
-      {% if ready %}
-      <p class="muted">版の中身：{% for v in ready[:3] %}<a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/versions/{{ v.version_id }}">版 {{ v.version_no }}</a>{% if not loop.last %}・{% endif %}{% endfor %}</p>
-      <label class="field" for="new-run">お客様リストの名前</label>
-      <input id="new-run" type="text" name="name" required placeholder="例：12月分のお客様">
-      <label class="field" for="run-version">使う電話の台本の版</label>
-      <select id="run-version" name="version_id">{% for v in ready %}<option value="{{ v.version_id }}">版 {{ v.version_no }}（{{ time(v.created_at) }}）{% if loop.first %}・いちばん新しい版{% endif %}</option>{% endfor %}</select>
-      <button class="btn main small" type="submit">作って、お客様を取り込む</button>
-      {% else %}
-      <p class="muted">この業務には、まだ電話の台本がありません。お客様リストは、台本ができてから作れます。{{ words.SCRIPT_NOT_READY }}</p>
-      {% endif %}
-    </form>
-  </details>
-{% endif %}
-</div>
-{% if runs %}
-<div class="table-scroll"><table class="list">
-  <thead><tr><th>お客様リスト</th>{% if not business %}<th>業務</th>{% endif %}<th></th></tr></thead>
-  <tbody>
-  {% for r in runs %}
-    <tr>
-      <td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}/runs/{{ r.run_id }}">{{ r.name }}</a></td>
-      {% if not business %}<td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}">{{ r.business }}</a></td>{% endif %}
-      {% set rb = "/c/" ~ client.client_id ~ "/b/" ~ r.business_id ~ "/runs/" ~ r.run_id %}
-      <td><span class="go-links">{{ go(rb, words.LIST_GO_WORDS.rows) }}{{ go(rb ~ "/results", words.LIST_GO_WORDS.results) }}</span></td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table></div>
-{% else %}
-<div class="card">{{ empty("お客様リストはまだありません", "右上の「＋ お客様リストを作る」から作ります。" if business else "業務のタブを選んで、お客様リストを作ります（業務がまだ無ければ、上の「＋ 業務」から）。") }}</div>
 {% endif %}
 {% endblock %}

@@ -105,7 +105,10 @@
   function submitState(form) {
     var btn = form.querySelector("[data-submit]");
     if (!btn) return;
-    var c = form.querySelector("[data-checked-count]"); if (c) c.textContent = form.querySelectorAll("input[name=task_id]:checked").length;
+    var picked = form.querySelectorAll("input[type=checkbox][name=task_id]:checked").length;
+    var c = form.querySelector("[data-checked-count]"); if (c) c.textContent = picked;
+    // まとめて変える欄は、お客様を選んでから開く（選ぶまでは案内の一文だけ。CSS の1か所が見せ方を決める）
+    if (form.classList.contains("bulk-form")) { form.classList.add("js-ready"); form.classList.toggle("has-checked", picked > 0); }
     var missing = missingOf(form);
     btn.disabled = missing.length > 0;
     var hint = form.querySelector(".why-disabled");

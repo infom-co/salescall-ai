@@ -587,3 +587,12 @@ details.setting .now > b { font-weight: 700; }
 .setting.needed { border-left: 4px solid var(--wait); }
 .need-why { color: var(--wait); font-weight: 600; }
 
+/* まとめて変える欄（お客様を選ぶまではたたみ、案内の一文だけ。部品が動かないときは、いつも出す） */
+.bulk-controls { display: contents; }
+.bulk-empty { display: none; }
+.bulk-form.js-ready:not(.has-checked) .bulk-controls { display: none; }
+.bulk-form.js-ready:not(.has-checked) .bulk-empty { display: inline; }
+ul.done-steps { margin: 6px 0 0; padding-left: 0; list-style: none; color: var(--muted); }
+ul.done-steps li { margin: 4px 0; }
+ul.done-steps span { color: var(--ok); margin-right: 4px; }
+
