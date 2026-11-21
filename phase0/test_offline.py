@@ -30254,6 +30254,55 @@ class CautionBackWordsTest(unittest.TestCase):
         self.assertEqual(ACK["arigatou"] + ACK["moushiwake_heavy"] + accepted_line(q, heard=False)[1], UnheardCautionClauseTest.USER)
 
 
+class MatterPromptWordsTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L18 の (3)：取込の問い合わせ（announces.MATTER_PROMPT）の、答えを伏せた読み手 A・B（束 aa1）が2人とも挙げた食い違い・書いていない所を、
+    帳面 0-3 の決まり（初めて読む人がそのまま分かる言葉で・決まりと例が食い違わない）で直した：(a) 句は「言葉のまま、終わりだけ」でなく、やわらげる言い方
+    （「〜てしまう」「〜になってしまいますと」）も外して言い切り、句にする文に事柄の言葉が無ければお客様が聞いた文の中の事柄の言葉を主語にする（ご承認いただいた
+    伺い96 アの一言「前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる件」の形）(b) 1つの文の終わりの「のでご了承ください。」は外す (c) 伺う文（質問の文）と
+    前置き（「（何々）の内容ですが」「（何々）のご案内ですが」）は句に入れない (d) 名詞は決まりが何についてのものか（事柄）の言葉＝事柄の時期や値と前置きそのものは
+    入れない（最終の確かめが「それではキャンセルの件は…」のように何の件かがすぐ分かる形＝✅ 2026-11-14 日本時間14時31分38秒 伺い10 のお言葉）。決まりの文はどれも
+    1か所（announces.SOFT_OFF・SUBJECT・NOT_CONTENT・MATTER_WHAT・MATTER_NOT）で、問い合わせに1回だけ入る。⛔ それまで、決まりは「お客様が聞いた文の言葉のまま、
+    終わりだけを」言い切りなのに例は「かかってしまう」を「かかる」にし主語を良い点の文から持ってきていた・「のでご了承ください」と伺う文の扱いが書いていなかった"""
+    ASK = UnheardCautionClauseTest.ASK
+
+    def test_each_rule_is_said_once_and_the_old_words_are_gone(self):
+        import announces
+        p = announces.MATTER_PROMPT
+        for rule in (announces.SOFT_OFF, announces.SUBJECT, announces.NOT_CONTENT, announces.MATTER_WHAT, announces.MATTER_NOT):
+            self.assertEqual(p.count(rule), 1, rule)
+        self.assertNotIn("言葉のまま、終わりだけ", p)
+        self.assertIn(f"「{announces.ANNOUNCE_END}」は、お願いの言葉で内容ではないので外します", p)
+        self.assertIn(f"句は「（期限）{announces.PAST}（事柄）は（気をつけていただくこと）」の形にします", p)
+        # 道具の欄の説明（問い合わせと一緒に送る）も同じ言葉：名詞は事柄の言葉・句は「終わりだけ」と言わない
+        self.assertIn(announces.MATTER_WHAT, announces.MATTER_DESC)
+        self.assertNotIn("終わりだけ", announces.CLAUSE_DESC)
+
+    def test_the_example_clause_follows_the_rules_and_the_approved_line(self):
+        # 問い合わせの例の句は、決まりどおり（やわらげる言い方を外す・主語は良い点の文から・「（期限）を過ぎた（事柄）は…」）。ご承認いただいた一言も同じ形
+        import announces
+        self.assertNotIn("てしまう", announces.EXAMPLE_CLAUSE)
+        self.assertIn("かかってしまう", announces.caution(announces.EXAMPLE_LINE))
+        self.assertTrue(announces.EXAMPLE_CLAUSE.startswith(f"前日{announces.PAST}{announces.EXAMPLE_MATTER}は"))
+        self.assertTrue(announces.EXAMPLE_LINE.startswith(f"{announces.EXAMPLE_MATTER}は"))
+        self.assertTrue(UnheardCautionClauseTest.CLAUSE.startswith(f"前日{announces.PAST}キャンセルや変更は"))
+
+    def test_the_rules_answers_pass_the_import_checks(self):
+        # 決まりどおりの答えが、本番の形の確かめ（matter_fits・clause_fits）を通る：決まりの中の例（前置きの中の事柄）・1つの文（前置きと「のでご了承ください」を外す・
+        # 名詞は時期を入れない）・お知らせの文が無い業務（伺う文を入れない・前置きの中の事柄の言葉を主語に）
+        import announces
+        fee = "送料のご案内ですが一律800円となります。"
+        self.assertTrue(announces.matter_fits(fee, self.ASK, "送料"))
+        self.assertTrue(announces.clause_fits(fee, self.ASK, "送料は一律800円となる"))
+        rule = HeardLineClauseTest
+        self.assertTrue(announces.matter_fits(rule.RULE, rule.ASK, "キャンセル"))
+        self.assertTrue(announces.clause_fits(rule.RULE, rule.ASK, "当日のキャンセルは前日までにご連絡いただく必要がある", rule.LINE))
+        month = "料金のご案内ですが月額3,000円となります。"
+        self.assertEqual(announces.heard(month, self.ASK, ""), month + self.ASK)   # お知らせの文が無い業務は、お客様が聞いた文に質問の文が入る
+        self.assertTrue(announces.matter_fits(month, self.ASK, "料金"))
+        self.assertTrue(announces.clause_fits(month, self.ASK, "料金は月額3,000円となる"))
+        self.assertTrue(announces.matter_fits("ご利用日の変更は前日までにご連絡いただく決まりになっております。", self.ASK, "ご利用日の変更"))
+
+
 class ImportFormsReviewTest(unittest.TestCase):
     """見直し (12) の組 Q（取込で決めた文・録音の一覧）：C-1 事実を伺う質問に選択肢を並べた文を作らない・C-2／C-3 {最短の日} を声に出す文のすべてで1か所で
     置き換え、流す録音の名前と録音の表の名前を同じ1つから作る・C-4 取込の中身の判定で同じことを伺っているかを読む・C-5 形の確かめの1か所・C-6 先に並べた文は
