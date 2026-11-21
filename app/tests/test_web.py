@@ -915,6 +915,10 @@ class EmergencyStop(_World):
             self.assertIn("ok=1", r.headers["location"])
             self.assertEqual(len(self._opened(self.a["tenant"], self.y["client"], "client")), 1)
             self.assertEqual(self._opened(self.a["tenant"], self.a["client"], "client"), [])
+            # 依頼者のタブの印の材料（帯と同じ数え方の内訳）：止めた依頼者だけに「止まっている」の印（ほかの依頼者のタブには付けない）
+            marks = re.search(r'data-tab-marks data-stop="([^"]*)"', self.get("A", "/t/badges").text).group(1).split()
+            self.assertIn(str(self.y["client"]), marks)
+            self.assertNotIn(str(self.a["client"]), marks)
         finally:
             self._resume_all(self.a["tenant"], self.y["client"], "client")
 

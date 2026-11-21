@@ -67,6 +67,9 @@ h3 { font-size: 13px; margin: 0 0 8px; font-weight: 700; color: var(--muted); le
 .tab[aria-current="page"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0;
                                    background: var(--primary); }
 .tab.home { border-right: 1px solid var(--line); padding-right: 16px; margin-right: 4px; color: var(--text); }
+.tab .tab-mark { display: none; width: 7px; height: 7px; border-radius: 50%; margin-left: 6px; }   /* 依頼者のタブの印（app.js が付ける） */
+.tab.mark-stop .tab-mark { display: inline-block; background: var(--stop); }
+.tab.mark-wait .tab-mark { display: inline-block; background: var(--wait); }
 .tab.empty { color: var(--muted); font-weight: 400; }
 /* 依頼者のタブの並びは、ほかの部品（全体・グループ・＋依頼者・探す）に押しつぶされない（2026-11-20：スマホで幅0になり、いま開いている
    依頼者も見えず、タブで切り替えられなかった）。入りきらなければ折り返す。狭い画面では、いつも2段目に全幅で並べる（下の @media） */

@@ -487,9 +487,12 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     def badges(request: Request) -> HTMLResponse:
         """いつも見える帯の数（画面を開いたあとに読み、30秒ごとに読み直す）。数える部品はホームと同じ。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
-            n_stops = len(counts.open_stops(ctx))
-            n_wait = len(_waiting(ctx))
-            return templates.TemplateResponse(request, "badges.html", {"n_stops": n_stops, "n_wait": n_wait})
+            stops_now, waiting = counts.open_stops(ctx), _waiting(ctx)
+            # 依頼者のタブの印（同じ数え方の内訳。依頼者の範囲の停止・その依頼者の承認待ち。契約者・全体の範囲の停止は帯の印だけ＝全部のタブに付けない）
+            stop_clients = sorted({str(r["client_id"]) for r in stops_now if r.get("client_id")})
+            wait_clients = sorted({str(c["client_id"]) for c, _ in waiting if c.get("client_id")})
+            return templates.TemplateResponse(request, "badges.html", {"n_stops": len(stops_now), "n_wait": len(waiting),
+                                                                       "stop_clients": stop_clients, "wait_clients": wait_clients})
         return handle(request, render)
 
     @app.get("/t/inbox")

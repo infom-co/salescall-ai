@@ -222,4 +222,15 @@
   }
   document.addEventListener("DOMContentLoaded", function () { label(document); });
   document.addEventListener("htmx:afterSwap", function (e) { label(e.target); });
+  // 依頼者のタブの印（止まっている＝赤・承認待ち＝橙。材料は帯の数え方の内訳 [data-tab-marks]。帯を読み直すたびに付け直す）
+  document.addEventListener("htmx:afterSwap", function (e) {
+    var m = e.target.querySelector && e.target.querySelector("[data-tab-marks]");
+    if (!m) return;
+    var stop = (m.getAttribute("data-stop") || "").split(" "), wait = (m.getAttribute("data-wait") || "").split(" ");
+    document.querySelectorAll(".tab[data-client]").forEach(function (t) {
+      var id = t.getAttribute("data-client"), s = stop.indexOf(id) >= 0, w = wait.indexOf(id) >= 0;
+      t.classList.toggle("mark-stop", s); t.classList.toggle("mark-wait", !s && w);
+      t.title = s ? "止まっているものがあります" : (w ? "承認待ちがあります" : "");
+    });
+  });
 })();
