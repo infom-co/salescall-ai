@@ -120,3 +120,16 @@
 </a>
 {% endfor %}
 {%- endmacro %}
+
+{#- 名前を直す（依頼者・業務・お客様リスト・回線で同じ1つの形。見出しの横の小窓。計画書 4章 A「登録・編集・無効化」の「編集」）。
+    直すのは core の registry だけで、前と後の名前・誰が・いつはデータベースが残す。同じ名前があれば core が断り、その文のまま出す -#}
+{% macro rename(action, what, current, token) -%}
+<details class="adder rename"><summary class="btn small">名前を直す</summary>
+  <form class="panel" method="post" action="{{ action }}">{{ csrf(token) }}
+    {% set rid = "rename" ~ action|replace("/", "-") %}
+    <label class="field" for="{{ rid }}">{{ what }}「{{ current }}」の新しい名前</label><input id="{{ rid }}" type="text" name="name" required value="{{ current }}">
+    <p class="muted">名前だけを直します。これまでの記録・設定・電話はそのままです（直す前と後の名前は記録に残ります）。</p>
+    <button class="btn main small" type="submit">この名前にする</button>
+  </form></details>
+{%- endmacro %}
+

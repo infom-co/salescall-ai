@@ -554,8 +554,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 return stops.explain(tx, event_id)
             x = ctx.tenant(read) if client_id is None else ctx.client(client_id, read)
             base = f"/t/stops/{event_id}" if client_id is None else f"/c/{client_id}/stops/{event_id}"
-            client = None if client_id is None else ctx.client(client_id, lambda tx: tx.one(
-                "SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)), read_only=True)
+            client = None if client_id is None else ctx.client(client_id, lambda tx: context.client(tx, client_id), read_only=True)
             return page(request, "stop.html", person, ctx, x=x, base=base, done=done, ok=bool(ok), client=client,
                         active="client" if client else "stops")
         return handle(request, render)
@@ -720,7 +719,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             def read(tx: Any) -> dict[str, Any]:
                 out: dict[str, Any] = {"rows": _settings_rows(tx, level, ctx.tenant_id, client_id, business_id)}
                 if client_id is not None:
-                    out.update(client=tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                    out.update(client=context.client(tx, client_id),
                                businesses=context.businesses(tx),
                                business=None if business_id is None else context.business(tx, business_id))
                 return out
@@ -1009,7 +1008,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             else:
                 values = ctx.client(client_id, lambda tx: {
                     "rows": _dnc_rows(tx, "dnc_entries"), "businesses": context.businesses(tx),
-                    "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,))}, read_only=True)
+                    "client": context.client(tx, client_id)}, read_only=True)
             return page(request, "dnc.html", person, ctx, active="dnc" if client_id is None else "client", done=done, ok=bool(ok), **values)
         return handle(request, render)
 
@@ -1030,7 +1029,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 values.update(extra(person, ctx))
             if client_id is not None:
                 values.update(ctx.client(client_id, lambda tx: {
-                    "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                    "client": context.client(tx, client_id),
                     "businesses": context.businesses(tx)}, read_only=True))
             fields = [f for f in dnc_import.FIELDS if client_id is not None or f == "phone"]   # 契約者の共通の台帳は番号だけ（core と同じ）
             values.setdefault("stage", stage)   # 行ごとの結果を出せなかったときは、列の段に戻す（extra が決める）
@@ -1214,13 +1213,62 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             return _back(f"{base}/runs/{out.value}/import" if out.ok else base, out)
         return handle(request, render)
 
+    # ── 名前を直す・依頼者を無効にする（計画書 4章 A「登録・編集・無効化」。直すのは core の registry だけ。前と後の名前・誰が・いつは
+    #    データベースが残す。同じ名前があれば core が断り、その文のまま出す。依頼者・業務・お客様リスト・回線で同じ1つの流れ） ──────────
+    def _rename(request: Request, form: dict[str, Any], write: Callable[[Ctx, str], Any], back: str) -> HTMLResponse:
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            out = actions.act(secret, person.login_id, form, lambda: write(ctx, actions.name_of(form)),
+                              done="名前を直しました（これまでの記録・設定・電話はそのままです）。")
+            return _back(back, out)
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/name")
+    async def rename_client(request: Request, client_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        return _rename(request, form, lambda ctx, name: ctx.client(client_id, lambda tx: registry.rename_client(tx, client_id, name)),
+                       f"/c/{client_id}")
+
+    @app.post("/c/{client_id}/b/{business_id}/name")
+    async def rename_business(request: Request, client_id: UUID, business_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        def write(ctx: Ctx, name: str) -> None:
+            ctx.client(client_id, lambda tx: (context.business(tx, business_id), registry.rename_business(tx, business_id, name)))
+        return _rename(request, form, write, f"/c/{client_id}/b/{business_id}")
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/name")
+    async def rename_run(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        def write(ctx: Ctx, name: str) -> None:
+            ctx.client(client_id, lambda tx: (_run_in(tx, business_id, run_id), registry.rename_run(tx, run_id, name)))
+        return _rename(request, form, write, f"/c/{client_id}/b/{business_id}/runs/{run_id}")
+
+    @app.post("/t/lines/{line_id}/name")
+    async def rename_line(request: Request, line_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        return _rename(request, form, lambda ctx, name: ctx.tenant(lambda tx: registry.rename_line(tx, line_id, name)), "/t/lines")
+
+    @app.post("/c/{client_id}/active")
+    async def client_active(request: Request, client_id: UUID) -> HTMLResponse:
+        """依頼者を無効にする（取引を終えた など）・有効に戻す。無効にすると、まだ発信していない予約を取り消し、門が新しい電話を通さない
+        （core の registry.set_client_active の1か所。理由は記録に残る）。"""
+        form = dict(await request.form())
+        active = form.get("active") == "1"
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            out = actions.act(secret, person.login_id, form,
+                              lambda: ctx.client(client_id, lambda tx: registry.set_client_active(tx, active, reason=str(form.get("reason") or ""))),
+                              done=("有効に戻しました。この依頼者に、また電話をかけます（ほかに止めているものがあれば、そちらが先です）。" if active
+                                    else "無効にしました。この依頼者には、新しい電話をかけません（まだかけていない予約は取り消しました）。"),
+                              reason_field="reason")
+            return _back(f"/c/{client_id}/settings", out)
+        return handle(request, render)
+
     # ── 依頼者と業務（タブは2段：依頼者 → 業務。✅ 2026-11-18 管理者） ──────────────
     def _client_or_business(request: Request, client_id: UUID, business_id: UUID | None, done: str | None = None,
                             ok: int = 1) -> HTMLResponse:
         """依頼者のタブ（business_id が None＝概要・全業務）と業務のタブは、同じこの1つの画面の部品で出す（絞り方が違うだけ）。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
-                c = tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,))
+                c = context.client(tx, client_id)
                 b = None if business_id is None else context.business(tx, business_id)
                 runs = tx.all("SELECT r.run_id, r.name, b.business_id, b.name AS business FROM salescall.runs r"
                               " JOIN salescall.businesses b ON b.business_id = r.business_id"
@@ -1277,7 +1325,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         "    OR (%s::text IS NOT NULL AND EXISTS (SELECT 1 FROM salescall.task_numbers k WHERE k.task_id = t.task_id"
                         "                                          AND k.phone_e164 = %s))"
                         " ORDER BY t.source_name NULLS LAST, t.task_id LIMIT 200", (term, term, term, n.e164, n.e164))
-                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                return {"client": context.client(tx, client_id),
                         "businesses": context.businesses(tx), "found": found}
             return page(request, "search.html", person, ctx, q=term, **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
@@ -1299,7 +1347,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     def groups_page(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
         """グループを整える（作る・名前を変える・並べ替える・やめる・依頼者を入れる／外す）。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
-            every = ctx.tenant(lambda tx: tx.all("SELECT client_id, name FROM salescall.clients ORDER BY name, client_id"), read_only=True)
+            every = ctx.tenant(lambda tx: tx.all(f"SELECT {context.CLIENT_COLUMNS} FROM salescall.clients c ORDER BY c.name, c.client_id"), read_only=True)
             return page(request, "groups.html", person, ctx, all_clients=every, done=done, ok=bool(ok), active="groups")
         return handle(request, render)
 
@@ -1353,7 +1401,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                               " ORDER BY valid_from DESC, terms_id DESC", (business_id,))
                 now = tx.one("SELECT now() AS t")["t"]
                 current = next((r for r in rows if r["valid_from"] <= now), None)
-                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                return {"client": context.client(tx, client_id),
                         "business": b, "businesses": context.businesses(tx), "rows": rows, "current": current, "now": now}
             return page(request, "reward.html", person, ctx, fields=REWARD_FIELDS, cautions=reward.CAUTIONS, done=done, ok=bool(ok),
                         **ctx.client(client_id, read, read_only=True))
@@ -1414,7 +1462,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 columns = [("すべて", metrics.business(tx, business_id, since=since, until=until))]
                 columns += [(f"{v['voice_name']}・{words.plain(v['note'])}", metrics.business(tx, business_id, since=since, until=until,
                                                                                           voice_type=v["code"])) for v in voices]
-                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                return {"client": context.client(tx, client_id),
                         "business": b, "businesses": context.businesses(tx), "columns": columns}
             return page(request, "metrics.html", person, ctx, days=span, day_choices=METRIC_DAYS,
                         **ctx.client(client_id, read, read_only=True))
@@ -1441,7 +1489,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     c["url"] = f"{r['url']}/calls/{c['attempt_id']}" if r else ""
                 for d in draws:
                     d["calls"] = [c for c in calls if c["draw_id"] == d["draw_id"]]
-                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                return {"client": context.client(tx, client_id),
                         "business": b, "businesses": context.businesses(tx), "rates": rates, "draws": draws}
             return page(request, "samples.html", person, ctx, **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
@@ -1461,7 +1509,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     picked = destinations.chosen(tx, b["business_id"])
                     per.append(dict(b, mode="all" if picked is None else ("file" if not picked else "pick"),
                                     sends={d["destination_id"] for d in destinations.for_business(tx, b["business_id"])}))
-                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                return {"client": context.client(tx, client_id),
                         "dests": every, "per_business": per}
             return page(request, "destinations.html", person, ctx, methods=result_destinations.METHODS, done=done, ok=bool(ok),
                         **ctx.client(client_id, read, read_only=True))
@@ -1526,7 +1574,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 except (business_rules.RulesMissing, business_rules.RulesInvalid):
                     rules = None
                 latest = business_settings.successor_tip(tx, version_id) == version_id   # 変える欄は、つながりのいちばん後の版にだけ出す
-                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                return {"client": context.client(tx, client_id),
                         "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem, "missing": missing, "latest": latest,
                         "policies": [(k, rules.retry[k]) for k in business_rules.POLICY_KEYS] if rules else [],
                         "system_policies": [(k, rules.retry[k]) for k in business_rules.SYSTEM_POLICIES] if rules else []}
@@ -1574,7 +1622,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         """お客様リスト（実施回ごと）。住所の依頼者の取引で、業務がその依頼者のもの・実施回がその業務のものかを確かめる。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
-                c = tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,))
+                c = context.client(tx, client_id)
                 b = context.business(tx, business_id)
                 run = tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s AND business_id = %s", (run_id, business_id))
                 if run is None:
@@ -1632,7 +1680,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             base = f"/c/{client_id}/b/{business_id}/runs/{run_id}"
             def work(tx: Any) -> tuple[str, bytes, int | None]:
                 run = _run_in(tx, business_id, run_id)
-                c = tx.one("SELECT name FROM salescall.clients WHERE client_id = %s", (client_id,))
+                c = context.client(tx, client_id)
                 got = result_rows.rows(tx, run_id)
                 name = result_files.file_name(c["name"], run["name"], tx.today(), fmt)
                 data = result_files.write(fmt, got, run["name"])
@@ -1664,7 +1712,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     leak = None
                 except result_files.ClientWordsLeak as e:
                     leak = str(e)
-                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                return {"client": context.client(tx, client_id),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx), "run": run,
                         "rows": got, "leak": leak}
             return page(request, "results.html", person, ctx, columns=result_rows.COLUMNS, please_fill=result_rows.PLEASE_FILL, zip=zip,
@@ -1693,7 +1741,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         def render(person: Person, ctx: Ctx) -> Response:
             def work(tx: Any) -> tuple[str, bytes]:
                 run = _run_in(tx, business_id, run_id)
-                c = tx.one("SELECT name FROM salescall.clients WHERE client_id = %s", (client_id,))
+                c = context.client(tx, client_id)
                 name = result_files.file_name(c["name"], run["name"] + "_記録のすべて", tx.today(), "xlsx")
                 return name, result_files.book(record_book.sheets(tx, run_id))
             name, data = ctx.client(client_id, work, read_only=True)
@@ -1731,7 +1779,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             if extra is not None:
                 values.update(extra(person, ctx))
             def read(tx: Any) -> dict[str, Any]:
-                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                return {"client": context.client(tx, client_id),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
                         "run": _run_in(tx, business_id, run_id)}
             return page(request, name, person, ctx, field_words=words.IMPORT_FIELD_WORDS,
@@ -1895,7 +1943,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         "latest": latest, "can_correct": approval_core.correctable(tx, task_id) is not None,   # 直せるかは core の1か所（29 の (c)）
                         "answers": result_rows.answers_for_check(tx, task_id),   # 依頼者へ渡す書き方のままの答え（結果のファイルと同じ1か所）
                         "pending": inbox.collect(tx, task=task_id),   # この行の承認待ち（受け箱と同じ1か所・同じ形で出す）
-                        "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "client": context.client(tx, client_id),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
                         "run": tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s", (run_id,)),
                         "row": row, "calls": calls, **step}
@@ -1916,7 +1964,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                               " WHERE attempt_id = %s AND task_id = %s", (attempt_id, task_id))
                 if call is None:
                     raise NotFound()
-                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                return {"client": context.client(tx, client_id),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
                         "run": tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s", (run_id,)),
                         "row": tx.one("SELECT task_id, source_name, target_name, target_role FROM salescall.tasks WHERE task_id = %s",

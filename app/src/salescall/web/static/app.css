@@ -576,3 +576,10 @@ details.setting .now > b { font-weight: 700; }
 .nav .account a { padding: 6px 8px; margin: 0 -8px; }   /* 「ログインと安全」を上の文字とそろえる（道しるべの行の字下げを打ち消す） */
 .passkey-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }   /* 名前の欄とボタンは、狭い幅で折り返す */
 .passkey-add .field { flex-basis: 100%; margin: 0; }
+
+/* 無効の依頼者のタブ（取引を終えた など。名前の横に「（無効）」と書き、色を落とす。色だけに頼らない） */
+.tab.off { color: var(--muted); }
+.tab .off-word { font-size: 12px; margin-left: 2px; }
+/* 名前を直す小窓（見出しの横・表の操作の列で同じ形） */
+.rename .panel input[type=text] { width: 100%; }
+

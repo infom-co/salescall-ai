@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, flash, csrf, empty, readiness %}
+{% from "parts.html" import tag, flash, csrf, empty, readiness, rename %}
 {% block title %}{{ words.page("lines") }}{% endblock %}
 {% block main %}
 <div class="title-row"><div class="titles"><h1>{{ words.page("lines") }}</h1>
@@ -38,15 +38,17 @@
       <td>{% if l.retired_at %}{{ tag("使用停止", "") }}<div class="muted">{{ l.retired_reason }}</div>
           {% else %}{{ tag(l.stage.value, words.line_tone(l.stage)) }}
           {% if l.wait %}<div class="muted">待っていること：{{ l.wait.value }}{% if l.next_at %}（{{ time(l.next_at) }}）{% endif %}</div>{% endif %}{% endif %}</td>
-      <td class="nowrap">{% if not l.retired_at %}
+      <td class="nowrap">{{ rename("/t/lines/" ~ l.line_id ~ "/name", "回線", l.name, token) }}{% if not l.retired_at %}
         {% if l.resting %}
         <details class="adder"><summary class="btn small">手で再開</summary>
-          <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/resume" data-needs-reason>{{ csrf(token) }}
+          <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/resume" data-needs-reason data-confirm-ok="再開する"
+                data-confirm="回線「{{ l.name }}」を再開します。この回線で、またおかけします（同じ不具合で続けて終われば、また休みます）。">{{ csrf(token) }}
             <p class="muted">直ったことを確かめてから再開してください。</p>
             <input type="text" name="reason" placeholder="理由（例：端末を再起動し、テストで鳴った）"><button class="btn main small" type="submit" data-submit disabled>再開する</button></form></details>
         {% endif %}
         <details class="adder"><summary class="btn small danger-text">使用停止</summary>
-          <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/retire" data-needs-reason>{{ csrf(token) }}
+          <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/retire" data-needs-reason data-confirm-ok="使用停止にする"
+                data-confirm="回線「{{ l.name }}」を使用停止にします。この回線ではもうかけません（元に戻せません）。まだ発信していない予約は取り消します。">{{ csrf(token) }}
             {#- 取り消せない操作は、どれに効くかを名前つきで見せてから（計画書 5-1） -#}
             <p><b>回線「{{ l.name }}」</b>（発信番号 <span class="tel">{{ phone(l.caller_e164) }}</span>・{{ (client_names[l.client_id] ~ " の専用") if l.client_id else "共有" }}）</p>
             <p class="muted">この回線ではもうかけません（元に戻せません）。まだ発信していない予約は取り消します。</p>
@@ -69,7 +71,8 @@
       <td class="when">{{ time(p.last_seen_at) if p.last_seen_at else "まだつながっていません" }}</td>
       <td class="nowrap">{% if p.revoked_at %}{{ tag("ログインを外しました", "") }}{% else %}
         <details class="adder"><summary class="btn small danger-text">ログインを外す</summary>
-          <form class="panel" method="post" action="/t/pcs/{{ p.pc_id }}/revoke">{{ csrf(token) }}
+          <form class="panel" method="post" action="/t/pcs/{{ p.pc_id }}/revoke" data-confirm-ok="外す"
+                data-confirm="PC「{{ p.label }}」のログインを外します。この PC は電話をつなげなくなります（話している電話は、終わってから効きます）。">{{ csrf(token) }}
             <p class="muted">この PC は電話をつなげなくなります。話している電話は、終わってから効きます。もう一度使うときは、PC でログインし直します。</p>
             <button class="btn danger small" type="submit">外す</button></form></details>{% endif %}</td>
     </tr>

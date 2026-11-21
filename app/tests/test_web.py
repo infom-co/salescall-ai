@@ -406,6 +406,55 @@ class Web(_World):
         self.assertIn("ok=1", r.headers["location"])
         self.assertEqual(self.post("B", f"/c/{cid}/businesses", {"form_token": self.token("B"), "name": "乗っ取り"}).status_code, 404)
 
+    # ── 名前を直す・依頼者を無効にする（計画書 4章 A「登録・編集・無効化」。3回目の見直し「高」の3） ──
+    def test_names_are_fixed_in_one_way_for_clients_businesses_runs_and_lines(self):
+        tok = self.token("A")
+        cid = self.post("A", "/t/clients", {"form_token": tok, "name": "架空の名前を直す依頼者"}).headers["location"].split("/")[2].split("?")[0]
+        bid = self.post("A", f"/c/{cid}/businesses", {"form_token": tok, "name": "架空の名前を直す業務"}).headers["location"].split("/")[4].split("?")[0]
+        self.assertIn("名前を直す", self.get("A", f"/c/{cid}").text)
+        r = self.post("A", f"/c/{cid}/name", {"form_token": tok, "name": "架空の直した依頼者"})
+        self.assertEqual(r.headers["location"].split("?")[0], f"/c/{cid}")
+        self.assertIn("ok=1", r.headers["location"])
+        self.assertIn("架空の直した依頼者", self.get("A", "/t").text)
+        self.assertIn("ok=0", self.post("A", f"/c/{cid}/name", {"form_token": tok, "name": "依頼者X"}).headers["location"])   # 同じ名前は断る
+        self.assertIn("ok=0", self.post("A", f"/c/{cid}/name", {"form_token": tok, "name": " "}).headers["location"])        # 空の名前は断る
+        self.assertEqual(self.post("B", f"/c/{cid}/name", {"form_token": self.token("B"), "name": "乗っ取り"}).status_code, 404)
+        self.assertIn("ok=1", self.post("A", f"/c/{cid}/b/{bid}/name", {"form_token": tok, "name": "架空の直した業務"}).headers["location"])
+        self.assertIn("架空の直した業務", self.get("A", f"/c/{cid}/b/{bid}").text)
+        self.assertEqual(self.post("A", f"/c/{self.y['client']}/b/{bid}/name", {"form_token": tok, "name": "よその業務"}).status_code, 404)
+        run = f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}"
+        old = re.search(r"<h1>お客様リスト：(.*?)</h1>", self.get("A", run).text).group(1)
+        try:
+            self.assertIn("ok=1", self.post("A", run + "/name", {"form_token": tok, "name": "架空の直したお客様リスト"}).headers["location"])
+            self.assertIn("お客様リスト：架空の直したお客様リスト", self.get("A", run).text)
+        finally:
+            import html
+            self.post("A", run + "/name", {"form_token": tok, "name": html.unescape(old)})
+        line = f"/t/lines/{self.a['line']}/name"
+        self.assertIn("名前を直す", self.get("A", "/t/lines").text)
+        self.assertIn("ok=1", self.post("A", line, {"form_token": tok, "name": "架空の直した回線"}).headers["location"])
+        self.assertIn("架空の直した回線", self.get("A", "/t/lines").text)
+        self.assertIn("ok=0", self.post("B", line, {"form_token": self.token("B"), "name": "乗っ取り"}).headers["location"])
+
+    def test_a_client_is_made_inactive_and_back_with_a_reason(self):
+        tok = self.token("A")
+        cid = self.post("A", "/t/clients", {"form_token": tok, "name": "架空の無効にする依頼者"}).headers["location"].split("/")[2].split("?")[0]
+        self.assertIn("この依頼者を無効にする", self.get("A", f"/c/{cid}/settings").text)
+        self.assertIn("ok=0", self.post("A", f"/c/{cid}/active", {"form_token": tok, "active": "0", "reason": ""}).headers["location"])   # 理由が要る
+        r = self.post("A", f"/c/{cid}/active", {"form_token": tok, "active": "0", "reason": "架空の取引を終えた"})
+        self.assertIn("ok=1", r.headers["location"])
+        self.assertEqual(r.headers["location"].split("?")[0], f"/c/{cid}/settings")
+        active = app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: tx.one("SELECT salescall.client_active(%s) AS a", (cid,))["a"])
+        self.assertFalse(active)                                                            # 門が見るのと同じ1か所
+        page = self.get("A", f"/c/{cid}").text
+        self.assertIn("この依頼者は無効です", page)
+        self.assertIn("架空の取引を終えた", page)
+        self.assertIn("（無効）", page)                                                     # タブにも
+        self.assertIn("有効に戻す", self.get("A", f"/c/{cid}/settings").text)
+        self.assertEqual(self.post("B", f"/c/{cid}/active", {"form_token": self.token("B"), "active": "1", "reason": "乗っ取り"}).status_code, 404)
+        self.assertIn("ok=1", self.post("A", f"/c/{cid}/active", {"form_token": tok, "active": "1", "reason": "架空の取引を再開"}).headers["location"])
+        self.assertNotIn("この依頼者は無効です", self.get("A", f"/c/{cid}").text)
+
     def test_a_run_takes_only_a_version_of_its_own_business(self):
         url = f"/c/{self.a['client']}/b/{self.a['business']}/runs"
         tok = self.token("A")
@@ -594,10 +643,10 @@ class Web(_World):
                 problems.append((path, "言葉の抜け"))
             problems += [(path, m) for m in internal.findall(visible)]
             problems += [(path, "開発の覚え書き：" + m.group(0)) for m in re.finditer(DEV_NOTE, visible)]   # 画面に開発の根拠を出さない
-            # 取り消せない操作の送信は、どれも確かめの窓（data-confirm＝名前つきの文）を通す（計画書 5-1。3回目の見直し「高」の2）
+            # 取り消せない操作・電話を再開させる操作の送信は、どれも確かめの窓（data-confirm＝名前つきの文）を通す（計画書 5-1。3回目の見直し「高」の2）
             for tag_ in re.findall(r"<form\b[^>]*>", r.text):
                 act = re.search(r'action="([^"]*)"', tag_)
-                if act and re.search(r"/result$|/exclude$|/revoke$|/resume$|/results\.(xlsx|csv)$|/inbox/deficit/confirm$", act.group(1)) \
+                if act and re.search(CONFIRMED_ACTIONS, act.group(1)) \
                         and "data-confirm=" not in tag_:
                     problems.append((path, "確かめの無い取り消せない操作：" + act.group(1)))
             if who != "ADMIN":   # 契約者の画面に内部の言い方を出さない（何が内部の言い方かは words.CONTRACTOR_INNER の1か所。管理者には覚え書きも出してよい）
@@ -880,6 +929,11 @@ class Web(_World):
                 r = self.get(who, path)
                 self.assertEqual(r.status_code, 200, r.text[:300])
                 self.assertLessEqual(len(visible_primary_buttons(r.text)), 1, visible_primary_buttons(r.text))
+
+
+# 確かめの窓を必ず通す送り先（取り消せない操作と、電話を再開させる操作）：結果を直す・かけるかを変える・発信禁止を外す・PC のログインを外す・
+# 止めたもの／回線の再開・依頼者を無効にする／戻す・回線の使用停止・依頼者へ渡すファイルの書き出し・赤字を確かめた
+CONFIRMED_ACTIONS = r"/result$|/exclude$|/revoke$|/resume$|/active$|/retire$|/results\.(xlsx|csv)$|/inbox/deficit/confirm$"
 
 
 def visible_primary_buttons(page: str) -> list[str]:

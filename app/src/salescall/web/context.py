@@ -92,7 +92,7 @@ class Ctx:
         """その契約者の依頼者の一覧（依頼者のタブと探す欄に出す。名前の順）。選んだグループ（`group`）があれば、そのグループの依頼者だけ
         （✅ 2026-11-18 管理者「依頼者が増えた場合は『グループ』を作れるといいね」。グループは core の registry.groups の1か所＝CL-2 4-436）。
         グループはタブの並べ方だけに使う（データの分離・権限には使わない）。無くなったグループを選んでいたら、すべてを並べる。"""
-        rows = self.tenant(lambda tx: tx.all("SELECT client_id, name FROM salescall.clients ORDER BY name, client_id"), read_only=True)
+        rows = self.tenant(lambda tx: tx.all(f"SELECT {CLIENT_COLUMNS} FROM salescall.clients c ORDER BY c.name, c.client_id"), read_only=True)
         if self.group is None:
             return rows
         groups = self.groups()
@@ -106,6 +106,22 @@ class Ctx:
         """その契約者の依頼者のグループ（並び順。core の registry.groups の1か所）。"""
         from salescall.core import registry
         return self.tenant(registry.groups, read_only=True)
+
+
+# 依頼者を読む形の1か所（タブの一覧も、1つの依頼者も同じ列）。有効かどうかの判断はデータベースの salescall.client_active の1か所
+# （門も同じものを見る。計画書 4章 A「登録・編集・無効化」）。無効の依頼者には、新しい電話をかけない。
+CLIENT_COLUMNS = "c.client_id, c.name, coalesce(salescall.client_active(c.client_id), true) AS active"
+
+
+def client(tx: Tx, client_id: UUID) -> dict[str, Any]:
+    """依頼者の取引（または契約者の取引）で、住所の依頼者を読む（名前・有効か・無効なら最後に無効にした理由といつ）。
+    見えなければ NotFound。"""
+    c = tx.one(f"SELECT {CLIENT_COLUMNS}, s.reason AS state_reason, s.set_at AS state_at FROM salescall.clients c"
+               " LEFT JOIN LATERAL (SELECT x.reason, x.set_at FROM salescall.client_states x WHERE x.client_id = c.client_id"
+               "                    ORDER BY x.seq DESC LIMIT 1) s ON true WHERE c.client_id = %s", (client_id,))
+    if c is None:
+        raise NotFound()
+    return c
 
 
 def businesses(tx: Tx) -> list[dict[str, Any]]:
