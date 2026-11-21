@@ -48073,3 +48073,27 @@ class LadderSpanTest(unittest.TestCase):
                     # 読まない頃＝CL-2 も決めない・もう過ぎた範囲・月の言葉の無い「頭」「末」など（「週の頭」「週末」「年末」と取り違えない＝今のまま聞き直す）
                     self.assertTrue(theirs is None or theirs[1] < today or w in LADDER_PARTS_MONTHLESS, (today, w, theirs))
         self.assertGreater(seen, 100)
+
+
+class UntilBackByTest(unittest.TestCase):
+    """分身 R（CL-1 の頼み rv184/R の (3)）：時刻の2択への「3時までには戻ってます。」は、「〇時まで」の理由の説明の文で「それまでは出られない」とも「理由は言っていない」とも取れた（答えを伏せた
+    読み手 A・B が2人とも書いた穴＝束 rv183/Q/readers の n9 の #1）。判定が「理由は言っていない」と読む・割れると、伺い63 の一言「恐れ入ります。3時までということはそれ以降はお電話が
+    難しいということでしょうか？」を流す＝お客様は「3時までには戻る（それ以降なら出られる）」と言ったのに逆の向きを伺う。CL-1 が決まりで決めた形：その時刻までには戻る・それまで席に
+    いない、は「それまでは出られない」（✅ 2026-10-23「3時まで出られないなら、3時以降になる」・DESIGN.md の「〇時まで」の表の例「3時までには戻ります」＝それまでは出られない）＝説明の文の
+    1か所（flowctl.until_choices の「それまでは出られない」）に「その時刻までには戻る（それまでは席にいない）と言ったのも」を足し、行の正解を「それまでは出られない」だけにした"""
+
+    def test_the_description_holds_back_by(self):
+        from flowctl import UNTIL_LABEL, UNTIL_WHY_NOT_SAID, callback_question, until_choices
+        got = until_choices(False, callback_question("later_time", answering=True))
+        self.assertIn("その時刻までには戻る（それまでは席にいない）と言ったのも", got[UNTIL_LABEL["unavailable"]])
+        self.assertNotIn("戻る", got[UNTIL_WHY_NOT_SAID])   # 境目は1か所（「理由は言っていない」の説明には書かない）
+
+    def test_the_row_is_only_unavailable(self):
+        import g53_meaning as G
+        from flowctl import UNTIL_LABEL, UNTIL_WHY
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        it = next(i for i in answer_words() if i["text"] == "3時までには戻ってます。")
+        self.assertEqual(it["label"][UNTIL_WHY], [UNTIL_LABEL["unavailable"]])
+        self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), {a for a in G.flow_wants(it, qmap[it["qid"]]) if UNTIL_LABEL["unavailable"] in a})
+        self.assertTrue(all(G.UNTIL_ASK_ACT not in a for a in G.flow_wants(it, qmap[it["qid"]])))
