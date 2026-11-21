@@ -30547,12 +30547,44 @@ class MatterPromptPrefaceTest(unittest.TestCase):
     def test_the_matter_rule_points_to_the_clause_rule_for_times_and_values(self):
         # 名詞に入れない時期や値（「当日の」）は、句には数と期限の言葉の決まりのとおり入れる（名詞の決まりから句の決まりを指す。句の決まりは1か所のまま）
         import announces
-        self.assertIn("clause には、下の「数・金額・日にち・期限・回数は…」の決まりのとおり入れます", announces.MATTER_NOT)
-        self.assertIn("数・金額・日にち・期限・回数は、お客様が聞いた文にあるものを全部", announces.MATTER_PROMPT)
+        # L19 の (5)（MatterPromptValuesTest）で、句の決まりの言い方を「時期や値（上の決まり）は…」に替えた（時期や値の決まりは TIME_VALUE の1か所）
+        self.assertIn("clause には入れます", announces.MATTER_NOT)
+        self.assertIn("時期や値（上の決まり）は、お客様が聞いた文にあるものを全部", announces.MATTER_PROMPT)
         rule = HeardLineClauseTest
         self.assertTrue(announces.matter_fits(rule.RULE, rule.ASK, "キャンセル"))
         self.assertTrue(announces.clause_fits(rule.RULE, rule.ASK, "当日のキャンセルは前日までにご連絡いただく必要がある", rule.LINE))
         self.assertFalse(announces.clause_fits(rule.RULE, rule.ASK, "キャンセルは前日までにご連絡いただく必要がある", rule.LINE))
+
+
+class MatterPromptValuesTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L19 の (5)（分身 AE の (5)）：束 ae1 で答えを伏せた読み手 A・B が挙げた境目（答えは13行とも作った側と同じ＝言葉だけの直し）を、取込の
+    問い合わせ（announces.MATTER_PROMPT）の1か所（時期や値の決まり announces.TIME_VALUE）に書いた＝帳面 0-3「初めて読む人がそのまま分かる言葉で」・(a)「境目の決まりは
+    1か所だけに書く」：(5-a) 「期限」「料金」のように何についての話かを言う言葉は事柄の名前の一部で、時期や値ではない（#13「お支払いの期限」の「期限」を値の仲間と読む余地）
+    (5-b) 「月額」「年額」「一律」のような値の数え方の言葉は値の側（#7・#10＝前置きのあとの「月額」を事柄の言葉と読むと前置きの「料金」が使えなくなる）
+    (5-c) 句の決まりは「時期や値（上の決まり）は…全部…入れます」＝時期（「当日の」）も句に残すことが句の決まりの1か所で読める（#4＝前は「数・金額・日にち・期限・回数」
+    の並びに「時期」が無かった）。名詞の決まり MATTER_NOT も同じ「時期や値」を指す（並びを2か所に書かない）"""
+    ASK = UnheardCautionClauseTest.ASK
+
+    def test_the_time_and_value_rule_is_one_place(self):
+        import announces
+        p = announces.MATTER_PROMPT
+        self.assertEqual(p.count(announces.TIME_VALUE), 1)
+        self.assertIn(f"- {announces.TIME_VALUE}。", p)
+        self.assertNotIn("数・金額・日にち・期限・回数", p)   # 前の並び（時期の無い並び）は書かない
+        for w in ("「当日の」", "「月額」「年額」「一律」", "事柄の名前の一部で、時期や値ではありません", "時期や値は、事柄の名前ではなく"):
+            self.assertIn(w, announces.TIME_VALUE, w)
+        self.assertIn("時期や値（上の決まり）は matter には入れません", announces.MATTER_NOT)
+        self.assertIn("時期や値（上の決まり）は、お客様が聞いた文にあるものを全部、書いてあるとおりに入れます", p)
+        self.assertLess(p.index(announces.TIME_VALUE), p.index(announces.MATTER_NOT))
+
+    def test_the_example_answers_pass_the_import_checks(self):
+        # 決まりの例（「お届けの時間は午前中」＝事柄「お届けの時間」・時期や値「午前中」）と、前置きのあとに値の数え方の言葉しか無い文（前置きの事柄を使う）の答えが本番の形の確かめを通る
+        import announces
+        self.assertIn("「お届けの時間は午前中となります。」なら、事柄は「お届けの時間」、時期や値は「午前中」", announces.TIME_VALUE)
+        t = "お届けの時間は午前中となります。"
+        self.assertTrue(announces.matter_fits(t, self.ASK, "お届けの時間") and announces.clause_fits(t, self.ASK, "お届けの時間は午前中となる"))
+        y = "会員のご案内ですが年額5,000円となります。"
+        self.assertTrue(announces.matter_fits(y, self.ASK, "会員") and announces.clause_fits(y, self.ASK, "会員は年額5,000円となる"))
 
 
 class ImportFormsReviewTest(unittest.TestCase):
