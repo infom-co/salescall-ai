@@ -8,6 +8,9 @@
 <p class="lead">確定した結果を、依頼者「{{ client.name }}」の仕組みへ直接書き戻す先です。送り先が無い業務の結果は、ファイル（Excel・CSV）で渡します。</p>
 {{ flash(done, ok) }}
 {# 送り先を作る・直すのは output/destinations の1か所。業務がどこへ渡すかを決めるのは core の destinations.for_business の1か所（画面で決め直さない） #}
+{#- 送り先が無いうちは、1つの札だけ（いまはファイルで渡す・足せる送り方があれば、ここで足す）。業務ごとの渡し方は、送り先が1つでも
+    できてから出す（送り先が無いと「送り先すべて」も「ファイルだけ」も同じで、選ぶ意味が無い。2026-11-20 の見直し：送り先0件なのに
+    「依頼者の送り先すべて」が選ばれて見え、足せない「送り先を足す」の札が並んでいた） -#}
 <section class="card">
   <h2>送り先</h2>
   {% if dests %}
@@ -26,12 +29,13 @@
           <button class="btn main small" type="submit">直す</button>
         </form></details>
     </li>{% endfor %}</ul>
-  {% else %}{{ empty("送り先はまだありません", "いまは、結果をファイル（Excel・CSV）で渡します。") }}{% endif %}
-</section>
-
-<section class="card" style="margin-top:12px">
-  <h2>送り先を足す</h2>
+  {% else %}
+  {{ empty("送り先はまだありません。いまは、結果をファイル（Excel・CSV）で渡します",
+           "送り先を足すと、確定した結果を依頼者の仕組みへ直接書き戻せます（業務ごとに渡し方も選べます）。" if methods
+           else "依頼者の仕組みへ直接書き戻す部品は、その仕組みを使う依頼者が決まったときに用意します。結果のファイルは「依頼者へ渡す結果」の画面から書き出します。") }}
+  {% endif %}
   {% if methods %}
+  <details class="adder-block" style="margin-top:12px" {% if not dests %}open{% endif %}><summary class="btn small">送り先を足す</summary>
   <form method="post" action="/c/{{ client.client_id }}/destinations" class="stack">{{ csrf(token) }}<input type="hidden" name="op" value="create">
     <label class="field" for="nd-name">名前（例：依頼者の顧客台帳）</label>
     <input id="nd-name" type="text" name="name" required maxlength="60">
@@ -41,11 +45,11 @@
     <p class="muted">送り方は、あとから変えられません（変えるときは新しい送り先を足します）。</p>
     <button class="btn main small" type="submit">足す</button>
   </form>
-  {% else %}
-  <p class="muted">依頼者の仕組みへ直接書き戻す部品は、その仕組みを使う依頼者が決まったときに用意します。それまでは、結果をファイル（Excel・CSV）で渡します。</p>
+  </details>
   {% endif %}
 </section>
 
+{% if dests %}
 <h2>業務ごとの渡し方</h2>
 <p class="muted">業務ごとに、結果をどこへ渡すかを選べます。どれを選んでも、結果のファイル（Excel・CSV）はいつでも書き出せます。</p>
 {% for b in per_business %}
@@ -66,4 +70,5 @@
   </form>
 </section>
 {% else %}<div class="card" style="margin-top:12px">{{ empty("業務はまだありません", "上の業務のタブの「＋ 業務」から作ると、業務ごとに渡し方を決められます。") }}</div>{% endfor %}
+{% endif %}
 {% endblock %}

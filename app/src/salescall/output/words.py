@@ -210,7 +210,7 @@ IMPORT_FIELD_WORDS: dict[str, str] = {
 # テスト番号の結果（line_ring_tests.rang：鳴った／鳴らない／見分けられない＝core の ring_test の決まり）と、鳴らした目的（purpose の
 # すべての値＝データベースの決まり。試験が突き合わせる）。契約者の画面だけ。
 RING_WORDS: dict[bool | None, str] = {True: "鳴った（回線は元気）", False: "鳴らなかった（回線のせい）", None: "見分けられなかった"}
-RING_PURPOSE_WORDS: dict[str, str] = {"resume_check": "再開の確かめ", "no_rows": "かける行が無い回線の確かめ"}
+RING_PURPOSE_WORDS: dict[str, str] = {"resume_check": "再開の確かめ", "no_rows": "かけるお客様が残っていない回線の確かめ"}
 
 
 # 通話のやり取りで、話した側の名前（正本は core の conversation_io.SPEAKERS。試験が突き合わせる。契約者の画面だけ）
@@ -368,7 +368,7 @@ SETTING_GROUPS: dict[str, str] = {
     "business": "業務", "calling": "かける時間帯", "gate": "かける前の確かめ（回数・間隔）", "callee": "お客様の扱い",
     "call": "通話の進め方", "conversation": "会話", "callback": "かけ直し", "retry": "かけ直しの回数", "decision": "取り消せない決定",
     "dnc": "発信禁止", "output": "結果の出力", "approval": "承認", "quality": "品質の段（検証モード）", "verification": "通話のあとの確かめ",
-    "judge": "判定", "measure": "測り", "recording": "録音", "line": "回線", "dial": "発信", "pc": "PC", "stop": "止める・解く",
+    "judge": "判定", "measure": "測り", "recording": "録音", "line": "回線", "dial": "発信", "pc": "PC", "stop": "止めると再開",
     "budget": "費用と予算", "ai": "AI", "backup": "控え", "notify": "知らせ", "login": "ログイン",
 }
 
@@ -488,7 +488,7 @@ NOTICE_KIND_WORDS: dict[str, str] = {
     "program_update": "PC のプログラムの更新が要ります", "backup_failed": "控えを取れませんでした",
     "answer_rate_drop": "電話に出てもらえる割合が下がりました", "sample_ready": "正解を付ける電話を抜き取りました",
     "old_promise_choice": "前の担当の方との約束を選んでください", "correction_call": "直した結果でおかけしてよいか確かめてください",
-    "more_calls": "お約束・お詫びの電話で話せずに終えた行があります（さらにかけるか選んでください）",
+    "more_calls": "お約束・お詫びの電話で話せなかったお客様がいます（さらにかけるか選んでください）",
     "month_ahead_approval": "1か月以上先のお電話を確かめてください", "month_ahead_unanswered": "【緊急】1か月以上先のお電話の答えがありません",
     "solution_held": "依頼者の解決策を、まだ入れていません", "solution_earlier": "入っていない前の解決策があります",
     "solution_unconfirmed": "解決策を入れるか選んでください", "declared_after_settle": "「もうかけないで」が電話のあとに届きました",

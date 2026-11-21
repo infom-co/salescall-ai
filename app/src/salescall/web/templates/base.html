@@ -24,7 +24,7 @@
     <input type="hidden" name="{{ token_field }}" value="{{ token }}">
     <div class="body">
       <h2 id="emergency-title">緊急停止</h2>
-      <p class="muted">新しい電話をかけるのを止めます。話している電話は、そのまま最後まで続けます。この停止を解けるのは、管理者か契約者だけです。</p>
+      <p class="muted">新しい電話をかけるのを止めます。話している電話は、そのまま最後まで続けます。この停止から再開できるのは、管理者か契約者だけです。</p>
       <label class="field">止める範囲（選んでください）</label>
       {#- 狭い範囲から広い範囲へ（この業務 → この依頼者 → 契約者の全部 → 全体）。いちばん広い2つを上下の端に分けない -#}
       {% if client and business %}<label class="choice"><input type="radio" name="scope" value="business" required> 業務「{{ business.name }}」だけ（依頼者「{{ client.name }}」のこの業務）

@@ -156,10 +156,10 @@ class MoreCallsButton(MoreCalls):
         self.assertNotIn(act, http.get(rows).text)                              # かけ直す予定のあいだは出さない
         self.tx(s, lambda tx: next_action.end(tx, s["task"], "callback_exact_unreached", cause="試験：決めた日数・回数かけても話せなかった"))
         page = http.get(rows).text
-        self.assertIn("1 行が「さらにかける」の承認を待っています", page)
+        self.assertIn("お客様 1件が「さらにかける」の承認を待っています", page)
         self.assertIn(f'form="more-{s["task"]}"', page)                         # 行の中のボタンは、表の外の送り先を指す（form を入れ子にしない）
         part = page[page.index('<details class="adder more-act">'):]
-        self.assertIn("に、この行だけ、もう一度おかけします", part[:800])        # 押す前に、どのお客様かを名前つきで見せる（計画書 5-1）
+        self.assertIn("に、このお客様だけ、もう一度おかけします", part[:800])        # 押す前に、どのお客様かを名前つきで見せる（計画書 5-1）
         self.assertRegex(page, r'class="tag wait"[^>]*>' + inbox.MORE_CALLS_TITLE + "：")   # 終えた行でも緑の「済み」にせず、待ちの色（色の決まり）
         sent = form_of(page, act)
         self.assertEqual(sent["back"], rows)
@@ -167,7 +167,7 @@ class MoreCallsButton(MoreCalls):
         row = http.get(f"{rows}/rows/{s['task']}").text
         self.assertIn(f'action="{act}"', row)                                   # 1行の画面にも同じ部品で出る
         notices = http.get("/t/notices").text                                   # 知らせから、その行へ飛べる（links の1か所）
-        self.assertIn(f"{rows}/rows/{s['task']}", notices[notices.index("話せずに終えた行"):])
+        self.assertIn(f"{rows}/rows/{s['task']}", notices[notices.index("話せなかったお客様"):])
         r = http.post(act, data=sent, follow_redirects=False)
         self.assertTrue(r.headers["location"].startswith(rows + "?"))           # お客様リストへ戻る
         self.assertIn("ok=1", r.headers["location"])

@@ -22,7 +22,7 @@
   </a>
   <a class="card {{ 'attention-wait' if watch_total }}" href="/t/watch" style="text-decoration:none;color:inherit">
     {{ stat(words.page("watch"), watch_total, "wait") }}
-    <div class="muted hint" style="margin-top:6px">{% if watch_first %}{{ watch_first[0][0].title }}（{{ watch_first[0][1]|length }}件）{% if watch_total > watch_first[0][1]|length %}ほか{% endif %}{% else %}回線・休んでいる行に、気をつけることはありません{% endif %}</div>
+    <div class="muted hint" style="margin-top:6px">{% if watch_first %}{{ watch_first[0][0].title }}（{{ watch_first[0][1]|length }}件）{% if watch_total > watch_first[0][1]|length %}ほか{% endif %}{% else %}回線・休んでいるお客様に、気をつけることはありません{% endif %}</div>
   </a>
 </div>
 {#- 2段目：ふだんの様子（計画書 5-2 の発信状況・システム状況・費用。数えるのは core の答えだけ＝web/counts の1か所） -#}

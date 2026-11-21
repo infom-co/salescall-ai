@@ -7,7 +7,7 @@
 {% block main %}
 <h1>{{ x.cause.label }}</h1>
 <p class="lead">{{ words.stop_scope(x.stop.scope) }}の範囲・{{ time(x.stop.at) }}から
-  {% if x.resolved %}{{ tag("解けています", "ok") }}{% else %}{{ tag("止まっています", "stop") }}{% endif %}</p>
+  {% if x.resolved %}{{ tag("再開しました", "ok") }}{% else %}{{ tag("止まっています", "stop") }}{% endif %}</p>
 {{ flash(done, ok) }}
 
 <div class="grid cols-2">
@@ -27,7 +27,7 @@
     {% else %}<p class="muted">この停止では、どの電話も出ません。</p>{% endif %}
   </section>
   <section class="card">
-    <h2>自動で解く決まり</h2>
+    <h2>自動で再開する決まり</h2>
     <p>{{ x.cause.auto_resume }}</p>
     {% if x.checks %}
     <h3>確かめの記録</h3>
@@ -38,9 +38,9 @@
     {% endif %}
   </section>
   <section class="card">
-    <h2>解く前に確かめること</h2>
+    <h2>再開する前に確かめること</h2>
     <p>{{ x.cause.before_resume }}</p>
-    <p class="hint">解けるのは：{{ x.who_can_resume }}。管理者か契約者が解くと、エラーと品質の数は、解いた時刻から数え直します。</p>
+    <p class="hint">再開できるのは：{{ x.who_can_resume }}。管理者か契約者が再開すると、エラーと品質の数は、再開した時刻から数え直します。</p>
   </section>
 </div>
 
@@ -62,7 +62,7 @@
 <section class="card" style="margin-top:16px">
   <h2>緊急の道で再開していました</h2>
   <p>{{ time(x.emergency.pass.at) }}・理由：{{ x.emergency.pass.reason }}</p>
-  <p class="muted">この停止は解けたので、いまは、ふだんの道でかけています。</p>
+  <p class="muted">この停止から再開したので、いまは、ふだんの道でかけています。</p>
 </section>
 {% elif x.emergency.pass %}
 <section class="card attention-wait" style="margin-top:16px">
@@ -102,7 +102,7 @@
 {% if not x.resolved and (x.stop.scope != "system" or person.is_admin) %}
 <section class="card" style="margin-top:16px">
   <h2>管理者・契約者の判断で再開する</h2>
-  <p class="muted">上の「解く前に確かめること」を確かめてから押してください。理由は記録に残ります。</p>
+  <p class="muted">上の「再開する前に確かめること」を確かめてから押してください。理由は記録に残ります。</p>
   <form method="post" action="{{ base }}/resume" data-needs-reason>
     {{ csrf(token) }}
     <label class="field" for="reason">再開する理由</label>

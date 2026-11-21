@@ -56,7 +56,7 @@
   <div class="card">{{ stat("今日かけた電話", today.dialed) }}<div class="muted hint" style="margin-top:6px">うち電話に出た {{ today.answered }}（留守番電話・自動音声も入ります）</div></div>
   <div class="card">{{ stat("お客様と話した", today.talked) }}<div class="muted hint" style="margin-top:6px">今日。受付の方との電話も入ります</div></div>
   <div class="card">{{ stat("目的のお客様と話せた", today.reached) }}<div class="muted hint" style="margin-top:6px">今日。お呼びする方ご本人と話せた電話</div></div>
-  <div class="card">{{ stat("かけ直し待ち", today.call) }}<div class="muted hint" style="margin-top:6px">次の電話の予定がある行{% if today.hold %}。ほかに{{ words.NEXT_KINDS["hold"].screen }} {{ today.hold }}（することはありません）{% endif %}</div></div>
+  <div class="card">{{ stat("かけ直し待ち", today.call) }}<div class="muted hint" style="margin-top:6px">次の電話の予定があるお客様{% if today.hold %}。ほかに{{ words.NEXT_KINDS["hold"].screen }} {{ today.hold }}（することはありません）{% endif %}</div></div>
 </div>
 {% endif %}
 {% if waiting %}
@@ -83,7 +83,7 @@
       {% endfor %}
     </ul>
     <p class="muted">合わせて {{ total }} 件。お客様ごとの最新の結果です（確定していないものも入ります）。</p>
-    {% else %}{{ empty("まだ行がありません", "お客様を取り込むと、ここに結果ごとの数が出ます。") }}{% endif %}
+    {% else %}{{ empty("まだお客様がいません", "お客様を取り込むと、ここに結果ごとの数が出ます。") }}{% endif %}
   </div>
   <div class="card {{ 'attention-wait' if unconfirmed }}">
     <h2>確定していない結果</h2>
@@ -96,7 +96,7 @@
     <h3 style="margin-top:14px">今日、システムが電話を見送り始めたお客様（理由別）</h3>
     {% if f.denied_today %}
     <ul class="reasons">{% for r, n in f.denied_today %}<li><span>{{ words.gate_reason(r) }}</span><b class="num">{{ n }}</b></li>{% endfor %}</ul>
-    {% else %}<p class="muted">今日、新しく止めた行はありません。</p>{% endif %}
+    {% else %}<p class="muted">今日、新しく見送り始めたお客様はいません。</p>{% endif %}
   </div>
 </section>
 {#- 必須の質問の答えの数（計画書 5-2「必須項目の『取れた』『-』『✕』の数（別々に）」。数えるのは core の metrics.required_items の1か所） -#}
@@ -120,7 +120,7 @@
     {{ go(bb ~ "/samples", words.BUSINESS_NAV["/samples"]) }}
     {#- 前は「切り替える（業務の設定）」＝押すと切り替わるように読めた。移るだけなので、どこで変えるかを言う -#}
     {{ go(bb ~ "/settings#g-approval", "検証モードかフルオートかを変える（設定）") }}</nav></div>
-  <p class="muted">{% if verification %}発信の前に行を承認し、結果を確かめてから確定します。少ない件数の段から始め、指標が基準の内なら次の段へ進みます。{% else %}承認なしでかけ、判定した結果をそのまま確定します。{% endif %}</p>
+  <p class="muted">{% if verification %}発信の前にお客様ごとに承認し、結果を確かめてから確定します。少ない件数の段から始め、指標が基準の内なら次の段へ進みます。{% else %}承認なしでかけ、判定した結果をそのまま確定します。{% endif %}</p>
   {% for st in stages %}
   <h3 style="margin-top:14px">お客様リスト「{{ st.run }}」：{% if st.stage %}段 {{ st.stage.stage_no }}（{% if st.stage.cap %}{{ st.used }} / {{ st.stage.cap }} 件{% else %}件数の上限なし{% endif %}）{% else %}まだ段が開いていません（模擬通話のあとに開きます）{% endif %}</h3>
   <div class="table-scroll"><table class="list">

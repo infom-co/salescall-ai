@@ -1148,7 +1148,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     async def tenant_dnc_revoke(request: Request) -> HTMLResponse:
         form = dict(await request.form())
         return _dnc_act(request, form, None, lambda tx: dnc.revoke_contractor(tx, _entry(form), str(form.get("reason") or "").strip()),
-                        "取り消しました。この登録で終えた行は、決まった間隔の仕事が予定に戻します。")
+                        "取り消しました。この登録で終えたお客様は、決まった間隔の仕事が予定に戻します。")
 
     @app.get("/c/{client_id}/dnc")
     def client_dnc(request: Request, client_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
@@ -1166,7 +1166,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     async def client_dnc_revoke(request: Request, client_id: UUID) -> HTMLResponse:
         form = dict(await request.form())
         return _dnc_act(request, form, client_id, lambda tx: dnc.revoke(tx, _entry(form), str(form.get("reason") or "").strip()),
-                        "取り消しました。この登録で終えた行は予定に戻り、依頼者へ渡す結果の「営業拒否」も外れます。")
+                        "取り消しました。この登録で終えたお客様は予定に戻り、依頼者へ渡す結果の「営業拒否」も外れます。")
 
     # ── 依頼者・業務・実施回を作る（作るのは core の registry だけ。docs/DASHBOARD.md 5-6） ──────────
     @app.post("/t/clients")
@@ -1571,7 +1571,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 if level not in exclusions.LEVELS:
                     raise NotFound()
                 if not ids:
-                    raise actions.Refused("印を付ける行を選んでください")
+                    raise actions.Refused("印を付けるお客様を選んでください")
                 context.business(tx, business_id)
                 try:
                     tasks_ = [UUID(i) for i in ids]
@@ -1583,7 +1583,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     raise NotFound()
                 return len(exclusions.mark(tx, tasks_, level, reason=str(form.get("reason") or "").strip()))
             out = actions.act(secret, person.login_id, dict(form), lambda: ctx.client(client_id, do), done="", reason_field="reason")
-            msg = f"{out.value}行を「{exclusions.LEVEL_NAMES[level]}」にしました（同じ印だった行は、そのままです）。" if out.ok else out.message
+            msg = f"お客様 {out.value}件を「{words.exclusion_level(level)}」にしました（同じ印だったお客様は、そのままです）。" if out.ok else out.message
             target = f"{base}/rows/{ids[0]}" if back == "row" and len(ids) == 1 else base
             return _back(target, actions.Outcome(out.ok, msg))
         return handle(request, render)
@@ -1908,9 +1908,9 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             def do(tx: Any) -> None:
                 _row_in(tx, business_id, run_id, task_id)
                 if not troubles.restore(tx, task_id, reason=str(form.get("reason") or "")):
-                    raise actions.Refused("この行は、いま休んでいません（もう戻ったか、待っている理由が変わりました）。何も変えていません。")
+                    raise actions.Refused("このお客様は、いま休んでいません（もう戻ったか、待っている理由が変わりました）。何も変えていません。")
             out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do),
-                              done="戻しました。この行に、またおかけします（同じ不具合で続けて終われば、また休みます）。", reason_field="reason")
+                              done="戻しました。このお客様に、またおかけします（同じ不具合で続けて終われば、また休みます）。", reason_field="reason")
             return _back(base, out)
         return handle(request, render)
 

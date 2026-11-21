@@ -271,6 +271,22 @@ class Web(_World):
         self.assertIn("ok=1", r.headers["location"])
         self.assertEqual(self._tasks_now("target_name"), "架空の別の方")
 
+    def test_a_field_is_cleared_only_when_clearing_is_chosen(self):
+        """欄を消すのは「この欄を消す」を選んだときだけ（空のまま送っただけでは消さない＝設定の画面と同じ1つの決まり。2026-11-20 の見直し）。"""
+        url, tok = self._row_url(), self.token("A")
+        empty = self.post("A", url + "/fix", {"form_token": tok, "field": "source_name", "value": ""})
+        self.assertIn("新しい値を入れてください", empty.text)
+        self.assertNotIn("この内容で直します", empty.text)
+        forged = self.post("A", url + "/fix", {"form_token": tok, "field": "source_name", "value": "", "go": "1"})
+        self.assertIn("ok=0", forged.headers["location"])                     # 確かめを飛ばして送っても消さない
+        self.assertNotEqual(self._tasks_now("source_name"), None)
+        both = self.post("A", url + "/fix", {"form_token": tok, "field": "source_name", "value": "架空", "clear": "1"})
+        self.assertIn("新しい値を空にしてください", both.text)
+        chosen = self.post("A", url + "/fix", {"form_token": tok, "field": "source_name", "value": "", "clear": "1"})
+        self.assertIn("この内容で直します", chosen.text)
+        self.assertIn("（消す）", chosen.text)
+        self.assertIn('name="clear" value="1"', chosen.text)                   # 確かめの画面からの送信にも「消す」を持ち越す
+
     def test_a_wrong_number_is_refused_with_the_reason_and_nothing_changes(self):
         step = self.post("A", self._row_url() + "/fix", {"form_token": self.token("A"), "field": "dial_phone", "value": "0120"})
         self.assertEqual(step.status_code, 200)
@@ -698,6 +714,20 @@ class Web(_World):
             for m in re.finditer(r"\bempty\(\s*(\"[^\"]*\"|[^,()\"]+)\s*\)", f.read_text(encoding="utf-8")):
                 bare.append(f"{f.name}: {m.group(0)}")
         self.assertEqual(bare, [])
+
+    def test_one_name_for_one_thing(self):
+        """1つの物事に1つの呼び方（2026-11-20 の見直し）：お客様リストの中の1件は「お客様」（「行」は、取り込むファイル・渡すファイルの
+        中の1行だけ）。止めたものを動かすのは「再開」（「解く」と混ぜない）。画面のひな形を見る（CL-2 の部品の文は、お願い 65）。"""
+        import pathlib
+        tpl = pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/templates")
+        odd = []
+        for name in ("rows.html", "row.html", "client.html", "home.html", "inbox.html", "parts.html"):
+            text = re.sub(r"\{#.*?#\}", "", (tpl / name).read_text(encoding="utf-8"), flags=re.S)   # 説明の書き込みは見ない
+            odd += [f"{name}: {m.group(0)}" for m in re.finditer(r"(?:この|その|ほかの|まだ|止めた|休んでいる|終えた)行", text)]
+        for f in sorted(tpl.glob("*.html")):
+            text = re.sub(r"\{#.*?#\}", "", f.read_text(encoding="utf-8"), flags=re.S)
+            odd += [f"{f.name}: {m.group(0)}" for m in re.finditer(r"解[くけい]", text)]
+        self.assertEqual(odd, [])
 
     def test_every_time_cell_has_one_shape(self):
         """表の時刻の升は、どの表も .when の1つの形（数字の幅はそろえ、左寄せ・折らない）。数量の右寄せ（num）では書かない

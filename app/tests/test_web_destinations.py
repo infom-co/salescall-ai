@@ -94,3 +94,24 @@ class Destinations(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoDestinationYet(unittest.TestCase):
+    """送り先が1つも無いうちは、1つの札（いまはファイルで渡す）だけ。足せない「送り先を足す」の札も、選ぶ意味の無い業務ごとの渡し方も
+    出さない（2026-11-20 の見直し：送り先0件なのに「依頼者の送り先すべて」が選ばれて見えた）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.a = World().setup()
+        cls.http = TestClient(create_app(app_access(), lambda r: Person("試験の契約者", False, cls.a["tenant"], "架空の契約者"), SECRET))
+        cls.path = f"/c/{cls.a['client']}/destinations"
+
+    def test_one_card_says_files_and_nothing_to_choose(self):
+        page = self.http.get(self.path).text
+        self.assertIn("送り先はまだありません。いまは、結果をファイル（Excel・CSV）で渡します", page)
+        self.assertNotIn("業務ごとの渡し方", page)
+        self.assertNotIn("送り先を足す", page)                                     # 送る部品が無いので、足す入口を出さない
+        with mock.patch.dict(result_destinations.METHODS, FAKE, clear=True):
+            page = self.http.get(self.path).text
+            self.assertIn("送り先を足す", page)                                     # 足せる送り方があれば、同じ札の中で足す
+            self.assertNotIn("業務ごとの渡し方", page)                              # 送り先ができるまでは、業務ごとの選びは出さない

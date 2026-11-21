@@ -36,6 +36,7 @@ class Draft:
     back: str | None = None              # 前の担当の方に戻す先の期（戻さない＝None）
     back_answered: bool = False
     keep: bool | None = None
+    clear: bool = False                  # 「この欄を消す」を選んだ（空のまま送っただけでは消さない＝設定の画面と同じ決まり）
 
     @property
     def is_dial(self) -> bool:
@@ -52,7 +53,8 @@ def from_form(form: dict[str, Any]) -> Draft:
 
     back = text("back")
     return Draft(field=str(form.get("field") or ""), value=text("value"), reading=text("reading"), same=yes_no("same"),
-                 back=None if back in (None, NEW_PERSON) else back, back_answered=back is not None, keep=yes_no("keep"))
+                 back=None if back in (None, NEW_PERSON) else back, back_answered=back is not None, keep=yes_no("keep"),
+                 clear=str(form.get("clear") or "") == "1")
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,12 @@ def next_question(tx: Tx, task_id: UUID, d: Draft) -> Question | None:
         raise row_fixes.FixInvalid("直す欄を選んでください")
     if d.is_dial and d.value is None:
         raise row_fixes.FixInvalid("新しい番号を入れてください")
+    # 消すのは「この欄を消す」を選んだときだけ（うっかり空で送って消さない。2026-11-20 の見直し：この画面は「空なら消す」、
+    # 設定の画面は「消すを選ぶ」で、決まりが2つあった）。値と消すの両方は、どちらのつもりか分からないので断る
+    if d.value is None and not d.clear:
+        raise row_fixes.FixInvalid("新しい値を入れてください（欄を消すときは「この欄を消す」を選びます）")
+    if d.value is not None and d.clear:
+        raise row_fixes.FixInvalid("「この欄を消す」を選んだときは、新しい値を空にしてください")
     if d.same is None:
         needed = True if d.is_dial else row_fixes.same_person_choice_needed(tx, task_id, field=d.field, value=d.value)
         if needed:

@@ -14,8 +14,8 @@
 {{ flash(done, ok) }}
 {% if more %}
 <div class="card attention-wait more-note" id="more-calls">
-  <b>{{ more|length }} 行が「さらにかける」の承認を待っています。</b>
-  お約束・お詫びの電話を決めた回数かけても、お客様と話せずに終えた行です。押さなければおかけしません。押すと、その行だけ、もう一度かけ始めます（また話せなければ、もう一度ボタンが出ます）。
+  <b>お客様 {{ more|length }}件が「さらにかける」の承認を待っています。</b>
+  お約束・お詫びの電話を決めた回数かけても、お客様と話せずに終えたお客様です。押さなければおかけしません。押すと、そのお客様だけ、もう一度かけ始めます（また話せなければ、もう一度ボタンが出ます）。
 </div>
 {% endif %}
 {% if rows %}
@@ -32,12 +32,12 @@
     <span class="muted bulk-hint">{{ words.EXCLUSION_HELP }}</span>
   </div>
 <div class="table-scroll"><table class="list">
-  <thead><tr><th class="check"><input type="checkbox" data-check-all aria-label="すべて選ぶ"></th><th class="num">行</th><th class="wide">管理番号</th><th class="co">会社名</th><th class="wide person">お呼びする方</th><th>かける番号</th><th>いまの状態</th><th class="wide">結果</th><th class="num">かけた回数</th><th class="wide">最後の電話</th></tr></thead>
+  <thead><tr><th class="check"><input type="checkbox" data-check-all aria-label="すべて選ぶ"></th><th class="num">ファイルの行</th><th class="wide">管理番号</th><th class="co">会社名</th><th class="wide person">お呼びする方</th><th>かける番号</th><th>いまの状態</th><th class="wide">結果</th><th class="num">かけた回数</th><th class="wide">最後の電話</th></tr></thead>
   <tbody>
   {% for r in rows %}
     {% set lv = levels.get(r.task_id, "call") %}
     <tr class="{{ 'excluded' if lv != 'call' }}">
-      <td class="check"><input type="checkbox" name="task_id" value="{{ r.task_id }}" aria-label="{{ r.source_name or '行' }}を選ぶ"></td>
+      <td class="check"><input type="checkbox" name="task_id" value="{{ r.task_id }}" aria-label="{{ r.source_name or 'このお客様' }}を選ぶ"></td>
       <td class="num nowrap">{{ r.source_row or "" }}</td>
       <td class="wide nowrap">{{ r.client_ref or "" }}</td>
       <td class="co"><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/rows/{{ r.task_id }}">{{ r.source_name or "（会社名なし）" }}</a>{% if lv != "call" %} {{ tag(words.exclusion_level(lv), "stop" if lv == "force" else "") }}{% endif %}</td>
@@ -47,7 +47,7 @@
         {# 発信を始める操作なので、どのお客様かを名前つきで見せてから決める（計画書 5-1「取り消せない操作の確認」）。受け箱・1行の画面は、名前を並べたカードの中にボタンがある #}
         <details class="adder more-act"><summary class="btn main small">{{ more[r.task_id].buttons[0].label }}</summary>
           <div class="panel">
-            <p>「{{ r.source_name or "（会社名なし）" }}{% if r.target_name %} ／ {{ r.target_name }}様{% endif %}」に、この行だけ、もう一度おかけします。また話せなければ、もう一度ここにボタンが出ます。</p>
+            <p>「{{ r.source_name or "（会社名なし）" }}{% if r.target_name %} ／ {{ r.target_name }}様{% endif %}」に、このお客様だけ、もう一度おかけします。また話せなければ、もう一度ここにボタンが出ます。</p>
             <button class="btn main small" type="submit" form="more-{{ r.task_id }}">おかけする</button>
           </div></details>{% endif %}</td>
       <td class="wide nowrap">{% if r.business_state == "open" %}<span class="muted">{{ words.word(words.BUSINESS_STATES, "open").screen }}</span>{% else %}{{ words.word(words.BUSINESS_STATES, r.business_state).screen }}{% endif %}</td>
