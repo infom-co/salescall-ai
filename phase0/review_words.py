@@ -54,15 +54,27 @@ ELSEWHERE_POINT_SCENE = "決め手を伺う一言のあと（ほかの会社に�
 # 「〇時まで」の理由を伺い直した一言のあと（日時の2択の段の時刻の2択に「3時までなら大丈夫です。」＝理由が分からない＝Flow._ask_until の「恐れ入ります。3時までということはそれ以降は
 # お電話が難しいということでしょうか？」。伺い63＝判定に見せる質問はこの一言。試験 UntilAskAgainTest と同じ手順。分身 Q の (4)＝n9）
 UNTIL_ASK_SCENE = "「〇時まで」の理由を伺い直した一言のあと（時刻の2択に「3時までなら大丈夫です。」）"
+# 「〇時まで」の理由の判定の読みが割れ、具体的な理由の向きで伺い直した一言のあと（時刻の2択に「3時までには戻ってます。」・判定2つの読みが「それまでは出られない」と「理由は言っていない」＝
+# Flow._ask_until の「恐れ入ります。3時まではお電話が難しいということでしょうか？」。伺い98 ア＝判定に見せる質問はこの一言。試験 UntilLeanTest と同じ手順。分身 AB の (1)）
+UNTIL_LEAN_SCENE = "「〇時まで」の理由を向きのある一言で伺い直したあと（時刻の2択に「3時までには戻ってます。」・判定の読みが割れた）"
+# 日時の2択に月単位の理由で日の分からない頃を言われ、その日を伺った一言のあと（曜日の2択に「給料日のあとでお願いします。」・判定の組がそろって月単位の理由＝Flow._ask_payday の
+# 「恐れ入りますがお給料日は何日になりますでしょうか？」。伺い99 ア＝判定に見せる質問はこの一言。試験 PaydayAskTest と同じ手順。分身 AB の (2)）
+PAYDAY_ASK_SCENE = "お給料日を伺った一言のあと（曜日の2択に「給料日のあとでお願いします。」）"
 # 何の日時かの一文（flowctl.asks_about）を判定に見せる日時の2択のうち、正解の表・試しの言葉の表に行が無かった場面（分身 U の (3)＝分身 S の書き置きの (6-2)）：お客様から折り返して
 # いただく日の2択（伺い67。答えの段のお客様ご本人の重ねての申し出のあと＝試験 TheirsDayPairTest・CallbackWishTest と同じ手順）・依頼者の日時の質問（伺い62）の2つ目の2択（試験
 # PLadderOpeningTest と同じ手順）・顧客獲得型のアポの日時のはじめの2択（試験 _p_to_meeting と同じ手順）。場面は g53_meaning._theirs_pair_scene・_accept_pair_scene・_meeting_pair_scene
 THEIRS_PAIR_SCENE = "お客様から折り返していただく日の2択（「平日の4時までには折り返します。」のあとの「本日と明日」）"
 ACCEPT_PAIR_SCENE = "依頼者の日時の質問の2つ目の2択（ご来店は平日と答えたあとの曜日の2択）"
 MEETING_PAIR_SCENE = "顧客獲得型のアポの日時のはじめの2択（悩みがあると言われ、お時間の文のあとの平日と土日）"
+# 並べ直した2回目の2択（分身 W の (5)＝分身 V の書き置き rv184/V/notes.md の (6-5)）：お客様から折り返していただく日の2択に片方だけ合わない（もう一方は不安そう）・2つとも合わないと言われたあとの
+# 2択（分身 V の (1)(2)）と、日時の2択の言い直しに日だけ直され、伺えた時刻にその日は電話をかけられないときの、その日の時刻の2択（分身 W の (1)）。場面は g53_meaning._theirs_again_scene・
+# _ladder_redo_scene
+THEIRS_SIDE_AGAIN_SCENE = "お客様から折り返していただく日の2回目の2択（「本日はちょっと難しいですね。」のあとの「明日と火曜日」）"
+THEIRS_NEITHER_AGAIN_SCENE = "お客様から折り返していただく日の2回目の2択（「どちらもちょっと難しいですね。」のあとの「火曜日と水曜日」）"
+LADDER_REDO_SCENE = "日時の2択の段の言い直しに日だけ直されたあとの時刻の2択（「いえ、水曜日でお願いします。」・水曜日の4時は空いている予定に無い＝「水曜日でしたら2時と3時」）"
 NEW_SCENES = (LADDER_SCENE, WRONG_ASK_SCENE, WAIT_SCENE, PAIN_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, ANSWERED_SCENE, OFFER_FINAL_SCENE,
               WITHDRAW_TIME_SCENE, WITHDRAW_SEND_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, UNTIL_ASK_SCENE, THEIRS_PAIR_SCENE, ACCEPT_PAIR_SCENE,
-              MEETING_PAIR_SCENE)
+              MEETING_PAIR_SCENE, THEIRS_SIDE_AGAIN_SCENE, THEIRS_NEITHER_AGAIN_SCENE, LADDER_REDO_SCENE, UNTIL_LEAN_SCENE, PAYDAY_ASK_SCENE)
 # 申し出の手順で選んでいただく方法（業務設定 handoff_ways。試験 EndJudgedTest.test_an_unlinked_reply_to_an_offer_is_answered_then_the_offer_is_put_again の to_offer と同じ）
 HANDOFF_WAYS = ("訪問", "お電話")
 
@@ -288,6 +300,8 @@ def answer_words() -> list[dict]:
         *NEW_SCENE_ROWS,
         *PREP3_ROWS,
         *PAIR_ROWS,
+        *AGAIN_ROWS,
+        *ASK_ROWS,
     ]
 
 
@@ -468,7 +482,9 @@ NEW_SCENE_ROWS = [
     _row("C1", "給料日のあとでお願いします。", [VALUE_CHOICE, UNDECIDED], AWAY_NO, scene=LADDER_SCENE, value="給料日のあと", other=LADDER_OTHER_NOT, misgiving=[MISGIVING_OFF],
          misgiving_why=MG_OFF_WHY, reason=WHY_OTHER,
          why=f"境目：2択の外の頃（給料日のあと）を頼んだ＝答えた、とも、給料日がいつかは言っていない＝決められない、とも取れる（{READERS_R3}が2人とも両方を挙げた・束 n9 は2人とも答えた＝"
-             "分身 S の (3)）。片方だけ合わないとは言っていない（4人とも）。どちらの読みでも、流れの制御は読めない頃としていま伺った2択で聞き直す（同じ動き＝伺い99 は rv184/R の (7-4)）",
+             "分身 S の (3)）。片方だけ合わないとは言っていない（4人とも）。流れの制御は、答えた・月単位の理由の読み（判定の組がそろって）なら、お給料日を伺う（伺い99 ア＝✅ 2026-11-21 日本時間14時59分44秒・"
+             "分身 AB の (2)。⛔ 21263a4a まで、どちらの読みでも読めない頃としていま伺った2択で聞き直した）・ほかの読み（決められない・月単位の理由は言っていない）は今のまま聞き直す"
+             "（正解の読みが2つの動きに分かれる＝束 rv186/AB/readers で読み手に見ていただく）",
          until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない",
          cycle=[CYCLE_LABEL["month"], CYCLE_NOT_SAID, UNDECIDED],
          cycle_note="境目：答えを伏せた読み手 A・B（束 n9）が2人とも「月単位の理由」「月単位の理由は言っていない」のどちらとも取れると読んだ（給料日＝月ごとの入金の日をわけに言った、とも、頃を言っただけ、とも取れる）＝2つとも正解（2026-11-21 CL-1）。束 s2（rv184/S/readers）の読み手 A・B は2人とも「決められない」も挙げた（給料日が月ごとかは言葉から決まらない）＝3つとも正解（2026-11-21 CL-1）"),
@@ -516,11 +532,12 @@ NEW_SCENE_ROWS = [
 # 何の日時かの一文を見せる日時の2択のうち、行の無かった3つの場面の試しの言葉（分身 U の (3)＝分身 S の書き置きの (6-2)。CL-1 の頼み rv184/U の (3)）：答えた・片方だけ合わない（もう一方で
 # 不安そう・大丈夫そう）・2つとも合わない・迷っている・分からない・別のお話を場面ごとに。言葉は本書のご決定の場面（伺い67「平日の4時までには」・伺い62・本書 9-9 の (9)・伺い60・伺い94・
 # 【決まりで決めた】(a)(d)）に当てて作り、流れの制御に通して場面に合うことを確かめた（rv184/U/probe/u3）。正解は言葉と説明の文から行ごとに当てた（帳面 0-3 の (2)）。言葉と説明の文だけで
-# 決まらない行（PAIR_ASK_READERS）は、答えを伏せた読み手への束 u1（rv184/U/readers）に入れた。項目は、その場面の判定が読む項目だけ（折り返していただく日＝月単位の理由・ほかの2つ＝迷っている
-# 点を言ったか。「〇時まで」の理由は、こちらからかけ直す時刻の質問だけ＝flowctl.until_fits）
-PAIR_ASK_READERS = "本日と明日の2択に、選べるものに「どちらも合わない」が無い＝どの答えも指していない、とも読める境目（⏳ 答えを伏せた読み手の読み直し＝束 u1＝rv184/U/readers）"
+# 決まらない行は、答えを伏せた読み手への束 u1（rv184/U/readers）に入れた（折り返していただく日の2択への「どちらもちょっと難しいですね。」＝読み手 A・B が2人とも「並べた2つのどちらも
+# 合わない」という意味と読み、選べるものに無いので「決められない」に落とすしかないと書いた＝分身 V の (2) で選べるものに「どちらも合わない」を足し、その読みで正解を当てた）。項目は、
+# その場面の判定が読む項目だけ（折り返していただく日＝月単位の理由・ほかの2つ＝迷っている点を言ったか。「〇時まで」の理由は、こちらからかけ直す時刻の質問だけ＝flowctl.until_fits）
 PAIR_ROWS = [
-    # お客様から折り返していただく日の2択（「それでは本日と明日ではどちらになりますでしょうか？」。選べるもの＝答えた・本日だけ合わない・明日だけ合わない＝Flow._theirs_begin）
+    # お客様から折り返していただく日の2択（「それでは本日と明日ではどちらになりますでしょうか？」。選べるもの＝答えた・どちらも合わない・本日だけ合わない・明日だけ合わない＝Flow._theirs_begin。
+    # 「どちらも合わない」は分身 V の (2)＝Flow._ladder_choices）
     _row("C1T", "明日になります。", [VALUE_CHOICE], AWAY_NO, scene=THEIRS_PAIR_SCENE, value="明日", other=LADDER_OTHER_NOT,
          why="並べた2つの1つ（明日）を選んだ＝答えた（試験 TheirsDayPairTest の言葉）。片方だけ合わないとは言っていない",
          cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（日を選んだだけ）"),
@@ -530,8 +547,9 @@ PAIR_ROWS = [
     _row("C1T", "本日は無理ですけど、明日なら大丈夫です。", [ladder_side_name("本日")], AWAY_NO, scene=THEIRS_PAIR_SCENE, value="明日", other=LADDER_OTHER_OK,
          why="本日だけを無理と言い、明日なら大丈夫と言っただけ＝本日だけ合わない・もう一方で大丈夫そう（説明の「そちらなら空いている・大丈夫と言っただけ」・伺い94 のエ）",
          cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（日の都合だけ）"),
-    _row("C1T", "どちらもちょっと難しいですね。", [UNDECIDED], AWAY_NO, scene=THEIRS_PAIR_SCENE, other=LADDER_OTHER_NOT, reason=WHY_OTHER,
-         why=f"並べた2つのどちらも難しいとだけ言った＝この2択の選べるものに「どちらも合わない」が無いので、どの答えも指していない＝決められない（{PAIR_ASK_READERS}）",
+    _row("C1T", "どちらもちょっと難しいですね。", [LADDER_NEITHER], AWAY_NO, scene=THEIRS_PAIR_SCENE, other=LADDER_OTHER_NOT,
+         why="並べた2つのどちらも難しいとだけ言った＝どちらも合わない（伺い60「2.別の空スケジュールの2つ」の場面・日時の2択の段の同じ言葉の行と同じ。答えを伏せた読み手 A・B が2人とも"
+             "この意味と読んだ＝束 u1 の #8。⛔ 分身 V の (2) の前は選べるものに無く「決められない」）",
          cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（2つとも難しいとだけ言った）"),
     _row("C1T", "ちょっと分からないですね。", ["unknown"], AWAY_NO, scene=THEIRS_PAIR_SCENE, other=LADDER_OTHER_NOT, reason=(DONT_KNOW_LABEL["unspecified"],),
          why="分からないとだけ言った＝わからない（試験 TheirsDayPairTest の言葉＝伺えた所のまま言い直す）。片方だけ合わないとは言っていない",
@@ -567,6 +585,127 @@ PAIR_ROWS = [
          why="2つのあいだで迷っていると言った＝迷っている・言いよどみで、このあと続けて答えそう＝考えている途中、とも読める（日時の2択の段の同じ言葉の行と同じ境目）"),
     _row("R15", "いやあ最近は暑くてねえ。", [UNDECIDED], AWAY_YES, scene=MEETING_PAIR_SCENE, other=LADDER_OTHER_NOT, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
          why="伺った日と関わりの無い世間話＝別のお話・答えは決められない（【決まりで決めた】(d)）"),
+]
+
+# 並べ直した2回目の2択の試しの言葉（分身 W の (5)＝分身 V の書き置き rv184/V/notes.md の (6-5)。測りの前に正解の表まで整える＝帳面 0-3・分身 U の (3) と同じ形）：はじめの2択の行（PAIR_ROWS の
+# C1T・NEW_SCENE_ROWS の時刻の2択）と同じ種類の言葉（答えた・片方だけ合わない（もう一方で不安そう・大丈夫そう）・2つとも合わない・迷っている／分からない・別のお話）を、並べ直した2つの日・
+# 時刻に替えて場面ごとに。言葉は流れの制御に通して場面に合うことを確かめた（rv184/W/probe/w5）。正解は言葉と説明の文から行ごとに当てた（帳面 0-3 の (2)。はじめの2択の同じ種類の行の正解と
+# 同じ理由）。判定が見る文の変わった行（足した行の全部）は、答えを伏せた読み手への束 w1（rv184/W/readers）に入れた（読み手を立てるのは CL-1）。項目は、その場面の判定が読む項目だけ
+# （折り返していただく日＝月単位の理由・こちらからかけ直す時刻＝迷っている点を言ったか・「〇時まで」の理由・月単位の理由）
+AGAIN_ROWS = [
+    # 折り返していただく日の2択で「本日はちょっと難しいですね。」（本日だけ合わない・もう一方は不安そう）のあとの「それでは明日と火曜日ではどちらになりますでしょうか？」（分身 V の (1)）
+    _row("C1T", "火曜日になります。", [VALUE_CHOICE], AWAY_NO, scene=THEIRS_SIDE_AGAIN_SCENE, value="火曜日", other=LADDER_OTHER_NOT,
+         why="並べ直した2つの1つ（火曜日）を選んだ＝答えた（はじめの2択の「明日になります。」の行と同じ）。片方だけ合わないとは言っていない",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（日を選んだだけ）"),
+    _row("C1T", "明日もちょっと難しいですね。", [ladder_side_name("明日")], AWAY_NO, scene=THEIRS_SIDE_AGAIN_SCENE, value="火曜日", other=LADDER_OTHER_UNSURE,
+         why="並べ直した2つのうち明日だけを難しいと言い（「も」は前の本日に重ねただけ）、火曜日のことは言っていない＝明日だけ合わない・もう一方は大丈夫とは言っていない"
+             "（はじめの2択の「本日はちょっと難しいですね。」の行と同じ）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（日の都合だけ）"),
+    _row("C1T", "明日は無理ですけど、火曜日なら大丈夫です。", [ladder_side_name("明日")], AWAY_NO, scene=THEIRS_SIDE_AGAIN_SCENE, value="火曜日", other=LADDER_OTHER_OK,
+         why="明日だけを無理と言い、火曜日なら大丈夫と言っただけ＝明日だけ合わない・もう一方で大丈夫そう（伺い94 のエ・はじめの2択の「本日は無理ですけど、明日なら大丈夫です。」の行と同じ）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（日の都合だけ）"),
+    _row("C1T", "どちらもちょっと難しいですね。", [LADDER_NEITHER], AWAY_NO, scene=THEIRS_SIDE_AGAIN_SCENE, other=LADDER_OTHER_NOT,
+         why="並べ直した2つのどちらも難しいとだけ言った＝どちらも合わない（はじめの2択の同じ言葉の行と同じ）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（2つとも難しいとだけ言った）"),
+    _row("C1T", "ちょっと分からないですね。", ["unknown"], AWAY_NO, scene=THEIRS_SIDE_AGAIN_SCENE, other=LADDER_OTHER_NOT, reason=(DONT_KNOW_LABEL["unspecified"],),
+         why="分からないとだけ言った＝わからない（はじめの2択の同じ言葉の行と同じ）。片方だけ合わないとは言っていない",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない"),
+    _row("C1T", "いやあ最近は暑くてねえ。", [UNDECIDED], AWAY_YES, scene=THEIRS_SIDE_AGAIN_SCENE, other=LADDER_OTHER_NOT, reason=WHY_OTHER,
+         why="伺った日と関わりの無い世間話＝別のお話・答えは決められない（【決まりで決めた】(d)・はじめの2択の同じ言葉の行と同じ）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（世間話）"),
+    # 折り返していただく日の2択で「どちらもちょっと難しいですね。」（どちらも合わない）のあとの「それでは火曜日と水曜日ではどちらになりますでしょうか？」（分身 V の (2)）
+    _row("C1T", "水曜日になります。", [VALUE_CHOICE], AWAY_NO, scene=THEIRS_NEITHER_AGAIN_SCENE, value="水曜日", other=LADDER_OTHER_NOT,
+         why="並べ直した2つの1つ（水曜日）を選んだ＝答えた（はじめの2択の「明日になります。」の行と同じ）。片方だけ合わないとは言っていない",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（日を選んだだけ）"),
+    _row("C1T", "火曜日はちょっと難しいですね。", [ladder_side_name("火曜日")], AWAY_NO, scene=THEIRS_NEITHER_AGAIN_SCENE, value="水曜日", other=LADDER_OTHER_UNSURE,
+         why="並べ直した2つのうち火曜日だけを難しいと言い、水曜日のことは言っていない＝火曜日だけ合わない・もう一方は大丈夫とは言っていない（はじめの2択の「本日はちょっと難しいですね。」の行と同じ）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（日の都合だけ）"),
+    _row("C1T", "火曜日は無理ですけど、水曜日なら大丈夫です。", [ladder_side_name("火曜日")], AWAY_NO, scene=THEIRS_NEITHER_AGAIN_SCENE, value="水曜日", other=LADDER_OTHER_OK,
+         why="火曜日だけを無理と言い、水曜日なら大丈夫と言っただけ＝火曜日だけ合わない・もう一方で大丈夫そう（伺い94 のエ・はじめの2択の「本日は無理ですけど、明日なら大丈夫です。」の行と同じ）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（日の都合だけ）"),
+    _row("C1T", "どちらもちょっと難しいですね。", [LADDER_NEITHER], AWAY_NO, scene=THEIRS_NEITHER_AGAIN_SCENE, other=LADDER_OTHER_NOT,
+         why="並べ直した2つのどちらも難しいとだけ言った＝どちらも合わない（はじめの2択の同じ言葉の行と同じ）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（2つとも難しいとだけ言った）"),
+    _row("C1T", "ちょっと分からないですね。", ["unknown"], AWAY_NO, scene=THEIRS_NEITHER_AGAIN_SCENE, other=LADDER_OTHER_NOT, reason=(DONT_KNOW_LABEL["unspecified"],),
+         why="分からないとだけ言った＝わからない（はじめの2択の同じ言葉の行と同じ）。片方だけ合わないとは言っていない",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない"),
+    _row("C1T", "いやあ最近は暑くてねえ。", [UNDECIDED], AWAY_YES, scene=THEIRS_NEITHER_AGAIN_SCENE, other=LADDER_OTHER_NOT, reason=WHY_OTHER,
+         why="伺った日と関わりの無い世間話＝別のお話・答えは決められない（【決まりで決めた】(d)・はじめの2択の同じ言葉の行と同じ）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（世間話）"),
+    # 日時の2択の言い直しに日だけ直され、水曜日の4時は空いている予定に無いときの「失礼いたしました。それでは水曜日でしたら2時と3時ではどちらがよろしいでしょうか？」（分身 W の (1)）
+    _row("C1", "3時でお願いします。", [VALUE_CHOICE], AWAY_NO, scene=LADDER_REDO_SCENE, value="3時", other=LADDER_OTHER_NOT, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="並べた2つの1つ（3時）を選んだ＝答えた（時刻の2択の「4時でお願いします。」の行と同じ）。片方だけ合わないとは言っていない",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（時刻を選んだだけ）", cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（時刻を選んだだけ）"),
+    _row("C1", "2時はちょっと…。", [ladder_side_name("2時")], AWAY_NO, scene=LADDER_REDO_SCENE, value="3時", other=LADDER_OTHER_UNSURE, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="2時だけを避け、3時のことは言っていない＝2時だけ合わない・もう一方は大丈夫とは言っていない（曜日の2択の「金曜日はちょっと…。」の行と同じ）",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（片方の時刻を避けただけ）", cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（時刻の都合だけ）"),
+    _row("C1", "2時はちょっと…。3時なら空いてるかな。", [ladder_side_name("2時")], AWAY_NO, scene=LADDER_REDO_SCENE, value="3時", other=LADDER_OTHER_OK, misgiving=[MISGIVING_OFF],
+         misgiving_why=MG_OFF_WHY,
+         why="2時だけを避け、3時なら空いていそうと言った（「かな」＝はっきり選んではいない）＝2時だけ合わない・もう一方で大丈夫そう（伺い94 のエ・時刻の2択の「2時はちょっと…。4時なら"
+             "空いてるかな。」の行と同じ）",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（時刻を避け、もう一方なら空いていそうと言っただけ（「なら」は時刻の手前までの意味ではない））",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（時刻の都合だけ）"),
+    _row("C1", "どちらもちょっと難しいですね。", [LADDER_NEITHER], AWAY_NO, scene=LADDER_REDO_SCENE, other=LADDER_OTHER_NOT, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="並べた2つのどちらも難しいとだけ言った＝どちらも合わない（曜日の2択の同じ言葉の行と同じ）。片方だけ合わないとは言っていない",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（2つとも難しいとだけ言った）", cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（2つとも難しいとだけ言った）"),
+    _row("C1", "うーん、どっちがいいかなあ。", [HESITATING, THINKING], AWAY_NO, scene=LADDER_REDO_SCENE, other=LADDER_OTHER_NOT,
+         why="2つのあいだで迷っていると言った＝迷っている。言いよどみで、このあと続けて答えそう＝考えている途中、とも読める（曜日の2択の同じ言葉の行と同じ境目）。片方だけ合わないとは言っていない",
+         misgiving=[MISGIVING_UNSAID, MISGIVING_OFF], misgiving_why=MG_UNSAID_WHY, until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（迷っているとだけ言った）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（迷っているとだけ言った）"),
+    _row("C1", "いやあ最近は暑くてねえ。", [UNDECIDED], AWAY_YES, scene=LADDER_REDO_SCENE, other=LADDER_OTHER_NOT, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="伺った時刻と関わりの無い世間話＝別のお話・答えは決められない（【決まりで決めた】(d)）",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（世間話）", cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（世間話）"),
+]
+
+
+# 日時の2択の途中で伺い直した一言へのお返事の試しの言葉（分身 AB。測りの前に正解の表まで整える＝帳面 0-3・分身 U の (3)・分身 W の (5) と同じ形）：(1)「〇時まで」の理由の読みが割れ、具体的な
+# 理由の向きで伺い直した一言（伺い98 ア）へのお返事＝はじめの伺い直し（UNTIL_ASK_SCENE）の行と同じ種類（はい・はいと向き・いいえ・いいえと理由）。言葉は流れの制御に通して場面に合うことを
+# 確かめた（rv186/AB/probe）。正解は言葉と説明の文から行ごとに当てた（帳面 0-3 の (2)。はじめの伺い直しの同じ種類の行の正解と同じ理由）。判定が見る文の変わった行（足した行の全部）は、
+# 答えを伏せた読み手への束（rv186/AB/readers）に入れた（読み手を立てるのは CL-1）
+ASK_ROWS = [
+    # 「恐れ入ります。3時まではお電話が難しいということでしょうか？」へのお返事。答えは、時刻を言い直していない＝答えた・決められないのどちらでも流れの制御は伺い直す前の値で受け取る
+    # （Flow._op_record_answer の until_held＝UNTIL_ASK_SCENE の行と同じ）＝両方を正解にした
+    _row("C1", "はい、そうです。", [VALUE_CHOICE, UNDECIDED], AWAY_NO, scene=UNTIL_LEAN_SCENE, value="3時まで", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="こちらの確かめにそうだと答えた（時刻は言い直していない）＝答えた・決められないのどちらでも同じ受け取り",
+         until=[UNTIL_LABEL["unavailable"]], until_note="その時刻までは電話が難しいかの確かめにそうだと答えた＝それまでは出られない（伺い98 ア。境目：説明の「こちらがそう確かめた問いに、"
+                                                         "そうだと答えた」は「それまでは出られる（それ以降は難しい）」の説明にだけある＝読み手に見ていただく）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない"),
+    _row("C1", "はい、3時以降なら大丈夫です。", [VALUE_CHOICE, UNDECIDED], AWAY_NO, scene=UNTIL_LEAN_SCENE, value="3時まで", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="こちらの確かめにそうだと答え、その時刻より後なら話せると言った（時刻は言い直していない）＝答えた・決められないのどちらでも同じ受け取り",
+         until=[UNTIL_LABEL["unavailable"]], until_note="その時刻までは電話が難しいかの確かめにそうだと答え、その時刻より後なら大丈夫と言った＝それまでは出られない（伺い98 アの伺いの文の「はい」の行）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない"),
+    _row("C1", "いえ、そういうわけではないです。", [VALUE_CHOICE, UNDECIDED], AWAY_NO, scene=UNTIL_LEAN_SCENE, value="3時まで", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="こちらの確かめを打ち消しただけ（時刻は言い直していない）＝答えた・決められないのどちらでも同じ受け取り",
+         until=[UNTIL_WHY_NOT_SAID], until_note="こちらの確かめを打ち消しただけで、ほかの理由も言っていない＝理由は言っていない（伺い98 アの伺いの文の「いいえ」の行）",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない"),
+    _row("C1", "いえ、3時までに社内で確認しておくので、そのあとでお願いします。", [VALUE_CHOICE, UNDECIDED], AWAY_NO, scene=UNTIL_LEAN_SCENE, value="3時まで", misgiving=[MISGIVING_OFF],
+         misgiving_why=MG_OFF_WHY, why="こちらの確かめを打ち消し、理由を言った（時刻は言い直していない）＝答えた・決められないのどちらでも同じ受け取り",
+         until=[UNTIL_LABEL["preparing"]], until_note="その時刻までに社内で確かめておくと言った＝それまでに確認・準備",
+         cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない"),
+    # (2)「恐れ入りますがお給料日は何日になりますでしょうか？」へのお返事（伺い99 アの伺いの文の「日をおっしゃる」「おっしゃらない」の行と、別のお話）。月単位の理由は、その日を伺う
+    # 前の答え（「給料日のあとでお願いします。」）で受け取って持っている（_hold_reasons）＝このお返事の月単位の理由の読みは、言っていない・月単位の理由のどちらでも同じ受け取り
+    _row("C1", "25日です。", [VALUE_CHOICE], AWAY_NO, scene=PAYDAY_ASK_SCENE, value="25日", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="伺ったお給料日の日をおっしゃった＝答えた",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（日をおっしゃっただけ）",
+         cycle=[CYCLE_NOT_SAID, CYCLE_LABEL["month"]], cycle_note="境目：日をおっしゃっただけで、その頃にしてほしいわけは言っていない、とも、月ごとにくり返す入金の日を言った、とも取れる"
+                                                             "（どちらの読みでも、前の答えで受け取った月単位の理由のまま＝同じ受け取り）"),
+    _row("C1", "毎月25日です。", [VALUE_CHOICE], AWAY_NO, scene=PAYDAY_ASK_SCENE, value="25日", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="伺ったお給料日の日を、毎月のその日とおっしゃった＝答えた",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（日をおっしゃっただけ）",
+         cycle=[CYCLE_LABEL["month"], CYCLE_NOT_SAID], cycle_note="境目：毎月くり返す入金の日を言った、とも、その頃にしてほしいわけは言っていない、とも取れる"
+                                                             "（どちらの読みでも、前の答えで受け取った月単位の理由のまま＝同じ受け取り）"),
+    _row("C1", "うちは月末なんですよ。", [VALUE_CHOICE], AWAY_NO, scene=PAYDAY_ASK_SCENE, value="月末", misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="伺ったお給料日を、月の終わりの日とおっしゃった＝答えた",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない",
+         cycle=[CYCLE_NOT_SAID, CYCLE_LABEL["month"]], cycle_note="境目：日をおっしゃっただけ、とも、月ごとにくり返す入金の日を言った、とも取れる（どちらの読みでも同じ受け取り）"),
+    _row("C1", "月によって違うんですよ。", ["unknown", UNDECIDED], AWAY_NO, scene=PAYDAY_ASK_SCENE, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         reason=(DONT_KNOW_LABEL["unspecified"],),
+         why="伺ったお給料日を、月ごとに違うとだけおっしゃった（日はおっしゃらない）＝わからない・決められないのどちらでも、今の2択に戻る（伺い99 アの「おっしゃらない」）",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない",
+         cycle=[CYCLE_NOT_SAID, CYCLE_LABEL["month"]], cycle_note="境目：月ごとに違うとだけ言った、とも、月ごとの入金の都合を言った、とも取れる（どちらの読みでも同じ受け取り）"),
+    _row("C1", "いやあ最近は暑くてねえ。", [UNDECIDED], AWAY_YES, scene=PAYDAY_ASK_SCENE, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="伺ったお給料日と関わりの無い世間話＝別のお話・答えは決められない（【決まりで決めた】(d)）",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（世間話）", cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない（世間話）"),
 ]
 
 # 測りの前に0円で済ませる残り（帳面 1 の (1) の ⏳ と本書 9-4 の ⏳ に、言葉と正解の候補が書いてある試しの言葉。分身 S3＝まとめ役 CL-1 の頼み rv178/S3 の (2)）。言葉と正解は ⏳ に

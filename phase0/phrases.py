@@ -555,6 +555,12 @@ BRIEF_GO = "それでは手短にお伺いいたしますね。"
 # 値の入る文＝会話AIの声。作るのは flowctl.until_ask_line の1か所・流すのは flowctl.Flow._ask_until の1か所）。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い63：ア」
 # （伺いの文のア「恐れ入ります。3時までということはそれ以降はお電話が難しいということでしょうか？」）。決まった言い方なので読点は入れない（10-15）
 UNTIL_ASK = "恐れ入ります。{t}までということはそれ以降はお電話が難しいということでしょうか？"
+# 「〇時まで」の理由の判定の読みが割れ、具体的な理由の読みがあるときに、その向きで伺い直す一言（理由の中の名前 → 文。{t}＝UNTIL_ASK と同じ。「それまでは出られる（それ以降は
+# 難しい）」の向き・向きの読みが無いときは UNTIL_ASK のまま。値の入る文＝会話AIの声。作るのは flowctl.until_ask_line の1か所・向きを決めるのは flowctl.Flow._until_lean の1か所）。
+# ✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」（伺い98 ア）。決まった言い方なので読点は入れない（10-15）
+UNTIL_LEAN_ASK = {"unavailable": "恐れ入ります。{t}まではお電話が難しいということでしょうか？",
+                  "preparing": "恐れ入ります。{t}までにご確認いただけるということでしょうか？",
+                  "other_party": "恐れ入ります。{t}までは別のお電話番号へおかけするということでしょうか？"}
 # お客様リストに分かっている連絡先（お客様・お客様の会社の方から伺ったもの）を、その連絡先を伺う所でこちらから言って確かめる一言（連絡先を伺う役目 → 文。{v}＝連絡先。
 # dialed＝いまお電話している番号へ送るときの形＝値を言わない）。言い直して確かめる1か所（flowctl.Flow._ask_confirm の after「listed」）が使う。✅ 2026-11-20 日本時間4時44分42秒
 # ユーザー「伺い66：ア(お客様から伺ったものや会社の方から伺ったもの)」（伺いの文のア「それではメールはokada@example.co.jp宛にお送りしてもよろしいでしょうか？」「それでは
@@ -822,8 +828,13 @@ TIME_LADDER = {"kind": "それでは平日と土日のどちらがよろしい�
                # お言葉に甘えてお客様から折り返していただくお約束で、日の種類（平日・土日）だけを言われたときの日の2択（値の入る文＝会話AIの声。頭の「ありがとうございます。」は
                # 相づちの録音）。お客様がお決めになっている日を伺う＝「どちらになりますでしょうか」。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い67：ア」（伺いの文のア
                # 「ありがとうございます。それでは本日と明日ではどちらになりますでしょうか？」）
-               "theirs_pair": "それでは{a}と{b}ではどちらになりますでしょうか？"}
-TIME_LADDER_IDS = {"kind": "callback_time_kind", "weekend": "time_weekend", "half": "callback_time_half"}
+               "theirs_pair": "それでは{a}と{b}ではどちらになりますでしょうか？",
+               # 日時の2択に、月単位の理由で、こちらで日の分からない頃（「給料日のあとでお願いします。」）を言われたときに、その日を伺う一言（頭の「承知しました。」は相づちの
+               # 録音。値の入らない決まった文＝共通の一言の録音。伺うのは flowctl.Flow._ask_payday の1か所）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアで
+               # OK、進めてください」（伺い99 アの「承知しました。恐れ入りますがお給料日は何日になりますでしょうか？」）。決まった言い方なので読点は入れない（10-15）
+               "payday": "恐れ入りますがお給料日は何日になりますでしょうか？"}
+TIME_LADDER_IDS = {"kind": "callback_time_kind", "weekend": "time_weekend", "half": "callback_time_half", "payday": "time_payday"}
+PAYDAY_ASK, PAYDAY_ASK_ID = TIME_LADDER["payday"], TIME_LADDER_IDS["payday"]
 # 依頼者のお客様に日時を選んでいただく質問（伺い62）を2択で伺い始めるときの、2択の頭に入れる聞くこと（flowctl.ladder_opening の1か所）：業務の質問の聞くこと（Question.topic
 # 「ご来店の日時」）から日時の言葉を外した言葉（「ご来店」）＋「は」。午前と午後の2択は、その頭の「お時間は」の代わりに入れる（「ご来店は午前と午後の…」）。日時の言葉しか
 # 無い聞くこと（「日時」）は入れない。✅ 2026-11-20 日本時間4時44分42秒「伺い62：イ」（お見せしたイの文「承知しました。続きましてご来店は平日と土日のどちらがよろしいでしょう
@@ -843,6 +854,18 @@ def ladder_topic_head(topic: str, body: str) -> str:
 # なら、エでいいし、もう一方では不安そうならウでしょ」（お見せしたエの文「承知しました。それでは火曜日でしたら午前と午後のどちらがよろしいでしょうか？」・頭の「承知しました。」は
 # 相づちの録音）
 LADDER_KEPT_HEAD = "それでは{kept}でしたら"
+
+
+# お客様のおっしゃった頃・週（「来月の頭」「来週」）に空いている予定が無いときに、そのすぐあとの空いている予定の2択の頭に入れる一言（頭の「申し訳ございません、」は今のお詫びの録音＝
+# 重いお詫び moushiwake_heavy・続きは日の入る文＝会話AIの声。入れるのは flowctl.Flow._ladder_set の1か所・頃は flowctl.ladder_no_room の1か所）。✅ 2026-11-21 日本時間14時59分44秒
+# ユーザー「伺い96〜101：すべてアでOK、進めてください」（伺い100 ア「申し訳ございません、あいにく来月の頭は空きがございませんので1月4日の月曜日と1月5日の火曜日ではどちらがよろしい
+# でしょうか？」）。決まった言い方なので読点は入れない（10-15）
+LADDER_NO_ROOM_HEAD = "あいにく{w}は空きがございませんので"
+
+
+def ladder_no_room_head(words: str, body: str) -> str:
+    """2択の文 body（頭のつなぎの言葉を外した文）の頭に「あいにく（頃）は空きがございませんので」を入れる唯一の場所（flowctl.Flow._ladder_set）。"""
+    return LADDER_NO_ROOM_HEAD.format(w=words) + body
 
 
 def ladder_kept_head(kept: str, body: str) -> str:
@@ -1388,6 +1411,18 @@ APOLOGY_PURPOSE = {"same_day": "先ほどのお電話の件でご連絡いたし
 # いただきますね。」と言って、最後の挨拶で締めくくる。」
 APOLOGY_CUT_END = {"same_day": "先ほどはお話の最後に通信が悪くお電話が切れてしまい申し訳ございませんでした。",
                    "later": "前回はお話の最後に通信が悪くお電話が切れてしまい申し訳ございませんでした。"}
+# 前の電話のことのお詫びが2つ以上続くときの、2つ目からのお詫びの頭の言葉と、頭に付けた共通の一言の録音（唯一の表＝もとの録音の名前 → 頭に付けた録音の名前・
+# その名前 → 文。並べるのは flowctl.sorry_plan の1か所＝流れの制御と名乗りの録音の文・録音の表 RECORDED・読み方 make_ack_clips.HOW_OF）。もとの録音は、途中で
+# 切れたお詫び（前回・先ほど＝APOLOGY_FIRST・APOLOGY_SAME_DAY）・約束の時間のお詫び・お話の最後に切れたお詫び（APOLOGY_CUT_END）の5本。言ってはいけないことの
+# お詫び（契約者が承認した文の録音）はいつも1つ目なので頭に付けない（並べる順は flowctl.apology_order の1か所）。決まった言い方なので「また」のあとに読点は入れない
+# （10-15）。✅ 2026-11-21 日本時間14時59分44秒 ユーザー「伺い96〜101：すべてアでOK、進めてください」＝伺い97 ア「前回はお電話が途中で切れてしまい大変失礼
+# いたしました。またお約束の時間にお電話ができず誠に申し訳ございませんでした。」（3つのときは「また」が2回続く・ご承認いただいた文は1文字も変えない）
+APOLOGY_ALSO = "また"
+APOLOGY_ALSO_IDS = {rid: f"{rid}_also" for rid in (*(f"apology_{k}" for k in APOLOGY_FIRST), *(f"apology_{k}_same_day" for k in APOLOGY_SAME_DAY),
+                                                  *(f"apology_cut_end_{k}" for k in APOLOGY_CUT_END))}
+APOLOGY_ALSO_TEXTS = {APOLOGY_ALSO_IDS[f"apology_{k}"]: APOLOGY_ALSO + v for k, v in APOLOGY_FIRST.items()} | \
+                     {APOLOGY_ALSO_IDS[f"apology_{k}_same_day"]: APOLOGY_ALSO + v for k, v in APOLOGY_SAME_DAY.items()} | \
+                     {APOLOGY_ALSO_IDS[f"apology_cut_end_{k}"]: APOLOGY_ALSO + v for k, v in APOLOGY_CUT_END.items()}
 TOLD_FOLLOW_UP = "折り返し担当の者よりご連絡させていただきますね。"
 # こちらの仕組みの都合で、通話をどうしても途中で切るときに流す2つ（共通の一言の録音）。✅ 2026-10-22 夜 ユーザー決定（CL-2 の 4-137）：
 # 「恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか？」→ お客様の返事を待つ（AIはいないので
@@ -1652,6 +1687,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},
+            **APOLOGY_ALSO_TEXTS,   # 2つ目からのお詫び（頭に「また」＝伺い97 ア）
             "told_follow_up": TOLD_FOLLOW_UP,
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,
