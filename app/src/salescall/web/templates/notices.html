@@ -4,7 +4,7 @@
 {% block title %}{{ words.page("notices") }}{% endblock %}
 {% macro notice_table(rows) -%}
 <div class="table-scroll"><table class="list">
-  <thead><tr><th>種類</th><th>どこの</th><th>中身</th><th class="wide">時刻</th><th class="wide">届いたか</th><th></th></tr></thead>
+  <thead><tr><th>種類</th><th>依頼者</th><th>中身</th><th class="wide">時刻</th><th class="wide">届いたか</th><th></th></tr></thead>
   <tbody>
   {% for r in rows %}
     <tr>

@@ -101,7 +101,7 @@
 <section class="card own-list">
   <h2>ここで決めている値 <span class="muted">（{{ mine|length }}）</span></h2>
   {% if mine %}<ul>{% for r in mine %}<li><a href="#s-{{ r.key|replace('.', '-') }}">{{ r.label }}</a>：<b>{{ r.shown }}</b></li>{% endfor %}</ul>
-  {% else %}<p class="muted">まだありません。{{ uppers|join("・") }}で決めた値のまま動いています。変えるときは、下の行を開きます。</p>{% endif %}
+  {% else %}<p class="muted">まだありません。{{ uppers|join("・") }}で決めた値のまま動いています。変えるときは、下の項目の「変える」を押します。</p>{% endif %}
 </section>
 {% endif %}
 <div class="settings-filter"><input type="text" placeholder="設定を探す（例：時間帯・回数・間隔）" data-filter=".setting" aria-label="設定を探す"></div>

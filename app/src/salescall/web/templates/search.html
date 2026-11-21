@@ -15,6 +15,6 @@
       <td>{{ r.target_name or "" }}</td><td class="nowrap">{{ r.client_ref or "" }}</td><td>{{ r.business }} ／ {{ r.run }}</td></tr>{% endfor %}</tbody>
   </table></div>
   {% if found|length == 200 %}<p class="muted">200件までを出しています。もっと絞ってください。</p>{% endif %}
-  {% else %}<div class="card" style="margin-top:16px">{{ empty("見つかりませんでした", "この依頼者の中だけを探しています。") }}</div>{% endif %}
+  {% else %}<div class="card" style="margin-top:16px">{{ empty("見つかりませんでした", "この依頼者の中だけを探しています。会社名・お呼びする方・管理番号の一部か、電話番号（区切りの「-」はあってもなくても同じ）で探せます。ほかの依頼者のお客様は、上のタブでその依頼者を開いて探します。") }}</div>{% endif %}
 {% endif %}
 {% endblock %}
