@@ -98,6 +98,7 @@ class Forms(unittest.TestCase):
     def test_every_setting_has_a_short_screen_name(self):   # 見出しの短い名前（output/words.SETTING_LABELS の1か所）
         keys = {r["key"] for r in app_access().in_system(SYSTEM, lambda tx: tx.all("SELECT key FROM salescall.setting_definitions"))}
         self.assertEqual(set(words.SETTING_LABELS), keys)
+        self.assertLessEqual(set(words.CONFIRMED_SETTINGS), keys)                 # 確かめの窓を付ける設定（setting_confirm.json）も実在の設定だけ
         for k, v in words.SETTING_LABELS.items():
             with self.subTest(key=k):
                 self.assertLessEqual(len(v), 24)

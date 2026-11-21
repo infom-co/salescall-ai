@@ -41,7 +41,7 @@
   <p class="muted">この設定は、まだ画面から変えられません。</p>
 {% endif %}
 {%- endmacro %}
-{% macro group_section(group, items) -%}
+{% macro group_section(group, items, where) -%}
 <section class="setting-group" id="g-{{ group }}">
   <h2>{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }}</h2>
   {#- 決めてほしい設定（下の札）は、まとまりの中で先に並べる -#}
@@ -55,7 +55,8 @@
       <span class="now">{% if r.got %}<b>{{ r.shown }}</b>{% if r.got["from"] != "system" and not r.own %} <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% endif %}{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if needed %} {{ tag("決めてください", words.tone("waiting")) }}{% endif %}{% if r.own and level != "system" %} {{ tag("ここで決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag(("仮の値（見直す時：" ~ words.plain(r.provisional.review_when) ~ "）") if person.admin else "仮の値（あとで見直すことがあります）", "wait") }}{% endif %}</span>
       <span class="change" aria-hidden="true">変える</span>
     </summary>
-    <form method="post" action="{{ action }}" class="setting-form" data-needs-reason>
+    <form method="post" action="{{ action }}" class="setting-form" data-needs-reason
+          {%- if r.key in words.CONFIRMED_SETTINGS %} data-confirm-ok="この値に変える" data-confirm="{{ where }}の「{{ r.label }}」を変えます。{{ words.CONFIRMED_SETTINGS[r.key] }}"{% endif %}>
       {{ csrf(token) }}<input type="hidden" name="key" value="{{ r.key }}">
       {% if needed %}<p class="need-why">{{ needed.title }}。{{ needed.how }}</p>{% endif %}
       <p>{{ r.meaning }}</p>
@@ -116,11 +117,11 @@
   {% for group, items in everyday %}<a class="chip" href="#g-{{ group }}">{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }} <b>{{ items|length }}</b></a>{% endfor %}
   {% if rest %}<a class="chip" href="#advanced">くわしい設定 <b>{{ rest|map(attribute=1)|map("length")|sum }}</b></a>{% endif %}
 </nav>
-{% for group, items in everyday %}{{ group_section(group, items) }}{% endfor %}
+{% for group, items in everyday %}{{ group_section(group, items, where) }}{% endfor %}
 {% if rest %}
 <details class="more advanced-settings" id="advanced" {% if not everyday %}open{% endif %}>
   <summary>くわしい設定（ふだんは変えなくて大丈夫です）<span class="muted">中にあるもの：{% for group, items in rest %}{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }}{% if not loop.last %}、{% endif %}{% endfor %}</span></summary>
-  {% for group, items in rest %}{{ group_section(group, items) }}{% endfor %}
+  {% for group, items in rest %}{{ group_section(group, items, where) }}{% endfor %}
 </details>
 {% endif %}
 {% else %}

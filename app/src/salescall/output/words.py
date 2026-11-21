@@ -498,6 +498,10 @@ SETTING_UNITS: dict[str, str] = json.loads((Path(__file__).with_name("setting_un
 # はい／いいえの設定の、はいのとき・いいえのときの言葉（setting_yes_no.json。はい／いいえの設定のすべてを書く。試験が突き合わせる）。
 # 見出しが問いの形でない設定（例「決められない決定の扱い」）でも、答えが「はい／いいえ」で浮かないように、値そのものを言葉で見せる
 SETTING_YES_NO: dict[str, list[str]] = json.loads((Path(__file__).with_name("setting_yes_no.json")).read_text(encoding="utf-8"))
+# 変えると電話のかけ方が大きく変わる設定と、変えると何が起きるかの文（setting_confirm.json の1か所）：設定の画面は、この設定の「この値に変える」に
+# 名前つきの確かめの窓を付ける（2026-11-21 の見直し：検証モードを「使わない」にすると承認なしでかけ始めるのに、ほかの設定と同じ1回の押しで
+# 済んでいた）。⏳ 本来は設定の定義に「確かめが要る」の印を持たせる（CL-2 へのお願い 70 に足した）。届いたら、その印を読む形に替える
+CONFIRMED_SETTINGS: dict[str, str] = json.loads((Path(__file__).with_name("setting_confirm.json")).read_text(encoding="utf-8"))
 
 
 def yes_no(key: str, value: bool) -> str:
