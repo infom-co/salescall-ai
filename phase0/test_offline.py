@@ -48480,10 +48480,11 @@ class PairSceneRowsTest(unittest.TestCase):
         from review_words import ACCEPT_PAIR_SCENE, MEETING_PAIR_SCENE, THEIRS_PAIR_SCENE, questions
         qmap = G.question_map() | questions()
         want = {
-            (THEIRS_PAIR_SCENE, "明日になります。"): {"念のため確かめる：答えた"},
+            # 言い直す値まで（どの日で言い直すかの読み違えも外れ＝分身 W の (4)＝TheirsKeptCountTest。⛔ f395df54 まで「念のため確かめる：答えた」だけ）
+            (THEIRS_PAIR_SCENE, "明日になります。"): {"念のため確かめる：答えた（明日の午後4時まで）"},
             # ウ＝避けた本日だけを外し、明日と次の日で2択（分身 V の (1)＝TheirsPairSideTest。⛔ 426d4844 まで同じ「本日と明日」をくり返した）
             (THEIRS_PAIR_SCENE, "本日はちょっと難しいですね。"): {f"{G.LADDER_ONE_ACT}：それでは明日と火曜日ではどちらになりますでしょうか？"},
-            (THEIRS_PAIR_SCENE, "本日は無理ですけど、明日なら大丈夫です。"): {"念のため確かめる：答えた"},   # エ＝避けなかった明日を受け取る
+            (THEIRS_PAIR_SCENE, "本日は無理ですけど、明日なら大丈夫です。"): {"念のため確かめる：答えた（明日の午後4時まで）"},   # エ＝避けなかった明日を受け取る
             # 2つとも合わない＝次の2日で2択（分身 V の (2)＝TheirsPairNeitherTest。⛔ 426d4844 まで選べるものに無く、判定の「決められない」で同じ2択を聞き直した）
             (THEIRS_PAIR_SCENE, "どちらもちょっと難しいですね。"): {G.LADDER_NEITHER_ACT},
             (THEIRS_PAIR_SCENE, "いやあ最近は暑くてねえ。"): {"別のお話にひとこと応えて伺い直す"},
@@ -48834,3 +48835,33 @@ class LadderNeitherOnePlaceTest(unittest.TestCase):
         self.assertEqual(f.questions[CALLBACK_IDS["time"]].conditions, (VALUE_CHOICE, LADDER_NEITHER, ladder_side_name("平日"), ladder_side_name("土日")))
         d.answer(f, "平日でお願いします。", "平日")
         self.assertEqual(f.questions[CALLBACK_IDS["time"]].conditions, (VALUE_CHOICE, LADDER_NEITHER, ladder_side_name("金曜日"), ladder_side_name("火曜日")))
+
+
+class TheirsKeptCountTest(unittest.TestCase):
+    """分身 W（CL-1 の頼み rv184/W の (4)＝分身 V の書き置き rv184/V/notes.md の (6-4)）：お客様から折り返していただく日の2択（伺い67）のエ（「本日は無理ですけど、明日なら大丈夫です。」＝
+    避けなかった明日を選んだものとして言い直す）の数える1か所（g53_meaning.step_act・_flow_base）の動きの名前に、どの日で言い直すか（言い直す値）を入れる＝判定が「明日だけ合わない」と読み
+    違えて「本日の…」と言い直したら、違う動きと数える（日時の2択の段の時刻の2択のエと同じ＝分身 S2）。伺えた所は Flow.ladder_got の1か所（もとの質問に戻したあとも持つ＝分身 W の (2)）。
+    ⛔ f395df54 まで「念のため確かめる：答えた」だけ（伺い終えたときに伺えた所が消え、値を名前に入れる所に当たらなかった）"""
+
+    @staticmethod
+    def row(text, accept, other):
+        from flowctl import AWAY, AWAY_NO, CYCLE, CYCLE_NOT_SAID, LADDER_OTHER, QUERY, QUERY_NO
+        from review_words import THEIRS_PAIR_SCENE
+        return {"set": "R", "qid": "C1T", "text": text, "asked": None, "scene": THEIRS_PAIR_SCENE,
+                "label": {"accept": list(accept), "why": "", AWAY: [AWAY_NO], QUERY: [QUERY_NO], LADDER_OTHER: list(other), CYCLE: [CYCLE_NOT_SAID]}}
+
+    def test_the_kept_day_is_in_the_name(self):
+        import g53_meaning as g
+        from flowctl import CYCLE, CYCLE_NOT_SAID, LADDER_OTHER, LADDER_OTHER_OK as OK, ladder_side_name
+        from review_words import questions
+        q = questions()["C1T"]
+        today, tomorrow = ladder_side_name("本日"), ladder_side_name("明日")
+        ok = self.row("本日は無理ですけど、明日なら大丈夫です。", [today], [OK])
+        wants = g.step_wants(ok, q, False)
+        self.assertEqual(len(wants), 1, wants)
+        self.assertIn("明日", next(iter(wants)))
+
+        def rec(it, choice, other):
+            return {**it, "j": choice, "j言い切り": True, f"j{g.SIDE_SUFFIX[LADDER_OTHER]}": other, f"j{g.SIDE_SUFFIX[CYCLE]}": CYCLE_NOT_SAID}
+        self.assertIsNone(g.flow_miss(rec(ok, today, OK), q, "j"))
+        self.assertIsNotNone(g.flow_miss(rec(ok, tomorrow, OK), q, "j"))   # 避けなかった方の読み違え（本日で言い直す）

@@ -1782,9 +1782,10 @@ def _flow_base(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None)
             return MAYBE_ACT + str(cond)
         if asked is not None and not same:
             return DENIED   # 言い直しへの返事で答えが替わり、替わった答えで確かめ直す
-        if item.ladder is not None and item.value:
+        if f.ladder_got(qid) is not None and item.value:
             # 日時の2択の段で決まった値の言い直し（最後の段の片方だけ合わないのエ＝避けなかった時刻・答えた＝会話AIの値）：どの値で確かめるかを名前に入れる（どちらを避けたかの
-            # 読み違えで、違う時刻を言い直す＝外れと数える。分身 S2）
+            # 読み違えで、違う時刻を言い直す＝外れと数える。分身 S2）。お客様から折り返していただく日の2択（伺い67）で伺えた日の言い直しも同じ（エ＝避けなかった日・答えた・分からない＝
+            # 伺えた所は、もとの質問に戻したあとも Flow.ladder_got の1か所が持つ。分身 W の (4)。⛔ f395df54 まで、伺い終えたときに伺えた所が消え、どの日で言い直しても同じ動きと数えた）
             return f"念のため確かめる：{cond}（{item.value}）"
         return f"念のため確かめる：{cond}"
     if item.state in ("accepted", "confirmed", "refused", "dont_know"):
