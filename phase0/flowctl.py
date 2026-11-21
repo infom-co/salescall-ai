@@ -983,8 +983,9 @@ def _ladder_day_cands(s: dict, ctx: LadderCtx) -> tuple:
         lo, hi = ctx.today + dt.timedelta(days=1), (max(days, default=ctx.today) if shown else ctx.today + dt.timedelta(days=6))
     days = tuple(d for d in days if d not in shown)
     weekend = s.get("kind") == "土日"
-    if s.get("theirs") and not s.get("week") and theirs_today(s, ctx):
-        # お客様から折り返していただく日（theirs＝伺い67 ア）：今日の言われた時刻に間に合えば今日から（電話の日は、お客様のほうはお電話いただける日。外した今日は並べない＝theirs_today）
+    if s.get("theirs") and not s.get("week") and not s.get("span") and theirs_today(s, ctx):
+        # お客様から折り返していただく日（theirs＝伺い67 ア）：今日の言われた時刻に間に合えば今日から（電話の日は、お客様のほうはお電話いただける日。外した今日は並べない＝theirs_today）。
+        # お客様が週・頃をおっしゃった（言い直しへの直しで並べ直す2択＝分身 AF の (3)）なら、その中から（今日は足さない＝⛔ a3b200cf まで週だけを見ていて、頃の直しに「本日と明日」を並べた）
         days, lo = (ctx.today, *days), ctx.today
     ok = [d for d in sorted(set(days)) if (d > ctx.today or (s.get("theirs") and d == ctx.today)) and (d.weekday() >= 5) == weekend]
     inside = tuple(d for d in ok if lo <= d <= hi)[:2]
@@ -1260,15 +1261,22 @@ def ladder_recheck(s: dict, ctx: LadderCtx) -> dict | None:
 def _ladder_range_mend(s: dict, got: dict, known: dict, ctx: LadderCtx) -> tuple:
     """ladder_mend の、日が1つに決まらない所（週・頃・平日と土日だけ）を言い直されたときの中身（返り値も同じ形）：伺えた時刻（と印 picked）を残し、伺えた日の所を直された所に替えて
     （平日と土日は言われたときだけ替える）、直された所から先の2択で伺い直す（日を伺う段があれば「2択で伺い直す」＝Flow._ladder_redo）。日を伺わずに決まる（土日＝曜日は伺わない）なら、
-    その値（「土日の午後4時」＝今の記録の形）。伺えた時刻が無い・お客様から折り返していただく日の2択（もとの質問に戻したあと）・伺える段が無いなら None（今のまま＝お客様の言葉）。
+    その値（「土日の午後4時」＝今の記録の形）。伺えた時刻が無い・伺える段が無いなら None（今のまま＝お客様の言葉）。お客様から折り返していただく日の2択（伺い67。もとの質問に戻したあと＝
+    Item.theirs_got）も同じ（並べ直す2択は同じお客様から折り返していただく日の2択＝Flow._ladder_redo の _theirs_hold。日を伺わずに決まる値は、お客様の言葉のまま＝記録の形は伺えた日で
+    伺う前の値を言い直す _theirs_take の1か所）。
     分身 AB の (5)（CL-1 が決まりで決めた＝11-20 日本時間0時09分49秒「もう最後の日時が決まるまで必ず二者択一」・11-19 日本時間14時18分13秒「お客様がもう言った所から先の2択だけを伺う」・
-    本書 9-3「取得済みのことを重ねて聞かない」）。⛔ 21263a4a まで「改めまして来週で大丈夫でしょうか？」と言い直し、記録から日と時刻が抜けた（分身 W の書き置き rv184/W/notes.md の (6-1)）"""
-    if not (ladder_time_words(s) or s.get("any")) or s.get("theirs"):
+    本書 9-3「取得済みのことを重ねて聞かない」）。⛔ 21263a4a まで「改めまして来週で大丈夫でしょうか？」と言い直し、記録から日と時刻が抜けた（分身 W の書き置き rv184/W/notes.md の (6-1)）。
+    ⛔ a3b200cf まで、お客様から折り返していただく日の2択のあとは今のまま（同じ言い直し・記録「来週」）だった（分身 AB の書き置き rv186/AB/notes.md の (6-5)＝分身 AF の (3)）"""
+    if not (ladder_time_words(s) or s.get("any")):
         return None, known, False
     redo = {k: v for k, v in s.items() if k not in ("day", "date", "today", "week", "span", "shown_day", "shown_kind", "no_room_told")}
     redo.update({k: got[k] for k in ("kind", "week", "span") if got.get(k)})
     if (step := ladder_step(redo, ctx)) is None:
-        return ladder_value(redo), redo, False
+        return (ladder_value(redo) if not s.get("theirs") else None), redo, False
+    if s.get("theirs") and ladder_no_room(redo, ctx) is not None:
+        # お客様から折り返していただく日で、直された週・頃の中に並べる日が無い：今のまま（お客様の言葉）。こちらの空きが無いことのお詫び（伺い100 ア）は、お客様からお電話いただく日には
+        # 当たらない（決まりが無い＝分身 AF の書き置きの 6章）
+        return None, known, False
     return (None, redo, True) if step[0] in ("kind", "day") else (None, known, False)
 
 
@@ -17924,14 +17932,20 @@ class Flow:
         s = ladder_read(value, {}, today)
         if not s.get("kind") or s.get("day") or s.get("week") or s.get("any"):
             return None
-        it.ladder, it.theirs_held = {**s, "theirs": today}, (value, q)
-        it.ladder_start = dict(it.ladder)
-        self._ladder_choices(qid)   # 2択に2つとも合わないお返事も選べるものに（伺い60＝分身 V の (2)。伺い終えたら _theirs_take がもとの質問 q に戻す）
+        self._theirs_hold(qid, {**s, "theirs": today}, value)
         if self._ladder_set(qid) is None:
             self.questions[qid], it.ladder, it.ladder_start, it.theirs_held = q, None, {}, None
             return None
         it.set(it.state, f"お客様から折り返していただく日：「{value}」の日を2択で伺う")
         return self._ladder_ask(qid, ahead=True)
+
+    def _theirs_hold(self, qid: str, s: dict, said: str) -> None:
+        """お客様から折り返していただく日の2択（伺い67）に入る唯一の場所（はじめの2択 _theirs_begin・伺い終えたあとの言い直しへの週・頃の直しで並べ直す 2択 _ladder_redo）：伺えた所 s を
+        段に入れ、伺う前の値 said ともとの質問を持ち（Item.theirs_held＝伺い終えたら _theirs_take が戻す）、2択に2つとも合わないお返事も選べるものに入れる（伺い60＝分身 V の (2)）。"""
+        it = self.items[qid]
+        it.ladder, it.theirs_held = s, (said, self.questions[qid])
+        it.ladder_start = dict(s)
+        self._ladder_choices(qid)
 
     def _theirs_take(self, qid: str, s: dict | None) -> str:
         """お客様から折り返していただく日の2択（_theirs_begin）の答えの値を決める唯一の場所：伺う前の値の日の種類の言葉を、伺えた日（「本日」「来週の月曜日」）に替える
@@ -17943,7 +17957,9 @@ class Flow:
         it.theirs_got = dict(s if s else it.ladder)
         self.questions[qid], it.ladder, it.ladder_start = q, None, {}
         if not s or not s.get("day"):
-            return said
+            # 日が伺えない（2択に「分からない」）：伺えた所のまま。言い直しへの週・頃の直しで並べ直した2択（_ladder_redo）なら、直された週・頃を頭に（伺う前の値は日の種類と時刻＝分身 AF の (3)）
+            head = it.theirs_got.get("week") or it.theirs_got.get("span")
+            return f"{head}の{said}" if head and head not in said else said
         kind = re.compile("平日|" + _LADDER_WEEKEND.pattern)
         return kind.sub(s["day"], said, count=1) if kind.search(said) else f"{s['day']}の{said}"
 
@@ -18016,7 +18032,11 @@ class Flow:
         _continue の repeat）・お客様の言い間違い＝次の2択と同じ相づち（_ladder_ask）。回数は値を直していただいたときと同じ数え（Item.corrections）。分身 W の (1)（CL-1 が決まりで決めた＝
         分身 V の伺いの案 rv184/V/ask_day.md のア「その日のその時刻に電話をかけられない（空いている予定に無い）ときだけ、その日の空いている予定から2択」）"""
         it = self.items[qid]
-        before = dict(it.ladder)
+        before = dict(self.ladder_got(qid))
+        if it.ladder is None and s.get("theirs"):
+            # お客様から折り返していただく日の2択（伺い67）を伺い終えて、もとの質問に戻したあとの週・頃の直し（_ladder_range_mend）：同じ2択にもう一度入る（入り方は _theirs_begin と同じ
+            # 1か所 _theirs_hold。伺う前の値＝日の種類と、伺えた時刻＝ladder_time_words。伺えた日で言い直す _theirs_take が日の種類を伺えた日に替える）。分身 AF の (3)
+            self._theirs_hold(qid, s, f"{s.get('kind') or ''}の{ladder_time_words(s)}".removeprefix("の"))
         self.awaiting_confirm = None
         it.corrections += 1
         it.condition = it.value = it.tentative = it.approx = it.hedged = None
