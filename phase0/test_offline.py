@@ -30590,6 +30590,28 @@ class MatterPromptValuesTest(unittest.TestCase):
         self.assertTrue(announces.matter_fits(y, self.ASK, "会員") and announces.clause_fits(y, self.ASK, "会員は年額5,000円となる"))
 
 
+class AGMatterOrderTest(unittest.TestCase):
+    """分身 AG の (4-a)（帳面 1 の (6) の (i) の L20 の (a)＝束 ae2 の #4 で答えを伏せた読み手 A・B が2人とも挙げた）：取込の名詞の決まりで「説明に書いてあるまとまりのまま書く」と「時期や値は
+    名詞に入れない」が同じ言葉（まとまりの頭に時期や値が付いた事柄）の上で重なるとき、時期や値を外すほうが先（✅ 2026-11-14 日本時間14時31分38秒「●伺い10「はい、それでは、キャンセルの件は
+    ご了承ということでよろしかったでしょうか？」」＝お知らせの「当日のキャンセル」に名詞「キャンセル」）を、名詞の決まりの1か所（announces.MATTER_NOT）で読める形にした（答えは変えない
+    言葉の直し・例は束の行と同じ言葉にしない＝帳面 0-3）"""
+
+    def test_taking_off_the_time_goes_first(self):
+        import announces
+        p = announces.MATTER_PROMPT
+        self.assertIn("まとまりのまま書く決まりより、時期や値を外す決まりが先です", announces.MATTER_NOT)
+        self.assertEqual(p.count(announces.MATTER_NOT), 1)
+        self.assertEqual(p.count("時期や値を外す決まりが先"), 1)   # 境目は名詞の決まりの1か所だけ
+        self.assertIn("matter は、事柄の言葉を説明に書いてあるまとまりのまま書きます", p)
+        self.assertNotIn("当日のキャンセル", p)   # 束の行と同じ言葉を例にしない
+
+    def test_the_answer_is_the_same(self):
+        import announces
+        t = "当日のキャンセルは前日までにご連絡いただく必要がございますのでご了承ください。"
+        ask = MatterPromptValuesTest.ASK
+        self.assertTrue(announces.matter_fits(t, ask, "キャンセル") and announces.clause_fits(t, ask, "当日のキャンセルは前日までにご連絡いただく必要がある"))
+
+
 class ImportFormsReviewTest(unittest.TestCase):
     """見直し (12) の組 Q（取込で決めた文・録音の一覧）：C-1 事実を伺う質問に選択肢を並べた文を作らない・C-2／C-3 {最短の日} を声に出す文のすべてで1か所で
     置き換え、流す録音の名前と録音の表の名前を同じ1つから作る・C-4 取込の中身の判定で同じことを伺っているかを読む・C-5 形の確かめの1か所・C-6 先に並べた文は
@@ -45976,6 +45998,41 @@ class PLadderAgainTest(unittest.TestCase):
         self.assertEqual(heard_words(r), "はい、どういった点でお迷いでしょうか？")
 
 
+class AGRepeatAwayTest(unittest.TestCase):
+    """分身 AG の (4-b)（帳面 1 の (6) の (i) の L20 の (b)＝束 ae3 の #3 で答えを伏せた読み手 A・B が2人とも「別のお話」か「決められない」とも読んだ）：判定の組がそろって「別のお話」と読み、
+    答えが「もう一度言ってほしい」のときも、流れの制御は「もう一度言ってほしい」の道（11-06 日本時間15時20分30秒「(1)…OK」＝「失礼いたしました。」＋言ったことをもう一度）に入り、
+    別のお話の番（ひとこと応えて伺い直す）には入らない（作りで確かめた＝直す前も後も同じ＝見張り。道は _judged_first の _repeat_now）。そのうえで、聞き返しは答えの話の側（いま伺っていること
+    についての話）と、答えの話か別のお話かの説明の1か所（flowctl.away_choices の「答えの話」）に書いた（帳面 0-3 の (a)「境目の決まりは1か所だけに書く」）"""
+    WORDS = "すみません、ちょっと聞き取れなかったんですけど。"
+
+    def test_repeat_goes_before_another_talk(self):
+        import g53_meaning as G
+        from flowctl import AWAY, AWAY_YES, REPEAT
+        from review_words import questions
+        qs = questions()
+
+        def r1():
+            f = G.asked_flow([qs["R1"], G.SCENE_NEXT])
+            f.use_checks("judge")
+            return f, "R1"
+        scenes = {"R1": r1, "C1": lambda: (G._ladder_scene(qs["C1"]), "C1"), "R16": lambda: (G._unheard_final_scene(qs["R16"]), "R16"),
+                  "R7": lambda: (G._played_flow(qs["R7"]), "R7")}
+        for name, build in scenes.items():
+            for op, args in ((None, {}), ("report_unclear", {})):
+                f, qid = build()
+                r = G._scene_say(f, self.WORDS, G._scene_read(REPEAT, **{AWAY: AWAY_YES}), op, **({"question_id": qid, **args} if op else {}))
+                with self.subTest(scene=name, op=op):
+                    self.assertEqual((r or {}).get("result"), "replayed")
+                    self.assertIsNone(f._asked_kind())
+
+    def test_the_border_is_in_one_place(self):
+        from flowctl import AWAY_NO, AWAY_YES, away_choices
+        c = away_choices(False, asked=True)
+        w = "こちらの言ったことが聞き取れなかった・もう一度言ってほしい、という聞き返しも、いま伺っていることについての話で、答えの話"
+        self.assertIn(w, c[AWAY_NO])
+        self.assertNotIn("聞き返し", c[AWAY_YES])
+
+
 class PPainAskAgainTest(unittest.TestCase):
     """分身 P の (2)（担当 W の 3 の 2）：顧客獲得型の本題の段の悩みの伺い（Y2）への聞き取れないお返事は、こちらの申し出と同じ理由（取りこぼすと「ある」と言った方を失う＝
     ✅ 2026-11-19 日本時間14時18分13秒「伺い53：ア」）で1回だけ伺い直す（申し出と同じ1か所 Flow._offer_backs・同じ言い方「申し訳ございません、お電話が少し遠いようでして…」）。
@@ -48035,7 +48092,8 @@ class S3MeasurePrepTest(unittest.TestCase):
                                                  {"answer": "はい", PROMPT_REPLY: PROMPT_REPLY_NO}),
             ("R7", answered, "分かりました。キャンセルの件も大丈夫です。"): (["はい"], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R7", self.OURS, None),
                                                           {PROMPT_REPLY: PROMPT_REPLY_YES}),
-            ("R7", answered, "え、何ておっしゃいました？"): ([REPEAT], {AWAY: [AWAY_NO, UNDECIDED], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R7", self.OURS, None),
+            # 聞き返しの別のお話かは答えの話だけ（分身 AG の (4-b)＝答えの話か別のお話かの説明に「聞き返しも…答えの話」と書いた。前は 答えの話・決められない の境目）
+            ("R7", answered, "え、何ておっしゃいました？"): ([REPEAT], {AWAY: [AWAY_NO], PROMPT_REPLY: [PROMPT_REPLY_NO]}, ("R7", self.OURS, None),
                                                  {PROMPT_REPLY: PROMPT_REPLY_YES}),   # お返事だけと読むと、答えを言い直さずに最終の確かめ
             ("R9", final, "そういえば来週は祝日なんですよ。"): ([UNDECIDED], {AWAY: [AWAY_YES]}, ("R9", "", self.FINAL), {AWAY: AWAY_NO}),
             ("R9", final, "うーん、どうしようかな。"): ([THINKING, HESITATING], {AWAY: [AWAY_NO]}, ("R9", "", self.FINAL), {"answer": UNDECIDED}),
