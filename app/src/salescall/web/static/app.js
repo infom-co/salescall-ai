@@ -56,7 +56,7 @@
     var label = input.closest(".drop"), out = label && label.querySelector("[data-file-name]");
     if (!out) return;
     var f = input.files && input.files[0];
-    out.textContent = f ? "選んだファイル：" + f.name + "（" + Math.max(1, Math.round(f.size / 1024)) + " KB）" : "まだ選んでいません（ここに置いても選べます）";
+    out.textContent = f ? "選んだファイル：" + f.name + "（" + Math.max(1, Math.round(f.size / 1024)) + " KB）" : "まだ選んでいません";
     out.classList.toggle("chosen", !!f);
   }
   document.addEventListener("change", function (e) { if (e.target.matches(".drop input[type=file]")) showFile(e.target); });

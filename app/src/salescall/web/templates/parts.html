@@ -15,7 +15,7 @@
   <input type="file" name="file" accept="{{ accept }}" required>
   <span class="drop-title">{{ title }}</span>
   <span class="btn small drop-btn" aria-hidden="true">ファイルを選ぶ</span>
-  <span class="drop-name" data-file-name aria-live="polite">まだ選んでいません（ここに置いても選べます）</span>
+  <span class="drop-name" data-file-name aria-live="polite">まだ選んでいません</span><span class="muted pointer-only">（ここにファイルを置いても選べます）</span>
   <span class="muted">{{ note }}</span>
 </label>
 {%- endmacro %}

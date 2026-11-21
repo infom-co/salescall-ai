@@ -30,7 +30,7 @@
     <span class="bulk-count"><b data-checked-count>0</b> 件のお客様を選んでいます</span>
     {#- 選ぶまでは、まとめて変える欄をたたむ（2026-11-21 の見直し：スマホでは選ぶ前から欄が画面の半分を取っていた）。たたむのは
         ブラウザの部品が動いているときだけ（app.js の1か所が has-checked を付け外す。動かなければ、いつも出す） -#}
-    <span class="muted bulk-empty">表の左の欄でお客様に印を付けると、まとめて「かけるか」を変えられます。</span>
+    <span class="muted bulk-empty"><span class="wide-only">表の左の欄で</span><span class="narrow-only">お客様の札の左上の欄で</span>お客様に印を付けると、まとめて「かけるか」を変えられます。</span>
     <span class="bulk-controls">
     <select name="level" aria-label="かけるか・かけないか" required>
       <option value="" selected disabled>どうするかを選ぶ</option>{# 初めから「かけない」を選んでおかない（押し間違えで行を止めない。2026-11-20 の見直し） #}
