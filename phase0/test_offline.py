@@ -48095,8 +48095,12 @@ class UntilBackByTest(unittest.TestCase):
         qmap = G.question_map() | questions()
         it = next(i for i in answer_words() if i["text"] == "3時までには戻ってます。")
         self.assertEqual(it["label"][UNTIL_WHY], [UNTIL_LABEL["unavailable"]])
-        self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), {a for a in G.flow_wants(it, qmap[it["qid"]]) if UNTIL_LABEL["unavailable"] in a})
-        self.assertTrue(all(G.UNTIL_ASK_ACT not in a for a in G.flow_wants(it, qmap[it["qid"]])))
+        # 答えた（3時まで）の読みの動きは、どれも「それまでは出られない」の理由つき・伺い63 で伺い直す動きは無い（答えの正解に片方だけ合わない・決められないを足したのは分身 S の (3)＝
+        # ReaderAgreedRowsTest。片方だけ合わないは「〇時まで」の理由を受け取らない＝flowctl.reason_items）
+        wants = G.flow_wants(it, qmap[it["qid"]])
+        until_acts = {a for a in wants if "3時まで" in a}
+        self.assertTrue(until_acts and all(UNTIL_LABEL["unavailable"] in a for a in until_acts), wants)
+        self.assertTrue(all(G.UNTIL_ASK_ACT not in a for a in wants))
 
 
 class CallbackAsksAboutTest(unittest.TestCase):
@@ -48299,3 +48303,58 @@ class LadderSideReasonsTest(unittest.TestCase):
         self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), {f"{G.LADDER_NEITHER_ACT}〔理由：{CYCLE_LABEL['month']}〕"})
         plain = next(i for i in answer_words() if i["text"] == "金曜日はちょっと…。")
         self.assertEqual(G.flow_wants(plain, qmap[plain["qid"]]), {f"{G.LADDER_ONE_ACT}：火曜日と水曜日ではどちらがよろしいでしょうか？"})
+
+
+class ReaderAgreedRowsTest(unittest.TestCase):
+    """分身 S（CL-1 の頼み rv184/S の (3)）：時刻の2択（「2時と4時ではどちらがよろしいでしょうか？」）への「〇時まで」の4行と、曜日の2択への「給料日のあとでお願いします。」の正解を、答えを伏せた
+    読み手（束 n9＝rv183/Q/readers の A・B と束 r3＝rv184/R/readers の A・B。判定が見る文が今の形の束は r3）がそろって挙げた答え・もう一方で大丈夫そうか（ladder_other）の読みで当て直した
+    （帳面 0-3 の (2)「正解の表の全部の行を1つずつ当て直す」・「正解は、言葉と説明だけから決める」＝2人がそろった読みは正解に入れる）。読みごとに流れの制御に通して、お客様に聞こえる言葉と
+    かけ直しの記録を出した（rv184/S/probe/s3/readings.md）。「4時まで会議なんです。」は2人とも「2時だけ合わない」だけを挙げ、今の正解「答えた」をどちらも挙げなかった＝答えたの説明（ご都合の
+    よい日や時刻を言った）に当たらない。⚠️ その行の「不安そう」の読みは、避けた2時だけを外して会議中の3時を伺う（お客様の言葉と逆の向き）＝説明の文の境目を直す案は rv184/S/notes.md の
+    7 章（作っていない）"""
+
+    ROWS = {
+        "3時までには戻ってます。": ({"答えた", "2時だけ合わない", "決められない"}, {"片方だけ合わないとは言っていない", "大丈夫そう"}),
+        "3時まではこの番号で大丈夫です。": ({"答えた", "4時だけ合わない", "決められない"}, {"片方だけ合わないとは言っていない", "大丈夫そう"}),
+        "3時までなら大丈夫です。": ({"答えた", "4時だけ合わない"}, {"片方だけ合わないとは言っていない", "大丈夫そう"}),
+        "4時まで会議なんです。": ({"2時だけ合わない"}, {"大丈夫そう", "不安そう・大丈夫とは言っていない"}),
+        "給料日のあとでお願いします。": ({"答えた", "決められない"}, {"片方だけ合わないとは言っていない"}),
+    }
+
+    def rows(self):
+        from review_words import LADDER_CLOCK_SCENE, LADDER_SCENE, answer_words
+        for text, want in self.ROWS.items():
+            scene = LADDER_SCENE if text.startswith("給料日") else LADDER_CLOCK_SCENE
+            found = [i for i in answer_words() if i["text"] == text and i.get("scene") == scene]
+            self.assertEqual(len(found), 1, text)
+            yield text, found[0], want
+
+    def test_the_truths_are_the_agreed_readings(self):
+        from flowctl import LADDER_OTHER
+        for text, it, (answers, others) in self.rows():
+            self.assertEqual(set(it["label"]["accept"]), answers, text)
+            self.assertEqual(set(it["label"][LADDER_OTHER]), others, text)
+
+    def test_the_wanted_acts(self):
+        # 数える1か所（g53_meaning.step_act と同じ act_of）で、正しい読みの組み合わせから決まる動き
+        import g53_meaning as G
+        from review_words import questions
+        q = questions()["C1"]
+        ask = lambda pair: f"{G.LADDER_ONE_ACT}：{pair}ではどちらがよろしいでしょうか？"
+        want = {
+            "3時までには戻ってます。": {"念のため確かめる：答えた（火曜日の午後3時まで）〔理由：それまでは出られない〕", "念のため確かめる：答えた（火曜日の午後4時）", ask("3時と4時"), G.ASK_AGAIN},
+            "3時まではこの番号で大丈夫です。": {"念のため確かめる：答えた（火曜日の午後3時まで）〔理由：それまでは出られる（それ以降は難しい）〕", G.UNTIL_ASK_ACT,
+                                       "念のため確かめる：答えた（火曜日の午後2時）", ask("2時と3時"), G.ASK_AGAIN},
+            "3時までなら大丈夫です。": {G.UNTIL_ASK_ACT, "念のため確かめる：答えた（火曜日の午後2時）", ask("2時と3時")},
+            "4時まで会議なんです。": {"念のため確かめる：答えた（火曜日の午後4時）", ask("3時と4時")},
+            "給料日のあとでお願いします。": {G.ASK_AGAIN},
+        }
+        for text, it, _ in self.rows():
+            self.assertEqual(G.flow_wants(it, q), want[text], text)
+
+    def test_undecided_rows_have_the_reason_truths(self):
+        # 答えの正解に「決められない」を足した行は、わからない理由の正解も持つ（流れの制御が理由の読みを使う＝Flow._not_deciding。理由を言っていない言葉の並び＝review_words.WHY_OTHER）
+        from review_words import WHY_OTHER
+        for text, it, (answers, _) in self.rows():
+            if "決められない" in answers:
+                self.assertEqual(tuple(it["label"].get("reason") or ()), WHY_OTHER, text)
