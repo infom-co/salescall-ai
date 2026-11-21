@@ -34,7 +34,7 @@ from phrases import NAME_HEAD_IDS, NAME_HEADS, NAME_PART_TAILS
 from phrases import ASKED_PROMPT_IDS, CONCERN_PROMPT_IDS, QUIET_LINES, THINKING_PROMPT_IDS, WAIT, WAIT_ASK_PLAIN_ID
 from phrases import OMATASE, ROLE_PARTS, SUCCESSOR_IF_PART, WAIT_SOON, WRONG_NUMBER_ASK, ladder_kept_head, ladder_no_room_head, ladder_topic_head, question_body
 from phrases import DECLINE_RECEIPT
-from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, honored, restate_words
+from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, honored, restate_words, NAME_HONORIFIC
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
 from phrases import HANDOFF_DO, OFFER_DO_END, WISH_DO, offer_words, recall_do
@@ -83,6 +83,11 @@ _REQUEST_TAIL = re.compile(r"(?<=\S)で(?:お願い(?:します|いたします|
 #    よろしいでしょうか？」と確かめ、依頼者へ「15日でしたら」）。f74974fd までは言い直しにも残った（「…午後3時までならということでよろしいでしょうか？」）
 _IF_TAIL = re.compile(r"(?:なら(?:ば)?|でしたら|であれば|だったら)$")
 _IF_TAIL_NAME = re.compile(r"(?:でしたら|であれば|だったら)$")
+# 名前の型の値の終わりの「様」「さま」も値に入れない（こちらが言い直しで足す言葉＝言う形の1か所 spoken_value の phrases.NAME_HONORIFIC。会話AIが言い直しを写して「かどた様」と報告しても、
+# お客様が「山田様です」と言っても、記録の値は「かどた」「山田」・言い直しは「様」を1回だけ＝本書 9-5 の 7.「依頼者へ渡るのは確かめた値」・上の「なら」と同じ考え。CL-1 が決めた＝分身 AJ の続き）。
+# 外すのは値を受け取るこの1か所（normalize_value）だけ（名前の読みの確かめの直しの値も、ここを通ったあとに空白・読点だけを外す＝_op_confirm_field）。外すと値が無くなるなら外さない。
+# 「さん」「くん」「ちゃん」「殿」「先生」・役職は外さない（お客様の言葉・「鵜殿」のように名前の一部になりうる）。⛔ 8007c081 まで、記録の値は「山田様」「かどた様」のまま
+_SAMA_TAIL = re.compile(rf"(?:{NAME_HONORIFIC}|さま)$")
 # 空白に意味の無い型（日付・時刻・日時・数・金額）は、値の中の空白も外す。
 # ⛔ 2026-10-14 G-34：相手の声を文字にしたもの（「15 日の午後 2 時でお願いします。」）を、AIがそのまま写して報告し、
 #    値が「15 日の午後 2 時」になった（依頼主へ渡す値に空白が入る）。名前・住所・メールは、空白に意味がありうるので外さない
@@ -182,6 +187,8 @@ def normalize_value(qtype: str, value: str | None, unit: str = "") -> str | None
             v = _REQUEST_TAIL.sub("", v).strip()
         # 条件の言い方（外すと値が無くなるなら外さない＝値の形の確かめ form_problem に任せる）
         v = (_IF_TAIL_NAME if qtype == "name" else _IF_TAIL).sub("", v).strip() or v
+        if qtype == "name":
+            v = _SAMA_TAIL.sub("", v).strip() or v   # 名前の終わりの「様」「さま」（外すと値が無くなるなら外さない）
     if qtype in ("email", "line_id"):
         v = re.sub(r"\s", "", unicodedata.normalize("NFKC", v))  # 「info @ example.co.jp」「ｉｎｆｏ＠…」⇒ 依頼主へ渡す形（半角・空白なし）
     if qtype in NO_SPACE_TYPES:
@@ -11265,7 +11272,10 @@ class Flow:
             result, correction = "corrected", None
             it.set(it.state, f"相手が「{self.callee_said[:20]}」と直したのに、AIは「合っている」と報告した ⇒ 直されたとして扱う")
         if q.reading_of and correction:
-            correction = hira(re.sub(r"[\s様さん。、]", "", correction))
+            # 読みの中の空白・読点だけを外す（終わりの「様」「さま」は値を受け取る1か所 normalize_value＝上の correction がもう外している）。⛔ 8007c081 まで、ここでも
+            # [\s様さん。、] で外していた＝文字の組なので、読みの中の「さ」「ん」まで消し、「さいどう」を「いどう」・「ほんだ」を「ほだ」・「なかしまさま」を「なかしまま」と
+            # 確かめた（分身 AJ の続き＝AJNameSamaTailTest）
+            correction = hira(re.sub(r"[\s。、]", "", correction))
             if result == "corrected" and not _KANA.fullmatch(correction):
                 return self._reject(f"「{q.reading_of}」の読みは、相手が言ったとおりの音を、ひらがなだけで"
                                     f"{ARG_LABEL['correction']}に入れて、もう一度報告してください（「{correction}」は使えません）。")
