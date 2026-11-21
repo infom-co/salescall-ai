@@ -876,6 +876,12 @@ class Web(_World):
         row = settings_page[settings_page.index('id="s-line-test_number"'):]
         self.assertEqual("決めてください" in row[:row.index("</summary>")], not usable)
 
+    def test_a_line_is_named_with_its_caller_number(self):   # 同じ名前の回線を見分ける（web/names の1か所。2026-11-21 の見直し）
+        from salescall.web import names
+        self.assertEqual(names.line_label("スマホ1", "+819000000000"), "スマホ1（09000000000）")
+        self.assertEqual(names.line_label("スマホ1", None), "スマホ1")
+        self.assertEqual(names.line_label(None, None), "回線")
+
     def test_every_time_cell_has_one_shape(self):
         """表の時刻の升は、どの表も .when の1つの形（数字の幅はそろえ、左寄せ・折らない）。数量の右寄せ（num）では書かない
         （2026-11-20 の見直し：時刻を右寄せにした表と左寄せの表が混ざり、「いつから」の見出しと値がずれていた）。"""

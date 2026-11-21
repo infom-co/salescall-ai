@@ -21,7 +21,7 @@ from typing import Any
 from salescall.core import attempts, errors, gate, health, health_rules
 from salescall.core.access import Tx
 from salescall.output import notices, words
-from salescall.web import links
+from salescall.web import links, names
 
 DAYS = 7      # 終えた電話の一覧を見る日数（直近。一覧の長さを決めるだけ。数え方・決め方には使わない）
 LIMIT = 500   # 1つの項目・1つの依頼者で読む数の上限（画面を重くしない。ふだんは届かない数。届いたら、上限までを出す）
@@ -47,28 +47,28 @@ class Watch:
 
 def _lines(tx: Tx) -> list[Entry]:
     out = []
-    for ln in tx.all("SELECT line_id, name FROM salescall.lines WHERE retired_at IS NULL ORDER BY name, line_id"):
+    for ln in tx.all("SELECT line_id, name, caller_e164 FROM salescall.lines WHERE retired_at IS NULL ORDER BY name, caller_e164, line_id"):
         st = health.line_of(tx, ln["line_id"])
         if st.stage is health_rules.LineStage.HEALTHY:
             continue
         detail = st.stage.value + (f"・待っていること：{st.wait.value}" if st.wait else "")
-        out.append(Entry(ln["name"], detail, st.next_at, "/t/lines"))
+        out.append(Entry(names.line_label(ln["name"], ln["caller_e164"]), detail, st.next_at, "/t/lines"))
     return out
 
 
 def _ring_tests(tx: Tx) -> list[Entry]:
-    rows = tx.all("SELECT t.tested_at, t.purpose, t.rang, l.name FROM salescall.line_ring_tests t"
+    rows = tx.all("SELECT t.tested_at, t.purpose, t.rang, l.name, l.caller_e164 FROM salescall.line_ring_tests t"
                   " JOIN salescall.lines l ON l.line_id = t.line_id"
                   " WHERE t.tested_at > now() - make_interval(days => %s) ORDER BY t.tested_at DESC LIMIT %s", (DAYS, LIMIT))
-    return [Entry(r["name"], f"{words.RING_PURPOSE_WORDS.get(r['purpose'], words.NO_WORD)}：{words.RING_WORDS[r['rang']]}", r["tested_at"], "/t/lines")
+    return [Entry(names.line_label(r["name"], r["caller_e164"]), f"{words.RING_PURPOSE_WORDS.get(r['purpose'], words.NO_WORD)}：{words.RING_WORDS[r['rang']]}", r["tested_at"], "/t/lines")
             for r in rows]
 
 
 def _runner_stuck(tx: Tx) -> list[Entry]:
-    rows = tx.all("SELECT e.occurred_at, e.message, l.name FROM salescall.error_events e LEFT JOIN salescall.lines l ON l.line_id = e.line_id"
+    rows = tx.all("SELECT e.occurred_at, e.message, l.name, l.caller_e164 FROM salescall.error_events e LEFT JOIN salescall.lines l ON l.line_id = e.line_id"
                   " WHERE e.kind = 'runner_stuck' AND e.occurred_at > now() - make_interval(days => %s)"
                   " ORDER BY e.occurred_at DESC LIMIT %s", (DAYS, LIMIT))
-    return [Entry(r["name"] or "回線", errors.LABELS["runner_stuck"], r["occurred_at"], "/t/lines", r["message"] or "") for r in rows]
+    return [Entry(names.line_label(r["name"], r["caller_e164"]), errors.LABELS["runner_stuck"], r["occurred_at"], "/t/lines", r["message"] or "") for r in rows]
 
 
 def _calls(kind: str) -> Callable[[Tx], list[Entry]]:

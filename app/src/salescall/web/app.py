@@ -41,7 +41,7 @@ from salescall.core.access import Access
 from salescall.output import destinations as result_destinations
 from salescall.output import files as result_files
 from salescall.output import notices, record_book, result_rows, words
-from salescall.web import actions, context, counts, importing, inbox, links, rowfix, setting_forms, uploads, watch
+from salescall.web import actions, context, counts, importing, inbox, links, names, rowfix, setting_forms, uploads, watch
 from salescall.web import login as web_login
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
@@ -103,12 +103,7 @@ def _yen(v: Any, *, unit_price: bool = False) -> str:
     return (text.rstrip("0").rstrip(".") if "." in text else text) + "円"
 
 
-def _phone(e164: str | None) -> str:
-    """番号の書き方（1か所＝phone.normalize。国内の番号は 0 から。そろえられなければ、そのまま）。"""
-    if not e164:
-        return ""
-    n = phone.normalize(e164)
-    return n.national or e164
+_phone = names.phone_text   # 番号の書き方（1か所＝web/names。そろえるのは core の phone.normalize）
 
 
 def _back(path: str, out: actions.Outcome) -> RedirectResponse:
@@ -941,7 +936,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             def read(tx: Any) -> dict[str, Any]:
                 lines = []
                 for ln in tx.all("SELECT line_id, name, method, caller_e164, client_id, retired_at, retired_reason FROM salescall.lines"
-                                 " ORDER BY retired_at NULLS FIRST, name, line_id"):
+                                 " ORDER BY retired_at NULLS FIRST, name, caller_e164, line_id"):   # 同じ名前の回線は番号の順（line_id の順＝ばらばらに見えた）
                     st = health.line_of(tx, ln["line_id"])
                     lines.append({**ln, "stage": st.stage, "wait": st.wait, "next_at": st.next_at,
                                   "resting": st.stage in health_rules.RESTS})
