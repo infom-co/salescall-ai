@@ -51085,7 +51085,8 @@ class AGUntilUnknownTest(unittest.TestCase):
                 it = f.items[q.id]
                 with self.subTest(scene=build.__name__, cond=cond):
                     self.assertEqual((r["result"], it.condition, it.value, it.until_why, f.current), ("confirm_required", VALUE_CHOICE, "火曜日の午後3時まで", None, q.id))
-                    self.assertEqual(r["say"], "ありがとうございます。火曜日の15時まで、午後3時までということでよろしいでしょうか？")
+                    # わからない・答えたくないのあとはお礼を返さない（分身 AH：言い直しの頭は承り＝AHUnknownNoThanksTest。⛔ 01b3c462 まで「ありがとうございます。火曜日の15時まで…」）
+                    self.assertEqual(r["say"], "かしこまりました。火曜日の15時まで、午後3時までということでよろしいでしょうか？")
                     self.assertIsNone(f.end_reason)
 
     def test_the_why_item_is_not_shown_while_held(self):
@@ -51096,3 +51097,93 @@ class AGUntilUnknownTest(unittest.TestCase):
             q, p = HeldAskChoicesTest.judged(scene)
             self.assertEqual(held_ask_unread(q), (WHY,), scene)
             self.assertNotIn(WHY, answer_items(q), scene)
+
+
+class AHUnknownNoThanksTest(unittest.TestCase):
+    """分身 AH：お客様がわからない・答えたくないと言ったお返事（判定の読み）を、伺い直す前の値・伺えた所のまま受け取るときも、お礼（「ありがとうございます。」）は返さない。受け取る所は2つ＝
+    「〇時まで」の理由の確かめ（伺い63・伺い98 ア＝Flow._ask_until）へのお返事（_op_record_answer の until_held の受け取り＝分身 AG の (2)）と、お客様から折り返していただく日の2択（伺い67 ア＝
+    Flow._theirs_begin）へのお返事（theirs_held の受け取り＝伺い67 の伺いの文の「分からない」の行）。お礼を返さない答えを決めるのは1か所（Flow._thanks_barred。その報告で受け取った印
+    Flow.kept_unknown は報告の間だけ）・言い直しの頭のお礼を承りに替えるのは、受けの言葉を選ぶ1か所（Flow._fresh_receipt＝回す順の次の「かしこまりました。」・直前の返事の頭と同じなら、また
+    次の「承知いたしました。」）。CL-1 が書いてある決まりで決めた（本書 9-7「相づちは受け取った答えで選ぶ：お断り・目的から遠ざかる向きの答えにお礼は返さない」＝お礼を返さない答えは、
+    お断り・遠ざかる向き・わからない・答えたくない・伺い67 のご承認の文の「分からない」の行「はい、かしこまりました。平日の16時まで、午後4時までということでよろしいでしょうか？」・10-19
+    「いただいた理由は、言われた場面だけでなく、同じ理由が当たる場面すべてに当てる」）。⛔ 01b3c462 まで、言い直しの頭の順番が「ありがとうございます。」の所に当たると「はい、ありがとう
+    ございます。火曜日の15時まで、午後3時までということでよろしいでしょうか？」（お客様から折り返していただく日の2択は、直前の返事の頭がお礼だったので、同じ受けの言葉を続けない決まりで
+    たまたま「かしこまりました。」）"""
+    WORDS = {"unknown": "ちょっと分からないですね。", "refused": "それはちょっと言えないですね。"}
+    APPROVED = "はい、かしこまりました。平日の16時まで、午後4時までということでよろしいでしょうか？"   # 伺い67 の伺いの文（rv175/R2/asks56_68.md）のアの「分からない」の行
+    UNTIL = "火曜日の15時まで、午後3時までということでよろしいでしょうか？"
+    THEIRS = "平日の16時まで、午後4時までということでよろしいでしょうか？"
+
+    @classmethod
+    def scenes(cls):
+        import g53_meaning as G
+        return ((G._until_ask_scene, "火曜日の午後3時まで", cls.UNTIL), (G._until_lean_scene, "火曜日の午後3時まで", cls.UNTIL),
+                (G._theirs_pair_scene, "平日の午後4時まで", cls.THEIRS))
+
+    def said(self, f, cond):
+        import g53_meaning as G
+        from flowctl import AWAY, AWAY_NO, WHY, DONT_KNOW_LABEL
+        from review_words import questions
+        q = questions()["C1"]
+        return G._scene_say(f, self.WORDS[cond], G._scene_read(cond, **{WHY: DONT_KNOW_LABEL["unspecified"], AWAY: AWAY_NO}), "record_answer",
+                            question_id=q.id, condition_id=cond)
+
+    def test_no_thanks_from_any_turn_of_the_order(self):
+        # 言い直しの頭の順番（「ありがとうございます。」「かしこまりました。」「承知いたしました。」の何番目か）と、直前の返事の頭の受けの言葉をずらしても、お礼は出ず、頭は承りで、
+        # 直前と同じ受けの言葉を続けない（11-02 日本時間7時12分＝同じ受けの言葉を続けない）。値は伺い直す前の値・伺えた所のまま
+        from phrases import LEAD_IN
+        from review_words import questions
+        q = questions()["C1"]
+        thanks, *taking = LEAD_IN["言い直し"]
+        keep = object()
+        for build, value, tail in self.scenes():
+            for cond in ("unknown", "refused"):
+                for n in range(len(LEAD_IN["言い直し"])):
+                    for last in (keep, None, *LEAD_IN["言い直し"]):
+                        f = build(q)
+                        f.lead_counts["言い直し"] = n
+                        if last is not keep:
+                            f.last_receipt = last
+                        before = f.last_receipt
+                        r = self.said(f, cond)
+                        heard = heard_words(r)
+                        head = heard.removeprefix("はい、").removesuffix(tail)
+                        with self.subTest(scene=build.__name__, cond=cond, n=n, last=before):
+                            self.assertEqual((r["result"], f.items[q.id].value), ("confirm_required", value))
+                            self.assertNotIn(thanks, heard)
+                            self.assertEqual(heard, "はい、" + head + tail)
+                            self.assertIn(head, taking)
+                            self.assertNotEqual(head, before)
+
+    def test_the_words_as_the_scenes_are(self):
+        # 場面の今の順番のまま：「〇時まで」の確かめも、お客様から折り返していただく日の2択も「はい、かしこまりました。（伺えた値）…」
+        from review_words import questions
+        q = questions()["C1"]
+        for build, _, tail in self.scenes():
+            for cond in ("unknown", "refused"):
+                self.assertEqual(heard_words(self.said(build(q), cond)), "はい、かしこまりました。" + tail, (build.__name__, cond))
+        # 伺い67 の伺いの文の会話（受付の方・不在・折り返しの申し出・お言葉に甘える＝TheirsDayPairTest の手順）：ご承認の文と1文字も同じ
+        t = TheirsDayPairTest()
+        for cond in ("unknown", "refused"):
+            o, f, r = t.asked()
+            self.assertEqual(heard_words(r), t.ASK)
+            o.heard(f, self.WORDS[cond])
+            r = f.apply("record_answer", {"question_id": "C1", "condition_id": cond})
+            self.assertEqual(heard_words(r), self.APPROVED, cond)
+
+    def test_only_for_that_report(self):
+        # お返事が答え（理由は言っていない）・判定の決められないなら、今の順番のまま（お礼を返さない答えではない）。わからない・答えたくないを受け取った印は、その報告の間だけ
+        import g53_meaning as G
+        from flowctl import UNDECIDED, UNTIL_WHY, UNTIL_WHY_NOT_SAID, VALUE_CHOICE
+        from review_words import questions
+        q = questions()["C1"]
+        for build in (G._until_ask_scene, G._until_lean_scene):
+            for cond, items in ((VALUE_CHOICE, {UNTIL_WHY: UNTIL_WHY_NOT_SAID}), (UNDECIDED, {})):
+                r = G._scene_say(build(q), "いえ、そういうわけではないです。", G._scene_read(cond, **items), "record_answer",
+                                 question_id=q.id, condition_id=VALUE_CHOICE, value="3時まで")
+                self.assertEqual(heard_words(r), "はい、ありがとうございます。" + self.UNTIL, (build.__name__, cond))
+        for build, _, _ in self.scenes():
+            for cond in ("unknown", "refused"):
+                f = build(q)
+                self.said(f, cond)
+                self.assertFalse(f._thanks_barred({}), (build.__name__, cond))
