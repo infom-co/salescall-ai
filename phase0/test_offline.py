@@ -47457,7 +47457,8 @@ class S2ReReadBorderTest(unittest.TestCase):
         from flowctl import LADDER_NEITHER, LADDER_SIDE_TAIL, VALUE_CHOICE, Question, ladder_choice_desc
         q = Question("C1", "金曜日と火曜日ではどちらがよろしいでしょうか？", "datetime", conditions=(VALUE_CHOICE, LADDER_NEITHER, "金曜日" + LADDER_SIDE_TAIL, "火曜日" + LADDER_SIDE_TAIL))
         d = ladder_choice_desc(q, "金曜日" + LADDER_SIDE_TAIL)
-        for words in ("そちらなら、と挙げただけ", "はっきり選んで頼んだ", "もう一方も合わないと、はっきり言った"):
+        # 「もう一方にすると、はっきり選んだなら」＝どの2択でも読める言葉（分身 AG の (5-d)。⛔ 3ccaced6 まで「はっきり選んで頼んだ」）
+        for words in ("そちらなら、と挙げただけ", "もう一方にすると、はっきり選んだ", "もう一方も合わないと、はっきり言った"):
             self.assertIn(words, d)
 
     def test_7_ladder_other_ok_even_with_a_little_hesitation(self):
@@ -50744,6 +50745,48 @@ class LadderNeitherOnePlaceTest(unittest.TestCase):
         self.assertEqual(f.questions[CALLBACK_IDS["time"]].conditions, (VALUE_CHOICE, LADDER_NEITHER, ladder_side_name("平日"), ladder_side_name("土日")))
         d.answer(f, "平日でお願いします。", "平日")
         self.assertEqual(f.questions[CALLBACK_IDS["time"]].conditions, (VALUE_CHOICE, LADDER_NEITHER, ladder_side_name("金曜日"), ladder_side_name("火曜日")))
+
+
+class AGReaderBordersTest(unittest.TestCase):
+    """分身 AG の (5)：束 af1（rv187/AF/readers）で答えを伏せた読み手 A・B が2人とも挙げた境目を、それぞれの説明の1か所に書いた（帳面 0-3「判定（AI）への文も、初めて読む人がそのまま
+    分かる言葉で書く」・(a)「境目の決まりは1か所だけに書く」＝CL-1 が決めた）。(5-a) もう一方を「そちらなら」と挙げただけ（言いかけたのも）は「大丈夫そう」（✅ 2026-11-20 日本時間
+    16時25分52秒「伺い94：はもう一方で大丈夫そうなら、エでいいし、もう一方では不安そうならウでしょ」）(5-b) 並べたものの片方を避けた言いさしは、電話を終える言葉の「決められない」でも
+    答えの「考えている途中」でもない (5-c) 日や時刻を伺う質問で、決まった日が無い・その時々で変わる、とだけ言って1つの日を言えないのも「わからない」（「わからない」の説明の1か所）・
+    聞かれたことそのものへのお答えは、ご事情を言う形でも別のお話ではない (5-d) 片方だけ合わないの注は、どの2択でも読める「もう一方にすると、はっきり選んだなら」"""
+
+    def test_5a_naming_the_other_is_ok(self):
+        from flowctl import LADDER_OTHER, LADDER_OTHER_OK, ladder_other_choices
+        from review_words import RANGE_REDO_SCENE
+        d = ladder_other_choices(False, sides=True)[LADDER_OTHER_OK]
+        self.assertIn("合わないと言わなかったほうを「そちらなら」と挙げただけ（言いかけて終えたのも）も、こちら", d)
+        q, p = HeldAskChoicesTest.judged(RANGE_REDO_SCENE)
+        self.assertEqual(p.count("「そちらなら」と挙げただけ"), 1)
+
+    def test_5b_avoiding_one_of_the_pair_is_not_a_trailing_refusal_or_thinking(self):
+        from flowctl import END_HEADING, THINKING, end_choices, UNDECIDED
+        from meaning_judge import answer_kinds
+        from review_words import questions
+        q = questions()["C1"]
+        self.assertIn("質問で並べたもののうち一つを名指しして避け、言い切らずに止めただけは、何かを断りかけたのではないので、こちらではない", end_choices(False)[UNDECIDED])
+        self.assertIn("並べた答えの一つを避けて言いさしただけも、答えを考えて言いよどんでいる最中ではないので、こちらではない", dict((k, d) for k, d in answer_kinds(q).items())[THINKING])
+
+    def test_5c_no_fixed_day_is_unknown_and_an_answer_talk(self):
+        from flowctl import AWAY_YES, away_choices, held_ask_desc
+        from meaning_judge import UNKNOWN_DATE, system_desc
+        from review_words import questions
+        qs = questions()
+        self.assertIn(UNKNOWN_DATE, system_desc(qs["C1"], "unknown"))
+        self.assertNotIn(UNKNOWN_DATE, system_desc(qs["R1"], "unknown"))   # 日や時刻を伺う質問だけ（帳面 0-3 の (b)）
+        self.assertNotIn("その時々で変わる", held_ask_desc("payday"))   # 境目は「わからない」の説明の1か所
+        self.assertIn("聞かれたことそのものに答えたときは、ご事情を言う形でも、こちらではない", away_choices(False, asked=True)[AWAY_YES])
+
+    def test_5d_choosing_the_other_reads_in_any_pair(self):
+        from flowctl import ladder_choice_desc, ladder_side_name
+        from review_words import THEIRS_PAIR_SCENE
+        q, p = HeldAskChoicesTest.judged(THEIRS_PAIR_SCENE)
+        d = ladder_choice_desc(q, ladder_side_name("本日"))
+        self.assertIn("もう一方にすると、はっきり選んだなら", d)
+        self.assertNotIn("頼んだ", d)
 
 
 class TheirsKeptCountTest(unittest.TestCase):
