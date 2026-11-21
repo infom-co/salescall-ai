@@ -508,7 +508,7 @@ table.list .tag { white-space: normal; text-align: left; }
                                       color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1.5; }
   table.list td.num, table.list th.num { text-align: left; }
   table.list td:empty { display: none; }
-  table.list td.zero { display: none; }
+  table.list td.zero { display: none; }   /* 見出しに minor の付いた欄の 0 だけ（app.js の1か所が印を付ける） */
   .bulk .check-all-bar { display: inline-flex; }   /* 表の見出しが隠れるので、帯の「すべて選ぶ」を出す */
   table.list td { word-break: normal; line-break: strict; }   /* 札の形では、長い日本語を枠の中で折る（keep-all のままだと札が枠からはみ出した） */
   .tag { max-width: 100%; white-space: normal; }   /* 札の形では「0」の数の段を出さない（11の依頼者がほぼ「0」の7段ずつになり、ホームがとても長かった）。PC の表は出す */

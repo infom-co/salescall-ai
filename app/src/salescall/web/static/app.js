@@ -222,23 +222,25 @@
 (function () {
   function label(root) {
     (root || document).querySelectorAll("table.list").forEach(function (table) {
-      var heads = [];
+      var heads = [], minor = [];
       table.querySelectorAll("thead th").forEach(function (th) {
         var span = parseInt(th.getAttribute("colspan") || "1", 10);
-        for (var i = 0; i < span; i++) heads.push(th.textContent.trim());
+        for (var i = 0; i < span; i++) { heads.push(th.textContent.trim()); minor.push(th.classList.contains("minor")); }
       });
       if (!heads.length) return;
       table.querySelectorAll("tbody tr").forEach(function (tr) {
         var col = 0;
         Array.prototype.forEach.call(tr.children, function (td) {
           if (td.tagName === "TD" && !td.hasAttribute("data-label") && heads[col]) td.setAttribute("data-label", heads[col]);
+          var here = col;
           col += parseInt(td.getAttribute("colspan") || "1", 10);
           if (td.tagName !== "TD") return;
           var t = td.textContent.trim();
           if (t.length <= 8) td.classList.add("short");   // 短い値は途中で折らない（「対応 / 中」と折れていた）
-          // スマホの札の形では、0 の数の段を出さない（CSS）。単位つきの 0（「0円」「0本」「0件」）も同じ（2026-11-20 の見直し）。
-          // 「0.5」「0:30」のような 0 で始まる別の値は当てない
-          if (td.classList.contains("num") && /^0[^\d.,:]*$/.test(t)) td.classList.add("zero");
+          // スマホの札の形では、0 の段を出さないのは、見出しに minor の付いた欄だけ（CSS）。単位つきの 0（「0円」「0本」「0件」）も同じ。
+          // 「0.5」「0:30」のような 0 で始まる別の値は当てない。報酬・費用・今日かけた などの主な欄は、0 でも必ず出す
+          // （2026-11-21 の見直し：すべての欄で隠していたので、費用と報酬の画面から報酬・費用の数が消え、依頼者どうしを比べられなかった）
+          if (minor[here] && td.classList.contains("num") && /^0[^\d.,:]*$/.test(t)) td.classList.add("zero");
         });
       });
     });

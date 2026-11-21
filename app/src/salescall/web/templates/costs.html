@@ -12,7 +12,7 @@
 {% set no_terms = month|rejectattr("without_terms")|rejectattr("has_terms")|list %}
 {% if no_terms %}<p class="muted">報酬の決まりがまだ無い依頼者が {{ no_terms|length }} あります（今月はまだかけていないので、今月の赤字の判断には効きません）。決まりは、業務のタブの「報酬の決まり」で入れます。</p>{% endif %}
 <div class="table-scroll"><table class="list">
-  <thead><tr><th>依頼者</th><th class="num">報酬</th><th class="num">費用</th><th class="num">うち実測</th><th class="num">うち推定</th><th>注意</th></tr></thead>
+  <thead><tr><th>依頼者</th><th class="num">報酬</th><th class="num">費用</th><th class="num minor">うち実測</th><th class="num minor">うち推定</th><th>注意</th></tr></thead>
   <tbody>
   {% for m in month %}
     <tr>
