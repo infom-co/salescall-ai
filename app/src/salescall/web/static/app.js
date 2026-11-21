@@ -184,7 +184,15 @@
     e.stopImmediatePropagation();
     pendingConfirm = { form: form, submitter: e.submitter || null };
     d.querySelector("[data-confirm-text]").textContent = confirmText(form);
-    d.querySelector("[data-confirm-ok]").textContent = form.getAttribute("data-confirm-ok") || "決める";
+    // 題は、決めるボタンの言葉から（何の操作かを題で言う）。取り消せない・電話を止める側の操作（data-confirm-tone="danger"）は、
+    // 決めるボタンも赤（前の段の赤いボタンと同じ色。2026-11-21 の見直し：最後の一押しだけ、ふつうの決定の藍になっていた）
+    var ok = form.getAttribute("data-confirm-ok") || "決める";
+    var danger = form.getAttribute("data-confirm-tone") === "danger";
+    d.querySelector("#confirm-title").textContent = "「" + ok + "」の前に、確かめてください";
+    var btn = d.querySelector("[data-confirm-ok]");
+    btn.textContent = ok;
+    btn.classList.toggle("danger", danger);
+    btn.classList.toggle("main", !danger);
     d.showModal();
   }, true);
   document.addEventListener("click", function (e) {

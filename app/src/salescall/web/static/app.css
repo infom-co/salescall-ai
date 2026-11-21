@@ -402,7 +402,7 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .setting-form .unit-input input { max-width: 160px; } .setting-form .gap input { max-width: 120px; } .setting-form .gap select { max-width: 200px; }
 /* 取り消せない操作を開くボタン（使用停止・ログインを外す・取り消す・消す）は、ふだんは静かな色。赤は、開いた中で名前を見せてから
    最後に押す「決める」ボタン（.btn.danger）だけ（2026-11-20 の見直し：全部の行に赤い文字が並び、急ぐものが目立たなかった） */
-.danger-text { color: var(--muted) !important; font-weight: 600; }
+.danger-text { color: var(--stop) !important; font-weight: 600; }   /* 危ない操作の入口：赤い字（薄い灰は押せないボタンに見えた。塗りつぶしの赤は緊急停止と確かめの最後の一押しだけ） */
 td .inline-mark { margin-top: 0; } td .inline-mark select { max-width: 240px; }
 .btn-row { display: inline-flex; gap: 8px; flex-wrap: wrap; }
 .notice-link .go-btn { margin-left: auto; }
@@ -609,4 +609,7 @@ ul.done-steps span { color: var(--ok); margin-right: 4px; }
 .import-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: var(--info-soft); color: var(--text); font-size: 13px; }
 /* 左の道しるべと同じ行き先（狭い幅でだけ出す。道しるべが見えている幅では重ねない） */
 @media (min-width: 901px) { .nav-dup { display: none; } }   /* 道しるべは 900px 以下で ≡ の中にたたまれる（上の @media と同じ境目） */
+/* その場で広がる操作の中身（adder-block の中。小窓にしない＝画面の下の方でも切れない） */
+.panel-inline { margin-top: 12px; display: grid; gap: 6px; max-width: 520px; }
+.panel-inline .field { font-weight: 600; font-size: 13px; }
 

@@ -439,7 +439,9 @@ class Web(_World):
     def test_a_client_is_made_inactive_and_back_with_a_reason(self):
         tok = self.token("A")
         cid = self.post("A", "/t/clients", {"form_token": tok, "name": "架空の無効にする依頼者"}).headers["location"].split("/")[2].split("?")[0]
-        self.assertIn("この依頼者を無効にする", self.get("A", f"/c/{cid}/settings").text)
+        settings_page = self.get("A", f"/c/{cid}/settings").text
+        self.assertIn("この依頼者を無効にする", settings_page)
+        self.assertRegex(settings_page, r'data-confirm-ok="無効にする" data-confirm-tone="danger"')   # 最後の一押しは赤（app.js の1か所）
         self.assertIn("ok=0", self.post("A", f"/c/{cid}/active", {"form_token": tok, "active": "0", "reason": ""}).headers["location"])   # 理由が要る
         r = self.post("A", f"/c/{cid}/active", {"form_token": tok, "active": "0", "reason": "架空の取引を終えた"})
         self.assertIn("ok=1", r.headers["location"])
@@ -656,6 +658,8 @@ class Web(_World):
             # 取り消せない操作・電話を再開させる操作の送信は、どれも確かめの窓（data-confirm＝名前つきの文）を通す（計画書 5-1。3回目の見直し「高」の2）
             for tag_ in re.findall(r"<form\b[^>]*>", r.text):
                 act = re.search(r'action="([^"]*)"', tag_)
+                if act and re.search(DANGER_ACTIONS, act.group(1)) and 'data-confirm-tone="danger"' not in tag_:
+                    problems.append((path, "赤の確かめの無い危ない操作：" + act.group(1)))
                 if act and re.search(CONFIRMED_ACTIONS, act.group(1)) \
                         and "data-confirm=" not in tag_:
                     problems.append((path, "確かめの無い取り消せない操作：" + act.group(1)))
@@ -973,6 +977,11 @@ class Web(_World):
 # 確かめの窓を必ず通す送り先（取り消せない操作と、電話を再開させる操作）：結果を直す・かけるかを変える・発信禁止を外す・PC のログインを外す・
 # 止めたもの／回線の再開・緊急の道での再開・依頼者を無効にする／戻す・回線の使用停止・依頼者へ渡すファイルの書き出し・赤字を確かめた
 CONFIRMED_ACTIONS = r"/result$|/exclude$|/revoke$|/resume$|/stops/[^/]+/emergency$|/active$|/retire$|/results\.(xlsx|csv)$|/inbox/deficit/confirm$"
+
+
+# 確かめの窓の最後の一押しを赤にする送り先（取り消せない・電話を止める側。app.js の1か所が data-confirm-tone で切り替える）：
+# 回線の使用停止・PC のログインを外す・発信禁止を外す（依頼者を無効にするは、有効に戻すと同じ送り先なので、その試験で見る）
+DANGER_ACTIONS = r"/retire$|/pcs/[^/]+/revoke$|/dnc/revoke$"
 
 
 def visible_primary_buttons(page: str) -> list[str]:
