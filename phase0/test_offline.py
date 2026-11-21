@@ -47916,3 +47916,228 @@ class UntilCycleJudgedTest(unittest.TestCase):
                 else:
                     self.assertNotIn(key, it["label"], (key, it["text"]))
         self.assertGreaterEqual(min(seen.values()), 20)
+
+
+class LadderHeldReasonsTest(unittest.TestCase):
+    """分身 R（CL-1 の頼み rv184/R の (1)＝分身 Q の書き置き (6-1)）：日時の2択の途中の段（曜日の2択）・「〇時まで」の理由を伺い直す前の答えで言われた理由（月単位の理由・「〇時まで」の
+    理由）を、最後の段まで持ってかけ直しの記録に残す（午前・午後の伺いと同じ形＝段をまたいで持つ1か所 it.pending_reasons。置くのは Flow._hold_reasons・重ねるのは Flow._reasons_of）。
+    CL-1 が決まりで決めた：✅ 2026-10-19「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の場合は、月単位で考えた方がいい」は、その日・頃を選んだ理由を記録する決まり＝どの段で
+    言われても同じ（同じ問いに答える所を1つ）。持つのは、答えを受け取って次の段を伺ったときだけ（読めない値の聞き直しは受け取っていない＝持たない）。
+    ⛔ 20109859 まで、次の2択を返す所が理由を読む所より前で返り、記録に入るのは最後の段の言葉の理由だけだった"""
+    J = UntilCycleJudgedTest
+
+    def weekday_pairs(self):
+        d = DateTimePairsTest()
+        f, _ = d.first()
+        r = d.answer(f, "平日でお願いします。", "平日")
+        self.assertEqual(d.asked(r), d.pair("金曜日", "火曜日"))
+        return d, f
+
+    def test_month_reason_on_the_day_pair_reaches_the_record(self):
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID
+        d, f = self.weekday_pairs()
+        r = self.J.say(f, "月初は忙しいので、金曜日でお願いします。", "金曜日", cycle_read=CYCLE_LABEL["month"])
+        self.assertEqual(d.asked(r), d.HALF)
+        r = self.J.say(f, "午後がいいですね。", "午後", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(d.asked(r), d.pair("2時", "4時"))
+        r = self.J.say(f, "4時で。", "4時", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        self.assertEqual((lambda g: (g.get("time"), g.get("cycle")))(self.J().agreed(f)), ("金曜日の午後4時", "month"))
+
+    def test_held_reason_survives_the_until_ask(self):
+        # 月単位の理由を言った曜日の2択のあと、時刻の2択に「3時までなら大丈夫です。」（理由は言っていない）＝伺い63 で伺い直す・お返事「はい」でも、月単位の理由は残る
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID, UNTIL_LABEL, UNTIL_WHY_NOT_SAID
+        d, f = self.weekday_pairs()
+        self.J.say(f, "月初は忙しいので、金曜日でお願いします。", "金曜日", cycle_read=CYCLE_LABEL["month"])
+        self.J.say(f, "午後がいいですね。", "午後", cycle_read=CYCLE_NOT_SAID)
+        r = self.J.say(f, "3時までなら大丈夫です。", "3時まで", until_read=UNTIL_WHY_NOT_SAID, cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r.get("ask_reason"), "until")
+        r = self.J.say(f, "はい、3時から会議なんです。", "3時まで", until_read=UNTIL_LABEL["available_until"], cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        got = self.J().agreed(f)
+        self.assertEqual((got.get("until_why"), got.get("cycle")), ("available_until", "month"))
+
+    def test_same_reason_on_the_last_pair_is_kept_too(self):
+        # 時刻の2択（最後の段）で言われた理由は今のまま。伺い直しの前の答えの理由も、伺い直しのお返事に重ねる（同じ1か所）
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID, UNTIL_LABEL, UNTIL_WHY_NOT_SAID
+        d, f = UntilAskAgainTest().at_hours()
+        r = self.J.say(f, "振り込みが毎月25日なので、3時までなら大丈夫です。", "3時まで", until_read=UNTIL_WHY_NOT_SAID, cycle_read=CYCLE_LABEL["month"])
+        self.assertEqual(r.get("ask_reason"), "until")
+        r = self.J.say(f, "はい、そうです。", "3時まで", until_read=UNTIL_LABEL["available_until"], cycle_read=CYCLE_NOT_SAID)
+        got = self.J().agreed(f)
+        self.assertEqual((got.get("until_why"), got.get("cycle")), ("available_until", "month"))
+
+    def test_unread_value_holds_nothing(self):
+        # 読めない値（2択の外で読めない頃）は受け取っていない＝理由も持たない（いま伺った2択の文で聞き直す＝【決まりで決めた】(a)）
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID
+        d, f = self.weekday_pairs()
+        r = self.J.say(f, "給料日のあとでお願いします。", "給料日のあと", cycle_read=CYCLE_LABEL["month"])
+        self.assertIn(d.pair("金曜日", "火曜日"), d.heard(r))
+        self.assertFalse(any(f.items[r["question_id"]].pending_reasons.values()))
+        for words, value in (("金曜日で。", "金曜日"), ("午後で。", "午後"), ("4時で。", "4時")):
+            r = self.J.say(f, words, value, cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        self.assertIsNone(self.J().agreed(f).get("cycle"))
+
+    def test_the_count_marks_the_held_reason(self):
+        # 帳面 0-3 の (1)：数える1か所（g53_meaning.step_act）は、次の2択を伺う動きにも、持った理由を付ける（読み違いで記録が変わる＝外れと数える）
+        import g53_meaning as G
+        from flowctl import CYCLE_LABEL
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        it = next(i for i in answer_words() if i["text"] == "月初は忙しいので、金曜日でお願いします。")
+        self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), {f"{G.LADDER_NEXT_ACT}〔理由：{CYCLE_LABEL['month']}〕"})
+        plain = next(i for i in answer_words() if i["text"] == "金曜日でお願いします。")
+        self.assertEqual(G.flow_wants(plain, qmap[plain["qid"]]), {G.LADDER_NEXT_ACT})
+
+
+class LadderSpanTest(unittest.TestCase):
+    """分身 R（CL-1 の頼み rv184/R の (2)＝分身 Q の書き置き (6-2) の (a)）：日時の2択に頃で答えられたとき（「月末は締めで忙しいので、来月の頭にお願いします。」）は、同じ2択を聞き直さず、
+    お客様がもう言った頃から先の2択を伺う（✅ 2026-11-19 日本時間14時18分13秒「お客様がもう言った所から先の2択だけを伺う」・✅ 2026-11-20 日本時間4時44分42秒「伺い60：1.空スケジュールの
+    中から2つ」＝その頃の中の空いている予定から2つ）。頃の読みは日時の2択の段の読みの1か所（flowctl.ladder_read の span・日の範囲は ladder_span の1か所）で、日の範囲は CL-2 の時刻の
+    読み（spoken_time の _MONTH_PART・_MONTH・_named_month＝✅ 2026-10-19「月末＝月の最後の3日・月の初め／頭＝1〜3日」）と同じ（比べる試験）。月単位の理由は (1) と同じく記録に残す
+    （段をまたいで持つ1か所）。読めない頃（月の言葉の無い「頭」「末」・「給料日のあと」など）は今のまま（いま伺った2択で聞き直す＝【決まりで決めた】(a)）。
+    ⛔ 20109859 まで、頃を読めず「はい、恐れ入ります。金曜日と火曜日ではどちらがよろしいでしょうか？」と同じ2択を聞き直した（月単位の理由も記録されなかった）"""
+    J = UntilCycleJudgedTest
+
+    def weekday_pairs(self, through=20):
+        import datetime as dt
+        d = DateTimePairsTest()
+        f, _ = d.first()
+        today = dt.date(2026, 11, 19)
+        f.call_days = tuple(today + dt.timedelta(days=i) for i in range(1, through + 1) if today + dt.timedelta(days=i) != dt.date(2026, 11, 23))
+        r = d.answer(f, "平日でお願いします。", "平日")
+        self.assertEqual(d.asked(r), d.pair("金曜日", "火曜日"))
+        return d, f
+
+    def test_a_span_asks_the_pairs_inside_it(self):
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID
+        d, f = self.weekday_pairs()
+        r = self.J.say(f, "月末は締めで忙しいので、来月の頭にお願いします。", "来月の頭", cycle_read=CYCLE_LABEL["month"])
+        self.assertEqual(d.asked(r), d.pair("12月1日の火曜日", "12月2日の水曜日"))   # 来月の頭＝12月1〜3日のうち、電話をかけられる平日の近い2つ
+        r = self.J.say(f, "1日でお願いします。", "1日", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(d.asked(r), d.HALF)
+        self.J.say(f, "午後で。", "午後", cycle_read=CYCLE_NOT_SAID)
+        r = self.J.say(f, "4時で。", "4時", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        got = self.J().agreed(f)
+        self.assertEqual((got.get("time"), got.get("cycle")), ("12月1日の火曜日の午後4時", "month"))
+
+    def test_one_day_in_the_span_is_told_and_no_days_go_on_to_the_time(self):
+        from flowctl import CYCLE_NOT_SAID
+        # 頃の中に電話をかけられる平日が1つだけ（月末＝11月28〜30日のうち30日の月曜日）：伺わずに入れ、次の2択の頭で言う（今の1か所 _ladder_set）
+        d, f = self.weekday_pairs()
+        r = self.J.say(f, "月末でお願いします。", "月末", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(d.asked(r), "それでは30日の月曜日でしたら午前と午後のどちらがよろしいでしょうか？")
+        # 頃の中に電話をかけられる日が無い（暦が11月30日まで）：日は頃のまま、午前と午後・時刻の2択へ（最後の日時が決まるまで2択＝11-20 日本時間0時09分49秒）
+        d, f = self.weekday_pairs(through=11)
+        r = self.J.say(f, "来月の頭にお願いします。", "来月の頭", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(d.asked(r), d.HALF)
+        self.J.say(f, "午後で。", "午後", cycle_read=CYCLE_NOT_SAID)
+        r = self.J.say(f, "4時で。", "4時", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual((r["result"], f.items[f.awaiting_confirm].value), ("confirm_required", "来月の頭の午後4時"))
+
+    def test_unread_words_are_asked_again(self):
+        from flowctl import CYCLE_NOT_SAID, ladder_span
+        import datetime as dt
+        today = dt.date(2026, 11, 19)
+        for words in ("給料日のあと", "週の頭", "年末", "頭", "週末", "上旬"):   # 上旬＝今月の上旬はもう過ぎた（CL-2 も決めない）
+            self.assertIsNone(ladder_span(words, today), words)
+        d, f = self.weekday_pairs()
+        r = self.J.say(f, "週の頭がいいですね。", "週の頭", cycle_read=CYCLE_NOT_SAID)
+        self.assertIn(d.pair("金曜日", "火曜日"), d.heard(r))
+        self.assertNotEqual(r.get("ask_reason"), "ladder")
+
+    def test_spans_read_the_same_days_as_cl2(self):
+        # 頃の日の範囲（ladder_span）が、CL-2 の時刻の読み（spoken_time._named_month）と同じか（読まない頃は、CL-2 も決めない・もう過ぎた範囲）。CL-2 の部品（app/）が無い所では飛ばす
+        import datetime as dt
+        from flowctl import LADDER_PARTS, LADDER_PARTS_MONTHLESS, ladder_span
+        st = VLadderFarDaysTest.cl2_spoken_time()
+        if st is None:
+            self.skipTest("CL-2 の時刻の読み（app/）がまだ無い")
+        words = [*(f"{m}の{p}" for m in ("今月", "来月", "再来月", "12月", "1月", "11月") for p in LADDER_PARTS), *LADDER_PARTS,
+                 "今月", "来月", "再来月", "来月中", "来月いっぱい", "12月", "1月", "6月"]
+        seen = 0
+        for today in (dt.date(2026, 11, 19), dt.date(2026, 11, 2), dt.date(2026, 12, 30), dt.date(2026, 2, 27)):
+            for w in words:
+                mine = ladder_span(w, today)
+                m = st._MONTH_PART.search(w) or st._MONTH.search(w)
+                try:
+                    theirs = st._named_month(today, m.group("mrel"), m.group("mon"), m.groupdict().get("part"))
+                except st._Ambiguous:
+                    theirs = None
+                if mine is not None:
+                    seen += 1
+                    self.assertEqual(mine, theirs, (today, w))
+                else:
+                    # 読まない頃＝CL-2 も決めない・もう過ぎた範囲・月の言葉の無い「頭」「末」など（「週の頭」「週末」「年末」と取り違えない＝今のまま聞き直す）
+                    self.assertTrue(theirs is None or theirs[1] < today or w in LADDER_PARTS_MONTHLESS, (today, w, theirs))
+        self.assertGreater(seen, 100)
+
+
+class UntilBackByTest(unittest.TestCase):
+    """分身 R（CL-1 の頼み rv184/R の (3)）：時刻の2択への「3時までには戻ってます。」は、「〇時まで」の理由の説明の文で「それまでは出られない」とも「理由は言っていない」とも取れた（答えを伏せた
+    読み手 A・B が2人とも書いた穴＝束 rv183/Q/readers の n9 の #1）。判定が「理由は言っていない」と読む・割れると、伺い63 の一言「恐れ入ります。3時までということはそれ以降はお電話が
+    難しいということでしょうか？」を流す＝お客様は「3時までには戻る（それ以降なら出られる）」と言ったのに逆の向きを伺う。CL-1 が決まりで決めた形：その時刻までには戻る・それまで席に
+    いない、は「それまでは出られない」（✅ 2026-10-23「3時まで出られないなら、3時以降になる」・DESIGN.md の「〇時まで」の表の例「3時までには戻ります」＝それまでは出られない）＝説明の文の
+    1か所（flowctl.until_choices の「それまでは出られない」）に「その時刻までには戻る（それまでは席にいない）と言ったのも」を足し、行の正解を「それまでは出られない」だけにした"""
+
+    def test_the_description_holds_back_by(self):
+        from flowctl import UNTIL_LABEL, UNTIL_WHY_NOT_SAID, callback_question, until_choices
+        got = until_choices(False, callback_question("later_time", answering=True))
+        self.assertIn("その時刻までには戻る（それまでは席にいない）と言ったのも", got[UNTIL_LABEL["unavailable"]])
+        self.assertNotIn("戻る", got[UNTIL_WHY_NOT_SAID])   # 境目は1か所（「理由は言っていない」の説明には書かない）
+
+    def test_the_row_is_only_unavailable(self):
+        import g53_meaning as G
+        from flowctl import UNTIL_LABEL, UNTIL_WHY
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        it = next(i for i in answer_words() if i["text"] == "3時までには戻ってます。")
+        self.assertEqual(it["label"][UNTIL_WHY], [UNTIL_LABEL["unavailable"]])
+        self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), {a for a in G.flow_wants(it, qmap[it["qid"]]) if UNTIL_LABEL["unavailable"] in a})
+        self.assertTrue(all(G.UNTIL_ASK_ACT not in a for a in G.flow_wants(it, qmap[it["qid"]])))
+
+
+class CallbackAsksAboutTest(unittest.TestCase):
+    """分身 R（CL-1 の頼み rv184/R の (4)）：日時の2択（「2時と4時ではどちらがよろしいでしょうか？」「金曜日と火曜日ではどちらがよろしいでしょうか？」）の判定の文は、名乗りの用件（「ご予約の確認」）
+    から、2つの日時をご予約の日時とも読めた＝かけ直しの日時を伺っているのか、依頼者の日時を伺っているのかが判定に分からなかった（答えを伏せた読み手 A・B が2人とも書いた＝束 rv183/Q/readers の
+    n9）。判定に見せる質問の1か所（Flow.for_judge）で、こちらからかけ直す日時を伺う質問（LADDER_ROLES＝「あとで」の時刻・急いでいる方の H1 のあとの時刻。2択の段・「〇時まで」の伺い直しも同じ
+    質問）には、何の日時かが分かる一文（Question.asks_about＝flowctl.asks_about の1か所）を、質問の文のすぐあとに見せる（meaning_judge.prompt_parts・Jev の場面 scene も同じ）。質問の文は
+    お客様が聞いた文のまま（本書 9-5 の (6)「判定に見せる質問の文は、お客様が聞いた文」）。添えるのは、お客様がもう知っている事柄（お客様が頼んだ・受けていただいたかけ直し）だけで、お客様の
+    言葉は渡さない（システムの質問に前の言葉を渡さない決まりのまま）。CL-1 が決まりで決めた（10-21 G-59「判定が何へのお返事かを知らずに読むと読み違える」・11-12 まとめ役の (2)・
+    9-5 の (6) の後任の方をお呼びしている一文と同じ形）。⛔ 20109859 まで見せていなかった"""
+
+    LINE = "（この質問は、この電話を終えたあとに、こちらからお客様へかけ直す日時を伺っています）"
+
+    def test_the_pair_shows_what_it_asks(self):
+        from flowctl import CALLBACK_IDS
+        from meaning_judge import prompt, scene
+        d, f = UntilAskAgainTest().at_hours()
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertEqual(q.text, "2時と4時ではどちらがよろしいでしょうか？")   # 質問の文はお客様が聞いた文のまま
+        self.assertIn(f"質問：「{q.text}」\n{self.LINE}\n", prompt(q, "3時までには戻ってます。", asked, before))
+        from flowctl import CALLBACK_ASKS_ABOUT
+        from meaning_judge import ASKS_ABOUT
+        self.assertEqual(scene(q, "3時までには戻ってます。", asked, before)[ASKS_ABOUT], CALLBACK_ASKS_ABOUT)   # Jev の場面も同じ1か所
+        self.assertEqual(f.questions[CALLBACK_IDS["time"]].asks_about, "")   # 流れの制御の質問は空のまま（判定に見せるときだけ）
+
+    def test_other_questions_do_not(self):
+        from meaning_judge import prompt
+        from flowctl import callback_question
+        f = MisgivingTest().flow()
+        q = f.for_judge(f.questions["Q1"])
+        self.assertNotIn("かけ直す日時を伺っています", prompt(q, "振込で。"))
+        back = f.for_judge(callback_question("back_time"))   # お戻りの時刻（電話口の方がご存じの時刻＝伺い61）は、質問の文で分かる
+        self.assertNotIn("かけ直す日時を伺っています", prompt(back, "3時ごろです。"))
+
+    def test_the_measure_scene_uses_the_same_place(self):
+        import g53_meaning as G
+        from meaning_judge import prompt
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        for text in ("3時までには戻ってます。", "給料日のあとでお願いします。", "はい、そうです。"):
+            it = next(i for i in answer_words() if i["text"] == text and i["qid"] == "C1")
+            q, asked, before = G.judge_inputs(it, qmap[it["qid"]])
+            self.assertIn(f"質問：「{q.text}」\n{self.LINE}\n", prompt(q, text, asked, before), text)

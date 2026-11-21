@@ -366,8 +366,10 @@ NEW_SCENE_ROWS = [
          cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない"),
     _row("C1", "3時までには戻ってます。", [VALUE_CHOICE], AWAY_NO, scene=LADDER_CLOCK_SCENE, value="3時まで", other=LADDER_OTHER_NOT, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
          why="時刻を「まで」で言った＝答えた。片方だけ合わないとは言っていない",
-         until=[UNTIL_LABEL["unavailable"], UNTIL_WHY_NOT_SAID],
-         until_note="境目：答えを伏せた読み手 A・B（束 n9＝rv183/Q/readers）が2人とも「それまでは出られない」「理由は言っていない」のどちらとも取れると読んだ（その時刻までは席にいない、とも、戻る時刻の期限を言っただけ、とも取れる）＝2つとも正解（2026-11-21 CL-1。⏳「までには戻る」を説明の文でどちらに入れるか＝次の分身 R）",
+         until=[UNTIL_LABEL["unavailable"]],
+         until_note="その時刻までには戻る＝それまでは席にいない＝それまでは出られない（説明の文の1か所 flowctl.until_choices の「それまでは出られない」の「その時刻までには戻る（それまでは"
+                    "席にいない）と言ったのも」。✅ 2026-10-23「3時まで出られないなら、3時以降になる」・DESIGN.md の表の例「3時までには戻ります」。答えを伏せた読み手 A・B（束 n9＝rv183/Q/readers）が"
+                    "2人ともどちらとも取れると読んだ境目を、CL-1 が決まりで決めて説明の文に書いた＝分身 R の (3)。⛔ 20109859 まで「理由は言っていない」も正解）",
          cycle=[CYCLE_NOT_SAID], cycle_note="月ごとにくり返す都合は言っていない"),
     _row("C1", "3時まではこの番号で大丈夫です。", [VALUE_CHOICE], AWAY_NO, scene=LADDER_CLOCK_SCENE, value="3時まで", other=LADDER_OTHER_NOT, misgiving=[MISGIVING_OFF],
          misgiving_why=MG_OFF_WHY, why="時刻を「まで」で言った＝答えた。片方だけ合わないとは言っていない",

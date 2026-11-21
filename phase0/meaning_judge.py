@@ -693,9 +693,20 @@ def prompted_note(line: str) -> str:
 def scene(q, text: str, asked: str | None = None, before: str | None = None) -> dict:
     """判定に渡す場面（質問の文・はじめにお呼びした言葉・その前に相手が言ったこと・こちらが言い直して確かめた言葉・お客様の言葉）。prompt はこれを文にしたもの。"""
     called, before = getattr(q, "called", ""), before or (NO_BEFORE if getattr(q, "facets", None) else None)
-    prompted = getattr(q, "prompted", "")
-    return ({"質問": q.text} | ({CALLED: called} if called else {}) | ({BEFORE: before} if before else {})
+    prompted, about = getattr(q, "prompted", ""), getattr(q, "asks_about", "")
+    return ({"質問": q.text} | ({ASKS_ABOUT: about} if about else {}) | ({CALLED: called} if called else {}) | ({BEFORE: before} if before else {})
             | ({"こちらが言い直して確かめた言葉": asked} if asked else {}) | ({PROMPTED: prompted} if prompted else {}) | {"お客様の言葉": text})
+
+
+# 何を伺っている質問か（判定に見せる質問の asks_about＝flowctl.asks_about の1か所。こちらからかけ直す日時を伺う質問だけ）の見出し（Jev の場面 scene の名前）と、問い合わせの文の
+# 質問のすぐあとの一文（asks_about_line の1か所）。分身 R の (4)
+ASKS_ABOUT = "質問で伺っていること"
+
+
+def asks_about_line(q) -> str:
+    """問い合わせの文の、質問の文のすぐあとに見せる、何を伺っている質問かの一文（唯一の場所＝prompt_parts）。無ければ ""（文は今のまま）。"""
+    about = getattr(q, "asks_about", "")
+    return f"（この質問は、{about}を伺っています）\n" if about else ""
 
 
 def prompt(q, text: str, asked: str | None = None, before: str | None = None) -> str:
@@ -719,7 +730,7 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
         called = f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
         return facet_rules(q) + f"質問：「{q.text}」\n" + called + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
     choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
-    head, tail = rules(q, asked) + items_text(q, asked) + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
+    head, tail = rules(q, asked) + items_text(q, asked) + f"質問：「{q.text}」\n" + asks_about_line(q), f"お客様の言葉：「{text}」\n"
     if getattr(q, "named", False):
         return head + choices, before + said + tail
     return head, before + said + choices + tail

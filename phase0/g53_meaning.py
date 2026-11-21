@@ -1623,17 +1623,21 @@ def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) 
 
 
 def _flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) -> str:
-    """flow_name の名前（お詫びの頭を除く）。受け取る・言い直して確かめる動きには、一緒に受け取った理由（_reasons_mark）を付ける。"""
+    """flow_name の名前（お詫びの頭を除く）。受け取る・言い直して確かめる動きには、一緒に受け取った理由（_reasons_mark）を付ける。答えを受け取って次の段を伺う動き
+    （日時の2択の次の2択・午前と午後・「〇時まで」の理由の伺い直し）には、段をまたいで持った理由（flowctl.Flow._hold_reasons の1か所＝最後の段の記録に入る）を付ける
+    （理由の読み違いで、かけてよい時間の違う記録になる＝外れと数える。分身 R の (1)）。"""
     name = _flow_base(f, qid, rep, it, asked)
     item = f.items.get(qid)
     if item is not None and rep.get("result") in ("confirm_required", "next", "end") and item.state in ("checking", "accepted", "confirmed"):
-        return name + _reasons_mark(item)
+        return name + _reasons_mark(item.until_why, item.cycle)
+    if item is not None and rep.get("result") == "ask_back" and item.pending_reasons:
+        return name + _reasons_mark(item.pending_reasons.get("until_why"), item.pending_reasons.get("cycle"))
     return name
 
 
-def _reasons_mark(item) -> str:
-    """答えと一緒に受け取った理由（「〇時まで」の理由 until_why・月単位の理由 cycle＝かけ直しの記録）を動きの名前の終わりに付ける文（無ければ ""。唯一の場所＝_flow_name）。"""
-    marks = ([UNTIL_LABEL[item.until_why]] if item.until_why else []) + ([CYCLE_LABEL[item.cycle]] if item.cycle else [])
+def _reasons_mark(until_why: str | None, cycle: str | None) -> str:
+    """答えと一緒に受け取った理由（「〇時まで」の理由 until_why・月単位の理由 cycle＝かけ直しの記録。中の名前）を動きの名前の終わりに付ける文（無ければ ""。唯一の場所＝_flow_name）。"""
+    marks = ([UNTIL_LABEL[until_why]] if until_why else []) + ([CYCLE_LABEL[cycle]] if cycle else [])
     return f"〔理由：{'・'.join(marks)}〕" if marks else ""
 
 
