@@ -48204,3 +48204,98 @@ class PairAsksAboutTest(unittest.TestCase):
         g.on_callee()
         q, asked, before = g.judge_context()
         self.assertIn(CallbackAsksAboutTest.LINE, prompt(q, "4時で。", asked, before))
+
+
+class LadderSideReasonsTest(unittest.TestCase):
+    """分身 S（CL-1 の頼み rv184/S の (2)＝分身 R の書き置きの (6-5)）：日時の2択の片方だけ合わない・2つとも合わない答えに添えた月単位の理由（「振り込みが毎月20日なので、金曜日は
+    ちょっと…。」）も、段をまたいで持ってかけ直しの記録に残す（分身 R の (1) の1か所＝Flow._hold_reasons・_reasons_of）。答えごとに受け取る理由の項目は1か所（flowctl.reason_items）で、
+    判定の確からしさ（meaning_judge.used_sure）がその答えで理由の項目を数えるかも、同じ1か所で決める（流れの制御が使う項目＝確かさを数える項目）。CL-1 が決めた理由：10-19 の月単位の理由の
+    決まりは、その日・頃を選んだ理由を記録する決まり＝避けた理由も、残った日を選んだ理由（同じ理由が当たる）。「〇時まで」の理由は、避けた答えでは受け取らない（その時刻の「まで」の理由で、
+    残った日時を選んだ理由ではない＝あとで別の「〇時まで」を言われたとき、違う時刻の理由を記録しない）。⛔ f2ded9f4 まで、2択を並べ直す返事が理由を読む所より前で返り、持たなかった"""
+    J = UntilCycleJudgedTest
+    U2 = U2LadderOneSideTest
+
+    @staticmethod
+    def said(f, words, cond, others=(None, None), cycle=None, until=None):
+        """判定の組（JUDGMENTS の順）が答え cond（「（避けた方）だけ合わない」・どちらも合わない）・もう一方で大丈夫そうか others・月単位の理由 cycle・「〇時まで」の理由 until と読む。"""
+        from flowctl import CALLBACK_IDS, CYCLE, JUDGMENTS, LADDER_OTHER, UNTIL_WHY
+        f.on_callee(); f.on_heard(words)
+        for k, o in zip(JUDGMENTS, others):
+            r = CallbackTimeAheadTest.rd(cond)
+            setattr(r, LADDER_OTHER, o)
+            setattr(r, CYCLE, cycle)
+            setattr(r, UNTIL_WHY, until)
+            f.on_check(k, r)
+        f.on_decided()
+        return f.apply("record_answer", {"question_id": CALLBACK_IDS["time"], "condition_id": cond})
+
+    def finish(self, f, *steps):
+        from flowctl import CYCLE_NOT_SAID
+        d = DateTimePairsTest()
+        for words, value in steps:
+            r = self.J.say(f, words, value, cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        return self.J().agreed(f)
+
+    def test_month_reason_with_one_side_reaches_the_record(self):
+        from flowctl import CYCLE_LABEL, LADDER_OTHER_UNSURE as U, ladder_side_name
+        d = DateTimePairsTest()
+        f = self.U2().weekday()
+        r = self.said(f, "振り込みが毎月20日なので、金曜日はちょっと…。", ladder_side_name("金曜日"), (U, U), cycle=CYCLE_LABEL["month"])
+        self.assertEqual(d.heard(r), "承知しました。それでは" + d.pair("火曜日", "水曜日"))   # お客様に聞こえる言葉は今のまま
+        got = self.finish(f, ("火曜日で。", "火曜日"), ("午後がいいですね。", "午後"), ("4時で。", "4時"))
+        self.assertEqual((got.get("time"), got.get("cycle")), ("火曜日の午後4時", "month"))
+
+    def test_month_reason_with_neither_reaches_the_record(self):
+        from flowctl import CYCLE_LABEL, LADDER_NEITHER
+        d = DateTimePairsTest()
+        f = self.U2().weekday()
+        r = self.said(f, "毎月この時期は締めで忙しいので、どちらもちょっと…。", LADDER_NEITHER, cycle=CYCLE_LABEL["month"])
+        self.assertEqual((r["result"], r.get("ask_reason")), ("ask_back", "ladder"))
+        self.assertNotIn("金曜日と", d.heard(r))   # 並べた2つを外した別の2つ（今のまま）
+        day = d.heard(r).split("それでは")[1].split("と")[0]
+        got = self.finish(f, (f"{day}で。", day), ("午後がいいですね。", "午後"), ("4時で。", "4時"))
+        self.assertEqual(got.get("cycle"), "month")
+
+    def test_one_side_kept_on_the_last_pair_keeps_the_month(self):
+        # 最後の段（時刻の2択）の片方だけ合わないのエ＝避けなかった時刻を答えとして受け取る（今のまま記録に入る）
+        from flowctl import CYCLE_LABEL, LADDER_OTHER_OK as OK, ladder_side_name
+        f = self.U2().at_clock()
+        r = self.said(f, "振り込みが毎月25日なので、2時はちょっと…。4時なら空いてるかな。", ladder_side_name("2時"), (OK, OK), cycle=CYCLE_LABEL["month"])
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertEqual(self.J().agreed(f).get("cycle"), "month")
+
+    def test_until_reason_of_an_avoided_time_is_not_held(self):
+        # 避けた時刻の「まで」の理由は、あとの別の「〇時まで」の理由にしない（今のまま伺い63 で伺い直す）
+        from flowctl import CALLBACK_IDS, CYCLE_NOT_SAID, LADDER_OTHER_UNSURE as U, UNTIL_LABEL, UNTIL_WHY_NOT_SAID, ladder_side_name
+        d = DateTimePairsTest()
+        f = self.U2().at_clock()
+        r = self.said(f, "3時までには戻ってます。", ladder_side_name("2時"), (U, U), cycle=CYCLE_NOT_SAID, until=UNTIL_LABEL["unavailable"])
+        self.assertEqual(d.heard(r), "かしこまりました。それでは" + d.pair("3時", "4時"))
+        self.assertIsNone(f.items[CALLBACK_IDS["time"]].pending_reasons.get("until_why"))
+        r = self.J.say(f, "4時までなら大丈夫です。", "4時まで", until_read=UNTIL_WHY_NOT_SAID, cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r.get("ask_reason"), "until")
+
+    def test_the_sureness_counts_the_items_the_flow_uses(self):
+        # 判定の確からしさは、その答えで流れの制御が使う理由の項目だけを数える（reason_items の1か所）
+        from flowctl import CYCLE, LADDER_NEITHER, UNDECIDED, UNTIL_WHY, VALUE_CHOICE, ladder_side_name, reason_items
+        from meaning_judge import used_sure
+        confs = {"choice": 0.9, CYCLE: 0.3, UNTIL_WHY: 0.2}
+        for cond, want, items in ((VALUE_CHOICE, 0.2, (UNTIL_WHY, CYCLE)), (UNDECIDED, 0.2, (UNTIL_WHY, CYCLE)), (ladder_side_name("金曜日"), 0.3, (CYCLE,)),
+                                  (LADDER_NEITHER, 0.3, (CYCLE,)), ("わからない", 0.9, ())):
+            self.assertEqual(used_sure(confs, cond), want, cond)
+            self.assertEqual(set(reason_items(cond)), set(items), cond)
+
+    def test_the_count_marks_the_held_reason(self):
+        # 帳面 0-3 の (1)：数える1か所は、並べ直す2択を伺う動きにも持った理由を付ける（試しの言葉の行＝review_words の n9 の段）
+        import g53_meaning as G
+        from flowctl import CYCLE_LABEL
+        from review_words import answer_words, questions
+        qmap = G.question_map() | questions()
+        it = next(i for i in answer_words() if i["text"] == "振り込みが毎月20日なので、金曜日はちょっと…。")
+        self.assertEqual(G.flow_wants(it, qmap[it["qid"]]),
+                         {f"{G.LADDER_ONE_ACT}：火曜日と水曜日ではどちらがよろしいでしょうか？〔理由：{CYCLE_LABEL['month']}〕"})
+        it = next(i for i in answer_words() if i["text"] == "毎月この時期は締めで忙しいので、どちらもちょっと…。")
+        self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), {f"{G.LADDER_NEITHER_ACT}〔理由：{CYCLE_LABEL['month']}〕"})
+        plain = next(i for i in answer_words() if i["text"] == "金曜日はちょっと…。")
+        self.assertEqual(G.flow_wants(plain, qmap[plain["qid"]]), {f"{G.LADDER_ONE_ACT}：火曜日と水曜日ではどちらがよろしいでしょうか？"})

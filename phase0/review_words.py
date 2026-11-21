@@ -410,6 +410,18 @@ NEW_SCENE_ROWS = [
          misgiving_why=MG_OFF_WHY, why="並べた2つの1つ（金曜日）を選んだ＝答えた。片方だけ合わないとは言っていない",
          until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない",
          cycle=[CYCLE_LABEL["month"]], cycle_note="月の初めはいつも忙しい＝月ごとにくり返す業務の都合を、その日にしてほしいわけに言った＝月単位の理由"),
+    # 2つとも・片方だけ合わない答えに添えた月単位の理由（分身 S の (2)＝CL-1 の頼み rv184/S の (2)：避けた理由も、残った日を選んだ理由＝説明の文の1か所 flowctl.CYCLE_WHY_OF の
+    # 「並べた日・頃を避けたわけ」・受け取る項目は flowctl.reason_items。並べた2つは電話の日 11-19 の「金曜日（20日）と火曜日（24日）」）。⏳ 答えを伏せた読み手2人の読み直し待ち（rv184/S/readers）
+    _row("C1", "振り込みが毎月20日なので、金曜日はちょっと…。", [ladder_side_name("金曜日")], AWAY_NO, scene=LADDER_SCENE, value="火曜日", other=LADDER_OTHER_UNSURE,
+         misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why=f"並べた2つの片方（金曜日）だけを避けた＝金曜日だけ合わない（「金曜日はちょっと…。」の行と同じ）。火曜日で大丈夫かは言っていない＝{LADDER_OTHER_UNSURE}",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（片方の曜日を避けただけ）",
+         cycle=[CYCLE_LABEL["month"]], cycle_note="毎月の振り込みの日（並べた金曜日＝20日）＝月ごとにくり返す入金の都合を、並べた日を避けたわけに言った＝月単位の理由（10-19「振り込みなどの入金の間隔」）"),
+    _row("C1", "毎月この時期は締めで忙しいので、どちらもちょっと…。", [LADDER_NEITHER], AWAY_NO, scene=LADDER_SCENE, other=LADDER_OTHER_NOT,
+         misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+         why="並べた2つのどちらも難しいと言った（わけを添えた）＝どちらも合わない（「どちらもちょっと難しいですね。」の行と同じ）。片方だけ合わないとは言っていない",
+         until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない（2つとも難しいと言っただけ）",
+         cycle=[CYCLE_LABEL["month"]], cycle_note="毎月この時期の締め＝月ごとにくり返す業務の都合を、並べた2つを避けたわけに言った＝月単位の理由（10-19「月ぎめの業務の都合」）"),
     _row("C1", "来週は出張なので、再来週にお願いします。", [VALUE_CHOICE], AWAY_NO, scene=LADDER_SCENE, value="再来週", other=LADDER_OTHER_NOT, misgiving=[MISGIVING_OFF],
          misgiving_why=MG_OFF_WHY, why="2択の外の頃（再来週）を頼んだ＝答えた。片方だけ合わないとは言っていない",
          until=[UNTIL_WHY_NOT_SAID], until_note="「（時刻）まで」とは言っていない",
