@@ -554,7 +554,7 @@ def name_needs(tx: Tx, task_id: UUID) -> NameNeeds | None:
     corporate = target["kind"] == "法人"
     role = target["role"] or None
     named = bool(target["name"])
-    tails = _name_tails(corporate, named, of["call_type"])
+    tails = _name_tails(corporate, named, of["call_type"], of["reception_talk"])
     if named:
         reading = target["reading"] or None
         if reading is None:
@@ -578,11 +578,12 @@ def name_needs(tx: Tx, task_id: UUID) -> NameNeeds | None:
 
 
 # 顧客獲得型の行だけで要る続く言葉（会話の側の instruction.Business.replay_parts の顧客獲得型の部分。CL-1 の連絡帳 4-208・4-211）：2回目からの受け止めの終わり
-# yes_received・本題の段のお名前の入る文（acquire_glad・pain_ask・listen_why・listen_reason・listen_ask）。法人の行は受付の方への一文 reception_purpose も
+# yes_received・本題の段のお名前の入る文（acquire_glad・pain_ask・listen_why・listen_reason・listen_ask）。法人の行は受付の方への一文も（業務設定の受付の方への言葉の
+# 続く言葉 business_settings.RECEPTION_TAILS の1つ）
 ACQUIRE_TAILS = ("yes_received", "acquire_glad", "pain_ask", "listen_why", "listen_reason", "listen_ask")
 
 
-def _name_tails(corporate: bool, named: bool, call_type: str) -> tuple[str, ...]:
+def _name_tails(corporate: bool, named: bool, call_type: str, reception_talk: str) -> tuple[str, ...]:
     """目的のお客様のいる行で要る続く言葉（1か所。会話の側の instruction.Business.replay_parts の名前の入る部分と、名乗りの部分→続く言葉の対応 phrases.NAME_PART_TAILS
     と同じ決まり）。どの行が約束の電話・後任の方の電話・携帯電話の番号の電話になるかは前もって分からないので、その行で流れうる一言はどれも初めから要る（録音は声ごとの
     続く言葉1つ＝行ごとに増えない。CL-1 の連絡帳 4-151・4-152）：
@@ -590,7 +591,8 @@ def _name_tails(corporate: bool, named: bool, call_type: str) -> tuple[str, ...]
     - 法人：後任の方の一言（target_successor）・お取り次ぎをお願いし直す一言（target_transfer。4-197 の (a)）
     - お名前のある行：携帯電話の番号のときの確かめ（mobile_confirm。4-192 の (b) の (2)）・携帯電話の番号で別の方と言われ続けたときの確かめ（名乗りの部分 mobile_owner
       ＝続く言葉 target_individual。4-212）
-    - 顧客獲得型：`ACQUIRE_TAILS`・法人は受付の方への一文 reception_purpose（4-211・4-214）
+    - 顧客獲得型：`ACQUIRE_TAILS`・法人は受付の方への一文（4-211・4-214）。続く言葉は業務設定の受付の方への言葉のもの1つ（`business_settings.RECEPTION_TAILS`。
+      「大切なお話」＝reception_purpose・「お役に立つお話」＝reception_purpose_useful。役職の方の形も同じ続く言葉＝名前の部分が役職の呼び方。4-217）
     ⛔ 2026-11-20：確かめへの返事がはっきりしないときの聞き返し target_reconfirm は、会話の側が流さなくなったので外した（CL-1 の連絡帳 4-210）。"""
     tails = ["target" if corporate or not named else "target_individual", "target_confirm", "promise_again", "unavailable_confirm", "carried_target"]
     if corporate:
@@ -598,7 +600,7 @@ def _name_tails(corporate: bool, named: bool, call_type: str) -> tuple[str, ...]
     if named:
         tails += ["mobile_confirm", "target_individual"]
     if call_type == business_settings.CALL_ACQUIRE:
-        tails += [*ACQUIRE_TAILS, *(("reception_purpose",) if corporate else ())]
+        tails += [*ACQUIRE_TAILS, *((business_settings.RECEPTION_TAILS[reception_talk],) if corporate else ())]
     return tuple(dict.fromkeys(tails))
 
 

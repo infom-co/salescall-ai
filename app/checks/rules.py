@@ -250,6 +250,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "voice_types": {"INSERT": frozenset({_CORE + "recordings.py"})},           # 声の型（管理者が足す。0059）
     "recording_sets": {"INSERT": frozenset({_CORE + "recordings.py"})},       # 録音の版と承認（6-13。0047）
     "recordings": {"INSERT": frozenset({_CORE + "recordings.py"})},
+    "recording_audio": {"INSERT": frozenset({_CORE + "recording_audio.py"})},     # 業務で流す録音の音（置く1か所。0275）
+    "recording_listens": {"INSERT": frozenset({_CORE + "recording_audio.py"})},   # 聞いた記録（聞く1か所。0275）
     "recording_approvals": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "recording_readings": {"INSERT": frozenset({_CORE + "recordings.py"})},    # 録音で選んだ名前の読み（Intent.md 6-2。0099）
     # 版の録音の部分の一覧（会話の担当の録音の道具が recordings.list_parts で渡す。計画書 6-1 (4)。0212）
@@ -291,6 +293,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "apology_orders": {"INSERT": frozenset({_CORE + "apology.py"})},          # お詫びの電話の案（システムが作る。10-1-2）
     "apology_approvals": {"INSERT": frozenset({_CORE + "apology.py"})},       # お詫びの電話の承認（管理者か契約者だけ）
     "forbidden_findings": {"INSERT": frozenset({_CORE + "attempts.py"})},     # 言ってしまったこと（検証を済ませる1か所）
+    "verification_voice": {"INSERT": frozenset({_CORE + "attempts.py"})},     # 会話AIの声の数（検証を済ませる1か所。0274）
     "apology_outcomes": {"INSERT": frozenset({_CORE + "settle.py"})},         # お詫びの電話の結果（締めの処理だけ）
     "more_call_approvals": {"INSERT": frozenset({_CORE + "approval.py"})},    # 「さらにかける」の承認（管理者か契約者だけ。0245）
     "solution_text_names": {"INSERT": frozenset({_CORE + "client_solutions.py"})},   # 解決策の文ごとの名前の答え（文ごとに1回。0246）

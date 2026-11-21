@@ -75,7 +75,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-19.1+time-{spoken_time.VERSION}"   # 2026-11-19.1（CL-3 の連絡帳 4-1c の 51・CL-1 の連絡帳 4-193〜4-201）：判定の中身に、お客様からのご質問（callee_questions。伺った事実の1か所 `_asked` を通ったものだけ）・ご案内全体をほかの会社にと言われた事実（elsewhere_whole。伺わなかった質問は ended_on と同じ1か所で対象外）・決め手（elsewhere_point）・申し出の条件の recall。こちらの不具合で終えた通話の、繋がらなかった理由の無いものは「取れていない」（(8)）
+JUDGE_VERSION = f"judge-2026-11-21.1+time-{spoken_time.VERSION}"   # 2026-11-21.1（CL-1 の連絡帳 4-225 の (3)）：判定の中身の other_wish に、方法を並べて伺い選んでいただく前に切れた印 cut_before_choice（そのときだけ真。読むのは call_report.OtherWish.cut_before_choice の1か所。判定の結果は変わらない）
+# 前の版：   # 2026-11-19.1（CL-3 の連絡帳 4-1c の 51・CL-1 の連絡帳 4-193〜4-201）：判定の中身に、お客様からのご質問（callee_questions。伺った事実の1か所 `_asked` を通ったものだけ）・ご案内全体をほかの会社にと言われた事実（elsewhere_whole。伺わなかった質問は ended_on と同じ1か所で対象外）・決め手（elsewhere_point）・申し出の条件の recall。こちらの不具合で終えた通話の、繋がらなかった理由の無いものは「取れていない」（(8)）
 # 前の版：   # 2026-11-18.2（7回目の見直し）：前の通話の答えで止めた「ここで終える」事実（ended_on の turn が無い）は、止めた答えがこの通話の担当の方の答え（判定の材料）にあるときだけ、伺わなかった質問を対象外に数える（_ended_skipped の1か所）
 # 前の版：   # 2026-11-18.1（6回目の見直し・DESIGN.md 15-2 の853）：目的のお客様だと確かめられなかった通話の、こちらがかけ直す申し出（callback）も判定に使わない（offered＝_asked の1か所）・手短にの事実 brief で伺わなかったと書かれた質問でも、必須の質問は「伺っていない（対象外）」に数えない（必須の項目不足のまま）
 # 前の版：   # 2026-11-16.2（4回目の見直し (B)・DESIGN.md 7-1e）：目的のお客様だと確かめられなかった通話で伺った業務の事実（範囲外の求め・ご納得いただけなかった点・最終目的のお断り・伺っていない質問・ほかのご希望・申し出・引き継ぎ・手短に）を、判定にも依頼者へも使わない（_asked の1か所＝答えを使わない conversation_io._in_force と同じ決まり）
@@ -757,7 +758,9 @@ def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, 
                                 "via": w.via, "outcome": w.outcome, "wish_state": w.wish_state, "terms": w.terms, "topic": w.topic,
                                 "added": w.added, "said": w.evidence.said,
                                 # 方法を並べて伺う前に言っていただいたご希望の中身（「説明書を送ってほしい」。CL-1 の連絡帳 4-169。並べていなければ None）
-                                "before_ways": None if w.before_ways is None else {"said": w.before_ways.said, "value": w.before_ways.value}}
+                                "before_ways": None if w.before_ways is None else {"said": w.before_ways.said, "value": w.before_ways.value},
+                                # 方法を並べて伺い、選んでいただく前に切れた（読むのは call_report.OtherWish.cut_before_choice の1か所。そのときだけ書く）
+                                **({"cut_before_choice": True} if w.cut_before_choice else {})}
                                for w in wishes]} if wishes else {}),
             **({"unfinished": list(unfinished)} if unfinished else {}),
             **{kind: rows for kind in call_report.CONCERN_KINDS

@@ -101,6 +101,8 @@ class Check(unittest.TestCase):
         reserved = assigned["ANSWER_RESERVED"]
         self.assertEqual(ast.unparse(reserved.func), "frozenset")
         self.assertEqual(frozenset(ast.literal_eval(reserved.args[0])), bs.ANSWER_RESERVED)
+        # 会話AIが中身を書く部分の名前（CL-1 の連絡帳 4-220）も、中の名前と日本語の名前の両方を使えない
+        self.assertLessEqual({"yes", "Yesの質問の中身", "but", "ただに続ける中身", "ahead", "今後の心配の句"}, bs.ANSWER_RESERVED)
         self.assertEqual(ast.literal_eval(assigned["ANSWER_PART_PREFIX"]), bs.ANSWER_PART_PREFIX)
         r = raw()
         r["answers"] = [{"name": "答えられない質問", "text": "a"}]
@@ -1100,8 +1102,15 @@ class CallTypes(unittest.TestCase):
         self.assertEqual((s.call_type, s.yes_asks, s.special, s.meeting_time, s.pains),
                          ("acquire", ("御社は今、求人をご掲載されていて",), "ドライバーさんの採用に積極的", "1時間",
                           (("求人を出してもなかなか応募が集まらない", "導入した運送会社様の応募が3か月で2倍近くに増えた"),)))
+        self.assertEqual((s.reception_talk, s.meeting_visit), ("important", True))   # 書かなければ「大切なお話」・訪問する（CL-1 の連絡帳 4-217）
+        useful = bs.check({**acquire_raw(), "reception_talk": "useful", "meeting_visit": False}, standard=bs.NO_STANDARD, field_types=FIELD_TYPES,
+                          ai_reading_needs_person=True)
+        self.assertEqual((useful.reception_talk, useful.meeting_visit), ("useful", False))
         plain = bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((plain.call_type, plain.yes_asks, plain.pains), ("confirm", (), ()))   # 書かなければ確認の電話
+        same = bs.check({**raw(), "reception_talk": "important", "meeting_visit": True}, standard=bs.NO_STANDARD, field_types=FIELD_TYPES,
+                        ai_reading_needs_person=True)   # 確認の電話でも、既定のままなら書いてよい（会話の側と同じ）
+        self.assertEqual((same.reception_talk, same.meeting_visit), ("important", True))
 
     def test_what_an_acquiring_business_needs_is_checked(self):
         cases = {
@@ -1113,21 +1122,29 @@ class CallTypes(unittest.TestCase):
             "最初の質問は": {"questions": list(reversed(acquire_raw()["questions"]))},
             "の並び": {"pains": [["悩みだけ"]]},
             "電話の型": {"call_type": "cold"},
+            "受付の方への言葉": {"reception_talk": "sales"},
+            "真か偽": {"meeting_visit": "いいえ"},
         }
         for words, change in cases.items():
             with self.subTest(words=words):
                 self.assertTrue(any(words in p for p in problems_of({**acquire_raw(), **change})), (words, problems_of({**acquire_raw(), **change})))
         too_many = {**acquire_raw(), "pains": [["悩み", "事例"]] * (bs.PAINS_MAX + 1)}
         self.assertTrue(any("悩みと事例の組" in p for p in problems_of(too_many)))
-        self.assertTrue(any("顧客獲得型の業務だけ" in p for p in problems_of({**raw(), "yes_asks": ["x"]})))   # 確認の電話には書かない
+        for change in ({"yes_asks": ["x"]}, {"reception_talk": "useful"}, {"meeting_visit": False}):   # 確認の電話には書かない
+            with self.subTest(change=change):
+                self.assertTrue(any("顧客獲得型の業務だけ" in p for p in problems_of({**raw(), **change})))
 
     def test_the_import_reads_the_call_type_and_the_materials(self):
         """取込のシート「基本」の欄（電話の型・Yes の質問の材料・特別感の条件・お時間・悩みN・悩みNの事例）を、業務設定の形にする（確かめは業務設定の1か所）。"""
         from salescall.core import business_import
         got = business_import._acquire({"call_type": "顧客獲得型", "yes_asks": "A／B", "special": "条件", "meeting_time": "1時間",
-                                        "pain1": "悩み1", "case1": "事例1", "pain3": "悩み3"}, problems := [])
+                                        "pain1": "悩み1", "case1": "事例1", "pain3": "悩み3",
+                                        "reception_talk": "お役に立つお話", "meeting_visit": "いいえ"}, problems := [])
         self.assertEqual((got, problems), ({"call_type": "acquire", "yes_asks": ["A", "B"], "special": "条件", "meeting_time": "1時間",
-                                             "pains": [["悩み1", "事例1"], ["悩み3", ""]]}, []))
+                                             "pains": [["悩み1", "事例1"], ["悩み3", ""]], "reception_talk": "useful", "meeting_visit": False}, []))
+        self.assertEqual(business_import._acquire({"reception_talk": "営業のお話"}, wrong := []), {})
+        self.assertTrue(any("受付の方への言葉" in p for p in wrong), wrong)
+        self.assertEqual(business_import.LABELS["reception_talk"], {"大切なお話": "important", "お役に立つお話": "useful"})   # 言葉は業務設定の1か所から
         self.assertEqual(business_import._acquire({}, []), {})
 
 

@@ -95,9 +95,14 @@ class Agent:
     def _state(self) -> dict[str, Any]:
         drive = self.cfg.backup_drive is not None and backup.Drive(self.cfg.backup_drive).attached()
         flag = emergency.engaged()
-        return {"lines": [str(x) for x in self.phones], "drive": drive, "key": self.key_ready,
+        return {"lines": [str(x) for x in self._usable()], "drive": drive, "key": self.key_ready,
                 "emergency": None if flag is None else {"reason": flag.get("reason"), "at": flag.get("at"),
                                                         "event": flag.get("event")}}
+
+    def _usable(self) -> list[UUID]:
+        """合図に入れる回線：電話の部品が「使える」と答えた回線だけ（答えられない＝使えない。PC の側の判断はこの1か所。CL-3 の連絡帳 62 の (2)）。
+        通話の途中の回線は外さない（外すとサーバーがその回線の声・おわびを通さなくなり、お客様を無言で放置する＝0109 の使わない印と同じ決まり）。"""
+        return [line for line, phone in self.phones.items() if _usable(phone) or _busy(phone)]
 
     async def _state_off_loop(self) -> dict[str, Any]:
         """合図の中身は別の流れで作る（眠っているハードディスクが起きるのを待つあいだ、声を止めない）。"""
@@ -196,14 +201,17 @@ class Agent:
 
     async def _beats(self, stop: asyncio.Event) -> None:
         """合図は BEAT_EVERY 秒ごと。緊急停止の印が変わったら、待たずにすぐ送る（押したら、すぐサーバーに記録させる）。"""
+        loop = asyncio.get_running_loop()
         last, seen = time.monotonic(), json.dumps(emergency.engaged(), sort_keys=True, default=str)
+        usable = await loop.run_in_executor(None, self._usable)
         while not stop.is_set():
             await asyncio.sleep(1)
             now, flag = time.monotonic(), json.dumps(emergency.engaged(), sort_keys=True, default=str)
             self._watch_reach(now)
-            if now - last >= p.BEAT_EVERY or flag != seen:
+            got = await loop.run_in_executor(None, self._usable)   # 使える回線が変わったら、待たずにすぐ送る（CL-3 の連絡帳 62 の (2)）
+            if now - last >= p.BEAT_EVERY or flag != seen or got != usable:
                 await self.beat()
-                last, seen = now, flag
+                last, seen, usable = now, flag, got
         if self.ws is not None:   # 止める印：つながりを閉じて、受け取りの繰り返しを終える
             await self.ws.close()
 
@@ -310,17 +318,19 @@ class Agent:
     async def _do(self, phone: Phone, msg: dict[str, Any], got: float) -> dict[str, Any] | None:
         """頼まれたことをする（got＝頼みが届いた時刻）。None＝答えない（かけているあいだにつながりが切れ、自分でおわびして切った）。"""
         op, loop = msg["op"], asyncio.get_running_loop()
+        # かける番号の国内の形（サーバーの番号の正規化の1か所が添える。PC の部品は番号の形を変えない＝見張り Q1。無ければかけない＝withheld。CL-3 の連絡帳 60）
+        national = msg.get("national") if isinstance(msg.get("national"), str) and msg.get("national") else None
         if op == "in_call":   # 緊急停止の印があれば「通話中」（かけない側）
             return {"ok": True, "value": emergency.engaged() is not None or await loop.run_in_executor(None, _busy, phone)}
         if op == "start_call":
             if emergency.engaged() is not None:   # かける直前にもう一度見る（印があれば、かけない）
                 return {"ok": False, "error": "withheld"}
-            if time.monotonic() - got > p.ANSWER_BY:   # 前の頼みを待つうちに、答えの期限を過ぎた：かけようとしない（番号も回線も
-                return {"ok": False, "error": "withheld"}   # 試していない＝どの数にも入れない）
+            if time.monotonic() - got > p.ANSWER_BY or national is None:   # 前の頼みを待つうちに、答えの期限を過ぎた・国内の形が無い：かけようとしない
+                return {"ok": False, "error": "withheld"}   # （番号も回線も試していない＝どの数にも入れない）
             generation = self.generation
             try:
                 voice = msg.get("voice") if isinstance(msg.get("voice"), str) else None   # この通話の声の型（おわびの録音も、この声）
-                await loop.run_in_executor(None, lambda: phone.start_call(str(msg.get("phone")), voice_type=voice))
+                await loop.run_in_executor(None, lambda: phone.start_call(str(msg.get("phone")), voice_type=voice, national=national))
                 out: dict[str, Any] = {"ok": True}
             except CallNotPlaced:    # かけようとして、かけられなかった（だれのせいかは、サーバーが同じ回線の前後の電話で決める）
                 return {"ok": False, "error": "not_placed"}
@@ -333,16 +343,28 @@ class Agent:
                 return None if self.generation != generation else {"ok": False, "error": "failed"}
             return out
         if op == "test_ring":   # テスト番号へ鳴るか試す（緊急停止の印がある・話している途中・答えの期限を過ぎたら試さない＝withheld。0143）
-            if (emergency.engaged() is not None or time.monotonic() - got > p.ANSWER_BY
+            if (emergency.engaged() is not None or time.monotonic() - got > p.ANSWER_BY or national is None
                     or await loop.run_in_executor(None, _busy, phone)):
                 return {"ok": False, "error": "withheld"}
             try:
-                rang = await loop.run_in_executor(None, lambda: phone.test_ring(str(msg.get("phone"))))
+                rang = await loop.run_in_executor(None, lambda: phone.test_ring(str(msg.get("phone")), national=national))
             except Exception:  # noqa: BLE001 電話の部品の誤り：見分けられない
                 rang = None
             if time.monotonic() - got > p.ANSWER_BY:   # 答えの期限を過ぎた：サーバーはもう待っていない（答えは届かない＝試さなかった扱い）
                 return {"ok": False, "error": "withheld"}
             return {"ok": True, "value": None if rang is None else bool(rang)}
+        if op == "send_sms":   # ショートメール（通話の途中は画面の操作で通話を乱さない・緊急停止・期限・国内の形が無い・文が無ければ送らない＝withheld）
+            text = msg.get("text")
+            if (emergency.engaged() is not None or time.monotonic() - got > p.ANSWER_BY or national is None
+                    or not isinstance(text, str) or not text.strip() or await loop.run_in_executor(None, _busy, phone)):
+                return {"ok": False, "error": "withheld"}
+            try:
+                await loop.run_in_executor(None, lambda: phone.send_sms(str(msg.get("phone")), text, national=national))
+                return {"ok": True}
+            except CallNotPlaced:
+                return {"ok": False, "error": "not_placed"}
+            except Exception:  # noqa: BLE001 送れたか分からない
+                return {"ok": False, "error": "failed"}
         work = phone.hang_up if op == "hang_up" else phone.play_apology_and_hang_up
         try:
             await loop.run_in_executor(None, work)
@@ -446,6 +468,14 @@ def _busy(phone: Phone) -> bool:
         return bool(phone.in_call())
     except Exception:  # noqa: BLE001
         return True
+
+
+def _usable(phone: Phone) -> bool:
+    """回線が使えるか（答えられない＝使えない＝合図に入れない側）。"""
+    try:
+        return phone.usable() is True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _apologize_if_busy(phone: Phone) -> None:

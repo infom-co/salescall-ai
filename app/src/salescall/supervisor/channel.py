@@ -46,12 +46,23 @@ from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from salescall.core import agents, emergency, notify
+from salescall.core import phone as numbers
 from salescall.core.access import Access
 from salescall.link import protocol as p
 from salescall.link.phone import CallNotPlaced, CallWithheld
 from salescall.link.protocol import RemoteError
 from salescall.supervisor import ACTOR, call_live, config, report, updates
 from salescall.supervisor.links import Attached
+
+def _national(phone_e164: str) -> str:
+    """PC の電話の部品へ渡す、かける番号の国内の形（例 "0300000001"。CL-3 の連絡帳 60：電話のアプリの番号の欄は国内の形の数字しか受けない）。番号の形を変えるのは
+    番号の正規化の1か所（core/phone.normalize＝見張り Q1）なので、PC の部品では変えず、サーバーがここで添える。国内の形にできない番号はかけない（門を通った番号は
+    どれもできる＝かけようとしなかった CallWithheld）。"""
+    got = numbers.normalize(phone_e164).national
+    if got is None:
+        raise CallWithheld("かける番号を国内の形にできません")
+    return got
+
 
 HELLO_WAIT = 10   # つないでから、最初のやり取り（hello）を待つ長さ（秒）
 _SERIAL = itertools.count(1)
@@ -535,8 +546,9 @@ class AgentDriver:
             session = self._session()
         except ConnectionError:   # 頼む前に、つなぎが無いと分かった：かけていないと確かに言える（回線の異常ではない）
             raise CallWithheld("PC の部品がつながっていません") from None
+        national = _national(phone_e164)
         mark = session.call_began(self.line_id)
-        got = self.hub.ask(session, "request", op="start_call", line=self.line_id, phone=phone_e164, voice=self.voice_type)
+        got = self.hub.ask(session, "request", op="start_call", line=self.line_id, phone=phone_e164, national=national, voice=self.voice_type)
         if got.get("ok"):
             return
         if got.get("error") in NOT_PLACED:   # かけていない
@@ -567,14 +579,32 @@ class AgentDriver:
         発信できない False・見分けられない None（PC の電話の部品が見分けられなかった）。意味は link/phone.Phone.test_ring。
         **試さなかった**（つながっていない・答えが期限に届かない・PC が試さなかった＝PC の上の緊急停止・話している途中・答えの期限）は
         CallWithheld（記録しない＝結果ではない。0143。⛔ 0134〜0142：None＝見分けられないとして記録し、あける長さを伸ばした）。"""
+        national = _national(phone_e164)
         try:
-            got = self.hub.ask(self._session(), "request", op="test_ring", line=self.line_id, phone=phone_e164)
+            got = self.hub.ask(self._session(), "request", op="test_ring", line=self.line_id, phone=phone_e164, national=national)
         except Exception:  # noqa: BLE001 つながっていない・待ち過ぎ：試していない（答えが届かない）
             raise CallWithheld("PC の部品がつながっていない・答えが期限に届きませんでした") from None
         if not got.get("ok"):
             raise CallWithheld("PC の部品が、テスト番号を試しませんでした")
         value = got.get("value")
         return value if isinstance(value, bool) else None
+
+    def send_sms(self, phone_e164: str, text: str) -> None:
+        """その回線のスマホからショートメールを送る（知らせを送る部品＝CL-3 の output/notices が呼ぶ。CL-3 の連絡帳 62 の (1)）。送れたら返る。送らなかった＝
+        CallWithheld・送れなかったと確かに言える＝CallNotPlaced・送れたか分からない＝RuntimeError（どれも、知らせを送る部品は「送れなかった」として次の送り方へ）。
+        通話ではないので、通話の動きには数えない（live=False）。"""
+        national = _national(phone_e164)
+        try:
+            session = self._session()
+        except ConnectionError:
+            raise CallWithheld("PC の部品がつながっていません") from None
+        got = self.hub.ask(session, "request", live=False, op="send_sms", line=self.line_id, phone=phone_e164, national=national, text=text)
+        if got.get("ok"):
+            return
+        if got.get("error") in NOT_PLACED:
+            kind, why = NOT_PLACED[got["error"]]
+            raise kind(why)
+        raise RuntimeError("電話の部品が、ショートメールを送れたか分からない誤りを返しました")
 
     def send_audio(self, audio: bytes) -> None:
         """AI の声・録音を、通話へ流す（PC の部品が電話の部品の play へ渡す。待たずに返す）。"""

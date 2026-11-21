@@ -117,8 +117,8 @@ class Accepted(unittest.TestCase):
         self.assertEqual((r.callbacks[0].read, r.callbacks[0].connected), (("ai", "judge", "judge2"), False))
         self.assertTrue(from_json(BACK_CONNECTED).callbacks[0].connected)
         r = from_json(ANSWERED)
-        self.assertEqual(([a.part for a in r.answered], len(r.not_transferred), r.end_reason, r.hurried),
-                         (["unknown"], 1, "not_transferred", False))
+        self.assertEqual(([a.part for a in r.answered], len(r.not_transferred), r.end_reason),
+                         (["unknown"], 1, "not_transferred"))
         # 「誰でも」の業務（目的のお客様のいない業務）：繋いだ事実が無くても、話していれば繋がった（業務設定から判定の入力に入れる。
         # ⛔ 見直し18b の (3)：前は報告の印だけで推し、種別 target が無いと「繋がらなかった」になった）
         anyone = from_json({"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
@@ -802,6 +802,16 @@ class OtherWish1103(unittest.TestCase):
                          (before["said"], before["value"], chosen, r))
         self.assertEqual(run(self.raw(chosen)).detail["other_wish"][0]["before_ways"], {"said": before["said"], "value": before["value"]})
         self.assertIsNone(run(self.raw({**chosen, "before_ways": None})).detail["other_wish"][0]["before_ways"])
+        # 方法を並べて伺い、選んでいただく前に切れた（CL-1 の連絡帳 4-225 の (3)）：並べる前のご希望だけがあり、ほかはどれも null。読めて、依頼者へは印
+        # cut_before_choice（そのときだけ）で渡る（選んでいただいた記録・並べていない記録には付かない）
+        cut = {**chosen, "turn": 7, "said": "あ、すみません、", **{k: None for k in ("wish", "value", "means", "contact", "outcome", "wish_state", "via")}}
+        r = from_json(self.raw(cut))
+        self.assertEqual((r.other_wishes[0].cut_before_choice, from_json(r.to_json())), (True, r))
+        self.assertEqual(run(self.raw(cut)).detail["other_wish"][0]["cut_before_choice"], True)
+        for not_cut in (chosen, {**cut, "before_ways": None}, {**cut, "wish_state": "unresolved"}, {**cut, "outcome": "unresolved"}):
+            with self.subTest(not_cut=not_cut):
+                self.assertFalse(from_json(self.raw(not_cut)).other_wishes[0].cut_before_choice)
+                self.assertNotIn("cut_before_choice", run(self.raw(not_cut)).detail["other_wish"][0])
         for bad in ({"turn": 4, "said": "x"}.__or__({"x": 1}), {"turn": -1, "said": "x", "value": None}, {"turn": None, "said": "x", "value": None},
                     {"turn": None, "said": "", "value": None},   # 根拠の発話の無い記録（4-407）
                     {"turn": 4, "said": "x" * 81, "value": None}, {"turn": 4, "said": "x", "value": ""}, {"turn": 4, "said": 3, "value": None}, "説明書"):
