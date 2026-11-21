@@ -48696,3 +48696,65 @@ class LadderMendTest(unittest.TestCase):
         r = self.reply(f, "はい、4時で。", "affirmed", "4時")
         self.assertNotEqual(r["result"], "confirm_required", self.d.heard(r))
         self.assertEqual(f.facts["callback"][-1]["time"], "火曜日の午後4時")
+
+
+class LadderDayMendTest(unittest.TestCase):
+    """分身 W（CL-1 の頼み rv184/W の (1)＝分身 V の伺いの案 rv184/V/ask_day.md のア。CL-1 が決まりで決めた＝伺わない）：日時の2択で時刻まで伺い、言い直しに日だけ直されたとき
+    （「火曜日の16時、午後4時でよろしいでしょうか？」→「いえ、水曜日でお願いします。」）、直された値を受ける1か所（flowctl.ladder_mend）で、伺えた時刻（と午前・午後）を直された日に足す
+    （「失礼いたしました。改めまして水曜日の16時、午後4時で大丈夫でしょうか？」・記録「水曜日の午後4時」）。その日のその時刻に電話をかけられない（空いている予定に無い）ときだけ、その日の
+    空いている予定から2択（伺い60・頭は「それでは（その所）でしたら」）。CL-1 が決めた理由：本書 9-3「取得済みのことを重ねて聞かない」・10-29「「確かめが1回増える」のは安全でなく、相手からの
+    不信ですよ！」（お客様は日だけを直した＝時刻はもう伺えている）。11-20 日本時間0時09分49秒「必ず二者択一」は伺うときの形の決まり。⛔ f395df54 まで「改めまして水曜日で大丈夫でしょうか？」・
+    記録「水曜日」＝お客様が選んだ4時が抜けた（分身 V の書き置き rv184/V/notes.md の (6-2)）"""
+    m = LadderMendTest()
+
+    def test_the_day_only_correction_keeps_the_time(self):
+        for words, value, said, kept in (("いえ、水曜日でお願いします。", "水曜日", "水曜日の16時、午後4時", "水曜日の午後4時"),
+                                          ("いえ、来週の月曜日でお願いします。", "来週の月曜日", "来週の月曜日の16時、午後4時", "来週の月曜日の午後4時")):
+            f, _ = self.m.at_clock()
+            r = self.m.reply(f, words, "corrected", value)
+            self.assertEqual(r["result"], "confirm_required", words)
+            self.assertTrue(self.m.d.heard(r).endswith(f"失礼いたしました。改めまして{said}で大丈夫でしょうか？"), (words, self.m.d.heard(r)))
+            self.assertEqual(self.m.done(f), kept, words)
+
+    def test_the_kept_range_is_kept_too(self):
+        # 幅を言った答え（「4時以降」）の言い直しに日だけ直された：その幅の言葉を直された日に足す（前の日の言葉は残さない）
+        f, _ = self.m.at_clock(clock="4時以降")
+        r = self.m.reply(f, "いえ、水曜日でお願いします。", "corrected", "水曜日")
+        self.assertTrue(self.m.d.heard(r).endswith("改めまして水曜日の16時以降、午後4時以降で大丈夫でしょうか？"), self.m.d.heard(r))
+        self.assertEqual(self.m.done(f), "水曜日の午後4時以降")
+
+    def test_a_time_not_open_on_that_day_is_asked_from_that_day(self):
+        # 水曜日の16時に電話をかけられない（空いている予定に無い）：水曜日の空いている予定から2択（伺えた午後は残す＝重ねて伺わない。頭は「それでは（その所）でしたら」）
+        f, _ = self.m.at_clock()
+        f.call_free = (("2026-11-24", "13:00", "17:00"), ("2026-11-25", "09:30", "12:00"), ("2026-11-25", "13:00", "15:30"))
+        r = self.m.reply(f, "いえ、水曜日でお願いします。", "corrected", "水曜日")
+        # 言い直しを違うと言われたときと同じ戻り（_continue の repeat＝もう伺った質問へ戻る形）
+        self.assertEqual(r["result"], "replayed", self.m.d.heard(r))
+        self.assertEqual(self.m.d.heard(r), "失礼いたしました。それでは水曜日でしたら2時と3時ではどちらがよろしいでしょうか？")
+        r = self.m.d.answer(f, "3時でお願いします。", "3時")
+        self.assertEqual(r["result"], "confirm_required", self.m.d.heard(r))
+        # 確かめの言い方は、言い直しを違うと言われて伺い直したあと（_denied_again）の今の形と同じ
+        self.assertTrue(self.m.d.heard(r).endswith("水曜日の15時、午後3時とおっしゃいましたでしょうか？"), self.m.d.heard(r))
+        self.assertEqual(self.m.done(f), "水曜日の午後3時")
+
+    def test_no_open_time_in_the_half_asks_the_half_that_is_open(self):
+        # 水曜日の午後に空いている予定が無い：午前だけ＝伺わずに入れて、その時刻の2択（頭は「それでは水曜日の午前でしたら」）
+        f, _ = self.m.at_clock()
+        f.call_free = (("2026-11-24", "13:00", "17:00"), ("2026-11-25", "09:30", "12:00"))
+        r = self.m.reply(f, "いえ、水曜日でお願いします。", "corrected", "水曜日")
+        self.assertEqual(self.m.d.heard(r), "失礼いたしました。それでは水曜日の午前でしたら10時と11時ではどちらがよろしいでしょうか？")
+
+    def test_the_customer_misspeaking_is_taken_with_the_same_words_of_choice(self):
+        # お客様の言い間違い（「間違えました」）でも伺えた時刻を残す（言い直しの頭は今の1か所＝「承知しました、それでは…でよろしいでしょうか？」）
+        f, _ = self.m.at_clock()
+        r = self.m.reply(f, "あ、すみません、間違えました。水曜日でお願いします。", "corrected", "水曜日")
+        self.assertEqual(r["result"], "confirm_required", self.m.d.heard(r))
+        self.assertIn("水曜日の16時、午後4時でよろしいでしょうか？", self.m.d.heard(r))
+        self.assertEqual(self.m.done(f), "水曜日の午後4時")
+
+    def test_the_customer_misspeaking_on_a_day_not_open_hears_the_next_pair(self):
+        # お客様の言い間違いで、その日のその時刻にかけられない：頭は次の2択と同じ相づち（「承知しました。」）＋「それでは（その所）でしたら」の2択（こちらの聞き違いのお詫びは言わない）
+        f, _ = self.m.at_clock()
+        f.call_free = (("2026-11-24", "13:00", "17:00"), ("2026-11-25", "09:30", "12:00"), ("2026-11-25", "13:00", "15:30"))
+        r = self.m.reply(f, "あ、すみません、間違えました。水曜日でお願いします。", "corrected", "水曜日")
+        self.assertEqual(self.m.d.heard(r), "承知しました。それでは水曜日でしたら2時と3時ではどちらがよろしいでしょうか？")
