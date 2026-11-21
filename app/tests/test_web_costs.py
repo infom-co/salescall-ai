@@ -70,6 +70,8 @@ class DeficitOnScreen(CostRatio):
         r = http.post(form.group(1), data=sent, follow_redirects=False)
         self.assertTrue(r.headers["location"].startswith("/t/costs?"))         # 費用と報酬の画面へ戻る
         self.assertIn("ok=1", r.headers["location"])
+        from urllib.parse import unquote
+        self.assertIn("赤字の確認（依頼者「", unquote(r.headers["location"]))   # 結果の1行は、決めた札の種類と依頼者の名前を添える
         for page in (http.get("/t/costs").text, http.get(f'/c/{s["client"]}/b/{s["business"]}').text):
             self.assertIn("確かめました", page)                                  # ボタンは画面に出したまま（印として）
             self.assertNotIn("確かめた（これ以上お知らせしない）", page)

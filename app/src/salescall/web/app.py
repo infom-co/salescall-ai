@@ -525,9 +525,11 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             if k is None or k.where != "client" or action not in k.perform:
                 raise NotFound()
             sent = {f: str(form.get(f, "")) for f in inbox.KEY_FIELDS}
+            # 結果の1行は、決めた札の種類と依頼者の名前を添える（承認待ちは何件も並ぶので「承認しました」だけでは、どれを決めたか分からない）
+            name = ctx.client(client_id, lambda tx: context.client(tx, client_id), read_only=True)["name"]
             out = actions.act(secret, person.login_id, form,
                               lambda: ctx.client(client_id, lambda tx: inbox.perform(tx, kind, action, sent, "client")),
-                              done=k.perform[action][1])
+                              done=f"{k.title}（依頼者「{name}」）：{k.perform[action][1]}")
             back = str(form.get("back") or "")   # 1行の画面などから決めたときは、その画面へ戻る（その依頼者の中の住所だけ）
             return _back(safe_back(back, client_id, "/t/inbox"), out)
         return handle(request, render)
@@ -543,7 +545,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             sent = {f: str(form.get(f, "")) for f in inbox.KEY_FIELDS}
             out = actions.act(secret, person.login_id, form,
                               lambda: ctx.system(lambda tx: inbox.perform(tx, kind, action, sent, "system")),
-                              done=k.perform[action][1])
+                              done=f"{k.title}（全体）：{k.perform[action][1]}")
             return _back("/t/inbox", out)
         return handle(request, render)
 

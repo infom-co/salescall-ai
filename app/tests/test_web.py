@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from markupsafe import escape
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 import unittest
 from uuid import UUID, uuid4
 
@@ -1237,6 +1237,7 @@ class AdminSeesEverything(_World):
         self.assertIn("全体（管理者だけ）", page)
         r = self.post("ADMIN", "/admin/inbox/fix/approve", {"form_token": self.token("ADMIN"), "request_id": str(rid)})
         self.assertIn("ok=1", r.headers["location"])
+        self.assertIn("修正依頼の承認（全体）：", unquote(r.headers["location"]))
         self.assertTrue(app_access().in_system(SYSTEM, lambda tx: tx.one(
             "SELECT 1 FROM salescall.fix_approvals WHERE request_id = %s", (rid,)) is not None))
         self.assertNotIn("画面の試験の不具合（架空）", self.get("ADMIN", "/t/inbox").text)
