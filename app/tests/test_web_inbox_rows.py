@@ -281,7 +281,8 @@ class VerificationMode(ApprovalHelpers):
         self.assertEqual(len(lines), 1)                                          # 確かめ待ちの行は出さない（見出しだけ）
         self.assertIn("ok=0", self._post(http, csv_url, {}).headers["location"])  # 渡せる結果が無い＝渡さない
         biz = http.get(f'/c/{s["client"]}/b/{s["business"]}').text                 # 業務のタブの数（counts.business_figures の1か所）
-        self.assertRegex(biz, r"<b class=\"num\">1</b><span>確かめ待ち</span>")   # 確かめ待ち＝受け箱の「結果の確かめ」と同じ式
+        from salescall.output import words as _w
+        self.assertIn(f'<b class="num">1</b><span>{_w.UNCONFIRMED_WORDS["awaiting_check"][0]}</span>', biz)   # 確かめ待ち＝受け箱の「結果の確かめ」と同じ式
         self.assertEqual(kept(), 0)
         # 「この結果でよい」を押す前に、何が依頼者へ渡るか（答えの欄）を、渡す書き方のまま見られる（2026-11-20 の計画書の読み直し）
         from salescall.output import result_rows as _rr

@@ -154,9 +154,9 @@
     <p class="muted">結果が確定するまで、依頼者へ渡すファイルには、その結果を書きません。</p>
     <div class="mini-stats">
       <a class="mini {{ 'wait' if f.unconfirmed.awaiting_check }}" href="/t/inbox?kind=result_check&client={{ client.client_id }}">
-        <b class="num">{{ f.unconfirmed.awaiting_check }}</b><span>確かめ待ち</span><small>承認待ちで確かめる</small></a>
-      <div class="mini"><b class="num">{{ f.unconfirmed.blocked }}</b><span>決定待ち</span><small>取り消せない決定・あとの電話を待つ</small></div>
-      <div class="mini"><b class="num">{{ f.unconfirmed.unknown }}</b><span>判定できない</span><small>判定し直すまで渡さない</small></div>
+        <b class="num">{{ f.unconfirmed.awaiting_check }}</b><span>{{ words.UNCONFIRMED_WORDS.awaiting_check[0] }}</span><small>{{ words.UNCONFIRMED_WORDS.awaiting_check[1] }}</small></a>
+      <div class="mini"><b class="num">{{ f.unconfirmed.blocked }}</b><span>{{ words.UNCONFIRMED_WORDS.blocked[0] }}</span><small>{{ words.UNCONFIRMED_WORDS.blocked[1] }}</small></div>
+      <div class="mini"><b class="num">{{ f.unconfirmed.unknown }}</b><span>{{ words.UNCONFIRMED_WORDS.unknown[0] }}</span><small>{{ words.UNCONFIRMED_WORDS.unknown[1] }}</small></div>
     </div>
   </div>
   <div class="card">

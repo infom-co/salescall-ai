@@ -41,7 +41,7 @@ BUSINESS_STATES: dict[str, Word] = {
     "out_of_scope": Word("範囲外（番号違いなど）", "対象外（番号違いなど）"),
     "not_reached": Word("目的のお客様に繋がらなかった", "ご担当の方に繋がらず"),
     "concluded": Word("結論として終えた", "ご回答をいただき終了"),
-    "unknown": Word("判定できない（決め直し中）", None),
+    "unknown": Word("決められなかった（確かめ中）", None),
 }
 
 # 試行（1回の電話）の状態（docs/DESIGN.md 4-2。データベースの attempt_state）
@@ -89,7 +89,7 @@ DELIVERY_STATES: dict[str, Word] = {
 # 次の予定の種類（docs/DESIGN.md 7-2。current_next_actions の kind）
 NEXT_KINDS: dict[str, Word] = {
     "call": Word("かけ直し待ち", "対応中"),
-    "hold": Word("結果の決め直し中", None),
+    "hold": Word("結果を確かめ中", None),   # 電話のあと結果を決められず、確かめているところ（前の結果が無くても出るので「決め直し」と言わない。2026-11-21 の見直し）
     "end": Word("済み", "済み"),
 }
 
@@ -98,6 +98,14 @@ NEXT_KINDS: dict[str, Word] = {
 STOP_STATE = "止まっています"            # 依頼者の札・ホームの表の札
 STOP_PAGE = "止まった理由と再開"          # 1つの停止の画面の名前（理由を見て、ここで再開する）
 STOP_GO = "理由を確かめて再開する"        # 一覧・札から、その画面へ移る言葉
+
+# 確定していない結果の3つの数（業務の画面の「まだ依頼者へ渡せない結果」。数は core の approval.unconfirmed_counts の1か所）の、名前と
+# 添える一言（1か所。2026-11-21 の見直し：「確かめ待ち」が上の帯の「承認待ち」と別のものに見え、「判定できない」がお客様リストの言葉と違った）
+UNCONFIRMED_WORDS: dict[str, tuple[str, str]] = {
+    "awaiting_check": ("承認待ち（結果の確かめ）", "承認待ちで確かめてください"),
+    "blocked": ("決定待ち", "取り消せない決定・あとの電話を待っています"),
+    "unknown": (BUSINESS_STATES["unknown"].screen, "決まるまで依頼者へは渡しません"),
+}
 
 # 次の予定がまだ1つも無いお客様（取り込んだまま、まだ一度もかけていない）の、画面の呼び方（ホームの依頼者ごとの表・お客様リストの札＝parts.next_tag）。
 # 2026-11-21 の見直し：前は「これから」で、何の数か分からなかった
