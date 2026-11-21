@@ -30015,7 +30015,8 @@ class UnheardCautionClauseTest(unittest.TestCase):
         self.assertIn(f"clause は「{announces.EXAMPLE_CLAUSE}」", p)
         self.assertEqual(announces.EXAMPLE_CLAUSE, "前日を過ぎたキャンセルや変更はキャンセル料がかかる")
         self.assertNotIn("料金がかからずそれ以降は", p)
-        self.assertIn(f"「{announces.BACK}」は、良い点の文の期限の言葉を使って「（期限）{announces.PAST}」と言います", p)
+        self.assertIn(f"「{announces.BACK[0]}」", p)   # 「それ以降」は、期限より後を指す言い方の例の並び（BACK）の1つ目＝試験 CautionBackWordsTest
+        self.assertIn(f"良い点の文の期限の言葉を使って「（期限）{announces.PAST}」と言います", p)
         self.assertIn("「前日以降」とは書きません", p)
         self.assertTrue(announces.clause_fits(announces.EXAMPLE_EXPL, announces.EXAMPLE_ASK, announces.EXAMPLE_CLAUSE, announces.EXAMPLE_LINE))
 
@@ -30180,6 +30181,77 @@ class CautionClauseFactsTest(unittest.TestCase):
         # 取込の問い合わせ（announces.MATTER_PROMPT）も同じ決まり：2つの文の句に入れる数と期限の言葉は、気をつけていただく文にあるものと、それが指す良い点の文の期限
         import announces
         self.assertIn("2つの文のときは、気をつけていただくことの文にあるものと、その文が指す良い点の文の期限の言葉です", announces.MATTER_PROMPT)
+
+
+class CautionBackWordsTest(unittest.TestCase):
+    """帳面 1 の (6) の (i) の L18 の (2)（分身 AA の書き置きの (6-2)）：2つの文のお知らせの気をつけていただく文が、良い点の文の期限より後を「それ以降」と同じ意味の
+    ほかの言い方（「それ以後」「それより後」「それを過ぎますと」）で指すときも、句は同じ形（「（期限）を過ぎた」・2つの文の中身を全部持つ句は通さない）＝10-19「同じ
+    理由が当たる場面すべてに当てる」。見分けの言葉は1か所（announces.BACK＝「良い点の文の期限より後を指す言い方」（announces.BACK_MEANING）の例の並び。句の確かめ
+    announces.clause_fits と取込の問い合わせ announces.MATTER_PROMPT が同じ並びを読む）。⛔ それまで、「それ以降」のほかは今までの全部持つ句の確かめのまま（「それ以後」は
+    「前日を過ぎた」の句が「過」で通らず名詞の形・全部持つ句（一言が100字を超える）は通った）"""
+    ASK = UnheardCautionClauseTest.ASK
+    # (説明, お知らせの文, 伺い96 アの形の句, 2つの文の中身を全部持つ句, 「を過ぎた」と言わない句)
+    CASES = [
+        ("キャンセルや変更は前日までのご連絡でしたら料金はかからない決まりになっております。それ以後のご連絡ですとキャンセル料や変更料がかかる決まりになっております。",
+         "キャンセルや変更は前日までにご連絡いただければ料金はかかりません。それ以後になってしまいますとキャンセル料や変更料がかかってしまうのでお気を付けください。",
+         "前日を過ぎたキャンセルや変更はキャンセル料や変更料がかかる",
+         "キャンセルや変更は前日までにご連絡いただければ料金がかからずそれ以後はキャンセル料や変更料がかかる",
+         "前日以後のキャンセルや変更はキャンセル料や変更料がかかる"),
+        ("キャンセルは前日までのご連絡でしたら料金はかからない決まりになっております。それより後のご連絡ですとキャンセル料がかかる決まりになっております。",
+         "キャンセルは前日までにご連絡いただければ料金はかかりません。それより後になってしまいますとキャンセル料がかかってしまうのでお気を付けください。",
+         "前日を過ぎたキャンセルはキャンセル料がかかる",
+         "キャンセルは前日までにご連絡いただければ料金がかからずそれより後はキャンセル料がかかる",
+         "前日より後のキャンセルはキャンセル料がかかる"),
+        ("キャンセルは前日までのご連絡でしたら料金はかからない決まりになっております。それを過ぎてのご連絡ですとキャンセル料がかかる決まりになっております。",
+         "キャンセルは前日までにご連絡いただければ料金はかかりません。それを過ぎますとキャンセル料がかかってしまうのでお気を付けください。",
+         "前日を過ぎたキャンセルはキャンセル料がかかる",
+         "キャンセルは前日までにご連絡いただければ料金がかからずそれを過ぎるとキャンセル料がかかる",
+         "前日を過ぎるとキャンセルはキャンセル料がかかる"),
+    ]
+
+    def test_each_way_of_saying_after_the_deadline_takes_the_same_clause(self):
+        import announces
+        for expl, line, clause, whole, unsaid in self.CASES:
+            self.assertTrue(announces.fits(expl, self.ASK, line), line)   # お知らせの文は今の取込の形の確かめを通る
+            self.assertTrue(announces.clause_fits(expl, self.ASK, clause, line), line)
+            for bad in (whole, unsaid, "当日を過ぎたキャンセルはキャンセル料がかかる", f"{clause}{clause}"):
+                self.assertFalse(announces.clause_fits(expl, self.ASK, bad, line), bad)
+
+    def test_the_words_are_in_one_place_with_their_meaning(self):
+        # 見分けの並びは1か所（BACK）＝意味（BACK_MEANING）の例。取込の問い合わせも同じ並びと意味を言う（言い方ごとの決まりを別に書かない）
+        import announces
+        self.assertEqual(announces.BACK_MEANING, "良い点の文の期限より後を指す言い方")
+        self.assertEqual(announces.BACK, ("それ以降", "それ以後", "それより後", "それを過ぎ"))
+        p = announces.MATTER_PROMPT
+        self.assertIn(f"その文で{announces.BACK_MEANING}（{''.join(f'「{w}」' for w in announces.BACK)}で始まるもの）は、良い点の文の期限の言葉を使って"
+                      f"「（期限）{announces.PAST}」と言います", p)
+        self.assertEqual(p.count("「それ以後」"), 1)
+        # 並びに無い言い方（「その後」）は今までどおり全部持つ句の確かめ（説明と違う期限を通さない側＝「を過ぎた」は「過」が出どころに無く通らない）
+        expl = "キャンセルは前日までのご連絡でしたら料金はかからない決まりになっております。その後のご連絡ですとキャンセル料がかかる決まりになっております。"
+        line = "キャンセルは前日までにご連絡いただければ料金はかかりません。その後になってしまいますとキャンセル料がかかってしまうのでお気を付けください。"
+        self.assertTrue(announces.fits(expl, self.ASK, line))
+        self.assertFalse(announces.clause_fits(expl, self.ASK, "前日を過ぎたキャンセルはキャンセル料がかかる", line))
+
+    def test_the_import_takes_the_clause_and_the_line_is_the_same_shape(self):
+        import json
+        from types import SimpleNamespace
+        import import_ai
+        from flowctl import Question, accepted_line
+        from phrases import ACK
+
+        def gemini(got):
+            class Models:
+                def generate_content(self, model, contents, config):
+                    return SimpleNamespace(text=json.dumps({"items": got}))
+            return SimpleNamespace(models=Models())
+
+        expl, line, clause, whole, _ = self.CASES[0]
+        for answer, want in ((clause, clause), (whole, "")):
+            got = [{"no": 1, "matter": "キャンセルや変更", "clause": answer}]
+            self.assertEqual(import_ai.decide_matters([(gemini(got), "m1"), (gemini(got), "m2")], [(expl, self.ASK, line)]), [("キャンセルや変更", want)])
+        q = Question("Q2", self.ASK, "yes_no", conditions=("はい", "いいえ"), approval=True, intro=expl, announce=line, matter="キャンセルや変更",
+                     matter_clause=clause)
+        self.assertEqual(ACK["arigatou"] + ACK["moushiwake_heavy"] + accepted_line(q, heard=False)[1], UnheardCautionClauseTest.USER)
 
 
 class ImportFormsReviewTest(unittest.TestCase):
