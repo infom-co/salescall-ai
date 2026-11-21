@@ -47989,3 +47989,87 @@ class LadderHeldReasonsTest(unittest.TestCase):
         self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), {f"{G.LADDER_NEXT_ACT}〔理由：{CYCLE_LABEL['month']}〕"})
         plain = next(i for i in answer_words() if i["text"] == "金曜日でお願いします。")
         self.assertEqual(G.flow_wants(plain, qmap[plain["qid"]]), {G.LADDER_NEXT_ACT})
+
+
+class LadderSpanTest(unittest.TestCase):
+    """分身 R（CL-1 の頼み rv184/R の (2)＝分身 Q の書き置き (6-2) の (a)）：日時の2択に頃で答えられたとき（「月末は締めで忙しいので、来月の頭にお願いします。」）は、同じ2択を聞き直さず、
+    お客様がもう言った頃から先の2択を伺う（✅ 2026-11-19 日本時間14時18分13秒「お客様がもう言った所から先の2択だけを伺う」・✅ 2026-11-20 日本時間4時44分42秒「伺い60：1.空スケジュールの
+    中から2つ」＝その頃の中の空いている予定から2つ）。頃の読みは日時の2択の段の読みの1か所（flowctl.ladder_read の span・日の範囲は ladder_span の1か所）で、日の範囲は CL-2 の時刻の
+    読み（spoken_time の _MONTH_PART・_MONTH・_named_month＝✅ 2026-10-19「月末＝月の最後の3日・月の初め／頭＝1〜3日」）と同じ（比べる試験）。月単位の理由は (1) と同じく記録に残す
+    （段をまたいで持つ1か所）。読めない頃（月の言葉の無い「頭」「末」・「給料日のあと」など）は今のまま（いま伺った2択で聞き直す＝【決まりで決めた】(a)）。
+    ⛔ 20109859 まで、頃を読めず「はい、恐れ入ります。金曜日と火曜日ではどちらがよろしいでしょうか？」と同じ2択を聞き直した（月単位の理由も記録されなかった）"""
+    J = UntilCycleJudgedTest
+
+    def weekday_pairs(self, through=20):
+        import datetime as dt
+        d = DateTimePairsTest()
+        f, _ = d.first()
+        today = dt.date(2026, 11, 19)
+        f.call_days = tuple(today + dt.timedelta(days=i) for i in range(1, through + 1) if today + dt.timedelta(days=i) != dt.date(2026, 11, 23))
+        r = d.answer(f, "平日でお願いします。", "平日")
+        self.assertEqual(d.asked(r), d.pair("金曜日", "火曜日"))
+        return d, f
+
+    def test_a_span_asks_the_pairs_inside_it(self):
+        from flowctl import CYCLE_LABEL, CYCLE_NOT_SAID
+        d, f = self.weekday_pairs()
+        r = self.J.say(f, "月末は締めで忙しいので、来月の頭にお願いします。", "来月の頭", cycle_read=CYCLE_LABEL["month"])
+        self.assertEqual(d.asked(r), d.pair("12月1日の火曜日", "12月2日の水曜日"))   # 来月の頭＝12月1〜3日のうち、電話をかけられる平日の近い2つ
+        r = self.J.say(f, "1日でお願いします。", "1日", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(d.asked(r), d.HALF)
+        self.J.say(f, "午後で。", "午後", cycle_read=CYCLE_NOT_SAID)
+        r = self.J.say(f, "4時で。", "4時", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(r["result"], "confirm_required", d.heard(r))
+        got = self.J().agreed(f)
+        self.assertEqual((got.get("time"), got.get("cycle")), ("12月1日の火曜日の午後4時", "month"))
+
+    def test_one_day_in_the_span_is_told_and_no_days_go_on_to_the_time(self):
+        from flowctl import CYCLE_NOT_SAID
+        # 頃の中に電話をかけられる平日が1つだけ（月末＝11月28〜30日のうち30日の月曜日）：伺わずに入れ、次の2択の頭で言う（今の1か所 _ladder_set）
+        d, f = self.weekday_pairs()
+        r = self.J.say(f, "月末でお願いします。", "月末", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(d.asked(r), "それでは30日の月曜日でしたら午前と午後のどちらがよろしいでしょうか？")
+        # 頃の中に電話をかけられる日が無い（暦が11月30日まで）：日は頃のまま、午前と午後・時刻の2択へ（最後の日時が決まるまで2択＝11-20 日本時間0時09分49秒）
+        d, f = self.weekday_pairs(through=11)
+        r = self.J.say(f, "来月の頭にお願いします。", "来月の頭", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual(d.asked(r), d.HALF)
+        self.J.say(f, "午後で。", "午後", cycle_read=CYCLE_NOT_SAID)
+        r = self.J.say(f, "4時で。", "4時", cycle_read=CYCLE_NOT_SAID)
+        self.assertEqual((r["result"], f.items[f.awaiting_confirm].value), ("confirm_required", "来月の頭の午後4時"))
+
+    def test_unread_words_are_asked_again(self):
+        from flowctl import CYCLE_NOT_SAID, ladder_span
+        import datetime as dt
+        today = dt.date(2026, 11, 19)
+        for words in ("給料日のあと", "週の頭", "年末", "頭", "週末", "上旬"):   # 上旬＝今月の上旬はもう過ぎた（CL-2 も決めない）
+            self.assertIsNone(ladder_span(words, today), words)
+        d, f = self.weekday_pairs()
+        r = self.J.say(f, "週の頭がいいですね。", "週の頭", cycle_read=CYCLE_NOT_SAID)
+        self.assertIn(d.pair("金曜日", "火曜日"), d.heard(r))
+        self.assertNotEqual(r.get("ask_reason"), "ladder")
+
+    def test_spans_read_the_same_days_as_cl2(self):
+        # 頃の日の範囲（ladder_span）が、CL-2 の時刻の読み（spoken_time._named_month）と同じか（読まない頃は、CL-2 も決めない・もう過ぎた範囲）。CL-2 の部品（app/）が無い所では飛ばす
+        import datetime as dt
+        from flowctl import LADDER_PARTS, LADDER_PARTS_MONTHLESS, ladder_span
+        st = VLadderFarDaysTest.cl2_spoken_time()
+        if st is None:
+            self.skipTest("CL-2 の時刻の読み（app/）がまだ無い")
+        words = [*(f"{m}の{p}" for m in ("今月", "来月", "再来月", "12月", "1月", "11月") for p in LADDER_PARTS), *LADDER_PARTS,
+                 "今月", "来月", "再来月", "来月中", "来月いっぱい", "12月", "1月", "6月"]
+        seen = 0
+        for today in (dt.date(2026, 11, 19), dt.date(2026, 11, 2), dt.date(2026, 12, 30), dt.date(2026, 2, 27)):
+            for w in words:
+                mine = ladder_span(w, today)
+                m = st._MONTH_PART.search(w) or st._MONTH.search(w)
+                try:
+                    theirs = st._named_month(today, m.group("mrel"), m.group("mon"), m.groupdict().get("part"))
+                except st._Ambiguous:
+                    theirs = None
+                if mine is not None:
+                    seen += 1
+                    self.assertEqual(mine, theirs, (today, w))
+                else:
+                    # 読まない頃＝CL-2 も決めない・もう過ぎた範囲・月の言葉の無い「頭」「末」など（「週の頭」「週末」「年末」と取り違えない＝今のまま聞き直す）
+                    self.assertTrue(theirs is None or theirs[1] < today or w in LADDER_PARTS_MONTHLESS, (today, w, theirs))
+        self.assertGreater(seen, 100)

@@ -666,6 +666,18 @@ _LADDER_WDAY = re.compile(r"(?:(?P<week>今週|来週|再来週)の?)?(?P<w>[月
 _LADDER_DATE = re.compile(r"(?:(?P<m>\d{1,2})月)?(?P<d>\d{1,2})日(?!後)")
 _LADDER_WEEK = re.compile(r"今週|来週|再来週")
 _LADDER_WEEKS = {"今週": 0, "来週": 1, "再来週": 2}
+# 日時の2択の段で読む頃（月の中の頃・月まるごと）と、その日の範囲（{頃の言葉: (始まりの日, 終わりの日)}。0 以下は月の終わりの日から数える＝0 が終わりの日・-2 が終わりの3日前）。
+# CL-2 の時刻の読み（spoken_time の _MONTH_PART・_MONTH・_month_range・_named_month）と同じ日の範囲（比べる試験 LadderSpanTest）。✅ 2026-10-19 ユーザー：月末＝月の最後の3日・
+# 月の初め／頭＝1〜3日。上旬・中旬・下旬はふつうの意味（CL-2 の 2026-10-19 の決まり）。分身 R の (2)
+LADDER_PARTS = {"上旬": (1, 10), "中旬": (11, 20), "中頃": (11, 20), "中ごろ": (11, 20), "半ば": (11, 20), "下旬": (21, 0),
+                "初め": (1, 3), "はじめ": (1, 3), "頭": (1, 3), "月初め": (1, 3), "月初": (1, 3), "月の初め": (1, 3), "月のはじめ": (1, 3), "月の頭": (1, 3),
+                "月末": (-2, 0), "末": (-2, 0), "月の終わり": (-2, 0), "月終わり": (-2, 0)}
+# 月の言葉（今月・来月・再来月・〇月）が前に無ければ読まない頃（「週の頭」「週末」「年末」「週の半ば」と取り違えない＝読めない値は今のまま、いま伺った2択で聞き直す）
+LADDER_PARTS_MONTHLESS = ("初め", "はじめ", "頭", "末", "半ば", "中頃", "中ごろ")
+_LADDER_MONTHS = {"今月": 0, "来月": 1, "再来月": 2}
+_LADDER_SPAN = re.compile(r"(?:(?P<mrel>今月|来月|再来月)|(?P<mon>\d{1,2})月)(?:の?(?P<part>" + "|".join(sorted(LADDER_PARTS, key=len, reverse=True))
+                          + r")|(?:中|いっぱい)?(?!\d|の\d{1,2}日))|(?<!週)(?<!年)(?P<own>"
+                          + "|".join(sorted((p for p in LADDER_PARTS if p not in LADDER_PARTS_MONTHLESS), key=len, reverse=True)) + ")")
 
 
 @dataclass(frozen=True)
@@ -739,6 +751,37 @@ def _ladder_date(text: str, today) -> tuple:
     return None, None, None
 
 
+def ladder_span(text: str | None, today) -> tuple | None:
+    """値の文字の頃（LADDER_PARTS の月の中の頃・月まるごと＝「来月の頭」「月末」「下旬」「来月」）の日の範囲 (始まりの日, 終わりの日) を決める唯一の場所（読む所 ladder_read・
+    曜日の2択の候補 ladder_days）。月の言葉の無い頃は今月・「〇月」は今日以後でいちばん近いその月（今日から半年より先なら決めない）。範囲がもう過ぎた・頃が無い・電話の日が
+    分からないなら None（読めない＝いま伺った2択で聞き直す）。CL-2 の時刻の読み（spoken_time._named_month）と同じ範囲（比べる試験 LadderSpanTest）。分身 R の (2)"""
+    import calendar
+    import datetime as dt
+    m = _LADDER_SPAN.search(re.sub(r"\s", "", text or ""))
+    if m is None or today is None:
+        return None
+    part = m.group("part") or m.group("own")
+    if m.group("mrel"):
+        k = today.year * 12 + today.month - 1 + _LADDER_MONTHS[m.group("mrel")]
+        months = [(k // 12, k % 12 + 1)]
+    elif m.group("mon"):
+        if not 1 <= (mon := int(m.group("mon"))) <= 12:
+            return None
+        months = [(today.year, mon), (today.year + 1, mon)]
+    else:
+        months = [(today.year, today.month)]
+    for y, mo in months:
+        last = calendar.monthrange(y, mo)[1]
+        a, b = LADDER_PARTS[part] if part else (1, 0)
+        lo, hi = dt.date(y, mo, a if a > 0 else last + a), dt.date(y, mo, b if b > 0 else last + b)
+        if hi < today:
+            continue
+        if m.group("mon") and lo > today + dt.timedelta(days=183):
+            return None   # 過ぎた月の言い違いか来年のことか決まらない（CL-2 の _FAR と同じ）
+        return lo, hi
+    return None
+
+
 def _ladder_pair_days(text: str, pair: tuple) -> tuple:
     """お答えの日の言葉（曜日だけ・日付）が当たる、いま並べた日の2つ pair の日（唯一の当て方＝読む所 ladder_read・決めない見分け Flow._ladder_take）：曜日だけならその曜日の日・
     日付ならその日の日。週を言った「来週の月曜日」・明日などの言葉は ()（言葉だけの読みのまま）。2つに当たる（並べた2つが同じ曜日＝「今週の金曜日と来週の金曜日」への
@@ -753,7 +796,7 @@ def _ladder_pair_days(text: str, pair: tuple) -> tuple:
 
 def ladder_read(text: str | None, slots: dict, today=None, pair: tuple = ()) -> dict:
     """値の文字（会話AIの報告の値。どの答えか＝答えたか・わからないなどの読みは判定）を、日時の2択の段の分かっている所（slots）に入れる唯一の場所：平日か土日か
-    （kind）・日（day＝言葉・date＝その日・today＝日を言わない今日）・週（week）・午前か午後か（half）・言葉の幅（band＝朝・夕方・夜）・時刻（clock＝言葉のまま。
+    （kind）・日（day＝言葉・date＝その日・today＝日を言わない今日）・週（week）・頃（span＝「来月の頭」「月末」の言葉。日の範囲は ladder_span の1か所）・午前か午後か（half）・言葉の幅（band＝朝・夕方・夜）・時刻（clock＝言葉のまま。
     午前・午後の言葉のない1〜12時は午前・午後を補う1か所 fill_ampm が値を受け取ったあとに決める）・「いつでも」（any）。2択の外の答え（「金曜がいいです」「夕方5時以降で」）も
     同じ読みで、その所を埋める。幅を言った答え（「〜まで」「〜以降」「〜から」）は frame（その言葉のまま受け取る）。日を言わない時刻・午前午後は今日のこと（CL-2 の時刻の読み spoken_time の「いま話している今日の回」と同じ）。読める所が無ければ slots のまま。
     pair＝いま並べた日の2つ（日時の2択の段の曜日の2択＝Flow._ladder_take が段の候補の1か所 ladder_step から渡す）：曜日だけ・日付の言葉は、まず並べた2つに当てる
@@ -780,6 +823,13 @@ def ladder_read(text: str | None, slots: dict, today=None, pair: tuple = ()) -> 
             s["kind"] = "平日" if day.weekday() < 5 else "土日"
     elif week:
         s["week"] = week
+        s.pop("span", None)
+    elif ladder_span(t, today) is not None and not _LADDER_FRAME.search(t):
+        # 頃（「来月の頭」「月末」＝ladder_span の1か所）：曜日の2択の候補を、その頃の中の空いている予定から（ladder_days）。お客様がもう言った頃から先の2択だけを伺う
+        # （✅ 2026-11-19 日本時間14時18分13秒・伺い60「空スケジュールの中から2つ」。分身 R の (2)。⛔ 20109859 まで読めず、同じ2択を聞き直した）。幅を言った頃（「来月の頭までに」
+        # 「月末以降」）は今のまま（frame＝その言葉のまま）
+        s["span"] = _LADDER_SPAN.search(t).group(0)
+        s.pop("week", None)
     if (m := _CLOCK.search(t)):
         s["clock"] = m.group(0) + _CLOCK_TAIL.match(t, m.end()).group()
         part, h = m.group("part"), int(m.group("h"))
@@ -821,6 +871,8 @@ def ladder_days(s: dict, ctx: LadderCtx) -> tuple:
     if s.get("week"):
         lo = ctx.today - dt.timedelta(days=ctx.today.weekday()) + dt.timedelta(weeks=_LADDER_WEEKS[s["week"]])
         hi = lo + dt.timedelta(days=6)
+    elif (span := ladder_span(s.get("span"), ctx.today)) is not None:
+        lo, hi = span   # お客様が言った頃（「来月の頭」＝ladder_read の span）の中から（2つとも合わないと言われたあとも、その頃の中の別の空いている予定から）
     else:
         # 2つとも合わないと言われたあと（shown_day）は、別の空いている予定から＝6日先を越えてよい（伺い60 の「別の空スケジュールの2つ」）
         lo, hi = ctx.today + dt.timedelta(days=1), (max(days, default=ctx.today) if shown else ctx.today + dt.timedelta(days=6))
@@ -976,7 +1028,7 @@ def in_ladder_opening(q: "Question | None") -> bool:
 def ladder_value(s: dict) -> str:
     """伺えた所から、かけ直しの記録の time の値を作る唯一の場所（「火曜日の午後4時」「土日の午前11時」「明日の午後2時」・日を言わない今日は時刻だけ「午後3時」・
     「いつでも」は伺えた所＋「ならいつでも」）。CL-2 の時刻の読み（spoken_time）で読む形（土日の時刻＝「土日の午前11時」は CL-2 への知らせ）。"""
-    day = s.get("day") or ("" if s.get("today") else s.get("kind") or "")
+    day = s.get("day") or s.get("span") or ("" if s.get("today") else s.get("kind") or "")   # 頃の中に電話をかけられる日が無く、日を伺わなかったら頃の言葉のまま
     clock = s.get("clock") or ""
     if clock and not AMPM_WORDS.search(clock) and not ((m := _CLOCK.search(clock)) and int(m.group("h")) >= 13):
         clock = (s.get("band") or s.get("half") or "") + clock
