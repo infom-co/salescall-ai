@@ -97,9 +97,10 @@
     {% if d.confirmed %}
       <button class="btn small" type="button" disabled>確かめました（{{ time(d.confirmed_at) }}）</button>
     {% else %}
-      <form method="post" action="/c/{{ client.client_id }}/inbox/deficit/confirm">{{ csrf(token) }}
+      <form method="post" action="/c/{{ client.client_id }}/inbox/deficit/confirm" data-confirm-ok="確かめた"
+            data-confirm="依頼者「{{ client.name }}」の赤字を確かめたことにします（これ以上、この赤字のお知らせは送りません。電話は止めていません）。">{{ csrf(token) }}
         <input type="hidden" name="warning_id" value="{{ d.warning_id }}"><input type="hidden" name="back" value="{{ back }}">
-        <button class="btn main small" type="submit">{{ words.DEFICIT_CONFIRM }}</button></form>
+        <button class="btn small" type="submit">{{ words.DEFICIT_CONFIRM }}</button></form>
       <span class="muted">{{ time(d.deadline) }}までに確かめないと、契約者と管理者にもう一度お知らせします。</span>
     {% endif %}
   </div>

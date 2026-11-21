@@ -32,10 +32,11 @@
       <dt>結果</dt><dd>{{ words.word(words.BUSINESS_STATES, row.business_state).screen }}
         {% if can_correct %}
         <details class="adder" id="result-fix"><summary class="btn small">結果を直す</summary>
-          <form class="panel" method="post" action="{{ base }}/rows/{{ row.task_id }}/result" data-needs-reason>{{ csrf(token) }}
+          <form class="panel" method="post" action="{{ base }}/rows/{{ row.task_id }}/result" data-needs-reason
+                data-confirm="お客様「{{ row.source_name or '（会社名なし）' }}」の結果を「{select:state}」に直します。直した結果で確定し、次の予定も直しに従います。" data-confirm-ok="直す">{{ csrf(token) }}
             <input type="hidden" name="version" value="{{ latest.version_no }}">
             <label class="field">正しい結果</label>
-            <select name="state">{% for k, w in words.BUSINESS_STATES.items() if k != "unknown" %}<option value="{{ k }}" {% if k == latest.business_state %}selected{% endif %}>{{ w.screen }}</option>{% endfor %}</select>
+            <select name="state" required><option value="" selected disabled>正しい結果を選ぶ</option>{% for k, w in words.BUSINESS_STATES.items() if k != "unknown" %}<option value="{{ k }}" data-word="{{ w.screen }}">{{ w.screen }}{% if k == latest.business_state %}（いまの結果）{% endif %}</option>{% endfor %}</select>
             <label class="field">理由（記録に残ります）</label><input type="text" name="reason" placeholder="例：録音では、はっきりお断りされていた">
             <p class="muted">直した結果で確定し、次の予定も直しに従います（例：「お断り」に直すと、もうおかけしません）。</p>
             <button class="btn main small" type="submit" data-submit disabled>この結果に直す</button></form></details>
@@ -44,10 +45,11 @@
       <dt>かけるか</dt><dd>{{ tag(words.exclusion_level(level), words.tone("stopped" if level == "force" else "normal")) }}
         {#- その場で変える操作は、どれも「押すと開く小窓」の1つの形（結果を直す・手で戻すと同じ） -#}
         <details class="adder"><summary class="btn small">かけるかを変える</summary>
-          <form class="panel" method="post" action="{{ base }}/exclude" data-needs-reason>{{ csrf(token) }}
+          <form class="panel" method="post" action="{{ base }}/exclude" data-needs-reason
+                data-confirm="お客様「{{ row.source_name or '（会社名なし）' }}」を「{select:level}」にします。" data-confirm-ok="変える">{{ csrf(token) }}
             <input type="hidden" name="task_id" value="{{ row.task_id }}"><input type="hidden" name="back" value="row">
             <label class="field" for="row-level">このお客様に、かけるか</label>
-            <select id="row-level" name="level">{% for k, label in level_names.items() %}<option value="{{ k }}" {% if k == level %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+            <select id="row-level" name="level" required><option value="" selected disabled>どうするかを選ぶ</option>{% for k, label in level_names.items() %}<option value="{{ k }}" data-word="{{ label }}">{{ label }}{% if k == level %}（いま）{% endif %}</option>{% endfor %}</select>
             <p class="muted">{{ words.EXCLUSION_HELP }}</p>
             <label class="field" for="row-level-reason">理由（記録に残ります）</label><input id="row-level-reason" type="text" name="reason" placeholder="例：依頼者から、この会社にはかけないでと連絡があった">
             <button class="btn main small" type="submit" data-submit disabled>「かけるか」を変える</button></form></details></dd>

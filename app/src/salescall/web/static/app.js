@@ -124,13 +124,14 @@
       if (!form) return;
       // 「すべて選ぶ」は、いま見えているお客様だけ（「探す」で絞り込んで隠れた行は選ばない＝隠れたお客様にうっかり印を付けない）。
       // すべて選ぶの欄が2つ（表の見出し・狭い画面の帯）あっても、同じ1つの状態にそろえる
-      var boxes = Array.prototype.filter.call(form.querySelectorAll("input[name=task_id]"), function (b) { return b.closest("tr").style.display !== "none"; });
+      // 印の箱だけを見る（お客様1件の画面の「かけるかを変える」は、隠れた欄でお客様を渡すので、表の行を持たない）
+      var boxes = Array.prototype.filter.call(form.querySelectorAll("input[type=checkbox][name=task_id]"), function (b) { var tr = b.closest("tr"); return !tr || tr.style.display !== "none"; });
       if (e.target.matches("[data-check-all]")) {
         if (k === "change") {
           boxes.forEach(function (b) { b.checked = e.target.checked; });
           form.querySelectorAll("[data-check-all]").forEach(function (c) { c.checked = e.target.checked; });
         }
-      } else if (e.target.matches("input[name=task_id]")) {   // お客様の印を押したときだけ、すべて選ぶの印をそろえ直す
+      } else if (e.target.matches("input[type=checkbox][name=task_id]")) {   // お客様の印を押したときだけ、すべて選ぶの印をそろえ直す
         var all = boxes.length > 0 && boxes.every(function (b) { return b.checked; });
         form.querySelectorAll("[data-check-all]").forEach(function (c) { c.checked = all; });
       }
@@ -158,6 +159,39 @@
   // 送っている間は二度押しできない。
   // ボタンを止めるのは、ブラウザが送る中身を作り終えたあと（次の順番）にする。
   // 先に止めると、押したボタンの名前と値（例：許可する／断る）が送る中身から落ちてしまう。
+  // 取り消せない操作の確かめ（data-confirm の付いた送信は、すべてこの1か所で確かめの窓を通す。計画書 5-1「名前つきで見せてから」）。
+  // 文の {n} は選んだお客様の数、{select:名前} はその選ぶ欄でいま選んでいる言葉（送る直前の値で書く）
+  var pendingConfirm = null;
+  function confirmText(form) {
+    return form.getAttribute("data-confirm")
+      .replace(/\{n\}/g, String(form.querySelectorAll("input[name=task_id]:checked").length))
+      .replace(/\{select:([a-z_]+)\}/g, function (_, name) {
+        var sel = form.querySelector("select[name=" + name + "]");
+        // 選ぶ欄の言葉に「（いま）」などの印を添えた項目は、印のない言葉を data-word に持つ（文には言葉だけを書く）
+        var opt = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
+        return opt ? (opt.getAttribute("data-word") || opt.text).trim() : "";
+      });
+  }
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (!form.matches("form[data-confirm]") || form.getAttribute("data-confirmed") === "1") return;
+    var d = document.getElementById("confirm-dialog");
+    if (!d) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    pendingConfirm = { form: form, submitter: e.submitter || null };
+    d.querySelector("[data-confirm-text]").textContent = confirmText(form);
+    d.querySelector("[data-confirm-ok]").textContent = form.getAttribute("data-confirm-ok") || "決める";
+    d.showModal();
+  }, true);
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest("[data-confirm-ok]") || !pendingConfirm) return;
+    var p = pendingConfirm; pendingConfirm = null;
+    document.getElementById("confirm-dialog").close();
+    p.form.setAttribute("data-confirmed", "1");
+    if (p.submitter && p.form.requestSubmit) p.form.requestSubmit(p.submitter); else if (p.form.requestSubmit) p.form.requestSubmit(); else p.form.submit();
+    setTimeout(function () { p.form.removeAttribute("data-confirmed"); }, 1000);   // 書き出し（画面が移らない送信）は、次も確かめる
+  });
   document.addEventListener("submit", function (e) {
     var form = e.target;
     if ((form.method || "").toLowerCase() !== "post" || form.hasAttribute("data-download")) return;   // 書き出しは画面が替わらない

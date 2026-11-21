@@ -60,7 +60,7 @@ class DeficitOnScreen(CostRatio):
         self.assertIn("確かめた（これ以上お知らせしない）", costs)
         self.assertIn("赤字の確認", http.get("/t/inbox").text)
         self.assertIn("報酬より費用が多くなっています", http.get(f'/c/{s["client"]}').text)
-        form = re.search(r'<form method="post" action="(/c/[^"]+/inbox/deficit/confirm)">(.*?)</form>', costs, re.S)
+        form = re.search(r'<form method="post" action="(/c/[^"]+/inbox/deficit/confirm)"[^>]*>(.*?)</form>', costs, re.S)
         sent = dict(re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)">', form.group(2)))
         r = http.post(form.group(1), data=sent, follow_redirects=False)
         self.assertTrue(r.headers["location"].startswith("/t/costs?"))         # 費用と報酬の画面へ戻る
@@ -79,7 +79,7 @@ class DeficitOnScreen(CostRatio):
         person = Person("試験の契約者", False, s["tenant"], "架空の契約者")
         http = TestClient(create_app(app_access(), lambda r: person, SECRET))
         overview = http.get(f'/c/{s["client"]}').text
-        form = re.search(r'<form method="post" action="(/c/[^"]+/inbox/deficit/confirm)">(.*?)</form>', overview, re.S)
+        form = re.search(r'<form method="post" action="(/c/[^"]+/inbox/deficit/confirm)"[^>]*>(.*?)</form>', overview, re.S)
         sent = dict(re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)">', form.group(2)))
         self.assertEqual(sent["back"], f'/c/{s["client"]}')
         r = http.post(form.group(1), data=sent, follow_redirects=False)

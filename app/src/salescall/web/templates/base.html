@@ -42,6 +42,17 @@
     </div>
   </form>
 </dialog>
+{#- 取り消せない操作の確かめの窓（1つ。data-confirm の付いた送信は、すべてここを通す＝app.js の1か所。文は送信が名前つきで渡す＝計画書 5-1） -#}
+<dialog id="confirm-dialog" aria-labelledby="confirm-title">
+  <div class="body">
+    <h2 id="confirm-title">この操作を決めます</h2>
+    <p data-confirm-text></p>
+  </div>
+  <div class="foot actions">
+    <button class="btn" type="button" data-close>やめる</button>
+    <button class="btn main" type="button" data-confirm-ok>決める</button>
+  </div>
+</dialog>
 {% include "tabs.html" %}
 <div class="shell">
   <nav class="nav" aria-label="道しるべ">

@@ -594,6 +594,12 @@ class Web(_World):
                 problems.append((path, "言葉の抜け"))
             problems += [(path, m) for m in internal.findall(visible)]
             problems += [(path, "開発の覚え書き：" + m.group(0)) for m in re.finditer(DEV_NOTE, visible)]   # 画面に開発の根拠を出さない
+            # 取り消せない操作の送信は、どれも確かめの窓（data-confirm＝名前つきの文）を通す（計画書 5-1。3回目の見直し「高」の2）
+            for tag_ in re.findall(r"<form\b[^>]*>", r.text):
+                act = re.search(r'action="([^"]*)"', tag_)
+                if act and re.search(r"/result$|/exclude$|/revoke$|/resume$|/results\.(xlsx|csv)$|/inbox/deficit/confirm$", act.group(1)) \
+                        and "data-confirm=" not in tag_:
+                    problems.append((path, "確かめの無い取り消せない操作：" + act.group(1)))
             if who != "ADMIN":   # 契約者の画面に内部の言い方を出さない（何が内部の言い方かは words.CONTRACTOR_INNER の1か所。管理者には覚え書きも出してよい）
                 from salescall.output import words as _w
                 problems += [(path, "内部の言い方：" + m.group(0)) for m in _w.CONTRACTOR_INNER.finditer(visible)]
@@ -877,7 +883,7 @@ class Web(_World):
 
 
 def visible_primary_buttons(page: str) -> list[str]:
-    """開かなくても見えている主のボタン（藍＝class に btn と main）の文字。たたんだ小窓（<details>）の中は、開いたときだけ1つ見えるので数えない。"""
+    """開かなくても見えている主のボタン（藍＝class に btn と main）の文字。たたんだ小窓（<details>）と、閉じた窓（<dialog>。確かめの窓など）の中は、開いたときだけ1つ見えるので数えない。"""
     from html.parser import HTMLParser
 
     class P(HTMLParser):
@@ -887,7 +893,7 @@ def visible_primary_buttons(page: str) -> list[str]:
 
         def handle_starttag(self, tag, attrs):
             a = dict(attrs)
-            if tag == "details":
+            if tag in ("details", "dialog"):
                 self.closed += 0 if "open" in a else 1
                 self.stack.append("open" in a)
             cls = (a.get("class") or "").split()
@@ -902,7 +908,7 @@ def visible_primary_buttons(page: str) -> list[str]:
         def handle_endtag(self, tag):
             if tag in ("button", "a"):
                 self.cur = None
-            if tag == "details" and self.stack:
+            if tag in ("details", "dialog") and self.stack:
                 self.closed -= 0 if self.stack.pop() else 1
 
     p = P()

@@ -104,7 +104,8 @@
 <section class="card" style="margin-top:16px">
   <h2>管理者・契約者の判断で再開する</h2>
   <p class="muted">上の「再開する前に確かめること」を確かめてから押してください。理由は記録に残ります。</p>
-  <form method="post" action="{{ base }}/resume" data-needs-reason>
+  <form method="post" action="{{ base }}/resume" data-needs-reason data-confirm-ok="再開する"
+        data-confirm="「{{ x.cause.label }}」（{{ words.stop_scope(x.stop.scope) }}の範囲{% if client %}・依頼者「{{ client.name }}」{% endif %}）から再開します。新しい電話をまたかけ始めます。">
     {{ csrf(token) }}
     <label class="field" for="reason">再開する理由</label>
     <textarea id="reason" name="reason" required placeholder="例：回線の端末を入れ替え、テスト番号で鳴ることを確かめた"></textarea>

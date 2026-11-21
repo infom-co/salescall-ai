@@ -21,7 +21,8 @@
 </div>
 {% endif %}
 {% if rows %}
-<form method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/exclude" data-needs-reason class="bulk-form">
+<form method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/exclude" data-needs-reason class="bulk-form"
+      data-confirm="お客様リスト「{{ run.name }}」の、選んだお客様 {n}件を「{select:level}」にします（依頼者「{{ client.name }}」・業務「{{ business.name }}」）。" data-confirm-ok="変える">
   {{ csrf(token) }}
   <div class="bulk card">
     <label class="choice check-all-bar"><input type="checkbox" data-check-all> 見えているお客様をすべて選ぶ</label>{# 狭い画面では表の見出しが隠れるので、ここに同じ働きの欄（CSS で狭い画面だけ） #}
@@ -48,7 +49,7 @@
       <td class="tel">{{ phone(r.dial_phone) }}</td>
       <td class="nowrap">{{ next_tag(r.next_kind, r.next_call_at, r.next_end_reason, waiting=more[r.task_id].title if r.task_id in more else "") }}{% if r.task_id in more %}
         {# 発信を始める操作なので、どのお客様かを名前つきで見せてから決める（計画書 5-1「取り消せない操作の確認」）。受け箱・1行の画面は、名前を並べたカードの中にボタンがある #}
-        <details class="adder more-act"><summary class="btn main small">{{ more[r.task_id].buttons[0].label }}</summary>
+        <details class="adder more-act"><summary class="btn small">{{ more[r.task_id].buttons[0].label }}</summary>
           <div class="panel">
             <p>「{{ r.source_name or "（会社名なし）" }}{% if r.target_name %} ／ {{ r.target_name }}様{% endif %}」に、このお客様だけ、もう一度おかけします。また話せなければ、もう一度ここにボタンが出ます。</p>
             <button class="btn main small" type="submit" form="more-{{ r.task_id }}">おかけする</button>

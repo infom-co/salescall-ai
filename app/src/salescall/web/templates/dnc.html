@@ -27,7 +27,8 @@
       <td>{% if r.revoked_at %}{{ tag("取り消し済み", "") }}<div class="muted">{{ r.revoke_reason }}</div>{% else %}{{ tag("かけない", "stop") }}{% if not client and r.reason %}<div class="muted">{{ r.reason }}</div>{% endif %}{% endif %}</td>
       <td class="nowrap">{% if not r.revoked_at %}
         <details class="adder"><summary class="btn small danger-text">取り消す</summary>
-          <form class="panel" method="post" action="{{ base }}/revoke" data-needs-reason>{{ csrf(token) }}<input type="hidden" name="entry_id" value="{{ r.entry_id }}">
+          <form class="panel" method="post" action="{{ base }}/revoke" data-needs-reason data-confirm-ok="取り消す"
+                data-confirm="{{ phone(r.phone_e164) if r.phone_e164 else ('管理番号 ' ~ r.client_ref) }} の発信禁止を取り消します（{{ ('依頼者「' ~ client.name ~ '」') if client else '共通の発信禁止' }}）。取り消すと、この番号へまたかけます。">{{ csrf(token) }}<input type="hidden" name="entry_id" value="{{ r.entry_id }}">
             <p class="muted">取り消すと、この番号へまたかけます。依頼者からの正式なお求めのときだけにしてください。</p>
             <input type="text" name="reason" placeholder="理由（例：依頼者から、誤って登録したとのご連絡）"><button class="btn danger small" type="submit" data-submit disabled>取り消す</button></form></details>
       {% endif %}</td>
