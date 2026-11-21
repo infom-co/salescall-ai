@@ -317,7 +317,7 @@ class VerificationMode(ApprovalHelpers):
             self.assertNotIn(row[i - 1], ("-", "✕"))                              # 答えの欄は値か、お客様の言葉か、状態の短い言葉（「-」「✕」ではない。
             #                                                                          この試験の土台は「取れた」の印だけで値を入れないので、値の欄は空）
         self.assertEqual(kept(), 1)
-        self.assertRegex(http.get(f"/c/{s['client']}/b/{s['business']}").text, r"<b class=\"num\">0</b><span>確かめ待ち</span>")   # 確かめたので0
+        self.assertIn(f'<b class="num">0</b><span>{_w.UNCONFIRMED_WORDS["awaiting_check"][0]}</span>', http.get(f"/c/{s['client']}/b/{s['business']}").text)   # 確かめたので0
         self.assertEqual(self._post(http, csv_url, {}).status_code, 200)          # 同じ中身をもう1回渡しても
         self.assertEqual(kept(), 1)                                               # 控えは重ねない
 
