@@ -41764,7 +41764,16 @@ class RereadRowsTest(unittest.TestCase):
              "「〇時まで」の理由を向きのある一言で伺い直したあと（時刻の2択に「3時までには戻ってます。」・判定の読みが割れた）": (
                  "C1", "恐れ入ります。3時まではお電話が難しいということでしょうか？", ""),
              # 分身 AB の (2)：お給料日を伺った一言のあと（review_words.ASK_ROWS）
-             "お給料日を伺った一言のあと（曜日の2択に「給料日のあとでお願いします。」）": ("C1", "恐れ入りますがお給料日は何日になりますでしょうか？", "")}
+             "お給料日を伺った一言のあと（曜日の2択に「給料日のあとでお願いします。」）": ("C1", "恐れ入りますがお給料日は何日になりますでしょうか？", ""),
+             # 分身 AF の (5)：判定に見せる文の新しい場面のうち、行の無かったもの（review_words.AF_ROWS）
+             "頃の中に空いている予定が無いことをお詫びしてお伝えする2択（曜日の2択に「来月の頭でお願いします。」・来月の頭は電話をかけられる日に無い）": (
+                 "C1", "あいにく来月の頭は空きがございませんので来週の金曜日と30日の月曜日ではどちらがよろしいでしょうか？", ""),
+             "日時の2択の段の言い直しに週だけ直されたあとの曜日の2択（「いえ、来週でお願いします。」・はじめに伺えた火曜日を外した「来週の水曜日と来週の木曜日」）": (
+                 "C1", "来週の水曜日と来週の木曜日ではどちらがよろしいでしょうか？", ""),
+             "お給料日のあとの頃の2択（お給料日を伺った一言に「25日です。」）": ("C1", "来週の木曜日と来週の金曜日ではどちらがよろしいでしょうか？", ""),
+             "締め日を伺った一言のあと（曜日の2択に「締め日のあとでお願いします。」）": ("C1", "恐れ入りますが締め日は何日になりますでしょうか？", ""),
+             "お客様から折り返していただく日の言い直しに週だけ直されたあとの2択（「いえ、来週になります。」のあとの「来週の火曜日と来週の水曜日」）": (
+                 "C1", "それでは来週の火曜日と来週の水曜日ではどちらになりますでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -41781,13 +41790,13 @@ class RereadRowsTest(unittest.TestCase):
     def test_1_new_scenes_are_built_by_the_one_count(self):
         import g53_meaning as g
         from flowctl import AWAY, AWAY_NO, PROMPT_REPLY, PROMPT_REPLY_YES, VALUE_CHOICE, WRONG, WRONG_NOT_SAID
-        from review_words import AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
+        from review_words import AF_ROWS, AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
         qs = questions()
         rows = [it for it in answer_words() if it.get("scene") in NEW_SCENES]
         self.assertEqual({it["scene"] for it in rows}, set(NEW_SCENES))
         self.assertEqual(set(self.SHOWN), set(NEW_SCENES))
-        # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行・ASK_ROWS＝分身 AB が足した行
-        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS) if it.get("scene") in NEW_SCENES])
+        # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行・ASK_ROWS＝分身 AB が足した行・AF_ROWS＝分身 AF の (5) が足した行
+        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS, *AF_ROWS) if it.get("scene") in NEW_SCENES])
         for it in rows:
             with self.subTest(text=it["text"], scene=it["scene"]):
                 q = qs[it["qid"]]
@@ -44476,6 +44485,42 @@ class AskRowsTest(unittest.TestCase):
             it = next(i for i in self.rows(scene) if i["text"] == text)
             self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), acts, text)
 
+
+
+class AFRowsTest(unittest.TestCase):
+    """分身 AF の (5)（分身 AB の書き置き rv186/AB/notes.md の (6-4)）：判定に見せる文の新しい場面のうち、試しの言葉の表に行が無かったもの（伺い100 アのお詫びしてお伝えする2択・日が1つに
+    決まらない直しのあとに伺い直す2択・お給料日のあとの頃の2択・お客様の言った日の名前で伺う一言・お客様から折り返していただく日の言い直しに週だけ直されたあとの2択）に、試しの言葉の行を
+    足した（review_words.AF_ROWS。場面は測りの数えの1か所 g53_meaning._new_scene が本番の流れの制御で組む）。測りの前に正解の表まで整える（帳面 0-3・分身 V の (6-5)・分身 W の (5) と同じ形）。
+    ⛔ a3b200cf まで、この場面の行は無かった"""
+
+    def test_every_scene_has_its_rows_and_items(self):
+        from flowctl import CYCLE, LADDER_OTHER, MISGIVING, UNTIL_WHY
+        from review_words import AF_ROWS, NO_ROOM_SCENE, PAYDAY_NAMED_SCENE, PAYDAY_SPAN_SCENE, RANGE_REDO_SCENE, THEIRS_REDO_SCENE
+        n = {s: sum(1 for it in AF_ROWS if it["scene"] == s) for s in (NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, THEIRS_REDO_SCENE, PAYDAY_NAMED_SCENE)}
+        self.assertEqual(list(n.values()), [6, 6, 6, 6, 4])
+        for it in AF_ROWS:
+            # その場面の判定が読む項目には、正解がある（こちらからかけ直す日時＝迷っている点を言ったか・「〇時まで」の理由・月単位の理由・2択なら合わないと言わなかったほうで大丈夫そうか／
+            # お客様から折り返していただく日＝月単位の理由・2択の項目）
+            want = ((CYCLE, LADDER_OTHER) if it["qid"] == "C1T" else (CYCLE, MISGIVING, UNTIL_WHY) + ((LADDER_OTHER,) if it["scene"] != PAYDAY_NAMED_SCENE else ()))
+            for k in want:
+                self.assertIn(k, it["label"], (it["text"], it["scene"], k))
+
+    def test_the_wanted_acts(self):
+        # 数える1か所（g53_meaning.flow_wants）で、正しい読みの組み合わせから決まる動き（流れの制御に通して確かめた形＝rv187/AF/probe/af/rows_acts.py）
+        import g53_meaning as G
+        from review_words import AF_ROWS, NO_ROOM_SCENE, PAYDAY_NAMED_SCENE, RANGE_REDO_SCENE, THEIRS_REDO_SCENE, questions
+        qmap = G.question_map() | questions()
+        month = "〔理由：月単位の理由（月ぎめ・締め・振り込みや入金の間隔など）〕"
+        want = {(NO_ROOM_SCENE, "来週の金曜日はちょっと…。"): {"避けた方だけを外して2つを伺う：来週の木曜日と30日の月曜日ではどちらがよろしいでしょうか？"},
+                (RANGE_REDO_SCENE, "木曜日でお願いします。"): {"念のため確かめる：答えた（来週の木曜日の午後4時）"},
+                (RANGE_REDO_SCENE, "水曜日はちょっと…。"): {"避けた方だけを外して2つを伺う：来週の木曜日と来週の金曜日ではどちらがよろしいでしょうか？"},
+                (THEIRS_REDO_SCENE, "水曜日になります。"): {"念のため確かめる：答えた（水曜日の午後4時まで）"},
+                (THEIRS_REDO_SCENE, "ちょっと分からないですね。"): {"念のため確かめる：答えた（来週の平日の午後4時まで）"},
+                (PAYDAY_NAMED_SCENE, "20日です。"): {f"{G.PAYDAY_TOOK_ACT}：火曜日と水曜日ではどちらがよろしいでしょうか？{month}"},
+                (PAYDAY_NAMED_SCENE, "月によって違うんですよ。"): {f"{G.PAYDAY_TOOK_ACT}：金曜日と火曜日ではどちらがよろしいでしょうか？{month}"}}
+        for (scene, text), acts in want.items():
+            it = next(i for i in AF_ROWS if i["scene"] == scene and i["text"] == text)
+            self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), acts, text)
 
 class HeldAskChoicesTest(unittest.TestCase):
     """分身 AD の (1)：日時の2択の途中で伺い直した一言（「〇時まで」の理由の確かめ＝Flow._ask_until・お給料日を伺う一言＝Flow._ask_payday）を待つ間に判定へ見せる選べるものと、
