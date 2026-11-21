@@ -985,19 +985,12 @@ SCENE_PAID = "振込でお願いします。"
 def _ladder_scene(q: Question) -> Flow:
     """日時の2択の段（review_words.LADDER_SCENE）：かけ直しを頼まれ（判定の読み「あとでかけ直す」・会話AIの報告 request_callback）、かけ直しの時刻・日の質問（q＝C1）を
     平日と土日の2択で伺い、「平日」と答えていただいて、曜日の2択を伺った所まで（伺うのは Flow._ladder_set・_ladder_take の1か所）。"""
-    import datetime as dt
-    from flowctl import AHEAD_CHECKS, LATER, VALUE_CHOICE
+    from flowctl import LATER, VALUE_CHOICE
     f = asked_flow([SCENE_PRE, SCENE_NEXT])
     f.use_checks("judge")
-    y, m, d, h = LADDER_TODAY
-    f.today, f.now = dt.date(y, m, d), dt.datetime(y, m, d, h, 0)
-    f.call_days = tuple(f.today + dt.timedelta(days=i) for i in range(1, 12) if f.today + dt.timedelta(days=i) != dt.date(*LADDER_HOLIDAY))
+    _ladder_day(f)
     _scene_say(f, SCENE_LATER, _scene_read(LATER), "request_callback", why="later")
-    f.ahead_context()   # かけ直しを頼んだお話に時刻・日は無い（判定が読み直す＝決められない）
-    for k in AHEAD_CHECKS:
-        if k.split("@")[0] in f.checks_used:
-            f.on_check(k, UNDECIDED, f.callee_turns)
-    f.apply("replay_opening", {"part": "resume"})
+    _no_time_said(f)   # かけ直しを頼んだお話に時刻・日は無い（判定が読み直す＝決められない）
     _scene_say(f, SCENE_WEEKDAY, _scene_read(VALUE_CHOICE), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value="平日")
     if f.current != q.id or f.items[q.id].ladder is None:
         raise NoScene("日時の2択の段の曜日の2択を伺わない")
@@ -1033,6 +1026,83 @@ def _until_ask_scene(q: Question) -> Flow:
     r = _scene_say(f, SCENE_UNTIL, _scene_read(VALUE_CHOICE, **{UNTIL_WHY: UNTIL_WHY_NOT_SAID}), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value="3時まで")
     if (r or {}).get("ask_reason") != "until" or f.items[q.id].until_held is None:
         raise NoScene("「〇時まで」の理由を伺い直さない")
+    return f
+
+
+def _ladder_day(f: Flow) -> None:
+    """日時の2択の段の場面の電話の日と時刻・電話をかけられる日（唯一の場所＝LADDER_TODAY・LADDER_HOLIDAY。曜日の2択は「金曜日と火曜日」）。"""
+    import datetime as dt
+    y, m, d, h = LADDER_TODAY
+    f.today, f.now = dt.date(y, m, d), dt.datetime(y, m, d, h, 0)
+    f.call_days = tuple(f.today + dt.timedelta(days=i) for i in range(1, 12) if f.today + dt.timedelta(days=i) != dt.date(*LADDER_HOLIDAY))
+
+
+def _no_time_said(f: Flow) -> None:
+    """先に言われた答えを伺う番（ahead_offer）で、お話に時刻・日は無いと判定が読み直して質問を流す（唯一の場所＝日時の2択の段の場面の頭）。"""
+    from flowctl import AHEAD_CHECKS
+    f.ahead_context()
+    for k in AHEAD_CHECKS:
+        if k.split("@")[0] in f.checks_used:
+            f.on_check(k, UNDECIDED, f.callee_turns)
+    f.apply("replay_opening", {"part": "resume"})
+
+
+SCENE_THEIRS = ("あとでこちらからかけ直しますね。", "いえいえ、こちらから連絡しますので大丈夫ですよ。")
+SCENE_THEIRS_WHEN = "平日の4時までには折り返します。"
+
+
+def _theirs_pair_scene(q: Question) -> Flow:
+    """お客様から折り返していただく日の2択（review_words.THEIRS_PAIR_SCENE）：答えの段でお客様ご本人に「あとでこちらからかけ直しますね。」（判定の読み「お客様から折り返す」）と言われ、
+    お礼のあと、重ねて「いえいえ、こちらから連絡しますので大丈夫ですよ。」と言われてお言葉に甘え（Flow._callback）、いつ頃お電話をいただけそうかを伺い（theirs_later）、
+    「平日の4時までには折り返します。」と日の種類だけを言われて「それでは本日と明日ではどちらになりますでしょうか？」（伺い67＝Flow._theirs_begin）を伺った所まで（試験
+    TheirsDayPairTest・答えの段の重ねての申し出は CallbackWishTest と同じ手順。電話の日と時刻は日時の2択の段の場面と同じ＝_ladder_day）。分身 U の (3)"""
+    from flowctl import LATER_THEIRS, VALUE_CHOICE
+    f = asked_flow([SCENE_PRE, SCENE_NEXT])
+    f.use_checks("judge")
+    _ladder_day(f)
+    for words in SCENE_THEIRS:
+        r = _scene_say(f, words, _scene_read(LATER_THEIRS), "request_callback", why="later", offer="callback")
+        if r and r.get("ahead_offer"):
+            _no_time_said(f)
+    _scene_say(f, SCENE_THEIRS_WHEN, _scene_read(VALUE_CHOICE), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value="平日の4時まで")
+    if f.current != q.id or not (f.items[q.id].ladder or {}).get("theirs"):
+        raise NoScene("お客様から折り返していただく日の2択を伺わない")
+    return f
+
+
+# 依頼者が受けられる日時の空き（伺い60＝空いている予定の中から2つ。試験 PLadderOpeningTest.WEEKEND に水曜日・木曜日を足した形＝平日と土日の2択から始まり、曜日の2択「金曜日と火曜日」に
+# 2つとも・片方だけ合わないと言われたときに別の空いている予定がある）
+SCENE_ACCEPT_FREE = (("2026-11-20", "10:00", "17:00"), ("2026-11-21", "10:00", "17:00"), ("2026-11-24", "13:00", "17:00"), ("2026-11-25", "10:00", "17:00"),
+                     ("2026-11-26", "10:00", "17:00"))
+
+
+def _accept_pair_scene(q: Question) -> Flow:
+    """依頼者の日時の質問の2つ目の2択（review_words.ACCEPT_PAIR_SCENE）：最初の質問（ご予約）に「はい、しています。」と答えていただき、お客様に日時を選んでいただく業務の質問 q
+    （伺い62＝Question.ladder の accept。聞くこと topic「ご来店の日時」）のはじめの2択「承知しました。続きましてご来店は平日と土日のどちらがよろしいでしょうか？」に「平日」と答えて
+    いただいて、2つ目の2択（「金曜日と火曜日では…」＝聞くことの頭が無い）を伺った所まで（試験 PLadderOpeningTest と同じ手順）。分身 U の (3)"""
+    from flowctl import VALUE_CHOICE, in_ladder_opening
+    f = asked_flow([SCENE_PRE, q, SCENE_NEXT], accept_free=SCENE_ACCEPT_FREE)
+    f.use_checks("judge")
+    _ladder_day(f)
+    _scene_say(f, SCENE_PRE_SAID, _scene_read("はい"), "record_answer", question_id=SCENE_PRE.id, condition_id="はい")
+    _scene_say(f, SCENE_WEEKDAY, _scene_read(VALUE_CHOICE), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value="平日")
+    if f.current != q.id or f.questions[q.id].ladder != "accept" or in_ladder_opening(f.questions[q.id]) or (f.items[q.id].ladder or {}).get("kind") != "平日":
+        raise NoScene("依頼者の日時の質問の2つ目の2択を伺わない")
+    return f
+
+
+SCENE_PAIN_YES = "まさにそれで困ってるんですよ。"
+
+
+def _meeting_pair_scene(q: Question) -> Flow:
+    """顧客獲得型のアポの日時のはじめの2択（review_words.MEETING_PAIR_SCENE）：Yes の質問2つのあと、悩みの伺いに「まさにそれで困ってるんですよ。」（判定の読み＝はい）と言われ、
+    事例と「聞かせてください」の一続き（お時間の文）のあとに、アポの日時（業務の最初の質問 q を日時の2択の段で伺う＝Question.ladder の meeting）のはじめの2択「それでは平日と土日の
+    どちらがよろしいでしょうか？」を伺った所まで（Flow._main_listen・試験 _p_to_meeting と同じ手順）。業務は測りの顧客獲得型の業務の最初の質問を q にしたもの。分身 U の (3)"""
+    from flowctl import CALLBACK_IDS
+    f = _acquire_flow(q)
+    _scene_say(f, SCENE_PAIN_YES, _scene_read("はい"), "record_answer", question_id=CALLBACK_IDS["pain"], condition_id="はい")
+    if f.current != q.id or f.questions[q.id].ladder != "meeting":
+        raise NoScene("顧客獲得型のアポの日時の2択を伺わない")
     return f
 
 
@@ -1091,11 +1161,13 @@ def _scene_say(f: Flow, words: str, r: Reading, op: str | None = None, **args) -
     return f.judged_turn(voiced=False) if op is None else f.apply(op, args)
 
 
-def _acquire_flow() -> Flow:
+def _acquire_flow(meeting: Question | None = None) -> Flow:
     """顧客獲得型の電話（法人・電話の日 2026-11-20）：第一声のあと名乗りと用件・最初の Yes の質問を流したところ（試験の顧客獲得型の業務と同じ中身＝測りの業務
-    ACQUIRE_SCENE_BUSINESS）。"""
+    ACQUIRE_SCENE_BUSINESS）。meeting＝業務の最初の質問（アポの日時）を替えるとき（アポの日時の2択の場面 _meeting_pair_scene。無ければ測りの業務のまま）。"""
+    import dataclasses
     import datetime as dt
-    f = ACQUIRE_SCENE_BUSINESS().flow(play_recordings=True, today=dt.date(2026, 11, 20))
+    b = ACQUIRE_SCENE_BUSINESS()
+    f = (dataclasses.replace(b, questions=[meeting]) if meeting is not None else b).flow(play_recordings=True, today=dt.date(2026, 11, 20))
     f.use_checks("judge")
     f.on_connect(); f.on_callee(); f.on_heard("はい、山田商事でございます。")
     f.apply("report_party", {"party": "person"}); f.on_activity(False)
@@ -1227,22 +1299,15 @@ def _withdraw_time_scene(q: Question) -> Flow:
     言われ、かけ直しの申し出 H1（「それではまた改めてお掛けしてもよろしいでしょうか？」）に「はい、お願いします。」をいただき、かけ直しの時刻（日時の2択の段の最初の2択）を伺った所まで
     （伺うのは Flow._offer_taken_time の1か所。電話の日と時刻は日時の2択の段の場面と同じ LADDER_TODAY）。ここで判定の選べるものに「申し出を取り消した」が出る（Flow._taken_offer。
     伺い40＝帳面 1 の (1) の分身 A の段。分身 S3）"""
-    import datetime as dt
-    from flowctl import AHEAD_CHECKS, END_HURRY
+    from flowctl import END_HURRY
     f = asked_flow([SCENE_PRE, SCENE_NEXT])
     f.use_checks("judge")
-    y, m, d, h = LADDER_TODAY
-    f.today, f.now = dt.date(y, m, d), dt.datetime(y, m, d, h, 0)
-    f.call_days = tuple(f.today + dt.timedelta(days=i) for i in range(1, 12) if f.today + dt.timedelta(days=i) != dt.date(*LADDER_HOLIDAY))
+    _ladder_day(f)
     _scene_say(f, SCENE_HURRY, _scene_read(UNDECIDED, END_HURRY))
     offer = f.current
     r = _scene_say(f, SCENE_YES_PLEASE, _scene_read("はい"), "record_answer", question_id=offer, condition_id="はい")
     if r and r.get("ahead_offer"):
-        f.ahead_context()   # 申し出を受けたお返事に時刻・日は無い（判定が読み直す＝決められない）
-        for k in AHEAD_CHECKS:
-            if k.split("@")[0] in f.checks_used:
-                f.on_check(k, UNDECIDED, f.callee_turns)
-        f.apply("replay_opening", {"part": "resume"})
+        _no_time_said(f)   # 申し出を受けたお返事に時刻・日は無い（判定が読み直す＝決められない）
     if f.current != q.id or f._taken_offer() != offer:
         raise NoScene("受けていただいたかけ直しの申し出のあとの時刻を伺わない")
     return f
@@ -1315,12 +1380,14 @@ def _elsewhere_point_scene(q: Question) -> Flow:
 
 def _new_scene(it: dict, q: Question) -> Flow:
     """試しの言葉の表の場面の印（review_words.NEW_SCENES）の場面を組む唯一の入口（_flow_scene）。"""
-    from review_words import (ANSWERED_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, LADDER_SCENE, OFFER_FINAL_SCENE, PAIN_SCENE, WAIT_SCENE,
-                              WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, WRONG_ASK_SCENE, UNTIL_ASK_SCENE)
+    from review_words import (ACCEPT_PAIR_SCENE, ANSWERED_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, LADDER_SCENE, MEETING_PAIR_SCENE, OFFER_FINAL_SCENE,
+                              PAIN_SCENE, THEIRS_PAIR_SCENE, WAIT_SCENE, WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, WRONG_ASK_SCENE,
+                              UNTIL_ASK_SCENE)
     build = {LADDER_SCENE: _ladder_scene, LADDER_CLOCK_SCENE: _ladder_clock_scene, WRONG_ASK_SCENE: _wrong_ask_scene, WAIT_SCENE: _wait_scene,
              PAIN_SCENE: _pain_scene, CONCERN_SCENE: _concern_scene, CONFIRM_CONCERN_SCENE: _confirm_concern_scene, ANSWERED_SCENE: _answered_scene,
              OFFER_FINAL_SCENE: _offer_final_scene, WITHDRAW_TIME_SCENE: _withdraw_time_scene, WITHDRAW_SEND_SCENE: _withdraw_send_scene,
-             WITHDRAW_WAY_SCENE: _withdraw_way_scene, ELSEWHERE_POINT_SCENE: _elsewhere_point_scene, UNTIL_ASK_SCENE: _until_ask_scene}.get(it["scene"])
+             WITHDRAW_WAY_SCENE: _withdraw_way_scene, ELSEWHERE_POINT_SCENE: _elsewhere_point_scene, UNTIL_ASK_SCENE: _until_ask_scene,
+             THEIRS_PAIR_SCENE: _theirs_pair_scene, ACCEPT_PAIR_SCENE: _accept_pair_scene, MEETING_PAIR_SCENE: _meeting_pair_scene}.get(it["scene"])
     if build is None:
         raise NoScene(f"場面の印の場面を組む作りが無い（{it['scene']}）")
     return build(q)
