@@ -1059,11 +1059,11 @@ class EmergencyStop(_World):
             marks = re.search(r'data-tab-marks data-stop="([^"]*)"', self.get("A", "/t/badges").text).group(1).split()
             self.assertIn(str(self.y["client"]), marks)
             self.assertNotIn(str(self.a["client"]), marks)
-            # ホームの依頼者ごとの表も同じ答え（counts.stopped_clients）：止めた依頼者の行だけに「止めています」
+            # ホームの依頼者ごとの表も同じ答え（counts.stopped_clients）：止めた依頼者の行だけに「止まっています」
             home = self.get("A", "/t").text
             row = lambda c: home[home.index(f'<td><a href="/c/{c}">'):].split("</tr>")[0]   # noqa: E731
-            self.assertIn("止めています", row(self.y["client"]))
-            self.assertNotIn("止めています", row(self.a["client"]))
+            self.assertIn("止まっています", row(self.y["client"]))
+            self.assertNotIn("止まっています", row(self.a["client"]))
         finally:
             self._resume_all(self.a["tenant"], self.y["client"], "client")
 

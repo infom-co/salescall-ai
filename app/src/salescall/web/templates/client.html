@@ -29,9 +29,9 @@
 {% if deficit %}{{ deficit_card(client, deficit, token, "/c/" ~ client.client_id ~ ("/b/" ~ business.business_id if business else "")) }}{% endif %}
 {% for s in stopped %}
 <a class="card attention-stop notice-link stopped" href="{{ '/c/' ~ client.client_id ~ '/stops/' ~ s.event_id if s.scope in ('client', 'business') else '/t/stops/' ~ s.event_id }}">
-  <b>新しい電話を止めています：{{ words.stop_cause(s.cause) }}</b>
+  <b>新しい電話が{{ words.STOP_STATE }}：{{ words.stop_cause(s.cause) }}</b>
   <span class="muted">範囲：{{ words.stop_scope(s.scope) }}・{{ time(s.at) }}から</span>
-  <span class="go">何で止まったか</span>
+  <span class="go">{{ words.STOP_GO }}</span>
 </a>
 {% endfor %}
 {% for n in needs %}

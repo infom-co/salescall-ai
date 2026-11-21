@@ -4,7 +4,7 @@
 {% block title %}{{ words.page("stops") }}{% endblock %}
 {% block main %}
 <h1>{{ words.page("stops") }}</h1>
-<p class="lead">自動で再開できるものは、システムが確かめて再開します。開くと、何で止まったかと、再開する前に確かめることが出ます。</p>
+<p class="lead">自動で再開できるものは、システムが確かめて再開します。開くと、止まった理由と、再開する前に確かめることが出ます。</p>
 {{ flash(done, ok) }}
 {% if stops %}
 <div class="table-scroll"><table class="list">
@@ -16,7 +16,7 @@
       <td>{{ words.stop_scope(s.scope) }}{% if s.client_name %}<span class="muted">：{{ s.client_name }}</span>{% endif %}</td>
       <td class="when">{{ time(s.at) }}</td>
       <td class="wide">{{ s.reason }}</td>
-      <td class="num">{{ go((('/c/' ~ s.client_id) if s.client_id else '/t') ~ '/stops/' ~ s.event_id, "何で止まったか") }}</td>
+      <td class="num">{{ go((('/c/' ~ s.client_id) if s.client_id else '/t') ~ '/stops/' ~ s.event_id, words.STOP_GO) }}</td>
     </tr>
   {% endfor %}
   </tbody>
