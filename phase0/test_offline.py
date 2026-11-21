@@ -43900,9 +43900,10 @@ class LadderFreeTest(unittest.TestCase):
         return f.apply("record_answer", {"question_id": CALLBACK_IDS["time"], "condition_id": LADDER_NEITHER})
 
     def test_both_not_fitting_lists_two_others(self):
-        from flowctl import callback_question, LADDER_NEITHER
-        self.assertIn(LADDER_NEITHER, callback_question("later_time").conditions)
+        from flowctl import CALLBACK_IDS, LADDER_NEITHER
         f, _ = self.d.first()
+        # 選べるものに「どちらも合わない」を足すのは段を始める1か所（Flow._ladder_choices＝分身 W の (3)。作る所 callback_question では足さない）
+        self.assertIn(LADDER_NEITHER, f.questions[CALLBACK_IDS["time"]].conditions)
         self.d.answer(f, "平日でお願いします。", "平日")
         r = self.neither(f)
         # 金曜日・火曜日を外した次の近い平日2つ（祝日の月曜日は並べない・6日先を越えてよい）。7日より先の日（11-26）があるので、2つとも週と日の言葉を付ける
@@ -48814,3 +48815,22 @@ class TheirsDayMendTest(unittest.TestCase):
         r = self.fix(o, f, "いえ、明後日になります。", "明後日")
         self.assertTrue(heard_words(r).endswith("改めまして明後日の16時まで、午後4時までということで大丈夫でしょうか？"), heard_words(r))
         self.assertEqual(self.done(o, f), "明後日の午後4時まで")
+
+
+class LadderNeitherOnePlaceTest(unittest.TestCase):
+    """分身 W（CL-1 の頼み rv184/W の (3)＝分身 V の書き置き rv184/V/notes.md の (6-3)）：日時の2択の判定の選べるものに「どちらも合わない」（LADDER_NEITHER＝伺い60）を足すのは、段を始める
+    1か所（Flow._ladder_choices）だけ（同じ問いに答える所を1つにする）。システムのかけ直しの時刻の質問を作る所（flowctl.callback_question）は足さない。段に入れば、選べるものは前と同じ並び
+    （答えた・どちらも合わない・片方だけ合わない2つ）。⛔ f395df54 まで、作る所でも足していた"""
+
+    def test_the_question_as_made_has_no_neither(self):
+        from flowctl import LADDER_NEITHER, LADDER_ROLES, callback_question
+        for role in LADDER_ROLES:
+            self.assertNotIn(LADDER_NEITHER, callback_question(role).conditions, role)
+
+    def test_the_ladder_adds_it_once_in_the_same_order(self):
+        from flowctl import CALLBACK_IDS, LADDER_NEITHER, VALUE_CHOICE, ladder_side_name
+        d = DateTimePairsTest()
+        f, _ = d.first()
+        self.assertEqual(f.questions[CALLBACK_IDS["time"]].conditions, (VALUE_CHOICE, LADDER_NEITHER, ladder_side_name("平日"), ladder_side_name("土日")))
+        d.answer(f, "平日でお願いします。", "平日")
+        self.assertEqual(f.questions[CALLBACK_IDS["time"]].conditions, (VALUE_CHOICE, LADDER_NEITHER, ladder_side_name("金曜日"), ladder_side_name("火曜日")))

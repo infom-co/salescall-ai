@@ -6184,8 +6184,9 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # （平日と土日）・お呼びする段（C7・P1 の「後ほど」・受付の方の「あとで」）は今日の時刻から（段の切り替えは in_answer_stage の1か所＝伺い (g) の仮の決まり）。
         # 文はここでは最初の段の形だけ（流れの制御が電話の日・暦・いまの時刻から作り直す＝Flow._ladder_set）。⛔ 894b082f まで「いつ頃おかけ直しさせていただきましょうか？」
         # （答えの段）・「恐れ入りますが何時ごろでしたらご都合よろしいでしょうか？」（お呼びする段）・「ご都合のいい日時はいつ頃でしょうか？」（H1）
-        # 2択に2つとも合わないお返事（LADDER_NEITHER＝伺い60）も判定の選べるもの（名前がそのまま意味の言葉）
-        return Question(qid, TIME_LADDER["kind"], qtype, required=True, conditions=(VALUE_CHOICE, LADDER_NEITHER),
+        # 2択に2つとも合わないお返事（LADDER_NEITHER＝伺い60）を判定の選べるものに足すのは、段を始める1か所（Flow._ladder_begin → _ladder_choices）。⛔ f395df54 まで、ここでも足していた
+        # ＝同じ問い（選べるものに「どちらも合わない」を足すか）に答える所が2つ（分身 V の書き置き rv184/V/notes.md の (6-3)・分身 W の (3)）
+        return Question(qid, TIME_LADDER["kind"], qtype, required=True, conditions=(VALUE_CHOICE,),
                         topic=CALLBACK_TOPIC[role], callback=role,
                         recording=TIME_LADDER_IDS["kind"], ladder="date" if answering or role == "hurry_when" else "today")
     return Question(qid, lines[i], qtype, required=role not in ("reachable_time", "ask_who", "ask_when", "not_agreed"), conditions=(VALUE_CHOICE,),
@@ -17595,8 +17596,9 @@ class Flow:
             self.questions[qid], it.ladder, it.ladder_start = self.given.get(qid, q), None, {}
 
     def _ladder_choices(self, qid: str) -> None:
-        """日時の2択の段で伺う質問の判定の選べるものに、2択に2つとも合わないお返事（LADDER_NEITHER＝伺い60）を足す唯一の場所（段を始める _ladder_begin・お客様から折り返して
-        いただく日の2択を始める _theirs_begin。システムのかけ直しの時刻の質問は callback_question が持つ＝足さない）。片方だけ合わないお返事は、並べた2つが替わるたびに _ladder_set が
+        """日時の2択の段で伺う質問の判定の選べるものに、2択に2つとも合わないお返事（LADDER_NEITHER＝伺い60）を足す唯一の場所（段を始める _ladder_begin＝システムのかけ直しの時刻の
+        質問・業務の質問・アポの日時・お客様から折り返していただく日の2択を始める _theirs_begin。⛔ f395df54 まで、システムのかけ直しの時刻の質問は作る所 callback_question でも足していた＝
+        分身 W の (3)）。片方だけ合わないお返事は、並べた2つが替わるたびに _ladder_set が
         入れ替える。お客様から折り返していただく日の2択も同じ（分身 V の (2)。⛔ 426d4844 まで足しておらず、「どちらもちょっと難しいですね。」を判定が「決められない」と読み、同じ2択で
         聞き直した＝答えを伏せた読み手 A・B が2人とも、選べるものに無いので「決められない」に落とすしかないと書いた＝束 u1 の #8）"""
         q = self.questions[qid]
