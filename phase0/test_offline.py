@@ -48480,6 +48480,8 @@ class PairSceneRowsTest(unittest.TestCase):
         qmap = G.question_map() | questions()
         want = {
             (THEIRS_PAIR_SCENE, "明日になります。"): {"念のため確かめる：答えた"},
+            # ウ＝避けた本日だけを外し、明日と次の日で2択（分身 V の (1)＝TheirsPairSideTest。⛔ 426d4844 まで同じ「本日と明日」をくり返した）
+            (THEIRS_PAIR_SCENE, "本日はちょっと難しいですね。"): {f"{G.LADDER_ONE_ACT}：それでは明日と火曜日ではどちらになりますでしょうか？"},
             (THEIRS_PAIR_SCENE, "本日は無理ですけど、明日なら大丈夫です。"): {"念のため確かめる：答えた"},   # エ＝避けなかった明日を受け取る
             (THEIRS_PAIR_SCENE, "いやあ最近は暑くてねえ。"): {"別のお話にひとこと応えて伺い直す"},
             (ACCEPT_PAIR_SCENE, "金曜日はちょっと…。"): {f"{G.LADDER_ONE_ACT}：火曜日と水曜日ではどちらがよろしいでしょうか？"},
@@ -48489,3 +48491,63 @@ class PairSceneRowsTest(unittest.TestCase):
         for (scene, text), acts in want.items():
             it = next(i for i in self.rows(scene) if i["text"] == text)
             self.assertEqual(G.flow_wants(it, qmap[it["qid"]]), acts, text)
+
+
+class TheirsPairSideTest(unittest.TestCase):
+    """分身 V（CL-1 の頼み rv184/V の (1)＝分身 U の書き置きの (6-1)）：お客様から折り返していただく日の2択（伺い67「それでは本日と明日ではどちらになりますでしょうか？」）で
+    片方だけ合わないと言われたら（「本日はちょっと難しいですね。」）、同じ2択をくり返さず、避けた日だけを外し、避けなかった日と次の日で2択（伺い94 と同じ1か所＝Flow._ladder_neither）。
+    もう一方で大丈夫そうならエ（それを選んだものとして次の段＝この2択は日だけ＝伺えた日で言い直して確かめる）・不安そう・割れた・届かないならウ。並べる日は、折り返していただく日の
+    候補を作る1か所（flowctl.ladder_days の theirs＝今日の言われた時刻に間に合えば今日から）の続き（外した日は今日でも並べない）。CL-1 が決めた理由：伺い94「避けた日だけを外し、避けなかった
+    日と次の空いている予定で2択」・11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」。電話の日は TheirsDayPairTest と同じ（2026-11-19 木曜日 10時・11-23 は祝日）。
+    ⛔ 426d4844 まで、避けた本日を外さずに「承知しました。それでは本日と明日ではどちらになりますでしょうか？」（今日を候補に足す所が、外した日を見ていなかった）"""
+    t = TheirsDayPairTest()
+
+    @staticmethod
+    def side(f, words, avoid, other):
+        """判定が「（avoid）だけ合わない」と読み、もう一方で大丈夫そうかを other と読む（会話AIも同じ答えを報告する）。"""
+        from flowctl import LADDER_OTHER, ladder_side_name
+        name = ladder_side_name(avoid)
+        f.on_callee(); f.on_heard(words)
+        r = CallbackTimeAheadTest.rd(name)
+        setattr(r, LADDER_OTHER, other)
+        f.on_check("judge", r)
+        return f.apply("record_answer", {"question_id": "C1", "condition_id": name})
+
+    def test_the_avoided_day_is_left_out(self):
+        from flowctl import LADDER_OTHER_UNSURE as U, ladder_sides
+        for avoid, want in (("本日", "明日と火曜日"), ("明日", "本日と火曜日")):
+            o, f, _ = self.t.asked()
+            r = self.side(f, f"{avoid}はちょっと難しいですね。", avoid, U)
+            self.assertEqual((r["result"], heard_words(r)), ("ask_back", f"承知しました。それでは{want}ではどちらになりますでしょうか？"), avoid)
+            # 判定の選べるものも、並べ直した2つの片方だけ合わないお返事（並べた2つが替わるたびに入れ替える今の1か所 Flow._ladder_set）
+            self.assertEqual(ladder_sides(f.questions["C1"]), tuple(f"{d}だけ合わない" for d in want.split("と")), avoid)
+
+    def test_the_next_answer_and_both_sides(self):
+        from flowctl import LADDER_OTHER_UNSURE as U
+        o, f, _ = self.t.asked()
+        self.side(f, "本日はちょっと難しいですね。", "本日", U)
+        o.heard(f, "火曜日でお願いします。")
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "火曜日"})
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertTrue(heard_words(r).endswith("火曜日の16時まで、午後4時までということでよろしいでしょうか？"), heard_words(r))
+        # 並べ直した2択の片方もまた合わない：外した日を重ねて、次の日で2択（本日・明日のどちらも並べない）
+        o, f, _ = self.t.asked()
+        self.side(f, "本日はちょっと難しいですね。", "本日", U)
+        r = self.side(f, "明日もちょっと…。", "明日", U)
+        self.assertTrue(heard_words(r).endswith("それでは火曜日と水曜日ではどちらになりますでしょうか？"), heard_words(r))
+
+    def test_the_other_day_ok_is_taken(self):
+        # エ：もう一方で大丈夫そう＝避けなかった明日を答えとして受け取り、伺えた日で言い直して確かめる（今のまま）
+        from flowctl import LADDER_OTHER_OK as OK
+        o, f, _ = self.t.asked()
+        r = self.side(f, "本日は無理ですけど、明日なら大丈夫です。", "本日", OK)
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertTrue(heard_words(r).endswith("明日の16時まで、午後4時までということでよろしいでしょうか？"), heard_words(r))
+
+    def test_after_the_time_today_as_before(self):
+        # 17時の電話＝今日の4時に間に合わない（はじめから今日を並べない）：明日を避けたら火曜日と水曜日（今のまま）
+        from flowctl import LADDER_OTHER_UNSURE as U
+        o, f, r = self.t.asked(hour=17)
+        self.assertEqual(heard_words(r), "ありがとうございます。それでは明日と火曜日ではどちらになりますでしょうか？")
+        r = self.side(f, "明日はちょっと難しいですね。", "明日", U)
+        self.assertTrue(heard_words(r).endswith("それでは火曜日と水曜日ではどちらになりますでしょうか？"), heard_words(r))

@@ -883,16 +883,19 @@ def ladder_days(s: dict, ctx: LadderCtx) -> tuple:
     days = tuple(d for d in days if d not in shown)
     weekend = s.get("kind") == "土日"
     if s.get("theirs") and not s.get("week") and theirs_today(s, ctx):
-        # お客様から折り返していただく日（theirs＝伺い67 ア）：今日の言われた時刻に間に合えば今日から（電話の日は、お客様のほうはお電話いただける日）
+        # お客様から折り返していただく日（theirs＝伺い67 ア）：今日の言われた時刻に間に合えば今日から（電話の日は、お客様のほうはお電話いただける日。外した今日は並べない＝theirs_today）
         days, lo = (ctx.today, *days), ctx.today
     return tuple([d for d in sorted(set(days)) if lo <= d <= hi and (d > ctx.today or (s.get("theirs") and d == ctx.today))
                   and (d.weekday() >= 5) == weekend][:2])
 
 
 def theirs_today(s: dict, ctx: LadderCtx) -> bool:
-    """お客様から折り返していただく日の2択（theirs）に今日を並べるか：今日がその種類の日で、言われた時刻（「4時まで」＝午前・午後を補う fill_ampm の1か所で読む）が
-    いまより後。時刻が無い・読めない・いまの時刻が分からなければ並べる（今日のうちに折り返していただけるかもしれない）。"""
-    if ctx.today is None or (ctx.today.weekday() >= 5) != (s.get("kind") == "土日"):
+    """お客様から折り返していただく日の2択（theirs）に今日を並べるか（唯一の決まり＝候補の作り ladder_days）：今日がその種類の日で、言われた時刻（「4時まで」＝午前・午後を
+    補う fill_ampm の1か所で読む）がいまより後。時刻が無い・読めない・いまの時刻が分からなければ並べる（今日のうちに折り返していただけるかもしれない）。片方だけ合わない・2つとも
+    合わないと言われて外した日（shown_day＝Flow._ladder_neither）が今日なら並べない（ほかの日と同じく外す＝伺い94「避けた日だけを外し、避けなかった日と次の空いている予定で2択」・
+    11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」。分身 V の (1)。⛔ 426d4844 まで、外した今日を ladder_days が足し戻し、「本日はちょっと難しいですね。」に
+    同じ「本日と明日」の2択をくり返した＝分身 U の書き置き rv184/U/notes.md の (6-1)）"""
+    if ctx.today is None or (ctx.today.weekday() >= 5) != (s.get("kind") == "土日") or ctx.today in s.get("shown_day", ()):
         return False
     m = _CLOCK.search(fill_ampm(s.get("clock") or "", ctx.hours, ctx.limit)[0] or "")
     h24 = clock_h24(m.group("part"), int(m.group("h"))) if m else None
