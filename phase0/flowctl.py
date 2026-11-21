@@ -17489,13 +17489,20 @@ class Flow:
         if q.ladder in ("meeting", "accept"):
             # 顧客獲得型のアポの日時（分身 K2）・お客様に日時を選んでいただく業務の質問（伺い62）：日まで伺う（ladder_step）・こちらからのご連絡の一言は言わない（_ladder_take）
             it.ladder = {"meeting": True}
-        if LADDER_NEITHER not in q.conditions:
-            # 業務の質問も、2択に2つとも合わないお返事を判定の選べるものに（伺い60。システムの質問は callback_question が持つ）
-            self.questions[qid] = dataclasses.replace(q, conditions=(*q.conditions, LADDER_NEITHER))
+        self._ladder_choices(qid)
         it.ladder_start = dict(it.ladder)
         if self._ladder_set(qid) is None and q.ladder == "accept" and self._ladder_ctx(qid).today is not None:
             # 候補が無い＝今のまま依頼者の文で伺う（電話の日がまだ分からなければ、初めて伺うときに作り直す＝_next_question）
             self.questions[qid], it.ladder, it.ladder_start = self.given.get(qid, q), None, {}
+
+    def _ladder_choices(self, qid: str) -> None:
+        """日時の2択の段で伺う質問の判定の選べるものに、2択に2つとも合わないお返事（LADDER_NEITHER＝伺い60）を足す唯一の場所（段を始める _ladder_begin・お客様から折り返して
+        いただく日の2択を始める _theirs_begin。システムのかけ直しの時刻の質問は callback_question が持つ＝足さない）。片方だけ合わないお返事は、並べた2つが替わるたびに _ladder_set が
+        入れ替える。お客様から折り返していただく日の2択も同じ（分身 V の (2)。⛔ 426d4844 まで足しておらず、「どちらもちょっと難しいですね。」を判定が「決められない」と読み、同じ2択で
+        聞き直した＝答えを伏せた読み手 A・B が2人とも、選べるものに無いので「決められない」に落とすしかないと書いた＝束 u1 の #8）"""
+        q = self.questions[qid]
+        if LADDER_NEITHER not in q.conditions:
+            self.questions[qid] = dataclasses.replace(q, conditions=(*q.conditions, LADDER_NEITHER))
 
     def _ladder_set(self, qid: str, since: dict | None = None) -> tuple | None:
         """いまの段の質問の文・録音の名前・会話AIの声かを置き換える唯一の場所（判定に見せる質問・流す質問・伺い直し・急かされたときの「承知しました。」＋いまの質問は、
@@ -17590,6 +17597,7 @@ class Flow:
             return None
         it.ladder, it.theirs_held = {**s, "theirs": today}, (value, q)
         it.ladder_start = dict(it.ladder)
+        self._ladder_choices(qid)   # 2択に2つとも合わないお返事も選べるものに（伺い60＝分身 V の (2)。伺い終えたら _theirs_take がもとの質問 q に戻す）
         if self._ladder_set(qid) is None:
             self.questions[qid], it.ladder, it.ladder_start, it.theirs_held = q, None, {}, None
             return None

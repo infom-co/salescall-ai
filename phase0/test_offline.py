@@ -48483,6 +48483,8 @@ class PairSceneRowsTest(unittest.TestCase):
             # ウ＝避けた本日だけを外し、明日と次の日で2択（分身 V の (1)＝TheirsPairSideTest。⛔ 426d4844 まで同じ「本日と明日」をくり返した）
             (THEIRS_PAIR_SCENE, "本日はちょっと難しいですね。"): {f"{G.LADDER_ONE_ACT}：それでは明日と火曜日ではどちらになりますでしょうか？"},
             (THEIRS_PAIR_SCENE, "本日は無理ですけど、明日なら大丈夫です。"): {"念のため確かめる：答えた"},   # エ＝避けなかった明日を受け取る
+            # 2つとも合わない＝次の2日で2択（分身 V の (2)＝TheirsPairNeitherTest。⛔ 426d4844 まで選べるものに無く、判定の「決められない」で同じ2択を聞き直した）
+            (THEIRS_PAIR_SCENE, "どちらもちょっと難しいですね。"): {G.LADDER_NEITHER_ACT},
             (THEIRS_PAIR_SCENE, "いやあ最近は暑くてねえ。"): {"別のお話にひとこと応えて伺い直す"},
             (ACCEPT_PAIR_SCENE, "金曜日はちょっと…。"): {f"{G.LADDER_ONE_ACT}：火曜日と水曜日ではどちらがよろしいでしょうか？"},
             (ACCEPT_PAIR_SCENE, "どちらもちょっと難しいですね。"): {G.LADDER_NEITHER_ACT},
@@ -48551,3 +48553,55 @@ class TheirsPairSideTest(unittest.TestCase):
         self.assertEqual(heard_words(r), "ありがとうございます。それでは明日と火曜日ではどちらになりますでしょうか？")
         r = self.side(f, "明日はちょっと難しいですね。", "明日", U)
         self.assertTrue(heard_words(r).endswith("それでは火曜日と水曜日ではどちらになりますでしょうか？"), heard_words(r))
+
+
+class TheirsPairNeitherTest(unittest.TestCase):
+    """分身 V（CL-1 の頼み rv184/V の (2)＝分身 U の書き置きの (6-2)）：お客様から折り返していただく日の2択（伺い67）の判定の選べるものにも「どちらも合わない」（LADDER_NEITHER）を足す
+    （今の日時の2択と同じ1か所＝Flow._ladder_choices が足す所を通す）。2つとも合わないと言われたら、その次の2日で2択（伺い60 の「2.別の空スケジュールの2つ」と同じ1か所＝Flow._ladder_neither。
+    並べる日は分身 V の (1) と同じく折り返していただく日の候補の作り ladder_days の続き）。次の2日が無ければ、いま伺った2択の文で聞き直す（【決まりで決めた】(a)＝今のまま）。2択を伺い終えたら
+    もとの質問に戻す（選べるものも戻る＝Flow._theirs_take）。CL-1 が決めた理由：11-20 日本時間0時09分49秒「もう最後の日時が決まるまで必ず二者択一」・伺い60 の「別の…2つ」・11-01
+    「全く同じ質問を2度したら、機械だと思われてしまいませんか？」。答えを伏せた読み手 A・B（束 u1 の #8＝rv184/U/readers）が2人とも「どちらもちょっと難しいですね。」を「並べた2つの
+    どちらも合わない」という意味と読み、選べるものに無いので「決められない」に落とすしかないと書いた。⛔ 426d4844 まで、この2択の選べるものに「どちらも合わない」が無く、判定は
+    「決められない」と読み、同じ2択で聞き直した（「はい、恐れ入ります。本日と明日ではどちらになりますでしょうか？」）"""
+    t = TheirsDayPairTest()
+
+    @staticmethod
+    def neither(f, words="どちらもちょっと難しいですね。"):
+        from flowctl import LADDER_NEITHER
+        f.on_callee(); f.on_heard(words)
+        f.on_check("judge", CallbackTimeAheadTest.rd(LADDER_NEITHER))
+        return f.apply("record_answer", {"question_id": "C1", "condition_id": LADDER_NEITHER})
+
+    def test_the_pair_has_the_choice(self):
+        from flowctl import LADDER_NEITHER
+        from meaning_judge import prompt
+        o, f, r = self.t.asked()
+        self.assertEqual(heard_words(r), self.t.ASK)
+        self.assertIn(LADDER_NEITHER, f.questions["C1"].conditions)
+        f.on_callee()
+        q, asked, before = f.judge_context()
+        self.assertIn(f"- {LADDER_NEITHER}：並べた2つのどちらも合わない、とだけ言った\n", prompt(q, "どちらもちょっと難しいですね。", asked, before))
+        # 2択を伺い終えたら、もとの質問に戻す（選べるものも戻る）
+        o.heard(f, "明日になります。")
+        f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "明日"})
+        self.assertNotIn(LADDER_NEITHER, f.questions["C1"].conditions)
+
+    def test_both_not_fit_lists_the_next_two_days(self):
+        # 17時の電話（今日の4時に間に合わない＝明日と火曜日を並べた）：次の2日の木曜日は電話の日の7日先＝2つとも週の言葉（日の言い方の今の1か所 ladder_label）
+        for hour, want in ((17, "来週の水曜日と来週の木曜日"), (10, "火曜日と水曜日")):
+            o, f, _ = self.t.asked(hour=hour)
+            r = self.neither(f)
+            self.assertEqual((r["result"], heard_words(r)), ("ask_back", f"承知しました。それでは{want}ではどちらになりますでしょうか？"), hour)
+        # そのあとの答えは今のまま（伺えた日で言い直して確かめる）
+        o.heard(f, "水曜日でお願いします。")
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "水曜日"})
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertTrue(heard_words(r).endswith("水曜日の16時まで、午後4時までということでよろしいでしょうか？"), heard_words(r))
+
+    def test_no_next_days_asks_the_same_pair(self):
+        # 電話をかけられる日が金曜日だけ（次の2日が無い）：いま伺った2択の文で聞き直す（【決まりで決めた】(a)）
+        import datetime as dt
+        o, f, _ = self.t.asked()
+        f.call_days = (dt.date(2026, 11, 20),)
+        r = self.neither(f)
+        self.assertEqual((r["result"], heard_words(r)), ("ask_back", "はい、恐れ入ります。本日と明日ではどちらになりますでしょうか？"))
