@@ -6377,6 +6377,9 @@ class Item:
     until_held: tuple | None = None
     # お客様から折り返していただく日の2択（伺い67 ア＝Flow._theirs_begin）を伺っている間の、伺う前の値と質問（Flow._theirs_take が外す）
     theirs_held: tuple | None = None
+    # お客様から折り返していただく日の2択で伺えた所（Flow._theirs_take が伺い終えてもとの質問に戻すときに残す＝段の外。言い直しに時刻だけ・日だけ直されたとき、直された値に伺えた日・
+    # 時刻を足す ladder_mend が読む＝Flow.ladder_got の1か所。2択を通らない新しいお答えを受け取るとき＝Flow._op_record_answer で消す）。分身 W の (2)
+    theirs_got: dict | None = None
     # お客様リストに分かっている連絡先で、伺う所でこちらから言って確かめるもの（伺い66＝(連絡先, いまお電話している番号か)。Flow._wish_contact が置き、_next_question が伺う）
     listed: tuple | None = None
     listed_asked: bool = False   # その確かめを伺った（いいえのお返事は、こちらの聞き違いではない＝_denied_again）
@@ -9374,6 +9377,9 @@ class Flow:
         # 見直し：午前・午後の答えの報告には理由が無いので、理由が消え、承認済みの時刻の問いでもう一度伺っていた。⛔ 20109859 まで、日時の2択の途中の段（曜日の2択）・伺い直しの
         # 前の答えで言われた理由は持たず、最後の段の言葉の理由だけを記録した（分身 Q の書き置き (6-1)＝分身 R の (1)）
         reasons = self._reasons_of(a, it, read_cond)
+        if answered and ladder_took is None and it.ladder is None and it.theirs_held is None:
+            # 2択を通らない新しいお答え（伺い直したあとなど）：前に、お客様から折り返していただく日の2択で伺えた所を、そのあとの言い直しへの直しに足さない（分身 W の (2)）
+            it.theirs_got = None
         if it.until_held is not None and (answered or cond == UNDECIDED):
             # 「〇時まで」の理由を伺い直した一言（_ask_until）へのお返事：はい・いいえ・理由（判定の決められないも）は、伺い直す前の値で受け取る（伺い直しは1回まで＝
             # 10-24。理由は判定の読み＝_reasons_of）。値を言い直されたら、その値（2択の段は伺えた所に重ねる）＝_until_take の1か所
@@ -10905,14 +10911,17 @@ class Flow:
             self.awaiting_confirm = None  # 言い直しの返事待ちをやめて、質問から聞き直す（6-2）
             return self._bad_form(qid, correction, why)
         if result in ("corrected", "affirmed") and correction and self.questions[qid].type in AMPM_TYPES:
-            if it.ladder is not None:
-                # 日時の2択の段で伺えた日時に、時刻だけ直された：伺えた日・午前と午後を足す（ladder_mend の1か所＝分身 V の (3)。午前・午後を補うより先＝お客様が選んだ時間帯）・
-                # 日だけ直された：伺えた時刻を足す（その日のその時刻にかけられなければ、その日の空いている予定から2択＝_ladder_redo。分身 W の (1)）
-                mended, known, again = ladder_mend(correction, it.ladder, self._ladder_ctx(qid))
+            if (got := self.ladder_got(qid)) is not None:
+                # 日時の2択の段で伺えた日時（お客様から折り返していただく日の2択で伺えた日も＝分身 W の (2)）に、時刻だけ直された：伺えた日・午前と午後を足す（ladder_mend の1か所＝
+                # 分身 V の (3)。午前・午後を補うより先＝お客様が選んだ時間帯）・日だけ直された：伺えた時刻を足す（その日のその時刻にかけられなければ、その日の空いている予定から2択＝
+                # _ladder_redo。分身 W の (1)）
+                mended, known, again = ladder_mend(correction, got, self._ladder_ctx(qid))
                 if again and result == "corrected" and it.corrections < self.limits.after_correction:
                     return self._ladder_redo(qid, known)
-                if not again:
+                if not again and it.ladder is not None:
                     it.ladder = known
+                elif not again:
+                    it.theirs_got = known
                 correction = mended or correction
             correction, ask = fill_ampm(correction, self.business_hours, self.designated_limit)
             if ask and result == "corrected" and not it.ampm_asked:
@@ -17699,6 +17708,9 @@ class Flow:
         （伺えなければ伺う前の値のまま）。伺う前の質問に戻す（そのあとの言い直し・伺い直しは、もとの質問のまま）。"""
         it = self.items[qid]
         (said, q), it.theirs_held = it.theirs_held, None
+        # 伺えた所は残す（言い直しへの直しに足す＝ladder_mend。伺えなければ伺う前の所＝平日・時刻。分身 W の (2)。⛔ f395df54 まで消し、「明日の16時まで…」への「いえ、5時までです。」の
+        # 言い直しと記録から伺えた明日が抜けた＝分身 V の書き置き rv184/V/notes.md の (6-1)）
+        it.theirs_got = dict(s if s else it.ladder)
         self.questions[qid], it.ladder, it.ladder_start = q, None, {}
         if not s or not s.get("day"):
             return said
@@ -17759,6 +17771,13 @@ class Flow:
             return self._ladder_end(qid, it.ladder)
         it.set(it.state, f"日時の2択：片方だけ合わない・もう一方（{label}）で大丈夫そう＝その答えで次の2択")
         return self._ladder_ask(qid) | {"neither": True, "kept": True}
+
+    def ladder_got(self, qid: str) -> dict | None:
+        """その質問の項目で、日時の2択の段で伺えた所（唯一の読み＝言い直しへの直した値に伺えた所を足す _op_confirm_field・数えの動きの名前 g53_meaning._flow_base）：段で伺っている間と
+        伺い終えたあとは Item.ladder・お客様から折り返していただく日の2択（伺い67）は、伺い終えてもとの質問に戻したあとの Item.theirs_got（_theirs_take）。段で伺っていなければ None。
+        分身 W の (2)"""
+        it = self.items[qid]
+        return it.ladder if it.ladder is not None else it.theirs_got
 
     def _ladder_redo(self, qid: str, s: dict) -> dict:
         """日時の2択の段で伺えた日時の言い直しに日だけ直され、伺えた時刻にその日は電話をかけられない（ladder_mend の「2択で伺い直す」）ときの唯一の返事：直された日の空いている予定から

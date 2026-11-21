@@ -48758,3 +48758,59 @@ class LadderDayMendTest(unittest.TestCase):
         f.call_free = (("2026-11-24", "13:00", "17:00"), ("2026-11-25", "09:30", "12:00"), ("2026-11-25", "13:00", "15:30"))
         r = self.m.reply(f, "あ、すみません、間違えました。水曜日でお願いします。", "corrected", "水曜日")
         self.assertEqual(self.m.d.heard(r), "承知しました。それでは水曜日でしたら2時と3時ではどちらがよろしいでしょうか？")
+
+
+class TheirsDayMendTest(unittest.TestCase):
+    """分身 W（CL-1 の頼み rv184/W の (2)＝分身 V の書き置き rv184/V/notes.md の (6-1)）：お客様から折り返していただく日の2択（伺い67）で伺えた日の言い直しに時刻だけ・日だけ直されたときも、
+    日時の2択で伺えた日時と同じ1か所（flowctl.ladder_mend）で、伺えた日・伺えた時刻を直された値に足す（「明日の16時まで、午後4時までということでよろしいでしょうか？」→「いえ、5時までです。」
+    →「失礼いたしました。改めまして明日の17時まで、午後5時までということで大丈夫でしょうか？」・記録「明日の午後5時まで」）。伺えた所は、もとの質問に戻したあとも持つ（Item.theirs_got＝
+    読むのは Flow.ladder_got の1か所）。CL-1 が決めた理由：分身 V の (3) と同じ（本書 9-3・9-5・10-19「同じ理由が当たる場面すべてに当てる」）。⛔ f395df54 まで「改めまして17時まで、
+    午後5時までということで…」・記録「午後5時まで」＝伺えた明日が抜けた（_theirs_take が伺い終えたときに伺えた所を消していた）"""
+    t = TheirsDayPairTest()
+
+    def at(self, said="明日になります。", value="明日", cond="答えた"):
+        o, f, _ = self.t.asked()
+        o.heard(f, said)
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": cond, **({"value": value} if value else {})})
+        self.assertEqual(r["result"], "confirm_required", heard_words(r))
+        return o, f, r
+
+    @staticmethod
+    def fix(o, f, words, value):
+        o.heard(f, words)
+        f.on_check("judge", CallbackTimeAheadTest.rd("corrected"))
+        return f.apply("confirm_field", {"question_id": "C1", "result": "corrected", "correction": value})
+
+    @staticmethod
+    def done(o, f):
+        o.heard(f, "はい。")
+        f.apply("confirm_field", {"question_id": "C1", "result": "affirmed"})
+        return f.facts["callback"][-1]["time"]
+
+    def test_the_time_only_correction_keeps_the_day(self):
+        from flowctl import LADDER_OTHER_OK
+        for said in ("明日になります。", "本日は無理ですけど、明日なら大丈夫です。"):
+            if said.startswith("明日"):
+                o, f, _ = self.at(said)
+            else:
+                # 伺い94 のエ（本日だけ合わない・もう一方で大丈夫そう＝明日を選んだものとして言い直す）
+                o, f, _ = self.t.asked()
+                r = TheirsPairSideTest.side(f, said, "本日", LADDER_OTHER_OK)
+                self.assertEqual(r["result"], "confirm_required", heard_words(r))
+            r = self.fix(o, f, "いえ、5時までです。", "5時まで")
+            self.assertTrue(heard_words(r).endswith("改めまして明日の17時まで、午後5時までということで大丈夫でしょうか？"), (said, heard_words(r)))
+            self.assertEqual(self.done(o, f), "明日の午後5時まで", said)
+
+    def test_unknown_keeps_the_kind_of_day(self):
+        # 2択に「分からない」：伺えた所（平日）のまま言い直したあとの時刻だけの直しにも、伺えた平日を足す
+        o, f, r = self.at("ちょっと分からないですね。", None, "unknown")
+        self.assertTrue(heard_words(r).endswith("平日の16時まで、午後4時までということでよろしいでしょうか？"), heard_words(r))
+        r = self.fix(o, f, "いえ、5時までです。", "5時まで")
+        self.assertTrue(heard_words(r).endswith("改めまして平日の17時まで、午後5時までということで大丈夫でしょうか？"), heard_words(r))
+
+    def test_the_day_only_correction_keeps_the_time(self):
+        # 日だけ直された：伺えた時刻（「4時まで」）を直された日に足す（お客様から折り返していただく時刻＝こちらのかける時刻ではない＝空いている予定では確かめない）
+        o, f, _ = self.at()
+        r = self.fix(o, f, "いえ、明後日になります。", "明後日")
+        self.assertTrue(heard_words(r).endswith("改めまして明後日の16時まで、午後4時までということで大丈夫でしょうか？"), heard_words(r))
+        self.assertEqual(self.done(o, f), "明後日の午後4時まで")
