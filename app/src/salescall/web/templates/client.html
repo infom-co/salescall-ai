@@ -178,14 +178,15 @@
 {% endif %}
 {% if business %}
 <section class="card mode-card" style="margin-top:16px">
-  <div class="title-row"><h2 style="margin:0">{{ "検証モード" if verification else "フルオート" }}</h2>
+  {% set mode = words.MODE_WORDS["verification" if verification else "full"] %}
+  <div class="title-row"><h2 style="margin:0">{{ mode[0] }}</h2>
     {% set bb = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id %}
     <nav class="go-links" aria-label="この業務の画面">{% if versions %}{{ go(bb ~ "/versions/" ~ versions[0].version_id, "電話の台本（版 " ~ versions[0].version_no ~ "）") }}{% endif %}
     {{ go(bb ~ "/reward", words.BUSINESS_NAV["/reward"]) }}
     {{ go(bb ~ "/samples", words.BUSINESS_NAV["/samples"]) }}
     {#- 前は「切り替える（業務の設定）」＝押すと切り替わるように読めた。移るだけなので、どこで変えるかを言う -#}
     {{ go(bb ~ "/settings#g-approval", "検証モードかフルオートかを変える（設定）") }}</nav></div>
-  <p class="muted">{% if verification %}発信の前にお客様ごとに承認し、結果を確かめてから確定します。少ない件数の段から始め、指標が基準の内なら次の段へ進みます。{% else %}承認なしでかけ、判定した結果をそのまま確定します。{% endif %}</p>
+  <p class="muted">{{ mode[1] }}</p>
   {% for st in stages %}
   <h3 style="margin-top:14px">お客様リスト「{{ st.run }}」：{% if st.stage %}段 {{ st.stage.stage_no }}（{% if st.stage.cap %}{{ st.used }} / {{ st.stage.cap }} 件{% else %}件数の上限なし{% endif %}）{% else %}まだ段が開いていません（模擬通話のあとに開きます）{% endif %}</h3>
   <div class="table-scroll"><table class="list">
