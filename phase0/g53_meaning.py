@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import glob
+import itertools
 import json
 import threading
 import time
@@ -29,7 +30,7 @@ from common import HERE, KeyRing, base_parser, describe_error, require_python, s
 from flowctl import (ABSENT_WHY, OFFER, ANY, END_DOUBT_WHY, before_words, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, AWAY, ELSEWHERE, ELSEWHERE_YES, ELSEWHERE_NO, QUERY_YES, QUERY_NO, END_ANGRY, END_HURRY, END_NONE,
                      END_PRESSED, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS,
                      WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading, WRONG, WRONG_NOT_SAID, LADDER_OTHER,
-                     NEAR, MISGIVING, MISGIVING_OFF, HESITATING)
+                     NEAR, MISGIVING, MISGIVING_OFF, HESITATING, UNTIL_WHY, CYCLE, UNTIL_LABEL, CYCLE_LABEL)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, Reading, judge, judge_other
 
@@ -236,7 +237,7 @@ SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由", QUERY: "問�
                OFFER: "申し出", ABSENT_WHY: "出られない理由", WRONG: "番号違い",
                LADDER_OTHER: "もう一方",
                NEAR: "近い答え",
-               MISGIVING: "迷いの点"}   # 申し出・出られない理由はお呼びする段だけ（G-53 の答えの段の行では None）・もう一方は日時の2択の質問だけ（伺い94）・近い答えは言い直さない質問の最初の答えだけ（B1）
+               MISGIVING: "迷いの点", UNTIL_WHY: "まで理由", CYCLE: "月単位"}   # 申し出・出られない理由はお呼びする段だけ（G-53 の答えの段の行では None）・もう一方は日時の2択の質問だけ（伺い94）・近い答えは言い直さない質問の最初の答えだけ（B1）
 assert set(SIDE_SUFFIX) == set(SIDE_ITEMS), "記録の見出しは、答えとは別に読む項目の表と同じ項目"
 # 判定の確からしさの広がりを記録する見出し（{判定の名前のあとに付ける語: 読みの属性}。唯一の表＝記録と、使い回すときに外す語）。
 # ✅ 2026-11-07 日本時間10時29分25秒 ユーザー「d1-ultraの確からしさが低いのは、こちらの設問か選択肢、説明の問題ということでしょ！」＝
@@ -746,6 +747,17 @@ def misgiving_truths(it: dict, answer) -> tuple:
     return fits
 
 
+def until_truths(it: dict) -> tuple:
+    """正解の表の行の、「〇時まで」の理由（flowctl.UNTIL_WHY＝「あとで」のかけ直しの時刻の質問だけの項目・分身 Q（CL-1 の頼み rv183/Q の (4)＝n9））の正解（中の名前の並び）。
+    付けていない行は読んでいない（None＝その項目を読まない質問と同じ。near_truths と同じ形）。この項目を読む質問の行は、どれも1行ずつ正解を付けた（帳面 0-3 の (2)）"""
+    return tuple((_label(it) or {}).get(UNTIL_WHY) or (None,))
+
+
+def cycle_truths(it: dict) -> tuple:
+    """正解の表の行の、月単位の理由（flowctl.CYCLE＝かけ直しの時刻・日の質問だけの項目・分身 Q の (4)＝n9）の正解（中の名前の並び）。付けていない行は読んでいない（None）。"""
+    return tuple((_label(it) or {}).get(CYCLE) or (None,))
+
+
 def elsewhere_truths(it: dict) -> tuple:
     """正解の表の行の、ほかの会社に頼んでいる・使っていると言ったか（flowctl.ELSEWHERE）の正解（中の名前の並び）。✅ 2026-11-15 日本時間21時55分35秒 ユーザー
     （伺い25）で足した項目。付けていない行は「言っていない」（⚠️ 一括で付けた既定＝帳面 0-3 の (2) の外。ほかの会社のことを言いうる行は候補の一覧にして、答えを伏せた
@@ -1006,6 +1018,21 @@ def _ladder_clock_scene(q: Question) -> Flow:
         _scene_say(f, words, _scene_read(VALUE_CHOICE), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value=value)
     if f.current != q.id or len(ladder_sides(f.questions[q.id])) != 2 or "時と" not in f.questions[q.id].text:
         raise NoScene("日時の2択の段の時刻の2択を伺わない")
+    return f
+
+
+SCENE_UNTIL = "3時までなら大丈夫です。"
+
+
+def _until_ask_scene(q: Question) -> Flow:
+    """「〇時まで」の理由を伺い直した一言のあと（review_words.UNTIL_ASK_SCENE）：時刻の2択（_ladder_clock_scene）に「3時までなら大丈夫です。」（判定の読みは答えた・理由は言っていない）と
+    答えていただき、「恐れ入ります。3時までということはそれ以降はお電話が難しいということでしょうか？」（Flow._ask_until＝伺い63）を伺った所まで（試験 UntilAskAgainTest と同じ手順。
+    分身 Q の (4)＝n9）。判定に見せる質問は、この一言（質問の文を置き換える＝_ask_until）"""
+    from flowctl import UNTIL_WHY, UNTIL_WHY_NOT_SAID, VALUE_CHOICE
+    f = _ladder_clock_scene(q)
+    r = _scene_say(f, SCENE_UNTIL, _scene_read(VALUE_CHOICE, **{UNTIL_WHY: UNTIL_WHY_NOT_SAID}), "record_answer", question_id=q.id, condition_id=VALUE_CHOICE, value="3時まで")
+    if (r or {}).get("ask_reason") != "until" or f.items[q.id].until_held is None:
+        raise NoScene("「〇時まで」の理由を伺い直さない")
     return f
 
 
@@ -1289,11 +1316,11 @@ def _elsewhere_point_scene(q: Question) -> Flow:
 def _new_scene(it: dict, q: Question) -> Flow:
     """試しの言葉の表の場面の印（review_words.NEW_SCENES）の場面を組む唯一の入口（_flow_scene）。"""
     from review_words import (ANSWERED_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, LADDER_SCENE, OFFER_FINAL_SCENE, PAIN_SCENE, WAIT_SCENE,
-                              WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, WRONG_ASK_SCENE)
+                              WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, WRONG_ASK_SCENE, UNTIL_ASK_SCENE)
     build = {LADDER_SCENE: _ladder_scene, LADDER_CLOCK_SCENE: _ladder_clock_scene, WRONG_ASK_SCENE: _wrong_ask_scene, WAIT_SCENE: _wait_scene,
              PAIN_SCENE: _pain_scene, CONCERN_SCENE: _concern_scene, CONFIRM_CONCERN_SCENE: _confirm_concern_scene, ANSWERED_SCENE: _answered_scene,
              OFFER_FINAL_SCENE: _offer_final_scene, WITHDRAW_TIME_SCENE: _withdraw_time_scene, WITHDRAW_SEND_SCENE: _withdraw_send_scene,
-             WITHDRAW_WAY_SCENE: _withdraw_way_scene, ELSEWHERE_POINT_SCENE: _elsewhere_point_scene}.get(it["scene"])
+             WITHDRAW_WAY_SCENE: _withdraw_way_scene, ELSEWHERE_POINT_SCENE: _elsewhere_point_scene, UNTIL_ASK_SCENE: _until_ask_scene}.get(it["scene"])
     if build is None:
         raise NoScene(f"場面の印の場面を組む作りが無い（{it['scene']}）")
     return build(q)
@@ -1554,6 +1581,9 @@ PLAY_ACTS = (("callback_hurry", END_ACTS[END_HURRY]), ("callback_refusal", END_A
              ("callback_wait_or_later", WAIT_ACT[WAIT_OR_LATER]), ("callback_time_", WAIT_ACT[LATER]), ("callback_not_agreed_which", WHICH_ACT),
              ("callback_other_point_which", WHICH_ACT), ("estimate_ask", ESTIMATE_ACT), ("how_now", HOW_NOW_ACT), ("hesitate_point", HESITATE_ACT[False]))
 PENDING_ACT = "保留でよいかを伺う"
+# 「〇時まで」の理由を伺い直す一言（flowctl.Flow._ask_until＝伺い63）。受け取る・言い直して確かめる動きには、一緒に受け取った理由（「〇時まで」の理由・月単位の理由＝かけ直しの
+# 記録の until_why・cycle）を名前の終わりに付ける（理由の読み違いで、かけてよい時間が違う記録になる＝外れと数える。分身 Q の (4)＝n9）
+UNTIL_ASK_ACT = "「〇時まで」の理由を伺い直す"
 # 判定に送る文が 2026-11-20 に変わった場面の動き（rv176/S の続き (4)）：日時の2択の段の次の2択（Flow._ladder_ask）・並べた2つのどちらも合わないと言われた別の2つ
 # （Flow._ladder_neither＝伺い60）・待つことに迷われた方への一言（Flow._wait_again の wait_soon＝伺い76 ウ）・顧客獲得型の次の悩み（Flow._main_ask）・事例（悩みがあると言われた）
 LADDER_NEXT_ACT = "日時の2択の次の2択を伺う"
@@ -1593,7 +1623,22 @@ def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) 
 
 
 def _flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) -> str:
-    """flow_name の名前（お詫びの頭を除く）。"""
+    """flow_name の名前（お詫びの頭を除く）。受け取る・言い直して確かめる動きには、一緒に受け取った理由（_reasons_mark）を付ける。"""
+    name = _flow_base(f, qid, rep, it, asked)
+    item = f.items.get(qid)
+    if item is not None and rep.get("result") in ("confirm_required", "next", "end") and item.state in ("checking", "accepted", "confirmed"):
+        return name + _reasons_mark(item)
+    return name
+
+
+def _reasons_mark(item) -> str:
+    """答えと一緒に受け取った理由（「〇時まで」の理由 until_why・月単位の理由 cycle＝かけ直しの記録）を動きの名前の終わりに付ける文（無ければ ""。唯一の場所＝_flow_name）。"""
+    marks = ([UNTIL_LABEL[item.until_why]] if item.until_why else []) + ([CYCLE_LABEL[item.cycle]] if item.cycle else [])
+    return f"〔理由：{'・'.join(marks)}〕" if marks else ""
+
+
+def _flow_base(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) -> str:
+    """_flow_name の名前の本体（受け取った理由の印の前）。"""
     res, item = rep.get("result"), f.items.get(qid)
     plays = [str(p.get("id") or "") for p in rep.get("play") or []]
     from flowctl import CALLBACK_IDS
@@ -1628,6 +1673,8 @@ def _flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None)
             # 受け取った答えに添えた質問に先に答え、そのあとに取っておいた返事（Flow._question_first）
             return QUESTION_FIRST + flow_name(f, qid, f.after_answer[1], it)
         return ASKED_ACTS.get(kind or "", OTHER_ACT + f"callee_asked|{kind}")
+    if res == "ask_back" and rep.get("ask_reason") == "until":
+        return UNTIL_ASK_ACT
     if res == "ask_back" and rep.get("ask_reason") == "ladder":
         # 片方だけ合わないお返事（伺い94）のウ・エは、どちらを避けたと読んだかで、お客様に聞こえる次の2択が替わる＝次の2択の文を名前に入れる（どちらを避けたかの読み違えも外れと
         # 数える。⛔ rv176/S2 まで名前だけ＝「金曜日だけ合わない」を「火曜日だけ合わない」と読み違えても同じ動きと数えた）。2つとも合わない・次の2択は読みで文が替わらない
@@ -1717,7 +1764,7 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
     """正解の表の行 it から、正しい読みの組み合わせを全部作る（唯一の作り＝正解の動き step_wants）：答え（accept）× 言い切り（境目 either なら両方・
     ほかは「曖昧」の印 hedged の逆）× こちらへ尋ねた問いか（query_truths）× 別のお話か（away_truths）× 電話を終える言葉か（has_end なら end_accept・
     無ければ読んでいない）× こちらがかけた電話番号が違うと伝えたか（wrong_truths）× 声かけへのお返事だけか（prompt_truths）× 合わないと言わなかったほうで大丈夫そうか（ladder_other_truths）×
-    どの答えもはっきり指していないときのいちばん近い答え（near_truths）× 迷っている点を言ったか（misgiving_truths＝答えごと）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
+    どの答えもはっきり指していないときのいちばん近い答え（near_truths）× 迷っている点を言ったか（misgiving_truths＝答えごと）× 「〇時まで」の理由（until_truths）× 月単位の理由（cycle_truths）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
     正解 talk False の行は、その答えと食い違う前の話の答え＝flowctl.off_talk の1か所。ほかは前の話から決まる答えは無い）。聞こえ方は hear_truth。"""
     from flowctl import why_choices
     out = []
@@ -1740,12 +1787,13 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
                                             for lo in ladder_other_truths(it):
                                                 for nr in near_truths(it):
                                                     for mg in misgiving_truths(it, a):
-                                                        r = Reading(a, firm)
-                                                        for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it)), (WRONG, wn),
-                                                                     (PROMPT_REPLY, pr), (LADDER_OTHER, lo), (NEAR, nr), (MISGIVING, mg)):
-                                                            setattr(r, k, v)
-                                                        r.prior = p
-                                                        out.append(r)
+                                                        for ut, cy in itertools.product(until_truths(it), cycle_truths(it)):
+                                                            r = Reading(a, firm)
+                                                            for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it)), (WRONG, wn),
+                                                                         (PROMPT_REPLY, pr), (LADDER_OTHER, lo), (NEAR, nr), (MISGIVING, mg), (UNTIL_WHY, ut), (CYCLE, cy)):
+                                                                setattr(r, k, v)
+                                                            r.prior = p
+                                                            out.append(r)
     return out
 
 
