@@ -209,6 +209,17 @@ class Screens(unittest.TestCase):
         anchor = "s-" + self.key.replace(".", "-")                                 # 上の「ここで決めている値」から、その行へ飛べる
         self.assertIn(f'href="#{anchor}"', page.split("ここで決めている値", 1)[1].split("</section>", 1)[0])
         self.assertIn(f'id="{anchor}"', page)
+        # 戻った画面は、変えた設定の所へ送り、結果の1行も、どの設定を変えたかを名前で言って、その札の上に出す（93 の設定のどれかを探させない）
+        loc = r.headers["location"]
+        self.assertTrue(loc.endswith("#changed"))
+        back = self.get("A", loc.split("#")[0]).text
+        note = back[back.index('id="changed"'):back.index(f'id="{anchor}"')]
+        self.assertIn(f"「{words.SETTING_LABELS[self.key]}」を変えました", note)
+        self.assertIn("just-changed", back[back.index(f'id="changed"'):back.index(f'id="{anchor}"') + 200])
+        bad = self.post("A", biz, {"form_token": tok, "key": self.key, "f_v": "五", "reason": "試験"})
+        again = self.get("A", bad.headers["location"].split("#")[0]).text
+        at = again.index(f'id="{anchor}"')
+        self.assertIn("open", again[at:at + 40])                                  # 断られたら開いたまま（その場で直せる）
 
     def test_the_everyday_groups_are_open_and_the_rest_is_folded_once(self):
         """設定の画面は、ふだんのまとまりだけを開いて並べ、残りは「くわしい設定」1つにたたむ（どのまとまりも1回だけ出る）。

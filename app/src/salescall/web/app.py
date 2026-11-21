@@ -115,9 +115,11 @@ def _explain(key: str) -> str:
 _phone = names.phone_text   # 番号の書き方（1か所＝web/names。そろえるのは core の phone.normalize）
 
 
-def _back(path: str, out: actions.Outcome) -> RedirectResponse:
-    """操作のあと、元の画面へ戻し、結果の1行を出す（送り直しで二度効かないよう、必ず GET の画面へ戻す）。"""
-    return RedirectResponse(f"{path}?done={quote(out.message)}&ok={int(out.ok)}", status_code=303)
+def _back(path: str, out: actions.Outcome, *, anchor: str = "", **params: str) -> RedirectResponse:
+    """操作のあと、元の画面へ戻し、結果の1行を出す（送り直しで二度効かないよう、必ず GET の画面へ戻す）。
+    anchor＝戻った画面で送る先（その操作をした所。結果の1行もそこに出す画面がある）・params＝画面に渡す印（例：変えた設定）。"""
+    extra = "".join(f"&{k}={quote(v)}" for k, v in params.items())
+    return RedirectResponse(f"{path}?done={quote(out.message)}&ok={int(out.ok)}{extra}" + (f"#{anchor}" if anchor else ""), status_code=303)
 
 
 def _picked(pair: tuple[dict[str, Any], inbox.Item], client_id: UUID | None, business_id: UUID | None, kind: str | None) -> bool:
@@ -750,7 +752,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 values = ctx.tenant(read) if client_id is None else ctx.client(client_id, read, read_only=True)
             return page(request, "settings.html", person, ctx, level=level, forms=setting_forms, days=setting_forms.DAYS,
                         done=done, ok=bool(ok), active=("system_settings" if level == "system" else "settings" if client_id is None else "client"),
-                        **values)
+                        changed=request.query_params.get("changed") if done else None, **values)
         return handle(request, render)
 
     def _settings_save(request: Request, form: dict[str, Any], level: str, client_id: UUID | None,
@@ -778,8 +780,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     raise actions.Refused(str(e)) from None
             work = ((lambda: ctx.system(do)) if level == "system" else
                     (lambda: ctx.tenant(do)) if client_id is None else (lambda: ctx.client(client_id, do)))
-            out = actions.act(secret, person.login_id, form, work, done="変えました。前の値は記録に残っています。", reason_field="reason")
-            return _back(back, out)
+            label = words.SETTING_LABELS.get(key, words.NO_WORD)
+            out = actions.act(secret, person.login_id, form, work, done=f"「{label}」を変えました。前の値は記録に残っています。", reason_field="reason")
+            # 戻った画面は、変えた設定の所へ送り、結果の1行もその札の上に出す（93 の設定のどれを変えたかを、いちばん上の1行で探させない）
+            return _back(back, out, anchor="changed", changed=key)
         return handle(request, render)
 
     @app.get("/admin/tenants")

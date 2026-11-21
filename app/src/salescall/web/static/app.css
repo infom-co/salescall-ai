@@ -660,3 +660,8 @@ tr.playing { background: var(--primary-soft); }
 tr[data-heard] audio { height: 32px; max-width: 240px; }
 .review-head .actions { margin-top: 12px; align-items: center; }
 .review-group { margin-top: 12px; }
+
+/* 変えた設定（settings.html）：結果の1行をその札の上に出し、札に印。送った先が上の帯・タブに隠れないよう余白をとる */
+.changed-note { scroll-margin-top: calc(var(--chrome, 108px) + 12px); margin-top: 8px; }
+.changed-note .flash { margin: 0 0 6px; }
+details.setting.just-changed { border-color: var(--ok); box-shadow: 0 0 0 2px var(--ok-soft); }

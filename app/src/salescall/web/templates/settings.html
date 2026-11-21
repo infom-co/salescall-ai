@@ -49,7 +49,10 @@
   {% for r in ordered %}
   {#- 決めれば土台の抜けが直る設定（どれかは counts.readiness の keys の1か所。ホームの「いま見ること」と同じ答え）は、橙の札で示す -#}
   {% set needed = need[r.key] if need and r.key in need else none %}
-  <details class="setting card {{ 'own' if r.own }} {{ 'needed' if needed }}" id="s-{{ r.key|replace('.', '-') }}">
+  {% set just = changed == r.key %}
+  {% if just %}<div id="changed" class="changed-note">{{ flash(done, ok) }}</div>{% endif %}
+  {#- 変えた設定は印を付ける。断られたときは開いたままにして、その場で直せるようにする -#}
+  <details class="setting card {{ 'own' if r.own }} {{ 'needed' if needed }} {{ 'just-changed' if just and ok }}" id="s-{{ r.key|replace('.', '-') }}" {% if just and not ok %}open{% endif %}>
     <summary>
       <span class="meaning"><b>{{ r.label }}</b></span>
       <span class="now">{% if r.got %}<b>{{ r.shown }}</b>{% if r.got["from"] != "system" and not r.own %} <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% endif %}{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if needed %} {{ tag("決めてください", words.tone("waiting")) }}{% endif %}{% if r.own and level != "system" %} {{ tag("ここで決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag(("仮の値（見直す時：" ~ words.plain(r.provisional.review_when) ~ "）") if person.admin else "仮の値（あとで見直すことがあります）", "wait") }}{% endif %}</span>
@@ -92,7 +95,8 @@
   {% else %}<span class="muted">依頼者・業務ごとの値は、そのタブの「設定」で決めます（ここで決めた値より先に効きます）。</span>{% endif %}
 </nav>
 {% endif %}
-{{ flash(done, ok) }}
+{#- 1つの設定を変えた結果は、その設定の札の上に出す（下の group_section）。ほかの操作の結果だけ、ここに -#}
+{% if not changed %}{{ flash(done, ok) }}{% endif %}
 {#- ここで決めている値の一覧（どれを変えたかを一目で。押すとその行を開く）。システムの段は、どれもこの段の値なので出さない -#}
 {% set mine = rows|selectattr("own")|list %}
 {#- この段より上の段（値を受け継ぐ元）の名前。どの段でも話が合うように、いまの段から作る -#}
