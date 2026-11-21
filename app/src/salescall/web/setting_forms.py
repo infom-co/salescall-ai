@@ -47,6 +47,28 @@ def _show_ranges(v: Any) -> str:
     return "、".join(f"{a}〜{b}" for a, b in v) if v else "なし"
 
 
+def _show_weekly(v: Any) -> str:
+    """曜日ごとの時間帯を短く見せる：同じ時間帯の曜日を1つにまとめ、続く3日以上は「月〜金」と書く（7つ並べると読めない。
+    2026-11-21 の見直し）。8つとも同じなら「毎日（祝日も）」。"""
+    v = v or {}
+    groups: dict[tuple[tuple[str, ...], ...], list[int]] = {}
+    for i, (k, _) in enumerate(DAYS):
+        groups.setdefault(tuple(tuple(r) for r in (v.get(k) or [])), []).append(i)
+    if len(groups) == 1:
+        return f"毎日（祝日も）{_show_ranges(v.get(DAYS[0][0]))}"
+    out = []
+    for ranges, idx in groups.items():
+        names, run = [], [idx[0]]
+        for i in idx[1:] + [None]:
+            if i is not None and i == run[-1] + 1 and DAYS[i][0] != "holiday":
+                run.append(i)
+                continue
+            names += [f"{DAYS[run[0]][1]}〜{DAYS[run[-1]][1]}"] if len(run) >= 3 else [DAYS[j][1] for j in run]
+            run = [i] if i is not None else []
+        out.append(f"{'・'.join(names)} {_show_ranges([list(r) for r in ranges])}")
+    return " ／ ".join(out)
+
+
 def _whole(s: Any, *, least: int, what: str = "数") -> int:
     t = str(s or "").strip()
     if not re.fullmatch(r"\d+", t) or int(t) < least:
@@ -152,7 +174,7 @@ FORMS: dict[str, Form] = {
                       lambda f, p, d: _ints(str(f.get(f"{p}v") or ""), least=1, most=23, increasing=True)),
     "daily_range": Form("range", lambda v: f"{v[0]}〜{v[1]}", lambda f, p, d: _range(str(f.get(f"{p}v") or ""))),
     "daily_ranges": Form("ranges", _show_ranges, lambda f, p, d: _ranges(str(f.get(f"{p}v") or ""), empty_ok=False)),
-    "weekly_hours": Form("weekly", lambda v: " ／ ".join(f"{label}：{_show_ranges(v.get(k))}" for k, label in DAYS), _weekly),
+    "weekly_hours": Form("weekly", _show_weekly, _weekly),
     "gap_or_never": Form("gap_never", _show_gap, lambda f, p, d: _gap(f, p, "never")),
     "day_or_gap": Form("gap_day", _show_gap, lambda f, p, d: _gap(f, p, "next_day")),
     "limit": Form("limit", lambda v: "上限なし" if v is None else f"{v}", _limit),

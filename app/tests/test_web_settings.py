@@ -70,6 +70,15 @@ class Forms(unittest.TestCase):
         self.assertEqual(setting_forms.read("weekly_hours", {"f_mon": "9:00 - 12:00 13:00 - 18:00"}, "f_", {})["mon"],
                          [["09:00", "12:00"], ["13:00", "18:00"]])
 
+    def test_weekly_hours_are_shown_short_by_grouping_the_same_days(self):   # 7つ並べると読めない（2026-11-21 の見直し）
+        day = [["09:00", "18:00"]]
+        self.assertEqual(setting_forms.show("weekly_hours", {k: [["08:00", "22:00"]] for k, _ in setting_forms.DAYS}),
+                         "毎日（祝日も）08:00〜22:00")
+        week = {k: (day if k in ("mon", "tue", "wed", "thu", "fri") else []) for k, _ in setting_forms.DAYS}
+        self.assertEqual(setting_forms.show("weekly_hours", week), "月〜金 09:00〜18:00 ／ 土・日・祝日 なし")
+        week.update(tue=[], sat=day)                                            # 続かない曜日は「・」で、続く3日以上は「〜」で
+        self.assertEqual(setting_forms.show("weekly_hours", week), "月・水〜土 09:00〜18:00 ／ 火・日・祝日 なし")
+
     def test_a_phone_number_is_cleared_only_when_asked_and_shown_by_the_last_four(self):
         with self.assertRaises(Refused):
             setting_forms.read("phone", {"f_v": ""}, "f_", {})                 # 空のまま送っても消えない

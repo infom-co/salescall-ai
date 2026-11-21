@@ -95,7 +95,7 @@
  "retry.apology_max": "お詫びの電話の回数の上限",
  "retry.ask_number_again_max": "番号の聞き直しの回数の上限",
  "retry.max_attempts_per_task": "1人のお客様にかける回数の上限",
- "retry.no_opening_recheck": "かけられる時間が無い行の見直し",
+ "retry.no_opening_recheck": "かけられる時間が無いお客様の見直し",
  "retry.time_band_boundaries": "時間帯の区切り",
  "stop.ai.probe_interval": "AI の回復を試す間隔",
  "stop.ai.resume_after_successes": "AI の回復とみなす回数",

@@ -824,6 +824,8 @@ class Web(_World):
         for name, text in shown.items():
             odd += [f"{name}: {m.group(0)}" for m in re.finditer(
                 r"(?:この|その|ほかの|まだ|止めた|休んでいる|休ませている|待っている|かけられない|次の)行|行を選ぶ|次の回|「かけないで」の一覧", text)]
+        # 設定の名前は、どれもお客様の扱いの話（ファイルの行の話は無い）なので、「行」そのものを使わない（実行・行う などの言葉は別）
+        odd += [f"setting_labels.json: {m.group(0)}" for m in re.finditer(r"\S{0,6}(?<![実銀旅運])行(?![うっいわ])\S{0,4}", shown["setting_labels.json"])]
         for f in sorted(tpl.glob("*.html")):
             text = re.sub(r"\{#.*?#\}", "", f.read_text(encoding="utf-8"), flags=re.S)
             odd += [f"{f.name}: {m.group(0)}" for m in re.finditer(r"解[くけい]", text)]
