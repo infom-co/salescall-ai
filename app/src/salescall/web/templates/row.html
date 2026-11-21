@@ -62,7 +62,10 @@
     </table></div>
     <p class="muted">答えの根拠は、下の「電話の記録」から、その電話のやり取りの全文で確かめられます。</p>
     {% endif %}
-    <h3 style="margin-top:18px">電話番号</h3>
+  </section>
+  {#- 右の札：番号と連絡先と、それを直す操作（左＝いまの状態と答え。2つの列に分ける） -#}
+  <section class="card">
+    <h2>電話番号と連絡先</h2>
     <ul class="numbers">
       {% for n in row.contacts.numbers %}
       <li class="{{ 'dialing' if n.dialing else 'old' }}">
@@ -78,11 +81,11 @@
       {% for c in row.contacts.contacts %}<dt>{{ kind_names.get(c.kind, words.NO_WORD) }}</dt><dd>{{ c.value }}{% if c.service %}（{{ c.service }}）{% endif %} <span class="muted">{{ words.ORIGIN_WORDS.get(c.origin, "") }}</span></dd>{% endfor %}
     </dl>
     {% endif %}
-  </section>
-
-  <section class="card fix-card" id="fix">
-    <h2>お名前・連絡先を直す</h2>
-    <p class="muted">直したことは記録に残ります。直すと、次の予定は決まりに沿って自動で組み直されます。</p>
+    {#- お名前・連絡先を直すのは、ほかの直す操作と同じ「押すと開く」形（2026-11-21 の見直し：この欄だけが開いたまま右半分を占め、
+        承認待ちがあると主のボタンが2つになった）。直している途中（2段目・確かめ）と断られたときは開いたまま。#fix へ飛んでも開く（app.js） -#}
+    <details class="adder-block fix-card" id="fix" {% if draft or error %}open{% endif %} style="margin-top:18px">
+    <summary class="btn small">お名前・連絡先を直す</summary>
+    <p class="muted" style="margin-top:10px">直したことは記録に残ります。直すと、次の予定は決まりに沿って自動で組み直されます。</p>
     <form method="post" action="{{ base }}/rows/{{ row.task_id }}/fix#fix">
       {{ csrf(token) }}
       {% if not draft or error %}
@@ -125,6 +128,7 @@
         {% endif %}
       {% endif %}
     </form>
+    </details>
   </section>
 </div>
 

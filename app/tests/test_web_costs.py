@@ -60,6 +60,11 @@ class DeficitOnScreen(CostRatio):
         self.assertIn("確かめた（これ以上お知らせしない）", costs)
         self.assertIn("赤字の確認", http.get("/t/inbox").text)
         self.assertIn("報酬より費用が多くなっています", http.get(f'/c/{s["client"]}').text)
+        from tests.test_web import visible_primary_buttons                     # 赤字の札があっても、主のボタンは1画面に1つ（設計書 7-4）
+        for path in ("/t/costs", f'/c/{s["client"]}', f'/c/{s["client"]}/b/{s["business"]}'):
+            with self.subTest(path=path):
+                got = visible_primary_buttons(http.get(path).text)
+                self.assertLessEqual(len(got), 1, got)
         form = re.search(r'<form method="post" action="(/c/[^"]+/inbox/deficit/confirm)"[^>]*>(.*?)</form>', costs, re.S)
         sent = dict(re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)">', form.group(2)))
         r = http.post(form.group(1), data=sent, follow_redirects=False)

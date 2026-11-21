@@ -157,6 +157,8 @@ class MoreCallsButton(MoreCalls):
         self.tx(s, lambda tx: next_action.end(tx, s["task"], "callback_exact_unreached", cause="試験：決めた日数・回数かけても話せなかった"))
         page = http.get(rows).text
         self.assertIn("お客様 1件が「さらにかける」の承認を待っています", page)
+        from tests.test_web import visible_primary_buttons                     # 主のボタンは1画面に1つ（設計書 7-4。見本のデータに無い場面も見る）
+        self.assertLessEqual(len(visible_primary_buttons(page)), 1, visible_primary_buttons(page))
         self.assertIn(f'form="more-{s["task"]}"', page)                         # 行の中のボタンは、表の外の送り先を指す（form を入れ子にしない）
         part = page[page.index('<details class="adder more-act">'):]
         self.assertIn("に、このお客様だけ、もう一度おかけします", part[:800])        # 押す前に、どのお客様かを名前つきで見せる（計画書 5-1）
@@ -165,7 +167,8 @@ class MoreCallsButton(MoreCalls):
         self.assertEqual(sent["back"], rows)
         self.assertIn(inbox.MORE_CALLS_TITLE, http.get("/t/inbox").text)       # 受け箱にも同じ承認待ち（ホームの数もここから）
         row = http.get(f"{rows}/rows/{s['task']}").text
-        self.assertIn(f'action="{act}"', row)                                   # 1行の画面にも同じ部品で出る
+        self.assertIn(f'action="{act}"', row)
+        self.assertLessEqual(len(visible_primary_buttons(row)), 1, visible_primary_buttons(row))                                   # 1行の画面にも同じ部品で出る
         notices = http.get("/t/notices").text                                   # 知らせから、その行へ飛べる（links の1か所）
         self.assertIn(f"{rows}/rows/{s['task']}", notices[notices.index("話せなかったお客様"):])
         r = http.post(act, data=sent, follow_redirects=False)
