@@ -34,7 +34,7 @@ class VacSound:
     def __init__(self) -> None:
         import sounddevice as sd
         self._sd = sd
-        self._queue: deque[bytes] = deque()
+        self._queue: deque[list[Any]] = deque()   # [残りの声, 流し終えたら呼ぶもの, 流した長さ（バイト）]
         self._lock = threading.Lock()
         self._drained = threading.Event()
         self._drained.set()
@@ -58,36 +58,51 @@ class VacSound:
     def _speak(self, out: Any, frames: int, time_info: Any, status: Any) -> None:
         need = frames * 2
         chunk = bytearray()
+        finished: list[Callable[[], None]] = []
         with self._lock:
             while self._queue and len(chunk) < need:
-                head = self._queue.popleft()
+                head = self._queue[0]
                 take = need - len(chunk)
-                chunk += head[:take]
-                if len(head) > take:
-                    self._queue.appendleft(head[take:])
+                chunk += head[0][:take]
+                head[2] += min(take, len(head[0]))
+                head[0] = head[0][take:]
+                if not head[0]:
+                    self._queue.popleft()
+                    if head[1] is not None:
+                        finished.append(head[1])
             if not self._queue:
                 self._drained.set()
         out[:] = bytes(chunk) + b"\x00" * (need - len(chunk))
+        for f in finished:   # 流し終えた知らせは、錠の外で（知らせる先の誤りで音の流れを止めない）
+            try:
+                f()
+            except Exception:
+                pass
 
     # ── rakuten_link.Sound の形 ──
     def listen(self, on_frame: Callable[[bytes], None]) -> None:
         self._on_frame = on_frame
 
-    def play(self, pcm: bytes) -> None:
+    def play(self, pcm: bytes, done: Callable[[], None] | None = None) -> None:
         if not pcm:
+            if done is not None:
+                done()
             return
         with self._lock:
-            self._queue.append(pcm)
+            self._queue.append([pcm, done, 0])
             self._drained.clear()
 
     def play_wait(self, pcm: bytes, limit: float = 30.0) -> None:
         self.play(pcm)
         self._drained.wait(limit)
 
-    def stop(self) -> None:
+    def stop(self) -> float:
+        """流している声と順番待ちをやめる。答え＝流していた声（順番待ちの先頭）がもう流れた秒。"""
         with self._lock:
+            played = self._queue[0][2] / 2 / RATE if self._queue else 0.0
             self._queue.clear()
             self._drained.set()
+        return played
 
     def close(self) -> None:
         for s in (self._in, self._out):

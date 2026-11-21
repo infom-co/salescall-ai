@@ -45,9 +45,9 @@ class Sound(Protocol):
     """音の装置（本物は Virtual Audio Cable の Line 1 から録り、Line 2 へ流す。⏳ R-2〜R-4）。"""
     rate: int
     def listen(self, on_frame: Callable[[bytes], None]) -> None: ...   # 装置の形の 20ms ごとの声を渡し続ける
-    def play(self, pcm: bytes) -> None: ...                             # 装置の形の声を流す（待たずに返す）
+    def play(self, pcm: bytes, done: Callable[[], None] | None = None) -> None: ...   # 装置の形の声を流す（待たずに返す）。流し終えたら done を呼ぶ
     def play_wait(self, pcm: bytes) -> None: ...                        # 流し終えるまで待つ
-    def stop(self) -> None: ...                                         # 流している声をやめる
+    def stop(self) -> float: ...                                        # 流している声と順番待ちをやめる。答え＝流していた声が流れた秒（無ければ 0）
 
 
 Recordings = Callable[[str | None], tuple[bytes, bytes] | None]   # 声の型 → （ひとつ目・ふたつ目）の録音（装置の形）
@@ -66,6 +66,8 @@ class RakutenLink:
         self._cadence = tones.Cadence(sound.rate)
         self._heard: list[float] = []           # 声のあった切れ目の時刻（おわびの返事を待つため）
         self._last_state = "idle"
+        self._pending: list[str] = []           # 流している・順番待ちの声の印（流した順）
+        self._lock_play = threading.Lock()
         self._linked, self._linked_at = False, None   # スマホとの連携（usable が返す覚え。poll_state のついでに読み直す）
         sound.listen(self._on_frame)
         # 画面の状態（呼び出し中・つながった・切れた）は、声の流れとは別の流れで watch_every 秒ごとに読む（画面を読むのは遅いので、
@@ -88,6 +90,8 @@ class RakutenLink:
             self._place(national)
 
     def hang_up(self) -> None:
+        with self._lock_play:
+            self._pending = []   # 切った電話の声の印は残さない（次の電話に持ち越さない）
         self.sound.stop()
         self.screen.hang_up()
 
@@ -181,8 +185,31 @@ class RakutenLink:
     def on_event(self, send: Callable[[dict[str, Any]], None]) -> None:
         self._send_event = send
 
-    def play(self, pcm: bytes) -> None:
-        self.sound.play(audio.resample(pcm, FROM_SERVER_RATE, self.sound.rate))
+    def play(self, pcm: bytes, ref: str | None = None) -> None:
+        """サーバーから届いた声のひと続きを流す（待たずに返す）。ref（頼みの印）があれば、通話へ流し終えたときに出来事
+        {"kind": "played", "ref": ref} を返す（黙ったときの見張りの数え始めは、声が終わってから＝CL-1 の 4-227 の (1)・PHONE.md 2-2）。"""
+        data = audio.resample(pcm, FROM_SERVER_RATE, self.sound.rate)
+        if ref is None:
+            self.sound.play(data)
+            return
+        with self._lock_play:
+            self._pending.append(ref)
+        def done() -> None:
+            with self._lock_play:
+                if ref in self._pending:
+                    self._pending.remove(ref)
+            self._send_event({"kind": "played", "ref": ref})
+        self.sound.play(data, done)
+
+    def stop_playing(self) -> None:
+        """流すのをやめる（サーバーが決める＝外れた言葉を止める見張り・お客様が話し始めた。CL-1 の 4-226 の (2)・PHONE.md 2-2）。順番待ちの声は捨て、
+        流している途中の声も止める。止めた声ごとに {"kind": "stopped", "ref": 印, "played_s": 流れた秒} を返す（お客様にどこまで聞こえたかの記録。
+        まだ流れ始めていない声は 0 秒）。"""
+        with self._lock_play:
+            dropped, self._pending = list(self._pending), []
+        played = self.sound.stop()
+        for n, ref in enumerate(dropped):
+            self._send_event({"kind": "stopped", "ref": ref, "played_s": round(played, 2) if n == 0 else 0.0})
 
     # ── 中の流れ ─────────────────────────────────────────────
     _tone: str | None = None

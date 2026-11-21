@@ -75,14 +75,16 @@ class FakeSound:
         for f in audio.Framer(RATE).push(pcm):
             self.frame(f)
 
-    def play(self, pcm):
+    def play(self, pcm, done=None):
         self.played.append(("play", len(pcm)))
+        self.done = getattr(self, "done", []) + [done]
 
     def play_wait(self, pcm):
         self.played.append(("wait", len(pcm)))
 
     def stop(self):
         self.stopped += 1
+        return 0.48   # 流していた声が流れた秒（架空）
 
 
 def phone(screen=None, recordings=lambda v: (b"\x01\x00" * 160, b"\x02\x00" * 160)):
@@ -217,6 +219,47 @@ class ShortMessage(unittest.TestCase):
         p, _ = phone(broken)
         with self.assertRaises(RuntimeError):                                  # 送れたか分からない（サーバーは次の送り方へ）
             p.send_sms("+81300000001", "架空の知らせ", national="0300000001")
+
+
+class PlayedAndStopped(unittest.TestCase):
+    def test_the_phone_says_when_a_voice_has_finished_and_when_it_was_stopped(self):
+        """声を流し終えたら played（黙ったときの見張りの数え始め＝CL-1 の 4-227 の (1)）、サーバーが「やめて」と言ったら、順番待ちを捨てて
+        stopped（流れた秒つき。まだ流れ始めていない声は 0 秒＝CL-1 の 4-226 の (2)）。決めるのはサーバー（PC は言われたとおりにして知らせるだけ）。"""
+        p, _ = phone()
+        events = []
+        p.on_event(events.append)
+        p.play(b"\x00\x00" * 2400, ref="r1")
+        p.play(b"\x00\x00" * 2400, ref="r2")
+        p.play(b"\x00\x00" * 2400, ref="r3")
+        p.sound.done[0]()                                                     # 1つ目を流し終えた
+        self.assertEqual(events, [{"kind": "played", "ref": "r1"}])
+        p.stop_playing()
+        self.assertEqual(events[1:], [{"kind": "stopped", "ref": "r2", "played_s": 0.48}, {"kind": "stopped", "ref": "r3", "played_s": 0.0}])
+        p.play(b"\x00\x00" * 2400)                                           # 印の無い声（録音など）は知らせない
+        self.assertIsNone(p.sound.done[-1])
+
+
+class VacQueue(unittest.TestCase):
+    def test_the_device_queue_calls_done_after_the_last_bytes_and_stop_reports_the_seconds(self):
+        """仮想の音声装置の順番待ち（装置そのものは使わない＝流す口 _speak を直に呼ぶ）：ひと続きを流し終えた時に done を1回・
+        途中で stop したら、そのひと続きが流れた秒を返す。"""
+        import threading
+        from collections import deque
+        from salescall.agent.phones import sound_vac
+        v = object.__new__(sound_vac.VacSound)
+        v._queue, v._lock, v._drained = deque(), threading.Lock(), threading.Event()
+        calls = []
+        frame = sound_vac.FRAME
+        v.play(b"\x01\x00" * (frame + frame // 2), lambda: calls.append("a"))   # 1.5 フレーム分
+        v.play(b"\x02\x00" * frame, lambda: calls.append("b"))
+        out = bytearray(frame * 2)
+        v._speak(out, frame, None, None)
+        self.assertEqual(calls, [])                                           # まだ途中
+        v._speak(out, frame, None, None)
+        self.assertEqual(calls, ["a"])                                        # 1つ目を流し終えた（2つ目は途中）
+        played = v.stop()
+        self.assertAlmostEqual(played, (frame // 2) / sound_vac.RATE)         # 2つ目は半フレーム分流れていた
+        self.assertEqual(calls, ["a"])                                        # 止めた声の done は呼ばない（止めた知らせは別に出す）
 
 
 class Usable(unittest.TestCase):
