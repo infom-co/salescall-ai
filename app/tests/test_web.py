@@ -805,11 +805,17 @@ class Web(_World):
         """1つの物事に1つの呼び方（2026-11-20 の見直し）：お客様リストの中の1件は「お客様」（「行」は、取り込むファイル・渡すファイルの
         中の1行だけ）。止めたものを動かすのは「再開」（「解く」と混ぜない）。画面のひな形を見る（CL-2 の部品の文は、お願い 65）。"""
         import pathlib
-        tpl = pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/templates")
+        src = pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall")
+        tpl = src / "web/templates"
         odd = []
-        for name in ("rows.html", "row.html", "client.html", "home.html", "inbox.html", "parts.html"):
-            text = re.sub(r"\{#.*?#\}", "", (tpl / name).read_text(encoding="utf-8"), flags=re.S)   # 説明の書き込みは見ない
-            odd += [f"{name}: {m.group(0)}" for m in re.finditer(r"(?:この|その|ほかの|まだ|止めた|休んでいる|終えた)行", text)]
+        # 画面に出る文：すべてのひな形（説明の書き込み {# #} は見ない）・見張りの項目の文（watch.py の文字列）・ブラウザの文（app.js の文字列）・設定の名前
+        shown = {f.name: re.sub(r"\{#.*?#\}", "", f.read_text(encoding="utf-8"), flags=re.S) for f in sorted(tpl.glob("*.html"))}
+        for name in ("web/watch.py", "web/static/app.js"):
+            shown[name] = " ".join(re.findall(r'"([^"\n]*)"', (src / name).read_text(encoding="utf-8")))
+        shown["setting_labels.json"] = (src / "output/setting_labels.json").read_text(encoding="utf-8")
+        for name, text in shown.items():
+            odd += [f"{name}: {m.group(0)}" for m in re.finditer(
+                r"(?:この|その|ほかの|まだ|止めた|休んでいる|休ませている|待っている|かけられない|次の)行|行を選ぶ|次の回|「かけないで」の一覧", text)]
         for f in sorted(tpl.glob("*.html")):
             text = re.sub(r"\{#.*?#\}", "", f.read_text(encoding="utf-8"), flags=re.S)
             odd += [f"{f.name}: {m.group(0)}" for m in re.finditer(r"解[くけい]", text)]

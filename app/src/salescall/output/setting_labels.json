@@ -27,7 +27,7 @@
  "callback.exact_days": "時刻の約束に出ないとき、続ける日数",
  "callback.exact_retry_gaps": "時刻の約束に出ないとき、かけ直す間隔",
  "callback.exact_slot": "時刻の約束の1回分の長さ",
- "callback.month_ahead": "1か月以上先の次の回へ回すか",
+ "callback.month_ahead": "1か月以上先のかけ直しを、かけるか",
  "callback.period_afternoon": "「午後」の幅",
  "callback.period_evening": "「夕方」の幅",
  "callback.period_forenoon": "「午前」の幅",
@@ -119,6 +119,6 @@
  "login.lock_seconds": "続けて誤ったあと、ログインを止める長さ",
  "login.session_seconds": "ログインが続く長さ",
  "output.customer_words": "お客様の言葉の書き方",
- "business.declined_wait_days": "アポを断られた方へ次の回でかけるまでの日数",
+ "business.declined_wait_days": "アポを断られた方へ、もう一度かけるまでの日数",
  "callback.until_available": "「〇時までなら大丈夫」のときのかける時間"
 }

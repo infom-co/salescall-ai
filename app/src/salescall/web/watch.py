@@ -102,7 +102,7 @@ def _resting(st: Any) -> str:
 
 
 def _name_recordings(tx: Tx) -> list[Entry]:
-    """名前の録音がそろわず、かけられない行（計画書 12-1）。足りない録音の部分の名前を見せる（録音を作るのは業務のタブ・録音の画面）。"""
+    """名前の録音がそろわず、かけられないお客様（計画書 12-1）。足りない録音の部分の名前を見せる（録音を作るのは業務のタブ・録音の画面）。"""
     rows = tx.all("SELECT t.task_id, n.decided_at FROM salescall.tasks t LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id"
                   " WHERE coalesce(n.kind::text, 'call') = 'call' ORDER BY n.decided_at NULLS FIRST, t.task_id LIMIT %s", (LIMIT,))
     missing = {}
@@ -142,20 +142,20 @@ WATCHES: dict[str, Watch] = {
                    "（手で再開するときは「回線と PC」から）。", "tenant", _lines),
     "ring_tests": Watch("テスト番号の結果（直近7日）", "回線が電話網につながるかを、テスト番号に鳴らして確かめた結果です。「見分けられなかった」ときは、"
                         "すぐお知らせしています。", "tenant", _ring_tests, attention=False),
-    "undecided_rows": Watch("番号か回線か、決まらず休んでいる行", "お客様のところで鳴らなかった電話が、番号のせいか回線のせいか、同じ回線の次の電話で"
-                            "決まるのを待っています。その行にこだわらず、回線は次の行へ進んでいます。", "client",
+    "undecided_rows": Watch("番号か回線か、決まらず休んでいるお客様", "お客様のところで鳴らなかった電話が、番号のせいか回線のせいか、同じ回線の次の電話で"
+                            "決まるのを待っています。そのお客様にこだわらず、回線は次のお客様へ進んでいます。", "client",
                             _rows(health_rules.TaskStage.AWAIT_DECISION, lambda st: health_rules.TaskStage.AWAIT_DECISION.value)),
-    "fault_calls": Watch("こちらの不具合で終えた電話（直近7日）", "こちらのプログラムの不具合で終えた電話です。番号・回線・行の回数には数えません。"
+    "fault_calls": Watch("こちらの不具合で終えた電話（直近7日）", "こちらのプログラムの不具合で終えた電話です。番号・回線・お客様の回数には数えません。"
                          "直す担当へ修正依頼が出ています。", "client", _calls("ours"), attention=False),
     "runner_stuck": Watch("お詫びのあとも電話を進めるプログラムが戻らない（直近7日）", "電話を進めるプログラムが、お詫びして終えたあとも戻らなかった記録です。",
                           "tenant", _runner_stuck, attention=False),
-    "resting_rows": Watch("こちらの不具合で休ませている行", "同じ行で、こちらの不具合が続けて起きたので休ませています。", "client",
+    "resting_rows": Watch("こちらの不具合で休ませているお客様", "同じお客様で、こちらの不具合が続けて起きたので休ませています。", "client",
                           _rows(health_rules.TaskStage.RESTING, _resting)),
-    "recovery_rows": Watch("復旧を待っている行", "こちらの不具合で終えた電話の続きです。復旧を確かめたら、すぐ（お客様が出たあとならお詫びとともに）"
+    "recovery_rows": Watch("復旧を待っているお客様", "こちらの不具合で終えた電話の続きです。復旧を確かめたら、すぐ（お客様が出たあとならお詫びとともに）"
                            "かけ直します。", "client", _rows(health_rules.TaskStage.AWAIT_RECOVERY, _stage_reason("await_recovery"))),
-    "voice_rows": Watch("声が聞き取れず、かけ直しを待っている行", "声が聞き取れずに終えた電話（こちらの不具合には数えません）のあと、声が通ると"
+    "voice_rows": Watch("声が聞き取れず、かけ直しを待っているお客様", "声が聞き取れずに終えた電話（こちらの不具合には数えません）のあと、声が通ると"
                         "分かっている回線を待っています。", "client", _rows(health_rules.TaskStage.VOICE_REDIAL, _stage_reason("voice_redial"))),
-    "name_recordings": Watch("名前の録音がそろわず、かけられない行", "お呼びする方のお名前などの録音がそろうまで、その行にはおかけしません。"
+    "name_recordings": Watch("名前の録音がそろわず、かけられないお客様", "お呼びする方のお名前などの録音がそろうまで、そのお客様にはおかけしません。"
                              "録音がそろうと、自動でかけ始めます。", "client", _name_recordings),
     "voice_calls": Watch("声が聞き取れずに終えた電話（直近7日）", "お客様の電波などで声が聞き取れず、お詫びして終えた電話です。同じ回線で違うお客様に"
                          "続けば、回線の異常として扱います。", "client", _calls("poor_audio"), attention=False),

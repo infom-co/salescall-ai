@@ -91,12 +91,12 @@
     if (e.target.closest(".menu-toggle")) document.body.classList.toggle("nav-open");
   });
   // 理由が要る操作：理由が空のあいだはボタンを押せない（サーバーも断る）。押せない理由を、ボタンのすぐ横に出す（どの画面も同じ1か所）
-  // 押せるか（1か所）：理由が要る操作・まとめての操作で、足りないもの（行を選ぶ・どうするかを選ぶ・理由を書く）をまとめて数え、
+  // 押せるか（1か所）：理由が要る操作・まとめての操作で、足りないもの（お客様を選ぶ・どうするかを選ぶ・理由を書く）をまとめて数え、
   // 足りないあいだはボタンを押せない。足りないものを、ボタンのすぐ横にすべて出す（前は理由だけを見ていて、行を選んでいなくても
   // 理由を書くと「押せます」の案内が消えた＝2026-11-20 の見直し）。サーバーも同じものを断る
   function missingOf(form) {
     var out = [];
-    if (form.classList.contains("bulk-form") && form.querySelectorAll("input[name=task_id]:checked").length === 0) out.push("行を選ぶ");
+    if (form.classList.contains("bulk-form") && form.querySelectorAll("input[name=task_id]:checked").length === 0) out.push("お客様を選ぶ");
     Array.prototype.forEach.call(form.querySelectorAll("select[required]"), function (sel) { if (!sel.value) out.push("どうするかを選ぶ"); });
     var box = form.querySelector("[name=reason]");
     if (box && !box.value.trim()) out.push("理由を書く");

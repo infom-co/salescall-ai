@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "parts.html" import flash %}
 {% import "import_parts.html" as imp with context %}
-{% block title %}発信禁止の一覧の取り込み{% endblock %}
+{% block title %}発信禁止の一覧を取り込む{% endblock %}
 {% set crumbs = [("発信禁止", "/c/" ~ client.client_id ~ "/dnc")] if client else [(words.page("dnc"), "/t/dnc")] %}
 {% block crumb %}一覧を取り込む{% endblock %}
 {% block main %}
@@ -9,14 +9,14 @@
 {% set back = ("/c/" ~ client.client_id ~ "/dnc") if client else "/t/dnc" %}
 {% set base = back ~ "/import" %}
 {% set place = ("依頼者「" ~ client.name ~ "」の発信禁止") if client else ("「" ~ ctx.tenant_name ~ "」の共通の発信禁止（すべての依頼者に効く）") %}
-<h1>「かけないで」の一覧を取り込む</h1>
+<h1>発信禁止の一覧を取り込む</h1>
 {{ imp.steps(stage, base, key) }}
 {{ flash(done, ok) }}
 {% if error %}<div class="flash ng" role="alert">{{ error }}</div>{% endif %}
 
 {% if stage == "upload" %}
 {{ imp.upload(base, "依頼者から受け取った一覧（Excel か CSV）", encodings, token) }}
-<p class="muted" style="margin-top:12px">{% if client %}一覧のお客様は、断ったお客様と同じく、その番号か管理番号を持つ行のお客様ごと止めます（依頼者をまたいでは止めません）。{% else %}この契約者のすべての依頼者で、一覧の番号へはかけません（番号だけで止めます）。{% endif %}</p>
+<p class="muted" style="margin-top:12px">{% if client %}一覧の番号か管理番号を持つお客様には、断ったお客様と同じく、もうおかけしません（この依頼者の中だけ。ほかの依頼者には効きません）。{% else %}この契約者のすべての依頼者で、一覧の番号へはかけません（番号だけで止めます）。{% endif %}</p>
 
 {% elif stage == "map" %}
 <p class="lead">ファイル：{{ file_name }}。どの列がどの欄かを選んでください（見出しから案を入れています）。{% if client %}番号か管理番号の、どちらかがあれば止められます。{% endif %}</p>
