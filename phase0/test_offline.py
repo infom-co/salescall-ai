@@ -52858,3 +52858,22 @@ class APCallingDraftRowsGoneTest(unittest.TestCase):
         texts = [c[0] for c in g.LINES_OWN]
         for text in ("うちには岡田という者はおりませんが。", "いえ、そういう方はいませんけど。", "いいえ、違いますけど。"):
             self.assertIn(text, texts)
+
+
+class APEndWordsCallingFlowTest(unittest.TestCase):
+    """分身 AP（分身 AM の書き置きの6章の (6-1)）：電話を終える言葉の表のお呼びする段の流れ（end_words.calling_flow）は、お呼びする段の測りの場面を組む1か所（g59_flow_check.scene＝
+    業務設定の入口 instruction.Business.flow・行の業務 business_of）で流れの制御を作る（同じ問いに答える所を2つ作らない）。⛔ 直す前は Flow(…) を直接作り、業務設定（名乗りの名前・
+    判定に見せるお名前・知っていること・用件・かけた番号・個人のお客様）を渡していなかった。今の業務（フルネームのある会社の電話）では、表の行のお客様に聞こえる言葉・記録・
+    残る印は前と同じ（試験 test_calling_rows）"""
+
+    def test_the_table_flow_is_built_by_the_scene_entry(self):
+        import g59_flow_check as fc
+        from end_words import CALLING, calling_flow
+        want = fc.scene([], business=fc.business_of({"full": True}))[0]
+        for row in CALLING:
+            got = calling_flow(row)
+            if got is None:
+                continue
+            f = got[0]
+            for k in ("names", "judge_names", "knowledge", "purpose", "dialed_mobile", "personal", "policies"):
+                self.assertEqual(getattr(f, k), getattr(want, k), (row[1], k))
