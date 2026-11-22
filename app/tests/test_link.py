@@ -203,6 +203,13 @@ class LinkBase(Base):
         self.addCleanup(r.close)
         return r
 
+    def driver(self, line, at):
+        """その回線の電話の部品（本番と同じく、かける前に声の型を決める＝回線ごとの処理の prepare_call。声の型の無い電話は、どのおわびを流すかが
+        決まらないので PC がかけない＝protocol の版 10）。"""
+        d = self.hub.driver(line, at)
+        d.prepare_call("S2")
+        return d
+
     def beaten(self, r, got):
         """すぐ合図を送らせ、サーバーが受け取って記録し終えるまで待つ。"""
         from tests.support import owner_access
@@ -310,7 +317,7 @@ class Connect(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         heard, events = [], []
         driver.on_audio(heard.append)
         driver.on_event(events.append)
@@ -329,7 +336,7 @@ class Connect(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         events = []
         driver.on_event(events.append)
         driver.send_audio(b"\x01", ref="turn-7")
@@ -347,7 +354,7 @@ class Connect(LinkBase):
         self.assertEqual(protocol.voice_of(protocol.voice_frame(s["line"], "x_1", b"\x05")[17:]), ("x_1", b"\x05"))
         with self.assertRaises(protocol.BadMessage):                       # 印の長さと中身が合わない枠は読まない
             protocol.voice_of(bytes([9]) + b"ab")
-        self.assertEqual(protocol.VERSION, 9)
+        self.assertGreaterEqual(protocol.VERSION, 9)   # 声の印・止める頼み・声の出来事の形の版から（10＝おわびの録音を前もって配る）
 
     def test_the_phone_answers_and_failures_map_to_the_dial_exit(self):
         """通話中か・かける・切るは、PC の部品を通して電話の部品へ。かけようとして、かけられなかった＝CallNotPlaced（だれのせいかは
@@ -358,7 +365,7 @@ class Connect(LinkBase):
         phone = FakePhone(busy=True)
         self.agent(got, [s["line"]], {s["line"]: phone})
         at = self.attached(s, got)
-        driver = self.hub.driver(s["line"], at)
+        driver = self.driver(s["line"], at)
         self.assertTrue(driver.in_call())
         phone.busy = False
         self.assertFalse(driver.in_call())
@@ -376,12 +383,12 @@ class Connect(LinkBase):
         driver.apologize_and_hang_up()                                       # サーバーの側の誤り：おわびして切る
         self.assertEqual(phone.apologies, 1)
         with self.assertRaises(ConnectionError):                               # つないでいない回線（答えられない＝出口が「通話中」とみなす）
-            self.hub.driver(uuid.uuid4(), at).in_call()
+            self.driver(uuid.uuid4(), at).in_call()
         away = Attached(s["tenant"], uuid.uuid4(), at.conn)
         with self.assertRaises(ConnectionError):                               # その回線をつないでいない PC
-            self.hub.driver(s["line"], away).in_call()
+            self.driver(s["line"], away).in_call()
         with self.assertRaises(CallWithheld):                                # つないでいない：かけていないと確かに言える（回線の異常ではない）
-            self.hub.driver(s["line"], away).start_call("+81300000003")
+            self.driver(s["line"], away).start_call("+81300000003")
 
     def test_lines_of_another_tenant_are_dropped_and_two_pcs_on_one_line_keep_the_first(self):
         """名乗った回線は、その契約者の使っている回線だけが残る（ほかの契約者の回線の電話をかけさせない）。同じ回線を2つの PC が
@@ -393,7 +400,7 @@ class Connect(LinkBase):
         at = self.attached(s, got)
         self.assertNotIn(other["line"], self.hub.lines())
         self.assertEqual(first.agent.lines, [s["line"]])                    # PC の部品も、確かめ直した回線だけを使う
-        driver = self.hub.driver(s["line"], at)                              # 1台目の PC で動いている回線の流れ
+        driver = self.driver(s["line"], at)                              # 1台目の PC で動いている回線の流れ
         heard = []
         driver.on_audio(heard.append)
         second = self.pc(s, "架空の2台目の PC")
@@ -423,7 +430,7 @@ class CallingState(LinkBase):
         s = self.ready()
         got = self.pc(s)
         self.agent(got, [s["line"]])
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         session = self.hub.sessions[got.pc_id]
         with mock.patch.object(protocol, "CALL_QUIET", 0.0):                    # 声だけでは通話中にならない
             self.assertFalse(session.calling())
@@ -440,7 +447,7 @@ class CallingState(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         session = self.hub.sessions[got.pc_id]
         with mock.patch.object(protocol, "CALL_QUIET", 0.0):
             driver.start_call("+81300000003")
@@ -463,7 +470,7 @@ class CallingState(LinkBase):
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
         at = self.attached(s, got)
-        driver = self.hub.driver(s["line"], at)
+        driver = self.driver(s["line"], at)
         for answer in (True, False, None):
             phone.ring = answer
             self.assertIs(driver.test_ring("+81300000009"), answer)
@@ -488,7 +495,7 @@ class CallingState(LinkBase):
         with self.assertRaises(CallWithheld):
             driver.test_ring("+81300000009")
         self.assertEqual(len(phone.rings), 4)
-        gone = self.hub.driver(s["line"], Attached(s["tenant"], uuid.uuid4(), 0))   # つながっていない
+        gone = self.driver(s["line"], Attached(s["tenant"], uuid.uuid4(), 0))   # つながっていない
         with self.assertRaises(CallWithheld):
             gone.test_ring("+81300000009")
         self.assertGreaterEqual(protocol.VERSION, 6)
@@ -515,11 +522,11 @@ class CallingState(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         session = self.hub.sessions[got.pc_id]
         for op in ("start_call", "test_ring"):
             with self.subTest(op=op):
-                answer = self.hub.ask(session, "request", op=op, line=s["line"], phone="+81300000000")
+                answer = self.hub.ask(session, "request", op=op, line=s["line"], phone="+81300000000", voice="S2")
                 self.assertEqual((answer.get("ok"), answer.get("error")), (False, "withheld"))
         self.assertEqual((phone.calls, phone.rings), ([], []))
         driver.start_call("+81300000001")
@@ -534,7 +541,7 @@ class CallingState(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         driver.send_sms("+819000000001", "架空の知らせ")
         self.assertEqual(phone.texts, [("09000000001", "架空の知らせ")])
         phone.busy = True
@@ -624,7 +631,7 @@ class LostConnection(LinkBase):
         self.hub.close()
         until(lambda: phone.apologies >= 1, "おわびを流して切る")
         with self.assertRaises(ConnectionError):                               # 答えられない（出口が「通話中」とみなす）
-            self.hub.driver(s["line"], Attached(s["tenant"], got.pc_id, 1)).in_call()
+            self.driver(s["line"], Attached(s["tenant"], got.pc_id, 1)).in_call()
 
     def reachable(self):
         """画面の知らせを受け取る PC の部品（つながらない所へつなぐ。時刻は試験が渡す＝時計に頼らない）。"""
@@ -697,7 +704,7 @@ class LostConnection(LinkBase):
                 super().start_call(phone, national=national)
         phone = SlowPhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         caller = threading.Thread(target=lambda: self.assertRaises(Exception, driver.start_call, "+81300000000"))
         caller.start()
         until(lambda: self.hub.sessions[got.pc_id].pending, "かけてと頼んだ")
@@ -768,7 +775,7 @@ class LostConnection(LinkBase):
             def play_apology_and_hang_up(self):
                 order.append("おわび")
         self.agent(got, [s["line"]], {s["line"]: SlowPhone()})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         caller = threading.Thread(target=driver.start_call, args=("+81300000000",))
         caller.start()
         until(lambda: self.hub.sessions[got.pc_id].pending, "かけてと頼んだ")
@@ -793,7 +800,7 @@ class LostConnection(LinkBase):
                 self.calls.append(phone)
         phone = SlowPhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         with mock.patch.object(protocol, "ANSWER_BY", 0.5):
             first = threading.Thread(target=lambda: self.assertRaises(RuntimeError, driver.start_call, "+81300000000"))
             first.start()
@@ -811,7 +818,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         live = LiveCall(s["line"])                                           # 回線ごとの処理が、この通話を進めている
         driver.start_call("+81300000009")
         phone.busy = True
@@ -838,7 +845,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         live = LiveCall(s["line"])
         driver.start_call("+81300000009")
         phone.busy = True
@@ -870,7 +877,7 @@ class LostConnection(LinkBase):
                 super().play_apology_and_hang_up()
         phone = SlowApology()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         live = LiveCall(s["line"])
         self.addCleanup(live.over)
         with mock.patch.object(protocol, "REPLY_WAIT", 0.5):
@@ -908,7 +915,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         session = self.hub.sessions[got.pc_id]
         live = LiveCall(s["line"])                                           # 回線ごとの処理は、まだ進めている（戻っていない）
         self.addCleanup(live.over)
@@ -935,7 +942,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
         phone = FakePhone(busy=True)
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         aid = self.w.insert_claim(s, expires_in=timedelta(minutes=5))
         for state in ("dialing", "ringing", "answered", "in_conversation"):    # 通話の途中
             self.w.move(s, aid, state)
@@ -960,7 +967,7 @@ class LostConnection(LinkBase):
                 raise CallNotPlaced("試験：アプリが受け付けない")
         phone = Refusing()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         with mock.patch.object(protocol, "ANSWER_BY", 0.2), self.assertRaises(CallNotPlaced):
             driver.start_call("+81300000002")
         self.assertEqual(phone.apologies, 0)
@@ -970,7 +977,7 @@ class LostConnection(LinkBase):
         s = self.ready()
         got = self.pc(s)
         self.agent(got, [s["line"]])
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
 
         async def inside():
             driver.in_call()
@@ -988,7 +995,7 @@ class LostConnection(LinkBase):
         after = until(lambda: (at := self.hub.lines().get(s["line"])) is not None and at.conn != before.conn and at, "つなぎ直した")
         self.assertEqual((after.tenant_id, after.pc_id), (before.tenant_id, before.pc_id))
         with self.assertRaises(ConnectionError):                               # 前のつなぎには頼めない（出口が「通話中」とみなす）
-            self.hub.driver(s["line"], before).in_call()
+            self.driver(s["line"], before).in_call()
 
     def test_the_same_pc_opening_a_new_connection_before_the_old_one_is_noticed_is_not_a_second_pc(self):
         """同じ PC が、サーバーが前のつなぎの切れに気づく前につなぎ直しても、「2台の PC が同じ回線を使っている」と知らせない
@@ -1017,7 +1024,7 @@ class Emergency(LinkBase):
         self.assertEqual(self.open_manual(s), [flag])
         self.assertEqual(self.hub.lines(), {})                                  # かけない
         session = self.hub.sessions[got.pc_id]
-        driver = self.hub.driver(s["line"], Attached(s["tenant"], got.pc_id, session.conn))
+        driver = self.driver(s["line"], Attached(s["tenant"], got.pc_id, session.conn))
         self.assertTrue(driver.in_call())
         with self.assertRaises(CallWithheld):
             driver.start_call("+81300000000")
