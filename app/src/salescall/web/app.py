@@ -1385,6 +1385,52 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             return _back(f"{base}/runs/{out.value}/import" if out.ok else base, out)
         return handle(request, render)
 
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/version")
+    async def change_run_version(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
+        """お客様リストで使う電話の台本の版を替える（前の版へ戻すときも、これ1つ。計画書 5-3 の (11)・6-1 の (3)(4)(6)・7-3「切り替えは
+        記録つきの操作」）。替えるのは core の business_settings.assign の1か所（理由は必ず・記録に残る・つながりの途中の版は写しを作って
+        割り当てる・呼べないお客様が残る版は断る）。ここは、選んだ版がその業務のものかを確かめ、替えたあとの版を読んで言うだけ。"""
+        form = dict(await request.form())
+        from salescall.core import business_settings
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> tuple[str, int, int, str]:
+                run = _run_in(tx, business_id, run_id)
+                try:
+                    version = UUID(str(form.get("version_id") or ""))
+                except ValueError:
+                    raise actions.Refused("替える版を選んでください") from None
+                chosen = tx.one("SELECT version_no FROM salescall.business_versions WHERE version_id = %s AND business_id = %s",
+                                (version, business_id))
+                if chosen is None:
+                    raise NotFound()
+                if counts.run_version(tx, run_id) == version:
+                    raise actions.Refused(f"版 {chosen['version_no']} は、いま使っている版です（何も変えていません）")
+                kind = business_settings.assign(tx, run_id, version, reason=str(form.get("reason") or "").strip())
+                now = tx.one("SELECT version_no FROM salescall.business_versions WHERE version_id = %s", (counts.run_version(tx, run_id),))
+                return run["name"], chosen["version_no"], now["version_no"], kind
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), reason_field="reason", done="")
+            if out.ok:
+                name, chosen, now, kind = out.value
+                out = actions.Outcome(True, words.version_changed(name, chosen, now, kind))
+            return _back(f"/c/{client_id}/b/{business_id}", out, anchor="runs")
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/b/{business_id}/versions/{version_id}/copy")
+    async def copy_business(request: Request, client_id: UUID, business_id: UUID, version_id: UUID) -> HTMLResponse:
+        """この版の電話の台本から、同じ依頼者に新しい業務を作る（計画書 4章 C「複製」。作るのは core の registry.copy_business の1か所＝
+        中身・名前の読み・承認した録音を写す。業務ごとの設定・報酬の決まり・送り先は写さない）。作ったら、新しい業務のタブを開く。"""
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> UUID:
+                context.business(tx, business_id)
+                if tx.one("SELECT 1 FROM salescall.business_versions WHERE version_id = %s AND business_id = %s",
+                          (version_id, business_id)) is None:
+                    raise NotFound()
+                return registry.copy_business(tx, version_id, actions.name_of(form))[0]
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), done=words.BUSINESS_COPIED)
+            return _back(f"/c/{client_id}/b/{out.value}" if out.ok else f"/c/{client_id}/b/{business_id}/versions/{version_id}", out)
+        return handle(request, render)
+
     # ── 名前を直す・依頼者を無効にする（計画書 4章 A「登録・編集・無効化」。直すのは core の registry だけ。前と後の名前・誰が・いつは
     #    データベースが残す。同じ名前があれば core が断り、その文のまま出す。依頼者・業務・お客様リスト・回線で同じ1つの流れ） ──────────
     def _rename(request: Request, form: dict[str, Any], write: Callable[[Ctx, str], Any], back: str) -> HTMLResponse:
@@ -1442,10 +1488,13 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             def read(tx: Any) -> dict[str, Any]:
                 c = context.client(tx, client_id)
                 b = None if business_id is None else context.business(tx, business_id)
-                runs = tx.all("SELECT r.run_id, r.name, b.business_id, b.name AS business FROM salescall.runs r"
+                runs = tx.all("SELECT r.run_id, r.name, b.business_id, b.name AS business, v.version_id, v.version_no FROM salescall.runs r"
                               " JOIN salescall.businesses b ON b.business_id = r.business_id"
+                              " LEFT JOIN salescall.business_versions v ON v.version_id = salescall.run_current_version(r.run_id)"
                               " WHERE %s::uuid IS NULL OR r.business_id = %s ORDER BY r.created_at DESC, r.run_id",
                               (business_id, business_id))
+                if business_id is not None:   # 業務のタブだけ：版の割り当ての記録（自動の割り当ても。設計書 5-8）
+                    runs = [{**r, "history": counts.version_history(tx, r["run_id"])} for r in runs]
                 versions = [] if business_id is None else counts.script_versions(tx, business_id)   # 中身を読めるか（ready）も1か所で
                 needs, stages = [], []   # 業務のタブだけ：録音の要るもの（recordings.version_needs）と品質の段（quality_stage）。実施回のいまの版ごと
                 verification = business_id is not None and approval_core.human_for_business(tx, business_id)

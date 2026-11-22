@@ -763,3 +763,7 @@ label.enc-choice > input { margin-top: 4px; }
 @media (max-width: 600px) {
   .readiness.brief .muted { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 }
+
+/* お客様リストの表の「電話の台本」の欄：版の記録は、版の番号と「版を替える」の下に小さく（2026-11-22 深夜） */
+.version-history { margin-top: 6px; }
+.version-history .history-list { margin-top: 4px; }

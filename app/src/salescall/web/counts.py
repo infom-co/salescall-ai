@@ -191,6 +191,14 @@ def script_versions(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:
                             " ORDER BY version_no DESC", (business_id,))]
 
 
+def version_history(tx: Tx, run_id: UUID, limit: int = 10) -> list[dict[str, Any]]:
+    """お客様リストへの台本の版の割り当ての記録（新しい順。記録の表 run_versions を読むだけ。書くのは core の business_settings.assign
+    の1か所）。auto＝システムが新しい版へ自動で替えた（解決策・標準の新しい版など）。"""
+    return tx.all("SELECT rv.seq, rv.assigned_at, rv.assigned_by, rv.reason, rv.auto, v.version_no FROM salescall.run_versions rv"
+                  " JOIN salescall.business_versions v ON v.version_id = rv.version_id"
+                  " WHERE rv.run_id = %s ORDER BY rv.seq DESC LIMIT %s", (run_id, limit))
+
+
 # 版を使えないとみなす断り（core の取り込み importer が「版を直してから取り込んでください」と断るのと同じ4つ。2026-11-21：前は2つだけを
 # 数え、業務の決まりが無い・誤っている版を「使える」としていた＝はじめかたは済みなのに、取り込みで断られえた）
 _VERSION_UNUSABLE = (LookupError, business_settings.SettingsInvalid, business_settings.business_rules.RulesMissing,

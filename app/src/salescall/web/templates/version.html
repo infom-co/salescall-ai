@@ -4,8 +4,19 @@
 {% block title %}電話の台本 版 {{ version.version_no }}{% endblock %}
 {% block crumb %}電話の台本{% endblock %}
 {% block main %}
-<h1>電話の台本：版 {{ version.version_no }}</h1>
-<p class="lead">お客様との電話で話す中身（名乗り・用件・質問・想定問答）と、結果ごとのかけ直しです。かける時間帯や回数などは「この業務の設定」で決めます。{{ time(version.created_at) }}に作った版です。版は変えられません（直すときは新しい版を作ります。前の版も残ります）。</p>
+<div class="title-row"><div class="titles"><h1>電話の台本：版 {{ version.version_no }}</h1>
+<p class="lead">お客様との電話で話す中身（名乗り・用件・質問・想定問答）と、結果ごとのかけ直しです。かける時間帯や回数などは「この業務の設定」で決めます。{{ time(version.created_at) }}に作った版です。版は変えられません（直すときは新しい版を作ります。前の版も残ります）。お客様リストで使う版を替えるときは、業務のタブの「お客様リスト」の表から替えます。</p></div>
+{% if s %}
+  {#- 業務の複製（計画書 4章 C。作るのは core の registry.copy_business＝台本の中身・名前の読み・承認した録音を写す） -#}
+  <span class="btn-row"><details class="adder"><summary class="btn small">この版から業務を複製する</summary>
+    <form class="panel" method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/versions/{{ version.version_id }}/copy">{{ csrf(token) }}
+      <label class="field" for="copy-name">新しい業務の名前</label>
+      <input id="copy-name" type="text" name="name" required placeholder="例：{{ business.name }}（2）">
+      <p class="muted">依頼者「{{ client.name }}」に、この版の電話の台本（中身・名前の読み・承認した録音）を写した業務を作ります。業務ごとの設定・報酬の決まり・送り先は写しません。もとの業務は変わりません。</p>
+      <button class="btn main small" type="submit">複製して開く</button>
+    </form></details></span>
+{% endif %}
+</div>
 {% if missing %}<div class="card">{{ empty("この版には、まだ中身がありません", words.SCRIPT_NOT_READY) }}</div>
 {% elif problem %}<div class="flash ng" role="alert">{{ problem }}</div>
 {% elif s %}

@@ -356,6 +356,26 @@ MODE_WORDS: dict[str, tuple[str, str]] = {
 }
 
 
+# 台本の版を替えたあとの1行（画面の1か所。替えるのは core の business_settings.assign。kind は品質の段の始め方＝quality_stage.prepare の答え）
+VERSION_START_WORDS = {
+    "opened": "",
+    "already": "",
+    "mock_needed": "この版は、模擬通話の合格を待ってから電話をかけ始めます。",
+    "stopped_version": "ただし、この版は品質の確かめで止めた版なので、電話はかけ始めません（「止まっているもの」で確かめてください）。",
+}
+
+
+def version_changed(run_name: str, chosen: int, now: int, kind: str) -> str:
+    """お客様リストの台本の版を替えた結果の1行（つながりの途中の版は、core が写しを作って割り当てる＝chosen と now が違う）。"""
+    copied = f"（版 {chosen} の写しを版 {now} として作り、使います）" if now != chosen else ""
+    return (f"お客様リスト「{run_name}」の電話の台本を、版 {chosen} に替えました{copied}。このあとの電話から、この版で話します。"
+            + VERSION_START_WORDS.get(kind, "")
+            + "録音が要る部分や、この版に入っていない依頼者の解決策があれば、業務のタブと承認待ちに出ます（そろうまで、新しい電話はかけません）。")
+
+
+BUSINESS_COPIED = ("業務を複製しました。電話の台本（中身・名前の読み・承認した録音）を写しています。業務ごとの設定・報酬の決まり・送り先は"
+                   "写していないので、この業務の「はじめかた」で確かめてください。")
+
 SCRIPT_NOT_READY = ("電話の台本は、依頼者の資料一式を読み込んで AI が案を組み、契約者が確かめて決める形で作ります（その画面は、いま作って"
                     "いるところです）。台本が入ると、ここに中身が出て、お客様リストを作って電話を始められます。")
 

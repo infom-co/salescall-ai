@@ -119,13 +119,40 @@
 </div>
 {% if runs %}
 <div class="table-scroll"><table class="list">
-  <thead><tr><th>お客様リスト</th>{% if not business %}<th>業務</th>{% endif %}<th></th></tr></thead>
+  <thead><tr><th>お客様リスト</th>{% if not business %}<th>業務</th>{% endif %}<th>電話の台本</th><th></th></tr></thead>
   <tbody>
   {% for r in runs %}
     <tr>
       <td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}/runs/{{ r.run_id }}">{{ r.name }}</a></td>
       {% if not business %}<td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}">{{ r.business }}</a></td>{% endif %}
       {% set rb = "/c/" ~ client.client_id ~ "/b/" ~ r.business_id ~ "/runs/" ~ r.run_id %}
+      {#- いま使う台本の版と、版を替える（前の版へ戻すときも、これ1つ。替えるのは core の business_settings.assign＝理由は必ず・記録に残る）。
+          操作は業務のタブだけに置く（依頼者の概要は見るだけ） -#}
+      <td data-label="電話の台本">{% if r.version_no %}<a href="/c/{{ client.client_id }}/b/{{ r.business_id }}/versions/{{ r.version_id }}">版 {{ r.version_no }}</a>{% else %}<span class="muted">{{ words.NO_WORD }}</span>{% endif %}
+        {% if business %}
+        {% set others = ready|rejectattr("version_id", "equalto", r.version_id)|list %}
+        {% if others %}
+        <details class="adder more-act"><summary class="btn small">版を替える</summary>
+          <form class="panel" method="post" action="{{ rb }}/version" data-needs-reason
+                data-confirm="お客様リスト「{{ r.name }}」で使う電話の台本を、{radio:version_id}に替えます（依頼者「{{ client.name }}」・業務「{{ business.name }}」）。このあとの電話から、その版で話します。" data-confirm-ok="替える">
+            {{ csrf(token) }}
+            <fieldset class="plain"><legend class="field">替える版（いまは版 {{ r.version_no }}）</legend>
+            {% for v in others %}<label class="choice"><input type="radio" name="version_id" value="{{ v.version_id }}" data-word="版 {{ v.version_no }}" required>
+              <span><b>版 {{ v.version_no }}</b><span class="muted small-block">{{ time(v.created_at) }}に作った{{ "新しい版" if r.version_no and v.version_no > r.version_no else "前の版" }}</span></span></label>{% endfor %}
+            </fieldset>
+            <label class="field" for="rv-reason-{{ r.run_id }}">理由（記録に残ります）</label>
+            <input id="rv-reason-{{ r.run_id }}" type="text" name="reason" required placeholder="例：新しい版の言い回しを、前の形に戻す">
+            <p class="muted">前の版へ戻すときも、ここで替えます。版の中身は変わらず、どの版も残ります。</p>
+            <button class="btn main small" type="submit">この版に替える</button>
+          </form></details>
+        {% endif %}
+        {% if r.history %}
+        <details class="more version-history"><summary>版の記録</summary>
+          <ul class="history-list">{% for h in r.history %}<li><span class="when">{{ time(h.assigned_at) }}</span>・版 {{ h.version_no }}・{% if h.auto %}自動で替えた・{{ words.plain(h.reason) }}{% else %}{{ h.assigned_by }}・{{ h.reason }}{% endif %}</li>{% endfor %}</ul>
+        </details>
+        {% endif %}
+        {% endif %}
+      </td>
       {#- 名前のリンクがお客様リストへ行くので、同じ行き先を2つ並べない（2026-11-21 の見直し） -#}
       <td><span class="go-links">{{ go(rb ~ "/results", words.LIST_GO_WORDS.results) }}</span></td>
     </tr>
