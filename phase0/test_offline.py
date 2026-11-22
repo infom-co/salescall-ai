@@ -52815,15 +52815,16 @@ class APFirmAgreementTest(unittest.TestCase):
     お送りさせていただきますね？で正解です」・本書 9-5 の「言い切っているか」）。そのまま記録する側の「お願いや問いかけの言い方で言っただけ」は答えが決まっているときだけ。
     境目は確かめる側の条件の括弧の1か所だけ。⛔ 11-01 朝の書き直しで、この条件が抜けていた（前の文の旧＝FIRM_NOT にはあった）"""
 
-    BORDER = "答えはもう決めていて、言い方だけが柔らかい・お願いや問いかけの形なら、これに当たらない"
+    BORDER = "こちらの申し出や、こちらが伺ったご希望・選んでいただくものについて、そうしてほしいと頼んだのは、お願いや問いかけの言い方でも、これに当たらない"   # 分身 AQ が書き直した境目
 
     def test_the_agreement_condition_is_back_and_the_border_is_written_once(self):
         from meaning_judge import FIRM_NOT, FIRM_YES, RULES, JEV_FIRM
-        self.assertIn("望みや考えを、こちらに同意を求める言い方や、自分に言い聞かせる言い方で言い、決めるのをこちらの同意に預けた", FIRM_NOT)
+        # 分身 AQ（束 ap1x）：条件の名前を「決めるのをこちらの返事に預けた」にし、こちらが申し出ていないことの頼みも同じ条件に書いた＝AQFirmRequestBorderTest
+        self.assertIn("決めるのをこちらの返事に預けた（そうしたい・そのほうがよいという望みや考えを、こちらに同意を求める言い方や、自分に言い聞かせる言い方で言っただけ", FIRM_NOT)
         self.assertEqual(RULES.count(self.BORDER), 1)   # 判定の決まりの文に1回だけ
         self.assertNotIn(self.BORDER, FIRM_YES)
         self.assertIn(self.BORDER, JEV_FIRM["false"])   # 判断のモデルの言い切りの問いにも同じ1か所から
-        self.assertIn("お客様の答え（選んだもの、または選ぶのをこちらに任せること）が決まっていて、それをお願いや問いかけの言い方で言っただけ", FIRM_YES)
+        self.assertIn("お客様の答え（選んだもの、または選ぶのをこちらに任せること）を、お願いや問いかけの言い方で言っただけ", FIRM_YES)
 
     def test_rows_of_the_same_form_were_read_one_by_one(self):
         # 正解の表の同じ形の行（「〜のほうがいいですかね」「〜のほうがいいかな」「〜かしら」「〜てもいいかな」など）は、1行ずつ当て直した理由（hedged_why）を持つ
@@ -53041,3 +53042,52 @@ class APEndWordsCallingFlowTest(unittest.TestCase):
             f = got[0]
             for k in ("names", "judge_names", "knowledge", "purpose", "dialed_mobile", "personal", "policies"):
                 self.assertEqual(getattr(f, k), getattr(want, k), (row[1], k))
+
+
+class AQFirmRequestBorderTest(unittest.TestCase):
+    """分身 AQ（束 ap1x の (a)(b)）：言い切りの説明の、こちらへの頼みと望み・考えの言い方の境目（meaning_judge.FIRM_NOT の「決めるのをこちらの返事に預けた」の1か所）。
+    こちらが申し出ておらず、ご希望としても伺っていないことを、してもらえるかを尋ねる形で頼み、答えがこちらの返事で決まる言葉（✅ 2026-11-01 日本時間3時45分「「別の日にならないでしょうか」
+    …あいては確認しているので、こちらが「大丈夫ですよ」などの一言がないと、別の日が確定にならないため。」）と、望み・考えを同意を求める言い方・言い聞かせる言い方で言っただけで
+    頼んでいない言葉（✅ 11-01 の (b)・11-06 日本時間4時11分28秒）は確かめる側。こちらの申し出・伺ったご希望・選択肢への頼み（「週末にお願いできますか」「ええ、送っていただけますか。」）は
+    そのまま記録する側。⛔ 直す前は、答えを伏せた読み手2人が、2人とも「日にちの変更をお願いできますか」「日時を変えてもらえますか」を言い切りだけに読み、「〜のほうがいいですかね」
+    「〜かしら」を言い切りにも読んだ（束 ap1x の #13・#14・#1〜#4・#7）"""
+
+    BORDER = "決めるのをこちらの返事に預けた（"
+
+    def test_the_border_is_written_once_and_named_from_the_other_side(self):
+        from meaning_judge import FIRM_NOT, FIRM_YES, RULES, JEV_FIRM
+        for part in ("そうしてほしいとは頼んでいない", "こちらが申し出ておらず、ご希望としても伺っていないことを、こちらにしてもらえるかを尋ねる形で頼み、"
+                     "答えが、こちらがその頼みをお受けするかどうかで決まる"):
+            self.assertIn(part, FIRM_NOT)
+            self.assertEqual(RULES.count(part), 1)
+            self.assertNotIn(part, FIRM_YES)
+        self.assertEqual(RULES.count(self.BORDER), 1)
+        self.assertIn(self.BORDER, JEV_FIRM["false"])
+        self.assertNotIn("が決まっていて、それをお願いや問いかけの言い方で言っただけ", FIRM_YES)   # 境目を2か所に書かない
+        self.assertIn("確かめる側の「決めるのをこちらの返事に預けた」に書いたとおり", FIRM_YES)   # そのまま記録する側からは名前で指す
+        self.assertNotIn("答えはもう決めていて、言い方だけが柔らかい", RULES)
+
+    def test_both_sides_of_the_table_keep_their_values(self):
+        # 正解の表の両側（rv196/AQ/probe/aq/firm_sides_before.txt）：申し出ていないことを、できるかを尋ねる形で頼んだ7行は言い切っていない・伺った選択肢・申し出・ご希望への頼みと
+        # 任せた答えは言い切り（値は今のまま）
+        import g53_meaning as G
+        hedged = {"別の日にならないでしょうか", "変更をお願いできないでしょうか", "別の日時に変えてもらえますか", "日にちの変更をお願いできますか",
+                  "いいえ、別の日にしてもらえませんか", "時間の変更をお願いできますか", "日時を変えてもらえますか"}
+        firm = {"週末にお願いできますか", "ええ、送っていただけますか。", "明日の十時頃でお願いできますか", "LINEで送ってもらえますか？", "はい、変更をお願いしたいです。",
+                "いえ、日程をずらしてほしいです。"}
+        seen = set()
+        for it in ap_items():
+            if it["text"] in hedged | firm and G._label(it):
+                seen.add(it["text"])
+                self.assertEqual(G.hedged(it), it["text"] in hedged, it["text"])
+        self.assertEqual(seen, hedged | firm)
+
+    def test_the_readers_rows(self):
+        import g53_meaning as G
+        for it in ap_items():
+            lab = G._label(it) or {}
+            if it["text"] == "費用が発生するなら、やっぱり必要ないかな。":
+                self.assertTrue(G.hedged(it))
+                self.assertNotIn("⏳ 仮", lab.get("hedged_why"))   # 束 ap1x の2人とも言い切っていないと読んだ
+            if it["text"] in ("日にちの変更をお願いできますか", "日時を変えてもらえますか"):
+                self.assertIn("決めるのをこちらの返事に預けた", lab.get("why"))
