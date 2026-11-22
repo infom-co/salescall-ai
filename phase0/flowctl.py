@@ -5094,7 +5094,8 @@ class Question:
     # 質問か」を決めます。（ご不明な点は無い）として扱い、重ねて伺いません。OK」（19時26分のご質問「お客様「だいたい分かりました。」の後に、こちら「ありがとう
     # ございます。それではご不明な点はございますでしょうか？」となぜ、再度、不明点を確認するんですか？」＝9-3「取得済みのことを重ねて聞かない」）
     unclear_none: str = ""
-    # ご案内の方法の申し出のあと、申し出た方法を並べて伺い直す質問か（callback_question の which で、方法が2つから＝way_any_line）。選べるものに「どちらでも」
+    # ご案内の方法の申し出のあと、申し出た方法を並べて伺い直す質問か・申し出る方法が2つからのご案内の方法の申し出か（callback_question の which と申し出の形＝_wish_form が
+    # ask でない形で、方法が2つから＝way_any_line。申し出の形は分身 AU＝帳面 1 の (6) の (i) の L31）。選べるものに「どちらでも」
     # （ANY）を出す（all_conditions の1か所）＝「どれでも」は答え（どちらでも＝10-17 の案A）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」
     lists_ways: bool = False
     # 選択肢ごとの良い点・気をつける点（{選択肢の名前: その良い点・気をつける点の文}。業務設定＝取込＝CL-2。空なら無い）：迷っているお客様に、選ぶ助けになることを
@@ -5195,7 +5196,7 @@ class Question:
     @property
     def all_conditions(self) -> tuple:
         # 「どちらでも」「どれも要らない」は、業務の選ぶ質問で事実を伺わない質問だけ（システムの質問＝お立場・ご承認いただけなかったときの手順には足さない。
-        # ⛔ 2026-11-02 に見つけた：お立場の質問 S1 にも「どちらでも」を出していた）。申し出た方法を並べて伺い直す質問（lists_ways）は「どちらでも」だけ
+        # ⛔ 2026-11-02 に見つけた：お立場の質問 S1 にも「どちらでも」を出していた）。申し出た方法を並べて伺い直す質問・方法を申し出る質問（lists_ways）は「どちらでも」だけ
         # （「どれも要らない」は、その質問の断る答え＝WISH_NONE がある）
         # どちらの場合もありうるときに確かめる答えのある質問（maybe）も「どちらでも」だけ（はい／いいえ・事実を伺う質問でも出す＝「どちらでも」を答えとしては
         # 受け取らず、その可能性を確かめる＝Flow._ask_confirm の maybe。11-01 1時50分「お任せしますは答えになっていない」と食い違わない。✅ 11-09 4時36分49秒）
@@ -6228,11 +6229,32 @@ def _wish_repicks(q: "Question", which: bool = False) -> list[str]:
     return [c for c in _wish_picks(q) if not listed & set(means_in(_wish_pick_label(q, c)))]
 
 
+def _wish_form(q: "Question", which: bool = False) -> str:
+    """ほかのご希望を伺う質問（W1）の形（唯一の決まり＝「無い」の意味の言葉 _wish_choices・意味合いを尋ねる一言の候補 _wish_senses・選べるものに「どちらでも」を出すか
+    callback_question の lists_ways）："which"＝申し出た方法を並べて伺い直した W1（「それではメールとLINEとZOOMのどちらがよろしいでしょうか？」）・"offer"＝ご案内の方法を
+    申し出る形の W1（way_offer に申し出る方法がある＝「それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！」）・"ask"＝ほかのご希望を伺う形（「それでは
+    ほかにご希望などはございますでしょうか？」・選ぶ質問の「どれも要らない」のあと・申し出る方法の無いご案内の方法の質問）。"""
+    return "which" if which else "offer" if way_offer(q) else "ask"
+
+
+# ほかのご希望（W1）の「無い」（WISH_NONE）の意味の言葉＝判定に見せる名前と説明（唯一の場所＝_wish_choices）。W1 の形（_wish_form）ごと：
+# ask＝ほかのご希望を伺う形（今までのまま）。offer・which＝申し出・並べた方法へのお断り（申し出のあとでは、お客様に伺っていない「ほかのご希望」を言わない＝前の質問の言い方のままだと、
+# 申し出への「とくに希望はないので、お任せします。」を、答えを伏せた読み手2人とも「ほかに希望は無い」の字に引かれうると書いた＝束 ar1 の #2・#19）。✅ 10-19（同じ理由が当たる場面すべてに）・
+# 帳面 0-3「判定（AI）への文も、初めて読む人がそのまま分かる言葉で書く」（帳面 1 の (6) の (i) の L32・分身 AU）。方法を任せた・どれでもよいと言った受けとの境目は、「どちらでも」を
+# 出す形（lists_ways）だけ、この説明の括弧の1か所に名前で書く（WISH_NONE_ANY）
+WISH_NONE_MEANING = {"ask": "ほかに希望は無い・やはり要らないということ（上のどれかでよいと言ったのは、そちら）",
+                     "offer": "申し出た方法でのご案内も要らない・ご案内は受けないということ",
+                     "which": "並べた方法のどれでのご案内やお送りも要らない・ご案内やお送りは受けないということ"}
+WISH_NONE_ANY = "（ご案内やお送りは受けると言って、方法はどれでもよい・任せる・方法の希望は無い、と言ったのは「どちらでも」）"
+
+
 def _wish_senses(of: "Question", which: bool = False) -> dict:
     """ほかのご希望（W1）の選択肢ごとの、意味合いを尋ねる一言の候補の言葉（お客様に言う言葉。W1 を作る callback_question が Question.senses に入れる唯一の
     場所）：元の質問 of の選び直し（選ぶ質問の名詞の選択肢は「（選択肢）で大丈夫」、ほかは元の質問の意味の言葉）・ご連絡の方法（「（方法）で大丈夫」）・
-    無い（「ほかにご希望は特に無い」）。ほかの希望は中身が要るので入れない（尋ねずに質問から聞き直す）。which＝方法を並べて伺い直した W1（選択肢と同じ
-    _wish_repicks・_wish_same_means）。"""
+    無い（「ほかにご希望は特に無い」。ほかのご希望を伺う形 ask だけ）。ほかの希望は中身が要るので入れない（尋ねずに質問から聞き直す）。which＝方法を並べて伺い直した W1（選択肢と同じ
+    _wish_repicks・_wish_same_means）。申し出の形（offer）と並べて伺い直した形（which）の「無い」は、申し出たご案内・並べた方法へのお断り＝目的から遠ざかる向き＝候補を持たない
+    （尋ねずに聞き直す）。✅ 11-03「最終目的に繋がるクロージングはマイナスの言葉で締めない」・11-05 日本時間23時56分48秒のご承認の手順の候補は目的に進む向きだけ（帳面 1 の (6) の
+    (i) の L32・分身 AU。⛔ それまでは申し出のあとでも「…とおっしゃったのは、ほかにご希望は特に無いという意味合いでしょうか？」と、伺っていないほかのご希望で尋ねえた）"""
     out = {}
     for c in _wish_repicks(of, which):
         m = of.meanings.get(c)
@@ -6240,7 +6262,8 @@ def _wish_senses(of: "Question", which: bool = False) -> dict:
         if words:
             out[_wish_pick_label(of, c)] = words
     out.update({wish_label(k): f"{WISH_MEANS[k][0]}で大丈夫" for k in WISH_MEANS if _wish_same_means(of, k, which) is None})
-    out[WISH_NONE] = SENSE_NONE
+    if _wish_form(of, which) == "ask":
+        out[WISH_NONE] = SENSE_NONE
     return out
 
 
@@ -6285,12 +6308,16 @@ def _wish_choices(q: "Question", which: bool = False) -> tuple[tuple, dict]:
     # 「ほかの希望を言った」（上のどれでもない）より前に並べる（方法を言わないご案内・お送りの望みを、ほかのご希望に入れない＝境目は並びと、この説明の1か所）
     unsaid = ((WAY_UNSAID,) if wish_ways(q) else ())
     conds = (*(_wish_pick_label(q, c) for c in picks), *means, *unsaid, WISH_OTHER, WISH_NONE)
+    # 「無い」の意味の言葉は W1 の形ごと（WISH_NONE_MEANING の1か所）。「どちらでも」を出す形（申し出・並べて伺い直した形で方法が2つから＝lists_ways と同じ決まり）だけ、
+    # 方法を任せた受けとの境目を括弧に名前で書く
+    form = _wish_form(q, which)
+    none = WISH_NONE_MEANING[form] + (WISH_NONE_ANY if form != "ask" and unsaid else "")
     meanings = {**{_wish_pick_label(q, c): picked(c) for c in picks}, **means,
                 **({WAY_UNSAID: "ご案内やお送りを受けたいと言ったが、どの方法でかは言っていないということ（申し出を受けると言っただけのときも）"} if unsaid else {}),
                 WISH_OTHER: "上のどれでもない、ほかのご希望を言ったということ",
                 # ⛔ 2026-11-17（11-16 の残りの (1)・rv38 の C19）：「メールだけで大丈夫です。」（元の質問の選択肢を選び直した）を、読み手2人とも「ほかに希望は無い」
                 #    にも取った＝無いと記録すると、選び直した方法が依頼者へ渡らない。選び直しは元の質問の答え（上の決まり）＝境目はこの1か所
-                WISH_NONE: "ほかに希望は無い・やはり要らないということ（上のどれかでよいと言ったのは、そちら）"}
+                WISH_NONE: none}
     return conds, meanings
 
 
@@ -6441,13 +6468,16 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # which＝ご案内の方法の申し出に、どの方法かは言わずに受けていただいたときの1回の伺い直し（文と録音だけが違う）。申し出の W1 の聞き直しの聞くことは
         # 「ご案内の方法」（✅ 2026-11-06 日本時間9時05分17秒 ユーザー「(3)…OK」＝8時台のご報告のお勧めの形「聞き直しのときの言葉も、「ほかのご希望」ではなく
         # 「ご案内の方法」にします」）
-        # 並べて伺う形だけ：「どれでも」は答え（どちらでも＝10-17 の案A）＝業務設定で最初に並ぶ方法でご案内する（Flow._wish_step）。✅ 2026-11-07
-        # 日本時間3時14分01秒 ユーザー「(2) H3…イ」。⛔ それまでは選べるものに無く、「どれでも大丈夫ですよ。」も「方法は言っていない」として申し伝えていた
+        # 並べて伺う形と、申し出る方法が2つからの申し出の形（_wish_form が ask でない形）：「どれでも」は答え（どちらでも＝10-17 の案A）＝業務設定で最初に並ぶ方法でご案内する
+        # （Flow._wish_step の1か所）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」。⛔ それまでは選べるものに無く、「どれでも大丈夫ですよ。」も「方法は言っていない」
+        # として申し伝えていた。申し出の形にも出す＝申し出への「とくに希望はないので、お任せします。」（方法を任せた）を、方法を並べて伺い直さずに受ける（本書 9-3「取得済みのことを
+        # 重ねて聞かない」・10-19。帳面 1 の (6) の (i) の L31・分身 AU。⛔ それまでは申し出の形には無く、方法を任せていただいたのに「それではメールとLINEとZOOMのどちらが
+        # よろしいでしょうか？」と並べて伺い直した＝束 ar1 の #2 で読み手2人が挙げた）。申し出る方法が1つなら今のまま（並べて伺えない）
         return Question(qid, _wish_text(of, again, which), qtype, required=True, conditions=conds, meanings=meanings,
                         recording=other_wish_recording_id(of, again, which), topic="ご案内の方法" if way_offer(of) or which else CALLBACK_TOPIC[role],
                         callback=role, declines=(WISH_NONE,),
                         firm_not_needed=True, of=of.id, senses=_wish_senses(of, which),
-                        lists_ways=which and way_any_line(of) is not None,
+                        lists_ways=_wish_form(of, which) != "ask" and way_any_line(of) is not None,
                         # 戻るときは「前回お伺いした件で」を言い直さない（Question.plain＝B-5）
                         plain=(other_wish_recording_id(of), _wish_text(of)) if again else ())
     # nth＝この通話で同じ質問を伺う何回目か（0から）：2回目からの言い方を順に回す（phrases.CALLBACK_ASK_AGAIN。録音は callback_（役目）_2 から）
@@ -19373,7 +19403,7 @@ class Flow:
         q = self.questions[w["q"]]
         cond = it.condition if it.state in GOT else None
         if cond == ANY and self.questions[wid].lists_ways:
-            # 並べて伺ったあとの「どれでも」：答え（どちらでも）＝業務設定で最初に並ぶ方法でご案内し、その方法の連絡先を伺う（こちらでお伝えする一言は次の返事の頭＝
+            # 並べて伺ったあと・方法を申し出たあとの「どれでも」（申し出の形は分身 AU＝L31）：答え（どちらでも）＝業務設定で最初に並ぶ方法でご案内し、その方法の連絡先を伺う（こちらでお伝えする一言は次の返事の頭＝
             # _advance・連絡先の一言は頭の「それでは」を重ねない＝_wish_contact の announced）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」
             cond = self._wish_option(q, means_in(wish_ways(q)[0])[0])
             # こちらで方法をお伝えした一言を、申し伝える一言の1回として数える（told_said）：お客様はその方法を望んだとは言っていないので、「メールでのご連絡の

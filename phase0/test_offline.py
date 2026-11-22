@@ -18201,9 +18201,10 @@ class NoneOfThemTest(unittest.TestCase):
             HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、お電話はちょっと…。")
             say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
             return f
-        # 並べて伺う形だけ、システムの「どちらでも」（ANY）を選べる（選べるものの1か所 all_conditions。「どれも要らない」は W1 の断る答えがあるので足さない）
+        # 並べて伺う形と、申し出る方法が2つからの申し出の形（分身 AU＝L31。それまでは並べて伺う形だけ）に、システムの「どちらでも」（ANY）を選べる（選べるものの1か所
+        # all_conditions。「どれも要らない」は W1 の断る答えがあるので足さない）
         listing, offering = callback_question("other_wish", of=qs[0], which=True), callback_question("other_wish", of=qs[0])
-        self.assertEqual((ANY in listing.all_conditions, NONE in listing.all_conditions, ANY in offering.all_conditions), (True, False, False))
+        self.assertEqual((ANY in listing.all_conditions, NONE in listing.all_conditions, ANY in offering.all_conditions), (True, False, True))
         f = listed()
         r = say(f, "どれでも大丈夫ですよ。", "record_answer", question_id="W1", condition_id=ANY)
         heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
@@ -53221,7 +53222,8 @@ class ARWayOfferWishSceneTest(unittest.TestCase):
         labels = json.loads((Path(G.__file__).parent / "g53_labels.json").read_text(encoding="utf-8"))["labels"]
         rows = {k.split("|")[2]: v for k, v in labels.items() if k.startswith("W1|W1@E1|")}
         self.assertEqual(len(rows), 101)
-        want = {"やっぱり、そちらから改めて説明してもらえますか。": [self.REPICK, WAY_UNSAID], "とくに希望はないので、お任せします。": [WAY_UNSAID],
+        # 「とくに希望はないので、お任せします。」は分身 AU（L31）で「どちらでも」（申し出の形に「どちらでも」を出した＝AUWayOfferAnyNoneTest）
+        want = {"やっぱり、そちらから改めて説明してもらえますか。": [self.REPICK, WAY_UNSAID],
                 **{t: [WISH_OTHER, WAY_UNSAID] for t in ("来週の土曜日なら都合がつきます。", "来週の土曜日なら時間を取れますよ。", "夜の八時以降にしてもらえますか。",
                                                        "家族にも一緒に聞いてほしいので、その時間に合わせてください。", "担当の方は女性の方でお願いできますか。")}}
         for t, acc in want.items():
@@ -53236,8 +53238,8 @@ class ARWayOfferWishSceneTest(unittest.TestCase):
         for t, v in rows.items():
             self.assertLessEqual(set(v["accept"]), names, t)
         # 「方法は言っていない」の読みの動き（申し出た方法を並べて伺い直す）に、数えの名前がある（⛔ 直す前は名前が無く「その他：」）
-        wants = G.step_wants({"set": "W1", "qid": "W1@E1", "text": "とくに希望はないので、お任せします。"}, qm["W1@E1"], False)
-        self.assertEqual(wants, {G.WAY_WHICH_ACT})
+        wants = G.step_wants({"set": "W1", "qid": "W1@E1", "text": "来週の土曜日なら都合がつきます。"}, qm["W1@E1"], False)
+        self.assertIn(G.WAY_WHICH_ACT, wants)
 
     def test_3_the_way_rows_and_the_listed_ways_scene(self):
         import g53_meaning as G
@@ -53455,3 +53457,87 @@ class AQCallingHearSameTest(unittest.TestCase):
             if c[0] in want:
                 got.setdefault(c[0], set()).update(c[5].get(HEAR) or ())
         self.assertEqual(got, {k: {v} for k, v in want.items()})
+
+
+class AUWayOfferAnyNoneTest(unittest.TestCase):
+    """分身 AU（帳面 1 の (6) の (i) の L31・L32。CL-1 が書いてある決まりで決めた＝伺わない）：ご案内の方法を伺う最終目的の質問（「担当者から詳しいご案内のお電話を差し上げても
+    よろしいでしょうか？」）への言い切っていないお断りのあとの W1＝申し出の形「それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！」（✅ 2026-11-05 日本時間
+    23時19分06秒の (1)）。
+    (L31) 申し出る方法が2つからの申し出の形にも、選べるものに「どちらでも」を出し、並べて伺い直したあとの「どれでも」と同じ1か所（Flow._wish_step）で受ける＝業務設定で最初に並ぶ方法で
+          ご案内して連絡先を伺う（10-17 の案A・✅ 2026-11-07 日本時間3時14分01秒「(2) H3…イ」・本書 9-3「取得済みのことを重ねて聞かない」・10-19）。⛔ それまでは申し出への
+          「とくに希望はないので、お任せします。」を「方法は言っていない」と読んで、方法を並べて伺い直した（束 ar1 の #2）。申し出る方法が1つなら今のまま
+    (L32) 申し出の形・並べて伺い直した形の「無い」は、申し出たご案内・並べた方法へのお断りの意味の言葉にし（前の質問「ほかにご希望などは…」の言い方「ほかに希望は無い」のままだった）、
+          意味合いを尋ねる一言の候補は目的に進む向きだけ（「無い」の候補は持たない＝尋ねずに聞き直す。11-03「最終目的に繋がるクロージングはマイナスの言葉で締めない」・11-05
+          日本時間23時56分48秒）。ほかのご希望を伺う形（選ぶ質問の「どれも要らない」のあと・申し出の形でない最終目的の質問）は今のまま"""
+
+    CALL = "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？"
+
+    def of(self, **kw):
+        from flowctl import Question
+        return Question("Q1", self.CALL, "yes_no", conditions=("はい", "いいえ"), final_goal=True, declines=("いいえ",), away=("いいえ",),
+                        meanings={"はい": "担当者から詳しいご案内のお電話を差し上げてよろしいということ", "いいえ": "担当者から詳しいご案内のお電話は差し上げなくてよいということ"},
+                        **{"asks_way": True, "offer_ways": ("お電話", "メール", "LINE", "ZOOM"), **kw})
+
+    def test_1_the_offer_form_shows_any_when_two_ways_or_more(self):
+        from flowctl import ANY, NONE, callback_question
+        offering, listing = callback_question("other_wish", of=self.of()), callback_question("other_wish", of=self.of(), which=True)
+        self.assertEqual(offering.text, "それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！")
+        self.assertEqual((ANY in offering.all_conditions, offering.lists_ways, NONE in offering.all_conditions), (True, True, False))
+        self.assertEqual((ANY in listing.all_conditions, listing.lists_ways), (True, True))
+        # 申し出る方法が1つ（断られたお電話を除く）・ご案内の方法の質問でない（ほかのご希望を伺う形）：今のまま「どちらでも」は無い
+        one = callback_question("other_wish", of=self.of(offer_ways=("お電話", "メール")))
+        self.assertEqual((one.text, ANY in one.all_conditions, one.lists_ways), ("それではメールでご案内させていただくこともできますが！", False, False))
+        ask = callback_question("other_wish", of=self.of(asks_way=False))
+        self.assertEqual((ask.text, ANY in ask.all_conditions, ask.lists_ways), ("それではほかにご希望などはございますでしょうか？", False, False))
+
+    def test_2_the_none_words_follow_the_form(self):
+        from flowctl import WISH_NONE, WISH_NONE_ANY, WISH_NONE_MEANING, callback_question
+        from phrases import SENSE_NONE
+        ask_none = "ほかに希望は無い・やはり要らないということ（上のどれかでよいと言ったのは、そちら）"
+        offering, listing = callback_question("other_wish", of=self.of()), callback_question("other_wish", of=self.of(), which=True)
+        one, ask = callback_question("other_wish", of=self.of(offer_ways=("お電話", "メール"))), callback_question("other_wish", of=self.of(asks_way=False))
+        self.assertEqual(WISH_NONE_MEANING["ask"], ask_none)
+        self.assertEqual(offering.meanings[WISH_NONE], WISH_NONE_MEANING["offer"] + WISH_NONE_ANY)
+        self.assertEqual(listing.meanings[WISH_NONE], WISH_NONE_MEANING["which"] + WISH_NONE_ANY)
+        self.assertEqual(one.meanings[WISH_NONE], WISH_NONE_MEANING["offer"])
+        self.assertEqual(ask.meanings[WISH_NONE], ask_none)
+        for q in (offering, listing, one):
+            self.assertNotIn("ほかに希望", q.meanings[WISH_NONE])
+            self.assertNotIn(WISH_NONE, q.senses)   # 目的から遠ざかる向きは尋ねない
+            self.assertTrue(q.senses)               # 目的に進む向きの候補は今のまま（やはりお電話・方法）
+        self.assertEqual(ask.senses[WISH_NONE], SENSE_NONE)
+        # 「どちらでも」の名前は、括弧の名前と同じ（判定に見せる名前で指す）
+        from meaning_judge import options
+        self.assertIn(("どちらでも", "any"), [(n, c) for n, _, c in options(offering)])
+        self.assertIn("「どちらでも」", WISH_NONE_ANY)
+
+    def test_3_any_after_the_offer_takes_the_first_way(self):
+        from flowctl import ANY, CALLBACK_IDS, Flow, Question
+        say = AmbiguousAnswerTest.say
+        f = Flow([self.of(), Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True)
+        HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、お電話はちょっと…。")
+        r = say(f, "とくに希望はないので、お任せします。", "record_answer", question_id="W1", condition_id=ANY)
+        self.assertEqual((r["question_id"], ARWayOfferWishSceneTest.heard(r)),
+                         (CALLBACK_IDS["email"], "承知しました。それではメールでご案内させていただきますね。恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"))
+        self.assertEqual([(e["means"], e["outcome"]) for e in f.facts["other_wish"]], [("email", None)])
+
+    def test_4_the_w1e1_rows_read_again(self):
+        import json
+        from pathlib import Path
+        import g53_meaning as G
+        from flowctl import ANY, WISH_NONE
+        labels = json.loads((Path(G.__file__).parent / "g53_labels.json").read_text(encoding="utf-8"))["labels"]
+        rows = {k.split("|")[2]: v for k, v in labels.items() if k.startswith("W1|W1@E1|")}
+        self.assertEqual(rows["とくに希望はないので、お任せします。"]["accept"], [ANY])
+        self.assertIn("分身 AU", rows["とくに希望はないので、お任せします。"]["why"])
+        self.assertIn(WISH_NONE, rows["うーん、まあ、いろいろありますけど……。"]["near"])
+        qm = G.question_map()
+        for t in ("とくに希望はないので、お任せします。", "うーん、まあ、いろいろありますけど……。"):
+            it = {"set": "W1", "qid": "W1@E1", "text": t}
+            self.assertFalse(any(w.startswith((G.SCENE_MISSING, G.OTHER_ACT)) for w in G.step_wants(it, qm["W1@E1"], False)), t)
+        # 「決められない」で、いちばん近い答えが「無い」でも、意味合いを尋ねずに聞き直す（⛔ それまでは「ほかにご希望は特に無いという意味合いでしょうか？」）
+        it = {"set": "W1", "qid": "W1@E1", "text": "うーん、まあ、いろいろありますけど……。"}
+        from flowctl import UNDECIDED
+        r = next(r for r in G.label_readings(it, qm["W1@E1"], False) if r == UNDECIDED and getattr(r, "near", None) == WISH_NONE)
+        rep = G.flow_reply(it, qm["W1@E1"], r)[2]
+        self.assertNotIn("意味合い", ARWayOfferWishSceneTest.heard(rep))
