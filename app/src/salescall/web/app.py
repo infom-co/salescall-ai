@@ -1719,7 +1719,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 current = next((r for r in rows if r["valid_from"] <= now), None)
                 return {"client": context.client(tx, client_id),
                         "business": b, "businesses": context.businesses(tx), "rows": rows, "current": current, "now": now}
-            return page(request, "reward.html", person, ctx, fields=REWARD_FIELDS, cautions=reward.CAUTIONS, done=done, ok=bool(ok),
+            return page(request, "reward.html", person, ctx, fields=REWARD_FIELDS, cautions=reward.CAUTIONS, gap_initial=reward.HOURLY_GAP_INITIAL_SECONDS, gap_step=reward.HOURLY_GAP_STEP_SECONDS, done=done, ok=bool(ok),
                         **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 
@@ -1735,6 +1735,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 gap = str(form.get("hourly_gap_seconds") or "").strip()
                 if gap and not gap.isdigit():
                     raise actions.Refused("電話と電話の間の秒数は、数で入れてください")
+                if not yen.get("hourly_yen"):   # 時給を使わないときは、電話と電話の間を記録に入れない（使わない値を残さない）
+                    gap = ""
                 day = str(form.get("valid_from") or "").strip()
                 if day:
                     try:

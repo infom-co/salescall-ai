@@ -29,13 +29,20 @@ class DeficitOnScreen(CostRatio):
         self.assertIn(f'href="{reward_url}"', costs)                              # 決まりの無い業務から、その業務の報酬の決まりの画面へ
         page = http.get(reward_url).text
         self.assertIn("報酬の決まりが設定されていません", page)
+        from salescall.core import reward as reward_core   # 電話と電話の間：初め2分・30秒ずつ（core の1か所。CL-2 4-76）
+        self.assertIn(f'name="hourly_gap_seconds" min="{reward_core.HOURLY_GAP_STEP_SECONDS}" step="{reward_core.HOURLY_GAP_STEP_SECONDS}"', page)
+        self.assertIn(f'value="{reward_core.HOURLY_GAP_INITIAL_SECONDS}"', page[page.index('id="rw-gap"'):][:400])
         tok = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1).split("~")[0]
         post = lambda data: http.post(reward_url, data={"form_token": tok, **data}, follow_redirects=False)   # noqa: E731
         self.assertIn("ok=0", post({"per_completed_yen": "5000", "deficit_caution": "normal", "reason": ""}).headers["location"])   # 理由は必ず
         self.assertIn("ok=0", post({"deficit_caution": "normal", "reason": "試験"}).headers["location"])   # どれも 0 円は足せない（core の断り）
         self.assertIn("ok=0", post({"per_completed_yen": "五千", "deficit_caution": "normal", "reason": "試験"}).headers["location"])
-        r = post({"per_completed_yen": "5,000", "per_dial_yen": "10", "deficit_caution": "early", "reason": "試験：架空の契約のとおり"})
+        r = post({"per_completed_yen": "5,000", "per_dial_yen": "10", "hourly_gap_seconds": "120", "deficit_caution": "early",
+                  "reason": "試験：架空の契約のとおり"})
         self.assertIn("ok=1", r.headers["location"])
+        gap = app_access().in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT hourly_gap_seconds FROM salescall.reward_terms WHERE business_id = %s ORDER BY terms_id DESC LIMIT 1", (s["business"],)))
+        self.assertIsNone(gap["hourly_gap_seconds"])                              # 時給を使わないときは、電話と電話の間を記録に入れない
         page = http.get(reward_url).text
         self.assertIn("5,000円", page)
         self.assertIn("試験：架空の契約のとおり", page)

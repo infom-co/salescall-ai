@@ -29,8 +29,12 @@
     <label class="field" for="rw-{{ k }}">{{ label|replace("（", "（円・") if "（" in label else label ~ "（円）" }}</label>
     <input id="rw-{{ k }}" type="text" inputmode="decimal" name="{{ k }}" value="{{ current[k]|int if current and current[k] else '' }}">
     {% endfor %}
+    {#- 初めの値と上下のボタン1回の幅は core の reward.HOURLY_GAP_INITIAL_SECONDS・HOURLY_GAP_STEP_SECONDS の1か所（2026-10-17 管理者「デフォルト2分、
+        ボタン1回で30秒ずつ」＝CL-2 4-76）。時給を使わないときは、この欄は記録に入れない -#}
     <label class="field" for="rw-gap">時給のとき：電話と電話の間（秒）</label>
-    <input id="rw-gap" type="text" inputmode="numeric" name="hourly_gap_seconds" value="{{ current.hourly_gap_seconds if current and current.hourly_gap_seconds else '' }}" placeholder="時給を使うときだけ">
+    <div class="unit-input"><input id="rw-gap" type="number" inputmode="numeric" name="hourly_gap_seconds" min="{{ gap_step }}" step="{{ gap_step }}"
+      value="{{ current.hourly_gap_seconds if current and current.hourly_gap_seconds else gap_initial }}"><span>秒</span></div>
+    <p class="muted small-block">時給を使うときだけ効きます（上下のボタンで {{ gap_step }} 秒ずつ変わります）。</p>
     {#- 選び肢ごとに説明を添える（2026-11-22 の見直し：3つの説明が1つの段落にまとめて書かれ、どれがどれか読み取りにくかった。言葉は core の
         reward.CAUTIONS の1か所） -#}
     <fieldset class="plain">

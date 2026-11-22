@@ -211,6 +211,23 @@ class CallbackWords(unittest.TestCase):
         self.assertEqual(set(words.UNTIL_WHY_WORDS), set(call_report.UNTIL_WHYS))
 
 
+class QuestionNotes(unittest.TestCase):
+    def test_how_a_question_is_asked_is_put_in_words(self):
+        """電話の台本の画面の「伺い方」：前の答えで伺う条件は前の質問の文で、ご承認・最終目的・断る答え・ここで終える答え・伝える一言を
+        そのまま言う（業務設定の中身を言葉にするだけ）。最終目的の果たし方の言葉は core の並びのすべてに1つずつ。"""
+        from salescall.core import business_settings as bs, call_report
+        first = bs.Question("q1", "パンフレットはお手元に届いていますか？", None, "yes_no", True, ("はい", "いいえ"))
+        second = bs.Question("q2", "ご説明の内容でよろしいでしょうか？", None, "yes_no", True, ("はい", "いいえ"), intro="それでは内容をご説明します。",
+                             ask_if=bs.AskIf("q1", ("いいえ",)), approval=True, final_goal=True, declines=("いいえ",), ends_on=("いいえ",),
+                             tell_words={"はい": "ありがとうございます。"})
+        got = words.question_notes(second, [first, second])
+        self.assertEqual(got, ["入る一言：「それでは内容をご説明します。」", "「パンフレットはお手元に届いていますか？」の答えが「いいえ」だけ伺う",
+                               "説明した内容のご承認を伺う質問（いただけなければ、ご納得いただけなかった点を伺う）", "最終目的の申し出",
+                               "断る答え：いいえ", "この答えなら、ここで電話を終える：いいえ", "「はい」のあとに伝える一言：「ありがとうございます。」"])
+        self.assertEqual(words.question_notes(first, [first, second]), [])
+        self.assertEqual(set(words.GOAL_MODE_WORDS), set(call_report.GOAL_MODES))
+
+
 class ExclusionWords(unittest.TestCase):
     def test_every_exclusion_level_has_a_clear_screen_name(self):
         """行の「かけない」の印の画面の名前は、core の段のすべてにあり、発信禁止と取り違えない言葉（「かけない」だけの名前を使わない）。"""

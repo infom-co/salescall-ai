@@ -629,6 +629,32 @@ def question_choices(q: Any) -> str:
     return "（値を伺います）"
 
 
+def question_notes(q: Any, questions: Any) -> list[str]:
+    """質問の伺い方（電話の台本の画面の「伺い方」の欄。1か所）：入る一言・前の答えで伺う条件・ご承認を伺う質問か・最終目的の申し出か・
+    断る答え・この答えならここで終える・答えのあとに伝える一言。どれも業務設定の版の中身（core の business_settings.Question）を言葉にするだけ
+    （CL-1 の連絡帳 4-66・CL-2 4-191・4-203 の「画面に見せてください」）。"""
+    out: list[str] = []
+    if q.intro:
+        out.append(f"入る一言：「{q.intro}」")
+    if q.ask_if is not None:
+        before = next((x for x in questions if x.id == q.ask_if.after), None)
+        name = f"「{before.text}」" if before is not None else "前の質問"
+        out.append(f"{name}の答えが「{'・'.join(q.ask_if.answers)}」" + ("で、言い切っていないとき" if q.ask_if.hedged else "") + "だけ伺う")
+    if q.approval:
+        out.append("説明した内容のご承認を伺う質問（いただけなければ、ご納得いただけなかった点を伺う）")
+    if q.final_goal:
+        out.append("最終目的の申し出")
+    if q.declines:
+        out.append(f"断る答え：{'・'.join(q.declines)}")
+    if q.ends_on:
+        out.append(f"この答えなら、ここで電話を終える：{'・'.join(q.ends_on)}")
+    out += [f"「{c}」のあとに伝える一言：「{w}」" for c, w in q.tell_words.items()]
+    return out
+
+
+# 最終目的の果たし方（core の call_report.GOAL_MODES のすべて。試験が突き合わせる）
+GOAL_MODE_WORDS = {"any": "最終目的のどれか1つで、業務の目的を果たせる", "all": "最終目的の全部が要る"}
+
 TARGET_PERSON_WORDS: dict[str, str] = {"role": "役職の方", "role_and_name": "役職（部署）とお名前の方", "name": "お名前の方",
                                        "anyone": "その店・会社の方ならどなたでも"}
 
