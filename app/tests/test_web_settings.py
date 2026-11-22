@@ -269,3 +269,13 @@ class Screens(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SettingsOrder(unittest.TestCase):
+    def test_notification_destinations_come_first_and_short_message_before_chatwork(self):
+        """設定の並びは言葉の表の順（意味の順）。知らせの受け先はショートメールが先（✅ 2026-11-18 管理者「Rakuten Link が最優先」）、
+        受け先は送り直す回数より先。"""
+        o = words.SETTING_ORDER
+        self.assertLess(o["notify.sms_to"], o["notify.chatwork_room"])
+        self.assertLess(o["notify.chatwork_room"], o["notify.max_tries_sms"])
+        self.assertLess(o["notify.max_tries_sms"], o["notify.send_hours"])

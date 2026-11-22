@@ -238,6 +238,10 @@ SPEAKER_WORDS: dict[str, str] = {"callee": "お客様", "ai": "こちら（AI）
 # 設定の、画面の見出しに出す短い名前（1か所。設定の定義＝salescall.setting_definitions のすべての名前にあるかを試験が突き合わせる）。
 # 説明の文の正本は CL-2 の setting_definitions.meaning（開いたときに出す）。
 SETTING_LABELS: dict[str, str] = json.loads((Path(__file__).with_name("setting_labels.json")).read_text(encoding="utf-8"))
+# 設定の画面の並び（まとまりの中）：この言葉の表に書いた順（意味の順。例：知らせは「受け先 → 送り直す回数 → 送ってよい時間」、受け先は
+# ショートメールが先＝✅ 2026-11-18 管理者「Rakuten Link が最優先、使えなければチャットワーク」）。⛔ 2026-11-22 まで：設定の名前の英字の順で
+# 並び、チャットワークがショートメールより先に出ていた。表に無い設定は後ろ（試験が、表に無い設定を見張る）
+SETTING_ORDER: dict[str, int] = {k: i for i, k in enumerate(SETTING_LABELS)}
 # ↑ 画面の言葉のデータ（設定の名前 → 短い名前）。値を読むものではないので、コードの中に設定の名前を並べず、データのファイルに置く
 #   （設定の値を読んでよいのは決めた1か所だけ＝CL-2 の見張り。その見張りとぶつからないように）。
 

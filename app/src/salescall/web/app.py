@@ -731,7 +731,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                          "got": got, "shown": shown,
                          "own": got is not None and got["from"] == level, "group": d["key"].split(".")[0],
                          "merge": _merge_words(d["merge_kind"], d["finest_scope"]), "unit": words.SETTING_UNITS.get(d["key"], "")})
-        return rows
+        return sorted(rows, key=lambda r: (words.SETTING_ORDER.get(r["key"], len(words.SETTING_ORDER)), r["key"]))   # 意味の順（言葉の表の順）
 
     def _settings_page(request: Request, level: str, client_id: UUID | None, business_id: UUID | None,
                        done: str | None, ok: int) -> HTMLResponse:
