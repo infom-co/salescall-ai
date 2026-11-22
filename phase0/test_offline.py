@@ -52084,3 +52084,24 @@ class AONumberShapeTest(unittest.TestCase):
         self.assertEqual(offscript.verdict("ありがとうございます。3時05分でよろしいでしょうか？", "ありがとうございます。3時5分でよろしいでしょうか？"), "ok")
         self.assertEqual(differences("3時05分でお願いします。", "3時5分でお願いします。"), [])
         self.assertEqual(differences("郵便番号は100-0001です。", "郵便番号は100 0001です。"), [])
+
+
+class AOHeardAlikeTest(unittest.TestCase):
+    """分身 AO の続き2 の (2)：2つの耳の比べ（flowctl.heard_alike＝会話AIの聞き取りと別の耳の文字）も、数の書き方をそろえてから読みで比べる（jtext.spoken_reading の1か所＝
+    測りの比べ方・本番の言い間違いの見張りと同じ）。✅ 2026-11-22 CL-1（10-18「同じ問いに答える所は1つ」・10-29「確かめが1回増えるのは安全でなく、相手からの不信」）。
+    ⛔ それまでは数の書き方をそろえずに比べ、「15日」と「十五日」を食い違いと見て、要らない確かめになりうる形だった。記録の2つの耳の組 46,675（G-14 の通話の中 1,613・G-15 45,062）
+    では、どちらの形でも答えは1つも変わらない（記録の答えに数を言う声が無い＝書き置き rv192/AO/notes.md の続き2）。"""
+
+    def test_numbers_written_differently_are_alike(self):
+        import inspect
+
+        import flowctl
+        from flowctl import heard_alike
+        self.assertIn("spoken_reading(", inspect.getsource(flowctl.heard_alike))
+        for a, b in (("15日の午後2時でお願いします。", "十五日の午後二時でお願いします。"), ("15日の午後2時でお願いします。", "15 日の午後 2 時でお願いします。"),
+                     ("3人です。", "三人です。"), ("1万円くらいです。", "10000円くらいです。"), ("090-1234-5678です。", "09012345678です。"),
+                     ("えっと、3時05分です。", "3時5分です。")):
+            self.assertTrue(heard_alike(a, b), (a, b))
+        for a, b in (("15日の午後2時でお願いします。", "50日の午後2時でお願いします。"), ("3人です。", "4人です。"), ("090-1234-5678です。", "090-1234-5679です。"),
+                     ("捨てないです。", "してないです。")):
+            self.assertFalse(heard_alike(a, b), (a, b))
