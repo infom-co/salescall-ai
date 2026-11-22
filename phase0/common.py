@@ -267,18 +267,39 @@ def save_result(item: str, data: dict) -> Path | None:
     return path
 
 
+# 途中の写しの名前の終わり（唯一の場所：書く save_partial・消す drop_partial・測りの記録として読まない result_files。.gitignore の phase0/results/*_partial.json と同じ）
+PARTIAL_SUFFIX = "_partial.json"
+# 記録から数え直した結果の名前の印（--tally の数え直しは <項目>-TALLY で保存する＝g14_listen・g63_grounding・scenes）
+RECOUNT_MARK = "TALLY"
+
+
 def save_partial(item: str, data: dict) -> Path:
     """長い試験の途中の結果を results/<項目>_partial.json に上書きで残す（途中で止まっても、そこまでの結果が残るように）。
     最後に save_result で本の結果を保存したら、drop_partial で消す。中身は save_result と同じく必ず伏せる。"""
     RESULTS_DIR.mkdir(exist_ok=True)
-    path = RESULTS_DIR / f"{item}_partial.json"
+    path = RESULTS_DIR / f"{item}{PARTIAL_SUFFIX}"
     payload = {"item": item, "partial": True, "saved_at": _dt.datetime.now().isoformat(timespec="seconds"), **data}
     path.write_text(redact(json.dumps(payload, ensure_ascii=False, indent=2, default=str)), encoding="utf-8")
     return path
 
 
 def drop_partial(item: str) -> None:
-    (RESULTS_DIR / f"{item}_partial.json").unlink(missing_ok=True)
+    (RESULTS_DIR / f"{item}{PARTIAL_SUFFIX}").unlink(missing_ok=True)
+
+
+def result_files(pattern: str) -> list[Path]:
+    """results の中の測りの記録のファイル（唯一の読み場所。いちばん新しいものは latest_result）：名前が pattern（glob の形）に当たるもののうち、途中の写し
+    （save_partial の <項目>_partial.json＝.gitignore で外したもの）と数え直し（名前に TALLY）を除いたもの。名前の順＝保存の日時の順（いちばん新しいものが最後）。
+    置き場は、呼ばれた時の HERE の results。⛔ 2026-11-22（担当 AK の棚卸しの F7）まで、いちばん新しい結果を選ぶ所が道具ごとに名前の並びの最後を取っていた＝
+    途中の写しは名前の並びで正式の結果より後ろに来る（「_p」は「_2」より後）ので、写しのある作業の場所と、写しの無い写しの置き場で、読む材料が違いえた
+    （g53_meaning の事実を伺う質問か＝G-71・試験の言い直しへのお返事の行＝G-53d1base）。途中の写しと数え直しを除く決まりも、3か所に別々に書いていた"""
+    return sorted(p for p in (HERE / "results").glob(pattern) if not p.name.endswith(PARTIAL_SUFFIX) and RECOUNT_MARK not in p.name)
+
+
+def latest_result(pattern: str) -> Path | None:
+    """pattern に当たる測りの記録のうち、いちばん新しいもの（result_files の最後・無ければ None）。"""
+    files = result_files(pattern)
+    return files[-1] if files else None
 
 
 def is_unavailable(exc: BaseException) -> bool:

@@ -39850,10 +39850,9 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
 
     @staticmethod
     def d_rows():
-        import glob
         import json
-        from common import HERE
-        path = sorted(glob.glob(str(HERE / "results" / "G-53d1base_*.json")))[-1]
+        from common import latest_result
+        path = latest_result("G-53d1base_*.json")   # 途中の写し（G-53d1base_partial.json）は読まない＝common.result_files の1か所
         return [it for it in json.loads(open(path, encoding="utf-8").read())["items"] if it["set"] == "D"]
 
     def test_prompted_rows_are_composed_after_the_silence_line(self):
@@ -51630,3 +51629,44 @@ class ALAnswerStageFingerprintTest(unittest.TestCase):
         self.assertIn("外へはつなぎません", r.stdout)
         for words in ("全部（", "前からの物差し（", "番号違いの行（", "前の話の問い合わせ（", "組 R：", "指紋 "):
             self.assertIn(words, r.stdout)
+
+
+class ALLatestResultTest(unittest.TestCase):
+    """分身 AL（担当 AK の棚卸しの F7）：いちばん新しい結果を選ぶ所は1か所（common.result_files・latest_result）＝途中の写し（*_partial.json＝.gitignore で外したもの。
+    名前の並びで正式の結果より後ろに来る）と数え直し（TALLY）を読まない。道具ごとに名前の並びの最後を取る所を、ほかに書かない"""
+
+    def test_the_one_place_skips_partial_copies_and_recounts(self):
+        import json as _json
+        import tempfile
+        import unittest.mock as m
+        from pathlib import Path
+        import common
+        import g53_meaning as G
+        with tempfile.TemporaryDirectory() as d:
+            res = Path(d) / "results"
+            res.mkdir()
+            q = "ご予約はされていますでしょうか？"
+            (res / "G-71_20261031_170716.json").write_text(_json.dumps({"questions": [q], "rows": {"a": [False], "b": [False]}}), encoding="utf-8")
+            (res / "G-71_partial.json").write_text(_json.dumps({"questions": [q], "rows": {"a": [True], "b": [True]}}), encoding="utf-8")
+            (res / "G-71-TALLY_20261101_000000.json").write_text("{}", encoding="utf-8")
+            with m.patch("common.HERE", Path(d)), m.patch.object(G, "_FACTS", None):
+                self.assertEqual([p.name for p in common.result_files("G-71*.json")], ["G-71_20261031_170716.json"])
+                self.assertEqual(common.latest_result("G-71_*.json").name, "G-71_20261031_170716.json")
+                self.assertIsNone(common.latest_result("G-99_*.json"))
+                self.assertFalse(G.asks_fact(q))   # 正式の結果（どちらのモデルも偽）を読む＝途中の写し（真）を読まない
+            self.assertEqual(sorted(p.name for p in res.glob("G-71_*.json"))[-1], "G-71_partial.json")   # 名前の並びの最後は途中の写し
+
+    def test_no_tool_picks_the_last_name_of_a_result_glob_by_itself(self):
+        import re
+        from pathlib import Path
+        here = Path(__file__).resolve().parent
+        last = re.compile(r"glob\([^\n]*\)\)*\[-1\]|files\[-1\]")
+        rule = re.compile(r"[\"']_?partial[\"'] (not )?in|[\"']TALLY[\"'] (not )?in")
+        found = []
+        for f in sorted(here.glob("*.py")):
+            if f.name in ("common.py", "test_offline.py"):
+                continue
+            for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+                if last.search(line) or rule.search(line):
+                    found.append(f"{f.name}:{n}: {line.strip()}")
+        self.assertEqual(found, [])

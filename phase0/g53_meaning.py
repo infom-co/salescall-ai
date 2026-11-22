@@ -18,7 +18,6 @@
 """
 from __future__ import annotations
 
-import glob
 import itertools
 import json
 import threading
@@ -26,7 +25,7 @@ import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
-from common import HERE, KeyRing, _DryRun, base_parser, describe_error, require_python, save_partial, save_result, say
+from common import HERE, KeyRing, _DryRun, base_parser, describe_error, latest_result, require_python, save_partial, save_result, say
 from flowctl import (ABSENT_WHY, OFFER, ANY, END_DOUBT_WHY, before_words, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, AWAY, ELSEWHERE, ELSEWHERE_YES, ELSEWHERE_NO, QUERY_YES, QUERY_NO, END_ANGRY, END_HURRY, END_NONE,
                      END_PRESSED, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS,
                      WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading, WRONG, WRONG_NOT_SAID, LADDER_OTHER,
@@ -294,8 +293,8 @@ def asks_fact(text: str) -> bool:
     from facts import decide
     global _FACTS
     if _FACTS is None:
-        files = sorted((HERE / "results").glob("G-71_*.json"))
-        d = json.loads(files[-1].read_text(encoding="utf-8")) if files else {"questions": [], "rows": {}}
+        path = latest_result("G-71_*.json")   # 途中の写し（G-71_partial.json）は読まない＝common.result_files の1か所
+        d = json.loads(path.read_text(encoding="utf-8")) if path else {"questions": [], "rows": {}}
         _FACTS = {q: decide([v[i] for v in d["rows"].values()]) for i, q in enumerate(d["questions"])}
     return _FACTS.get(text, imported().get("facts", {}).get(text, False))
 
@@ -310,8 +309,8 @@ def imported() -> dict:
     向きがそろったときだけ決まったもの（meanings.decide）。結果が無ければ空（作る前の形）。"""
     global _G72
     if _G72 is None:
-        files = sorted((HERE / "results").glob("G-72_2*.json"))
-        _G72 = json.loads(files[-1].read_text(encoding="utf-8")) if files else {}
+        path = latest_result("G-72_2*.json")
+        _G72 = json.loads(path.read_text(encoding="utf-8")) if path else {}
     return _G72
 
 
@@ -414,7 +413,7 @@ def renamed() -> list[tuple[str, tuple]]:
     """文を直した G-48 の質問（元の一覧＝g48_meanings.QUESTIONS の文が、G-52 の材料の文と違う）：(文, 選択肢)。意味の言葉と事実を伺う質問かは、
     取込と同じ決め方で作り直す（G-72 の new_questions。唯一の決め方）。⛔ 2026-11-03：「前の結果に意味の言葉が無い質問」で決めていたので、作った次の
     流しでは作り直す質問から外れ、結果に残らず、その次の流しで意味の言葉が消えた（1回おき）。"""
-    with open(sorted(glob.glob(str(HERE / "results" / "G-52_*.json")))[-1], encoding="utf-8") as fh:
+    with open(latest_result("G-52_*.json"), encoding="utf-8") as fh:
         d = json.loads(fh.read())
     return [(text, tuple(c)) for (text, c), (was, _) in zip(G48, d["questions"]) if text != was]
 
@@ -423,7 +422,7 @@ def g48_questions(facts: bool = True) -> list[Question]:
     """G-48 の質問（G1〜）。文と選択肢は元の一覧（g48_meanings.QUESTIONS）から、意味の言葉は G-52 の材料から（文が同じときだけ）。文を直した質問の
     意味の言葉は、取込と同じ決め方で作り直したもの（G-72 の meanings）。⚠️ お客様の答えの材料（組 B）と正解は、質問の番号のまま（お客様の言葉）。
     ✅ 2026-11-03 ユーザー：「「折り返し」だとすぐだと思われ断られる可能性が高いので、「また」に変更するように言ったよね！」（G7）"""
-    with open(sorted(glob.glob(str(HERE / "results" / "G-52_*.json")))[-1], encoding="utf-8") as fh:
+    with open(latest_result("G-52_*.json"), encoding="utf-8") as fh:
         d = json.loads(fh.read())
     redone = imported().get("meanings", {})
     out = []
@@ -433,7 +432,7 @@ def g48_questions(facts: bool = True) -> list[Question]:
 
 
 def set_b(qs: list[Question]) -> list[dict]:
-    d = json.loads(open(sorted(glob.glob(str(HERE / "results" / "G-52_*.json")))[-1], encoding="utf-8").read())
+    d = json.loads(open(latest_result("G-52_*.json"), encoding="utf-8").read())
     out = []
     for maker, per_q in d["answers"].items():
         for q, got in zip(qs, per_q):
@@ -623,7 +622,7 @@ def set_a() -> list[dict]:
     """G-14 の記録の通話の言葉（質問ごとに重ねない）。正解は、その言葉が来た通話の want（曖昧な答えは「決められない」）。"""
     from g15_ear import live_calls
 
-    soniox = {r["wav"]: r.get("ear") for r in json.loads(open(sorted(glob.glob(str(HERE / "results" / "G-15-soniox_*.json")))[-1],
+    soniox = {r["wav"]: r.get("ear") for r in json.loads(open(latest_result("G-15-soniox_*.json"),
                                                              encoding="utf-8").read())["rows"]}
     seen, out = set(), []
     for c in live_calls():
@@ -2472,7 +2471,7 @@ def predict_calls(items: list[dict], key: str) -> dict:
     from g15_ear import live_calls
 
     qs = {qid: business(qid).questions[0] for qid in QUESTIONS}
-    rows = json.loads(open(sorted(glob.glob(str(HERE / "results" / "G-15-soniox_*.json")))[-1], encoding="utf-8").read())["rows"]
+    rows = json.loads(open(latest_result("G-15-soniox_*.json"), encoding="utf-8").read())["rows"]
     ears = {r["wav"]: (r["ear"] if r.get("first_s") is not None and r["first_s"] <= Limits.hold_s else None) for r in rows}
     judged = {(it["qid"], it["text"]): reading(it, key) for it in items if it["set"] == "A"}
 
