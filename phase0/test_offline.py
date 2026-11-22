@@ -52646,3 +52646,33 @@ class AMNamedFirstWhoTest(unittest.TestCase):
         r = g.case_row(c)
         acts = {who: {fc.calling_acts(r, rd | {WHO: who}, ASKS_WHO) for rd in t.right_readings(c[5], c[5])} for who in c[5][WHO]}
         self.assertEqual(acts["受付・取次ぎの方"], acts["決められない"])
+
+
+class AMWrongNumberOwnPhoneBoundaryTest(unittest.TestCase):
+    """分身 AM の続き2 (3)（束 m の #11。CL-1 が書いてある決まりで決めた）：ご本人の電話（携帯電話の番号・個人のお客様）で、確かめる一言に、自分はお呼びした方ではないと答えただけの
+    言葉を、読み手2人が「番号違い」とも読めると挙げた（#3・#17 も1人）。番号違いの締めとその番号の発信禁止は取り消せない＝言葉から1つに決まるときだけ（本書 1-3・9-4 の「目的の
+    お客様」の (6)）・携帯電話の番号で別の者だと言われたら1回だけ持ち主を確かめる（伺い65）＝お呼びした方ではないと答えただけは番号違いではない（正解は今のまま「言っていない」）。
+    この境目を、番号違いの説明の1か所（flowctl.wrong_number_choice）の、ご本人の電話の文にだけ書く（会社・お店の電話の文は変えない）。説明の例は試しの言葉と同じ言い方にしない"""
+
+    COMPANY = "いまの言葉で、こちらがかけた電話番号の間違いではないか・そういう会社やお店ではない、と伝えた"
+
+    def test_the_boundary_is_written_once_in_the_own_phone_text(self):
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        from flowctl import ABOUT, ABOUT_NONE, wrong_number_choice
+        from meaning_judge import prompt_parts
+        own = wrong_number_choice(True)
+        self.assertEqual(wrong_number_choice(False), self.COMPANY)   # 会社・お店の電話の文は変えない
+        self.assertIn("自分はお呼びした方ではない", own)
+        self.assertIn("これではない", own)
+        table = g.cases("x")
+        for c in table:
+            if c[0] in ("いえ、違います。", "いいえ、違いますけど。"):
+                self.assertNotIn(c[0].rstrip("。"), own)   # 試しの言葉と同じ言い方の例を書かない
+        for text, before, m in (("いえ、違います。", g.UNHEARD_TWICE, {"mobile": True}), ("いいえ、違いますけど。", g.ASKED_AFTER, {"personal": True}),
+                                ("いいえ、違いますけど。", g.ASKED_AFTER, {"full": True}), ("いえ、違います。", None, {"named_first": g.NAMED_FIRST})):
+            c = g.case_of(text, before, table=table, **m)
+            self.assertEqual(c[5][ABOUT], {ABOUT_NONE}, (text, m))   # 正解は今のまま
+            q = fc.row_scene(g.case_row(c)).judge_context()[0]
+            words = "".join(prompt_parts(q, c[0], None, c[2]))   # 判定に送る文
+            self.assertEqual(words.count("自分はお呼びした方ではない"), 1 if (c.mobile or c.personal) else 0, (text, m))   # ご本人の電話の判定にだけ・1か所
