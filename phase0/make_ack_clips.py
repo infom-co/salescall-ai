@@ -26,7 +26,7 @@ from pathlib import Path
 import time
 
 from barge import voice_runs, voiced
-from common import HERE, base_parser, describe_error, make_client, pick_key, require_python, save_result, say, write_wav
+from common import HERE, base_parser, describe_error, make_client, pick_key, require_python, result_files, save_result, say, write_wav
 from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
@@ -611,7 +611,7 @@ def adopt(names: list[str], script: bool, as_type: str | None = None, as_id: str
              if r.get("wav")} if (out / "candidates" / "index.json").exists() else {}
     # 使っている録音も選べる（✅ 2026-10-23：S2 の「本当にそうですよね！」を、ユーザーが聞き分けた調子の録音＝talk_agree_high として使う）
     cands.update({m["wav"][:-4]: (out, m) for m in made if m.get("wav") and m["wav"][:-4] not in cands})
-    for g in sorted(HERE.glob("results/G-38_*.json")):
+    for g in result_files("G-38_*.json"):   # 途中の写し（_partial.json）と数え直し（名前に TALLY）は読まない＝読む所は common.result_files の1か所（2026-11-22 分身 AP＝分身 AL の書き置きの6章の (2)）
         cands.update({r["wav"][:-4]: (HERE / "results" / "voice_match", r) for r in json.loads(g.read_text(encoding="utf-8"))["rows"]
                       if r.get("wav") and r.get("ok") and r["id"] in table})
     done = []

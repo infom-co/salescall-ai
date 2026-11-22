@@ -85,8 +85,10 @@ def packet(name: str) -> dict:
         if name in ALL_ITEMS:
             afixed, atail = prompt_parts(aq, r["text"], None, r["before"])
             row["asks"] = vid("A", afixed)
-            if atail.rstrip() != tail.rstrip():
-                row["asks_tail"] = atail.rstrip()
+            # 尋ねているかの判定が見る文の続きは、目的のお客様の判定の続きと同じ文でも書く（本番の流れの制御はお呼びする段のどの言葉でも尋ねているかの問い合わせを出す＝
+            # convo.check_handler・Flow.asks_context。測り run・--count も出す）。⛔ 2026-11-22 分身 AM の続き2 (4) まで、同じ文なら書かず、束 m の #9〜#14・#17 で読み手2人が
+            # 「尋ねているかの続きが無い」と読んだ（書き置き rv191/AM/notes.md の続き2）
+            row["asks_tail"] = atail.rstrip()
         rows.append(row)
     if name in ALL_ITEMS:
         items = list(dict.fromkeys(fc.key for r in _rows(name) for fc in g.judge_questions(r)[0].facets)) + [ASKS]

@@ -152,7 +152,7 @@ def calling_acts(r: dict, got: dict, asks: str | None = None) -> tuple:
     k = (r["text"], r["before"] or None, bool(r["asked"]), r["successor"], *g.row_marks(r), json.dumps(got, ensure_ascii=False, sort_keys=True), asks)
     if k not in _ACTS:
         out = []
-        for a in (asks,) if asks is not None else g.asks_truths(r["text"]):
+        for a in (asks,) if asks is not None else g.asks_truths(r):   # 行で決まる正しい読み（代わった方の行は前の言葉で決まる）
             acts = []
             for _, op in REPORTS:
                 f = row_scene(r)
