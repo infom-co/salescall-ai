@@ -36,9 +36,6 @@
         </tr>{% endfor %}
       </tbody>
     </table></div>
-    <div class="actions">
-      <button class="btn small" type="submit" form="skip-{{ first.tenant_id }}">{{ 'この契約者をチェックする形に戻す' if first.skipped else 'この契約者をチェック不要にする' }}</button>
-    </div>
   </section>
   {% endfor %}
   <div class="actions">
@@ -46,13 +43,24 @@
     <span class="why-disabled" data-needs-heard-why {% if heard|length >= count %}hidden{% endif %}>押せない理由：まだ聞いていない録音があります（「まとめて流す」で全部聞けます）</span>
   </div>
 </form>
-{% for items in groups %}{% set first = items[0] %}
-<form id="skip-{{ first.tenant_id }}" method="post" action="/admin/name-reviews/skip" hidden
-      data-confirm="契約者「{{ first.tenant_name }}」の名前の録音を、{{ 'これから管理者が聞いて決める形に戻します' if first.skipped else 'これから管理者のチェックなしでシステムの共通の録音に入れます（契約者が承認すれば入ります）' }}。"
-      data-confirm-ok="{{ 'チェックする形に戻す' if first.skipped else 'チェック不要にする' }}">{{ csrf(token) }}
-  <input type="hidden" name="tenant_id" value="{{ first.tenant_id }}"><input type="hidden" name="skip" value="{{ 0 if first.skipped else 1 }}"></form>
-{% endfor %}
 {% else %}
 <div class="card">{{ empty("いま審査を待っている名前の録音はありません", "契約者が名前の録音を作って承認すると、ここに並びます。チェック不要にした契約者の録音は、決まった間隔の仕事が聞かずに入れます。") }}</div>
 {% endif %}
+{#- 契約者ごとのチェックの形：切り替えはここ1か所（審査を待つ録音の無い契約者も並ぶ＝チェック不要にした契約者を戻す入口。CL-2 の 4-472 の (2)） -#}
+<section class="card review-checks" id="checks">
+  <h2>契約者ごとのチェックの形</h2>
+  <p class="muted">「チェック不要」の契約者の名前の録音は、契約者が承認すれば、管理者が聞かずにシステムの共通の録音に入ります（信頼できる契約者だけにしてください）。</p>
+  <div class="table-scroll"><table class="list">
+    <thead><tr><th>契約者</th><th>いまの形</th><th></th></tr></thead>
+    <tbody>{% for t in checks %}
+      <tr><td>{{ t.name }}</td>
+        <td>{{ tag("チェック不要", "info") if t.skipped else tag("管理者が聞いて決める") }}</td>
+        <td class="num"><form method="post" action="/admin/name-reviews/skip"
+              data-confirm="契約者「{{ t.name }}」の名前の録音を、{{ 'これから管理者が聞いて決める形に戻します' if t.skipped else 'これから管理者のチェックなしでシステムの共通の録音に入れます（契約者が承認すれば入ります）' }}。"
+              data-confirm-ok="{{ 'チェックする形に戻す' if t.skipped else 'チェック不要にする' }}"{% if not t.skipped %} data-confirm-tone="danger"{% endif %}>{{ csrf(token) }}
+          <input type="hidden" name="tenant_id" value="{{ t.tenant_id }}"><input type="hidden" name="skip" value="{{ 0 if t.skipped else 1 }}">
+          <button class="btn small{% if not t.skipped %} danger-text{% endif %}" type="submit">{{ 'チェックする形に戻す' if t.skipped else 'チェック不要にする' }}</button></form></td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
 {% endblock %}

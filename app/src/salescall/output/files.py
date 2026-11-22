@@ -23,7 +23,7 @@ import re
 from datetime import date
 from typing import Any
 
-from salescall.core import access, backup
+from salescall.core import access, backup, output_templates
 from salescall.output import result_rows, words
 
 
@@ -33,6 +33,10 @@ class ClientWordsLeak(access.Refused):
 
 class NothingToDeliver(access.Refused):
     """依頼者へ渡せる結果（確定した版）が、まだ1つも無い。"""
+
+
+class TemplateNotReady(access.Refused):
+    """この業務には依頼者の指定の形（出力の型）があるが、その形で書き出す部品がまだ無い（既定の形のまま黙って渡さない）。"""
 
 
 def check(rows: list[result_rows.ResultRow], *ours: str) -> None:
@@ -144,9 +148,31 @@ def deliverable(rows: list[result_rows.ResultRow]) -> bool:
     return any(r.result for r in rows)
 
 
-def submit(tx: Any, rows: list[result_rows.ResultRow], name: str, data: bytes) -> int:
-    """依頼者へ渡すファイルを、提出用の控えに置く（依頼者の取引で）。答えは控えの番号。同じ中身をもう置いていれば、重ねずに前の控えの番号
-    （決めるのは core の backup.record_submission の1か所＝データベースの一意の約束。CL-2 4-431 の 31。ここで確かめ直さない）。"""
+NOTHING_YET = "確定した結果がまだありません（確かめるための書き出しは使えます）"
+TEMPLATE_NOT_READY = ("この業務には依頼者の指定の形が登録されていますが、その形での書き出しはまだできません。"
+                      "既定の形のまま渡すことはしません（確かめるための書き出しは使えます）")
+
+
+def why_not_deliver(tx: Any, business_id: Any, rows: list[result_rows.ResultRow]) -> str | None:
+    """依頼者へ渡せない理由（1か所。渡せるなら None）。画面のボタン（押せない理由）と、渡す処理（submit）が同じものを読む。
+    - 確定した結果が1つも無い。
+    - 業務（か依頼者）に指定の形（出力の型）がある：使う形は core の output_templates.current の1か所で、出すたびに読む。いまの書き出しは
+      既定の形だけなので、既定の形のまま黙って渡さない（指定の形で書き出す部品は ⏳＝最初に指定の形を持つ依頼者が決まったら作る。設計書 7-3-5。
+      CL-2 の 4-472）。"""
     if not deliverable(rows):
-        raise NothingToDeliver("依頼者へ渡せる結果（確定した結果）が、まだありません。確かめるための書き出しは使えます")
-    return backup.record_submission(tx, name, data)
+        return NOTHING_YET
+    if output_templates.current(tx, business_id) is not None:
+        return TEMPLATE_NOT_READY
+    return None
+
+
+def submit(tx: Any, business_id: Any, rows: list[result_rows.ResultRow], name: str, data: bytes) -> int:
+    """依頼者へ渡すファイルを、提出用の控えに置く（依頼者の取引で）。答えは控えの番号。同じ中身をもう置いていれば、重ねずに前の控えの番号
+    （決めるのは core の backup.record_submission の1か所＝データベースの一意の約束。CL-2 4-431 の 31。ここで確かめ直さない）。
+    どの形で作ったかも控えに残す（表の作り 0280。いまは既定の形だけ＝None）。渡せないときは why_not_deliver の理由で断る。"""
+    why = why_not_deliver(tx, business_id, rows)
+    if why == NOTHING_YET:
+        raise NothingToDeliver(why)
+    if why is not None:
+        raise TemplateNotReady(why)
+    return backup.record_submission(tx, name, data, template_id=None)

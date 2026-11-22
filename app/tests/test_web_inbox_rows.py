@@ -317,6 +317,20 @@ class VerificationMode(ApprovalHelpers):
             self.assertNotIn(row[i - 1], ("-", "✕"))                              # 答えの欄は値か、お客様の言葉か、状態の短い言葉（「-」「✕」ではない。
             #                                                                          この試験の土台は「取れた」の印だけで値を入れないので、値の欄は空）
         self.assertEqual(kept(), 1)
+        self.assertIsNone(self.tx(s, lambda tx: tx.one("SELECT template_id FROM salescall.submission_files")["template_id"]))   # 既定の形で作った（0280）
+        # 依頼者の指定の形（出力の型）が登録されたら、既定の形のまま黙って渡さない（指定の形で書き出す部品はまだ。CL-2 の 4-472）
+        from salescall.core import output_templates as _ot
+        self.tx(s, lambda tx: _ot.save(tx, business_id=s["business"], body={"試験": "架空の型"}, reason="試験", check=lambda *_: []), OPERATOR)
+        refused = self._post(http, csv_url, {})
+        self.assertIn("ok=0", refused.headers["location"])
+        from urllib.parse import unquote as _uq
+        self.assertIn("指定の形", _uq(refused.headers["location"]))
+        self.assertEqual(kept(), 1)
+        self.assertEqual(http.get(csv_url).status_code, 200)                     # 確かめるための書き出しは使える
+        from salescall.output import files as _files
+        shown = http.get(f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}/results').text
+        self.assertIn(_files.TEMPLATE_NOT_READY, shown)                           # 押す前に、押せない理由を同じ言葉で（why_not_deliver の1か所）
+        self.tx(s, lambda tx: _ot.stop_using(tx, business_id=s["business"], reason="試験"), OPERATOR)
         self.assertIn(f'<b class="num">0</b><span>{_w.UNCONFIRMED_WORDS["awaiting_check"][0]}</span>', http.get(f"/c/{s['client']}/b/{s['business']}").text)   # 確かめたので0
         self.assertEqual(self._post(http, csv_url, {}).status_code, 200)          # 同じ中身をもう1回渡しても
         self.assertEqual(kept(), 1)                                               # 控えは重ねない

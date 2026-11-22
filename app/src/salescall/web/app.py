@@ -814,7 +814,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 groups: dict[UUID, list[Any]] = {}
                 for i in items:
                     groups.setdefault(i.tenant_id, []).append(i)
-                return {"groups": list(groups.values()), "heard": heard, "count": len(items)}
+                # 契約者ごとのチェックの形（いまの値は core の recordings.review_skips の1か所＝審査を待つ録音の無い契約者も入る。CL-2 の 4-472 の (2)）
+                skips = recordings.review_skips(tx)
+                checks = [{**t, "skipped": skips.get(t["tenant_id"], False)} for t in registry.tenants(tx)]
+                return {"groups": list(groups.values()), "heard": heard, "count": len(items), "checks": checks}
             return page(request, "admin_name_reviews.html", person, ctx, active="name_reviews", done=done, ok=bool(ok),
                         marks=recordings.REVIEW_MARKS, **ctx.system(read))
         return handle(request, render)
@@ -873,9 +876,16 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             except ValueError:
                 raise NotFound() from None
             skip = str(form.get("skip") or "") == "1"
-            out = actions.act(secret, person.login_id, form, lambda: ctx.system(lambda tx: recordings.set_name_review_skip(tx, tenant, skip)),
-                              done=("この契約者の名前の録音は、これから管理者のチェックなしで入ります（決まった間隔の仕事が入れます）。" if skip
-                                    else "この契約者の名前の録音は、これから管理者が聞いて決めます。"))
+            def do(tx: Any) -> str:
+                name = next((t["name"] for t in registry.tenants(tx) if t["tenant_id"] == tenant), None)
+                if name is None:
+                    raise NotFound()
+                recordings.set_name_review_skip(tx, tenant, skip)
+                return name
+            out = actions.act(secret, person.login_id, form, lambda: ctx.system(do), done="")
+            if out.ok:   # 結果の1行は、どの契約者に効いたかを名前で言う
+                out = actions.Outcome(True, f"契約者「{out.value}」の名前の録音は、" + ("これから管理者のチェックなしで入ります（決まった間隔の仕事が入れます）。"
+                                                                                      if skip else "これから管理者が聞いて決めます。"))
             return _back("/admin/name-reviews", out)
         return handle(request, render)
 
@@ -1816,7 +1826,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 got = result_rows.rows(tx, run_id)
                 name = result_files.file_name(c["name"], run["name"], tx.today(), fmt)
                 data = result_files.write(fmt, got, run["name"])
-                return name, data, (result_files.submit(tx, got, name, data) if submit else None)
+                return name, data, (result_files.submit(tx, business_id, got, name, data) if submit else None)
             if submit:   # 依頼者へ渡す：変える操作の1か所（札・断りの言い換え）を通す
                 out = actions.act(secret, person.login_id, form or {}, lambda: ctx.client(client_id, work), done="")
                 if not out.ok:
@@ -1846,9 +1856,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     leak = str(e)
                 return {"client": context.client(tx, client_id),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx), "run": run,
-                        "rows": got, "leak": leak}
+                        "rows": got, "leak": leak, "blocked": result_files.why_not_deliver(tx, business_id, got)}
             return page(request, "results.html", person, ctx, columns=result_rows.COLUMNS, please_fill=result_rows.PLEASE_FILL, zip=zip,
-                        deliverable=result_files.deliverable,
                         **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 

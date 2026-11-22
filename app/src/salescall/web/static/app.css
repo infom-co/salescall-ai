@@ -695,6 +695,8 @@ tr.playing { background: var(--primary-soft); }
 tr[data-heard] audio { height: 32px; width: 100%; max-width: 240px; }
 .review-head .actions { margin-top: 12px; align-items: center; }
 .review-group { margin-top: 12px; }
+.review-checks { margin-top: 28px; }   /* 「決める」の行と、契約者ごとのチェックの形の札を離す（別の操作） */
+form[data-must-hear] > .actions { margin-top: 12px; }   /* 「決める」の行を、最後の録音の札から離す */
 
 /* 変えた設定（settings.html）：結果の1行をその札の上に出し、札に印。送った先が上の帯・タブに隠れないよう余白をとる */
 .changed-note { scroll-margin-top: calc(var(--chrome, 108px) + 12px); margin-top: 8px; }

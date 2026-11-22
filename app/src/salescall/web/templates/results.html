@@ -11,9 +11,9 @@
 <form method="post" action="{{ rbase }}/results.xlsx" data-download class="card handover" data-confirm-ok="書き出す"
       data-confirm="依頼者「{{ client.name }}」へ渡すファイルを書き出します（業務「{{ business.name }}」・お客様リスト「{{ run.name }}」・{{ rows|length }}行）。提出用の控えが残ります。">{{ csrf(token) }}
   <b>依頼者「{{ client.name }}」へ渡すファイル（{{ rows|length }}行・控えを残す）</b>
-  <span class="btn-row"><button class="btn main" type="submit" {% if leak or not deliverable(rows) %}disabled{% endif %}>{{ words.EXPORT_WORDS.handover_xlsx }}</button>
-  <button class="btn" type="submit" formaction="{{ rbase }}/results.csv" {% if leak or not deliverable(rows) %}disabled{% endif %}>{{ words.EXPORT_WORDS.handover_csv }}</button>
-  {{ why_disabled("依頼者へ出さない言葉が入っています（下の知らせ）" if leak else ("" if deliverable(rows) else "確定した結果がまだありません（確かめ用の書き出しは使えます）")) }}</span>
+  <span class="btn-row"><button class="btn main" type="submit" {% if leak or blocked %}disabled{% endif %}>{{ words.EXPORT_WORDS.handover_xlsx }}</button>
+  <button class="btn" type="submit" formaction="{{ rbase }}/results.csv" {% if leak or blocked %}disabled{% endif %}>{{ words.EXPORT_WORDS.handover_csv }}</button>
+  {{ why_disabled("依頼者へ出さない言葉が入っています（下の知らせ）" if leak else (blocked or "")) }}</span>
   <p class="muted">Excel では、依頼者に入れていただく空欄を赤い背景で示します（CSV では「（ご記入ください）」と書きます）。</p>
 </form>
 {#- 確かめ用の書き出しは、渡すボタンと並べず、小窓の奥に（名前でも「依頼者へは渡さない」と分かる） -#}

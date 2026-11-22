@@ -43,7 +43,12 @@ class NameReviews(unittest.TestCase):
 
     def section(self, page):
         """その契約者の札（同じ名前の契約者が並びうるので、契約者の番号で見分ける）。"""
-        return next(x for x in page.split('<section class="card review-group">') if f'form="skip-{self.s["tenant"]}"' in x)
+        return next(x for x in page.split('<section class="card review-group">') if f'/admin/name-reviews/{self.set_id}/' in x)
+
+    def check_row(self, page):
+        """契約者ごとのチェックの形の札の、その契約者の行（契約者の番号で見分ける）。"""
+        card = page[page.index('id="checks"'):]
+        return next(x for x in card.split("<tr>") if f'value="{self.s["tenant"]}"' in x)
 
     def decide(self, marks="admit", marked=True):
         form = {"form_token": self.token(), "marks": marks, "shown": [str(self.set_id)]}
@@ -91,15 +96,24 @@ class NameReviews(unittest.TestCase):
         self.assertNotIn("名前の録音の審査", operator.get("/t").text)                # 道しるべにも出さない
 
     def test_a_contractor_can_be_trusted_and_untrusted_with_a_confirmation(self):
+        """切り替えは「契約者ごとのチェックの形」の1か所。審査を待つ録音の無い契約者も並ぶので、チェック不要にした契約者を戻せる（CL-2 の 4-472 の (2)）。"""
         page = self.admin.get("/admin/name-reviews").text
-        form = page[page.index(f'id="skip-{self.s["tenant"]}"'):]
-        self.assertIn("data-confirm=", form[:600])                                   # 名前つきの確かめの窓を通る
-        r = self.admin.post("/admin/name-reviews/skip", data={"form_token": self.token(), "tenant_id": str(self.s["tenant"]), "skip": "1"},
-                            follow_redirects=False)
-        self.assertIn("管理者のチェックなしで入ります", self.admin.get(r.headers["location"]).text)
-        page = self.admin.get("/admin/name-reviews").text
-        self.assertIn("チェック不要の契約者", self.section(page))
-
+        row = self.check_row(page)
+        self.assertIn(f"data-confirm=\"契約者「{self.tenant_name}」", row)      # 名前つきの確かめの窓を通る
+        self.assertIn("チェック不要にする", row)
+        self.assertNotIn('form="skip-', self.section(page))                       # 録音の札には切り替えを置かない（1か所）
+        post = lambda skip: self.admin.post("/admin/name-reviews/skip", data={"form_token": self.token(), "tenant_id": str(self.s["tenant"]),   # noqa: E731
+                                                                               "skip": skip}, follow_redirects=False)
+        back = self.admin.get(post("1").headers["location"]).text
+        self.assertIn(f"契約者「{self.tenant_name}」の名前の録音は、これから管理者のチェックなしで入ります", back)   # 結果の1行は名前つき
+        self.assertIn("チェック不要の契約者", self.section(back))
+        self.assertIn("チェックする形に戻す", self.check_row(back))
+        back = self.admin.get(post("0").headers["location"]).text
+        self.assertIn(f"契約者「{self.tenant_name}」の名前の録音は、これから管理者が聞いて決めます", back)
+        self.assertIn("チェック不要にする", self.check_row(back))
+        bad = self.admin.post("/admin/name-reviews/skip", data={"form_token": self.token(), "tenant_id": "00000000-0000-0000-0000-000000000000",
+                                                                "skip": "1"}, follow_redirects=False)
+        self.assertEqual(bad.status_code, 404)                                    # 無い契約者は断る
 
 if __name__ == "__main__":
     unittest.main()
