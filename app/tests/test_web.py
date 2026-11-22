@@ -530,9 +530,13 @@ class Web(_World):
         def row_of(text):
             at = text.index("架空の画面試験の回線")
             return text[at:text.index("</tr>", at)]
-        self.assertIn("どの PC にもつながっていません", row_of(page))
         from salescall.core import agents
+        from salescall.web import counts as _counts
+        if app_access().in_tenant(OPERATOR, self.a["tenant"], _counts.tenant_system)["pcs"] == 0:
+            self.assertNotIn("どの PC にもつながっていません", row_of(page))     # PC が1台も無いことは上の札が1回だけ言う（回線ごとにくり返さない）
+            self.assertIn("電話をつなぐ PC がありません", page)
         p = agents.issue(app_access(), SYSTEM, self.a["tenant"], label="架空の画面試験の PC")
+        self.assertIn("どの PC にもつながっていません", row_of(self.get("A", "/t/lines").text))   # PC はあるのに、この回線を受け持っていない
         app_access().in_system(SYSTEM, lambda tx: agents.beat(tx, p.pc_id, [lid]))
         served = row_of(self.get("A", "/t/lines").text)
         self.assertIn("PC「架空の画面試験の PC」", served)

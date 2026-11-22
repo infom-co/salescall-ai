@@ -1052,7 +1052,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 # どの PC が、最後の合図でその回線を受け持っていたか（事実だけ。途切れたかの判断は core の agents.watch_lines の1か所なので、
                 # 画面では「つないでいる」と言い切らず、最後の合図の時刻を添える）
                 served = {lid: pc for pc in pcs if pc["revoked_at"] is None for lid in (pc["lines"] or [])}
-                return {"lines": lines, "methods": registry.line_methods(tx), "pcs": pcs, "served": served}
+                # PC が1台も無いことは、上の「いま見ること」の札が1回だけ言う（counts.readiness と同じ数＝tenant_system の pcs）。回線ごとの
+                # 「どの PC にもつながっていない」は、PC はあるのにその回線を受け持つ PC が無いときだけ出す（11回くり返さない）
+                return {"lines": lines, "methods": registry.line_methods(tx), "pcs": pcs, "served": served,
+                        "pc_count": counts.tenant_system(tx)["pcs"]}
             return page(request, "lines.html", person, ctx, ready=ctx.tenant(counts.readiness), active="lines", done=done, ok=bool(ok),
                         client_names={c["client_id"]: c["name"] for c in ctx.clients()}, **ctx.tenant(read))
         return handle(request, render)

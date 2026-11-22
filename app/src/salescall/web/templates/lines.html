@@ -41,7 +41,7 @@
           {#- 回線の状態（電話網の側）と、PC につながっているか（こちらの側）は別のこと。PC が無いと、元気な回線でも電話はかからない -#}
           {% set pc = served.get(l.line_id) %}
           {% if pc %}<div class="muted">PC「{{ pc.label }}」（最後の合図 {{ time(pc.last_seen_at) if pc.last_seen_at else "まだ無し" }}）</div>
-          {% else %}<div class="pc-none">どの PC にもつながっていません（このままでは電話はかかりません）</div>{% endif %}{% endif %}</td>
+          {% elif pc_count %}<div class="pc-none">どの PC にもつながっていません（このままでは電話はかかりません）</div>{% endif %}{% endif %}</td>
       <td class="nowrap">{{ rename("/t/lines/" ~ l.line_id ~ "/name", "回線", l.name, token) }}{% if not l.retired_at %}
         {% if l.resting %}
         <details class="adder"><summary class="btn small">休みから再開</summary>
