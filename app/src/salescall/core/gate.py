@@ -1268,6 +1268,10 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # モードで付ける（締めるときのモードで決めると、検証の終わり際の通話に印が付かなかった＝2026-10-18 の見直し）
     if approval.human_for_business(tx, task["business_id"]):
         recordings.hold(tx, row["attempt_id"], "verification")
+    # 業務の設定で録音とやり取りを残さない通話の印（計画書 11-4。✅ 2026-11-22 管理者「(ア) 抜き取りまで残す」。0284）。検証の印と同じく、
+    # かけたときの設定で付ける（あとで設定を変えても、前の通話は変わらない）。消すのは抜き取りが済んでから（recordings.unsaved_done の1か所）
+    if not _setting(tx, "recording.save", task):
+        recordings.mark_unsaved(tx, row["attempt_id"])
     from salescall.core import apology   # お詫びの部品が次の動き（門を読む）を読むので、ここで読む（読み合いにしない）
     reasons = tuple(nxt["apology_reasons"])
     when = apology.when(tx, task["task_id"], nxt["purpose"], nxt["cut_call"] if "cut_off" in reasons else None, row["attempt_id"])

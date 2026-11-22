@@ -4627,3 +4627,15 @@
 {"at": "2026-11-23T00:15:52+09:00", "who": "CL-2", "text": "文の頭に名指しが付いたため、門の試験2つで、知らせの文の比べ方を直します。"}
 {"at": "2026-11-23T00:18:52+09:00", "who": "CL-2", "text": "main に CL-1 の新しいコミットがあり、私あての 4-250 も届いていました。取り込む前に、4-249 からを読みます。"}
 {"at": "2026-11-23T00:19:07+09:00", "who": "CL-2", "text": "main には app の変更が無く、ぶつかりもありませんでした。CL-1 の比べの試験を流し、その間に、試験の直しと連絡帳をコミットします。"}
+{"at": "2026-11-23T00:19:43+09:00", "who": "CL-2", "text": "Now the code changes: gate (mark at claim), recordings (mark + list), backup prune rules, PC prune, writer rule."}
+{"at": "2026-11-23T00:19:59+09:00", "who": "CL-2", "text": "Now the PC-side prune: delete recordings listed in `drop` regardless of age (never ones in `held`)."}
+{"at": "2026-11-23T00:20:13+09:00", "who": "CL-2", "text": "Next the tests. Looking at existing tests for purging exchanges, sampling and pruning to extend them."}
+{"at": "2026-11-23T00:20:40+09:00", "who": "CL-2", "text": "Writing the test in `tests/test_measure.py` (Samples class)."}
+{"at": "2026-11-23T00:20:59+09:00", "who": "CL-2", "text": "Add an exchange-text check, then run the test."}
+{"at": "2026-11-23T00:21:25+09:00", "who": "CL-2", "text": "Up to that point everything passed; the test calls simply have no exchange text. Writing one utterance for each call first."}
+{"at": "2026-11-23T00:21:57+09:00", "who": "CL-2", "text": "The guard is in the Python entry point. For the test scene, insert the row directly with SQL as the existing writer does."}
+{"at": "2026-11-23T00:22:31+09:00", "who": "CL-2", "text": "The database refuses too. As the other tests do for building a scene, insert with the owner connection and the guard switched off only inside that transaction."}
+{"at": "2026-11-23T00:22:58+09:00", "who": "CL-2", "text": "The test passes. Now the mutations for this feature."}
+{"at": "2026-11-23T00:25:48+09:00", "who": "CL-2", "text": "壊し試しは6つとも、試験が見つけました。設定・門・控え・やり取りの文字に関わる試験の組を流し、その間に記録を書きます。"}
+{"at": "2026-11-23T00:25:55+09:00", "who": "CL-2", "text": "Write the decision rows in my Intent section, DESIGN 3-8, the change log and the notebook."}
+{"at": "2026-11-23T00:26:34+09:00", "who": "CL-2", "text": "Commit the batch-14 work so far (the stop hook needs a clean tree), while those tests run."}
