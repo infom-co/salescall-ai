@@ -9,7 +9,7 @@ from __future__ import annotations
 import unittest
 
 # 画面に出してはいけない開発の覚え書きのしるし（決めた日付・決まりの番号・文書の名前・担当の名前・内部の言い方）
-DEV_NOTE = r"Intent|DESIGN|ユーザー|✅|⏳|⛔|20\d\d-\d\d|CL-\d|(?<!ダイヤル)(?<!ダイヤル（)(?<!ダイヤル（0\d{3}・)[（(]?0\d{3}[）)]|見守り役|＝計画書|＝DESIGN"   # 表の作りの番号（0170）。電話番号の頭（ナビダイヤル（0570））は除く
+DEV_NOTE = r"Intent|DESIGN|ユーザー|✅|⏳|⛔|(?<![\d-])20\d\d-\d\d(?!\d)|CL-\d|(?<!ダイヤル)(?<!ダイヤル（)(?<!ダイヤル（0\d{3}・)[（(]?0\d{3}[）)]|見守り役|＝計画書|＝DESIGN"   # 表の作りの番号（0170）。電話番号の頭（ナビダイヤル（0570））は除く。年月（2026-11）は、番号の途中（050-2045-5312 の「2045-53」）を除く＝前後が数字や「-」につながるものは当てない（2026-11-22：試験の架空の番号で、たまに落ちていた）
 
 from salescall.core import ai_troubles, approval, call_report, errors, exclusions, next_action, notify, stops
 from salescall.core import business_rules

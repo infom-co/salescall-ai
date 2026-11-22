@@ -348,6 +348,8 @@ table.list td.person, table.list th.person { min-width: 8em; }
 .title-row:has(> .titles) { align-items: flex-start; margin-bottom: 16px; }
 .title-row > .titles { flex: 1 1 380px; min-width: 0; }
 .title-row > .titles .lead { margin-bottom: 0; }
+/* 見出しの行（見出しとボタン）のすぐ下の表・札は離す（2026-11-22：狭い幅でボタンが2行目に回ると、下の表にくっついていた） */
+.title-row + .table-scroll, .title-row + .card { margin-top: 12px; }
 ol.steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 4px 0 20px; counter-reset: step; flex-wrap: wrap; }
 ol.steps li { counter-increment: step; display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 8px; border-radius: 999px;
   background: var(--surface-2); color: var(--muted); font-weight: 600; font-size: 13px; }
