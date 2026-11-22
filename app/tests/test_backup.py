@@ -257,6 +257,12 @@ class PerClient(unittest.TestCase):
         return self.app.in_tenant(actor, tenant, lambda tx: tx.all(
             "SELECT kind, tenant_id, client_id, restore_ok FROM salescall.backup_runs ORDER BY run_id"))
 
+    def said(self, tenant, client, text):
+        """依頼者を指す知らせの文（頭に依頼者の名指し＝notify.about。名前は表から読む）。"""
+        name = self.w.a.in_tenant(OPERATOR, tenant, lambda tx: tx.one(
+            "SELECT name FROM salescall.clients WHERE client_id = %s", (client,)))["name"]
+        return f"依頼者「{name}」：{text}"
+
     def notices(self, tenant=None):
         """控えの知らせ（tenant＝その契約者の台帳／None＝管理者あて）。"""
         if tenant is None:
@@ -400,7 +406,7 @@ class PerClient(unittest.TestCase):
             got = backup.copy_submissions(self.app, writer(self.root), s["tenant"])
             self.assertTrue(all("つながっていません" in r.error for r in got), got)
         self.assertEqual([r["kind"] for r in self.runs(s["tenant"])], ["submission"])   # 記録は1時間に1行まで
-        self.assertEqual([r["summary"] for r in self.notices(s["tenant"])], [pc.DriveMissing.ask])
+        self.assertEqual([r["summary"] for r in self.notices(s["tenant"])], [self.said(s["tenant"], s["client"], pc.DriveMissing.ask)])
         self.assertNotIn(s["tenant"], [r["origin_tenant"] for r in self.notices()])   # 管理者の作業ではない
         self.assertIsNotNone(content())                                   # 外れている間は残す
         (self.root / pc.DRIVE_MARK).write_text("控え用")
@@ -416,7 +422,7 @@ class PerClient(unittest.TestCase):
         for x in (s, other):
             self.assertFalse(any(r.ok for r in self.run_contractor(x["tenant"], environ={})))
             self.assertIn("client_ai", [r["kind"] for r in self.runs(x["tenant"])])
-            self.assertEqual({r["summary"] for r in self.notices(x["tenant"])}, {sealing.KeyMissing.ask})
+            self.assertEqual({r["summary"] for r in self.notices(x["tenant"])}, {self.said(x["tenant"], x["client"], sealing.KeyMissing.ask)})
         self.assertFalse((self.root / pc.BASE).exists())
         drive = "試験：控え用のハードディスクをつないでください"
         pair = (World().setup(), World().setup())                          # 今日まだ片付けていない2人の契約者（フォルダはある）
@@ -458,15 +464,16 @@ class PerClient(unittest.TestCase):
             self.app, soon, "x.ai.enc", ("0" * 64, 1), {"tasks": 1}, error, person=None, part="client_ai",
             tenant_id=s["tenant"], client_id=c)
         watch = lambda: sorted(c for c in (s["client"], second) if backup.watch_client(self.app, s["tenant"], c))   # noqa: E731
-        mine = lambda: [r["summary"] for r in self.notices(s["tenant"]) if r["summary"] == backup.OVERDUE_CLIENT]   # noqa: E731
+        overdue = {self.said(s["tenant"], c, backup.OVERDUE_CLIENT) for c in (s["client"], second)}   # どの依頼者の控えかが文で分かる
+        mine = lambda: sorted(r["summary"] for r in self.notices(s["tenant"]) if r["summary"] in overdue)   # noqa: E731
         with mock.patch.object(backup, "_overdue_after", lambda tx: timedelta(days=1)):   # 作ったばかりの依頼者は数えない
             self.assertEqual(watch(), [])
         with mock.patch.object(backup, "_overdue_after", lambda tx: timedelta(microseconds=1)):
             self.assertEqual(watch(), sorted([s["client"], second]))
-            self.assertEqual(len(mine()), 2)                                   # 依頼者ごとに、その契約者へ
+            self.assertEqual(mine(), sorted(overdue))                          # 依頼者ごとに、その契約者へ
             watch()
-            self.assertEqual(len(mine()), 2)                                   # 知らせは1日1回
-            self.assertEqual([r["origin_tenant"] for r in self.notices() if r["summary"] == backup.OVERDUE_CLIENT
+            self.assertEqual(mine(), sorted(overdue))                          # 知らせは1日1回
+            self.assertEqual([r["origin_tenant"] for r in self.notices() if r["summary"] in overdue
                               ].count(s["tenant"]), 2)                         # 管理者へも
             ok(s["client"], error="試験：戻せなかった")                       # 戻せなかった控えは、取れたうちに入らない
             ok(second)                                                         # ほかの依頼者の控えも入らない

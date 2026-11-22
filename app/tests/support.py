@@ -18,7 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import calling_hours, common_phrases, recordings, spoken_time
-from salescall.core.access import Access, Actor, Rejected
+from salescall.core.access import Access, Actor, Rejected, Tx
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
 # 試験の判定に渡す、お客様の時間の設定（本番は gate.callee_settings が設定から読む。試験は値を自分で決めて渡す＝初めの値と同じ形：
@@ -380,6 +380,15 @@ class World:
         self.a.in_tenant(OPERATOR, tenant, lambda tx: tx.execute(
             "INSERT INTO salescall.clients (tenant_id, client_id, name) VALUES (%s, %s, %s)", (tenant, cid, self._unique_name(tenant, "架空の依頼者"))))
         return cid
+
+    def said(self, tenant: UUID, client: UUID, text: str, business: UUID | None = None) -> str:
+        """依頼者（と業務）を指す知らせの文：頭に「依頼者「名前」・業務「名前」：」（notify.about の形。名前は表から読み、作りの関数は呼ばない）。"""
+        def names(tx: Tx) -> str:
+            c = tx.one("SELECT name FROM salescall.clients WHERE client_id = %s", (client,))["name"]
+            if business is None:
+                return f"依頼者「{c}」："
+            return f"依頼者「{c}」・業務「{tx.one('SELECT name FROM salescall.businesses WHERE business_id = %s', (business,))['name']}」："
+        return self.a.in_client(OPERATOR, tenant, client, names) + text   # 業務の表は依頼者の取引でだけ見える
 
     def line(self, tenant: UUID) -> UUID:
         from salescall.core import registry

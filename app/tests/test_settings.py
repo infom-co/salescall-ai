@@ -328,6 +328,42 @@ class PerClientSettings(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(Rejected):
                 put(self.w, self.t, self.c, key, value)
 
+    def test_history_lists_one_level_newest_first_and_restoring_is_an_ordinary_new_value(self):
+        """CL-3 のお願い 73（計画書 5-3 の (11)）：段ごとの値の記録（新しい順・だれが・なぜ）。前の値に戻すのは set_value に前の値を渡す
+        だけ（記録は追記のまま）。ほかの段・ほかの依頼者の値は混ざらない。段と印の組が合わないときは空を返さずに止める。"""
+        key = "retry.max_attempts_per_task"
+        b, _ = self.w.business_with_version(self.t, self.c)
+        c2 = self.w.client(self.t)
+        put(self.w, self.t, c2, key, 9)                                    # ほかの依頼者
+        put(self.w, self.t, self.c, key, 7, scope="business", business=b)  # 同じ依頼者の業務の段
+        def set_(value, why):
+            self.w.a.in_client(OPERATOR, self.t, self.c, lambda tx: settings.set_value(
+                tx, key, value, scope="client", status="decided", rationale=why, review_when="試験",
+                tenant_id=self.t, client_id=self.c))
+        set_(2, "一つ目"); set_(4, "二つ目")
+        hist = lambda: self.w.a.in_client(OPERATOR, self.t, self.c, lambda tx: settings.history(
+            tx, key, scope="client", tenant_id=self.t, client_id=self.c))
+        got = hist()
+        self.assertEqual([(r["value"], r["rationale"], r["status"]) for r in got], [(4, "二つ目", "decided"), (2, "一つ目", "decided")])
+        self.assertTrue(all(r["set_by"] and r["set_at"] and r["review_when"] for r in got))
+        set_(got[1]["value"], "前の値に戻す")                                # 戻す＝前の値を足すだけ
+        self.assertEqual([r["value"] for r in hist()], [2, 4, 2])
+        self.assertEqual(self.detail(key)["value"], 2)
+        biz = self.w.a.in_client(OPERATOR, self.t, self.c, lambda tx: settings.history(
+            tx, key, scope="business", tenant_id=self.t, client_id=self.c, business_id=b))
+        self.assertEqual([r["value"] for r in biz], [7])
+        other = self.w.a.in_client(OPERATOR, self.t, self.c, lambda tx: settings.history(   # ほかの依頼者の段は読めない
+            tx, key, scope="client", tenant_id=self.t, client_id=c2))
+        self.assertEqual(other, [])
+        self.assertTrue(sys_tx(lambda tx: settings.history(tx, key, scope="system")))   # システムの段（初めの値）
+        for bad in ({"scope": "client", "tenant_id": self.t}, {"scope": "system", "tenant_id": self.t},
+                    {"scope": "business", "tenant_id": self.t, "client_id": self.c}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.w.a.in_client(OPERATOR, self.t, self.c, lambda tx: settings.history(tx, key, **bad))
+        with self.assertRaises(settings.SettingMissing):
+            self.w.a.in_client(OPERATOR, self.t, self.c, lambda tx: settings.history(
+                tx, "no.such.key", scope="client", tenant_id=self.t, client_id=self.c))
+
     def test_other_client_of_the_same_tenant_cannot_see_the_value(self):
         put(self.w, self.t, self.c, "retry.max_attempts_per_task", 1)
         c2 = self.w.client(self.t)

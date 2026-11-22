@@ -276,18 +276,21 @@ class Versions(Base):
         self.tx(s, lambda tx: quality_stage.open_stage(tx, v1, 1, None, evidence="試験"), OPERATOR)
         self.tx(s, lambda tx: bs.assign(tx, s["run"], v1, reason="試験：手で新しい版にする"), OPERATOR)
         self.assertEqual(self.current(s), v1)
+        names = self.tx(s, lambda tx: tx.one("SELECT c.name AS c, b.name AS b FROM salescall.businesses b JOIN salescall.clients c"
+                                              " USING (client_id) WHERE b.business_id = %s", (s["business"],)))
+        said = lambda text: f"依頼者「{names['c']}」・業務「{names['b']}」：{text}"   # noqa: E731  業務設定の版を指す知らせ＝業務の名指し
         told = lambda: [r["summary"] for r in self.tx(s, lambda tx: tx.all(   # noqa: E731
             "SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing' AND summary = ANY(%s) ORDER BY event_id",
-            ([gate.VOICE_LIST_MISSING, gate.VOICE_NOT_READY],)))]
+            ([said(gate.VOICE_LIST_MISSING), said(gate.VOICE_NOT_READY)],)))]
         self.assertEqual(self.reason(s), "voice_not_ready")
-        self.assertEqual(told(), [gate.VOICE_LIST_MISSING])
+        self.assertEqual(told(), [said(gate.VOICE_LIST_MISSING)])
         self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, v1)), recordings.VersionNeeds(False, {}))
         new = recordings.ListedPart("purpose", "ご予約の内容を伺うお電話です。")
         need = self.tx(s, lambda tx: recordings.list_parts(tx, v1, [recordings.ListedPart("intro", "架空の録音（intro）。"), new]),
                        OPERATOR)
         self.assertEqual(need, recordings.VersionNeeds(True, {v: {"purpose": new.spoken_text} for v in voices}))
         self.assertEqual(self.reason(s), "voice_not_ready")
-        self.assertEqual(told(), [gate.VOICE_LIST_MISSING, gate.VOICE_NOT_READY])
+        self.assertEqual(told(), [said(gate.VOICE_LIST_MISSING), said(gate.VOICE_NOT_READY)])
         for v in voices:
             self.tx(s, lambda tx, v=v: recordings.approve(tx, recordings.complete(tx, v1, v, [recordings.Part(
                 "purpose", new.spoken_text, f"test://{v}/purpose", "6" * 64)])), OPERATOR)
