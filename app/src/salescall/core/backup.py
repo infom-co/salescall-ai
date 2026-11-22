@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
 
-from salescall.core import fix_requests, notify, recordings, settings
+from salescall.core import contract_end, fix_requests, notify, recordings, settings
 from salescall.core.access import Access, Actor, Tx, snapshot, tool_connection
 from salescall.link.backup_files import AI, RECORDING, SUBMISSION, WHOLE, good_folder
 from salescall.link.backup_files import file_name as _name
@@ -433,9 +433,12 @@ def record_submission(tx: Tx, file_name: str, data: bytes, *, template_id: int |
 
 
 def client_ids(app: Access, tenant_id: UUID) -> list[UUID]:
-    """その契約者の依頼者（作った順。控えと中央の見守り役の契約者ごとの仕事が読む1か所）。"""
+    """その契約者の依頼者（作った順。控えと中央の見守り役の契約者ごとの仕事が読む1か所）。サーバーから外した依頼者（契約が終わった。0285）は
+    入れない（控え・控えの見張りを続けない。中身はハードディスクの控えにある）。"""
     return app.in_tenant(SYSTEM, tenant_id, lambda tx: [r["client_id"] for r in tx.all(
-        "SELECT client_id FROM salescall.clients ORDER BY created_at, client_id")])
+        "SELECT c.client_id FROM salescall.clients c"
+        " WHERE NOT EXISTS (SELECT 1 FROM salescall.client_forgets f WHERE f.client_id = c.client_id)"
+        " ORDER BY c.created_at, c.client_id")])
 
 
 def copy_submissions(app: Access, writer: Writer, tenant_id: UUID) -> list[Result]:
@@ -515,8 +518,9 @@ def prune_rules(app: Access, tenant_id: UUID | None) -> dict[str, Any]:
             days[RECORDING] = keep("recording.keep_days_drive")
             held = [str(r["h"]) for r in tx.all("SELECT salescall.recordings_held() AS h")]
             drop = [str(a) for a in recordings.unsaved_done(tx)]   # 残さない業務の通話（抜き取りが済んだ）＝日数を待たずに消す（0284）
-            rules = {r["f"]: {"days": dict(days), "verified": [], "held": held, "drop": drop}
-                     for r in tx.all("SELECT folder_name AS f FROM salescall.client_backup_folders")}
+            ended = set(contract_end.ended_clients(tx))   # 契約が終わった依頼者の控えは日数で消さない（✅ 2026-11-22 管理者。0285）
+            rules = {r["f"]: {"days": {} if r["c"] in ended else dict(days), "verified": [], "held": held, "drop": drop}
+                     for r in tx.all("SELECT folder_name AS f, client_id AS c FROM salescall.client_backup_folders")}
             # 戻せることまで確かめた控え（フォルダとファイルの名前の組。ファイルの名前は時刻だけなので、依頼者が違えば同じ名前もある
             # ＝フォルダごとに見る。2026-10-18 の見直し）
             rows = tx.all("SELECT b.folder_name AS folder, r.file_name AS f FROM salescall.backup_runs r"

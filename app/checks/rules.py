@@ -240,6 +240,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     # 依頼者・業務・実施回・回線を作る・名前を直す・依頼者の有効／無効・回線の割り当てと使わなくなった印（Intent.md 4章 A・C。0051）
     "clients": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
     "client_states": {"INSERT": frozenset({_CORE + "registry.py"})},
+    "client_contract_ends": {"INSERT": frozenset({_CORE + "contract_end.py"})},          # 契約終了（0285）
+    "client_contract_end_cancels": {"INSERT": frozenset({_CORE + "contract_end.py"})},   # 契約終了の取り消し（0285）
     "businesses": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
     "runs": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
     "lines": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
