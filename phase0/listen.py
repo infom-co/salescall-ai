@@ -11,7 +11,7 @@ import asyncio
 import difflib
 
 from audio import resample
-from jtext import compare_reading
+from jtext import compare_reading, spoken_digits
 from live_util import silence_while, stream_audio
 
 EARS = ("transcribe35", "live38")
@@ -111,8 +111,9 @@ async def _hear_once(client, pcm16: bytes, rate: int, ear: str, idle_s: float, l
 
 
 def differences(expected: str, heard: str) -> list[dict]:
-    """台本と、聞こえた言葉の食い違いを、読み（ひらがな）で比べて返す（句読点・空白・書き方の違いは無視）。"""
-    a, b = compare_reading(expected), compare_reading(heard)
+    """台本と、聞こえた言葉の食い違いを、読み（ひらがな）で比べて返す（句読点・空白・書き方の違いは無視）。数字は読みに直してから比べる（jtext.spoken_digits の1か所＝
+    別の耳の「10」と台本の「じゅう」を同じと見る）。"""
+    a, b = compare_reading(spoken_digits(expected)), compare_reading(spoken_digits(heard))
     out = []
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
         if op != "equal":

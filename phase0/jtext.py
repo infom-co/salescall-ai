@@ -45,6 +45,29 @@ def compare_reading(text: str) -> str:
     return norm(s)
 
 
+_DIGITS = re.compile(r"\d+")
+_KANJI_DIGIT = "〇一二三四五六七八九"
+
+
+def spoken_digits(text: str) -> str:
+    """数字（「10」「15日」「090」）を、読みの決まる漢数字に置き換える（唯一の場所＝読みで比べる listen.differences）。別の耳は「じゅう」を「10」と書くことがあり、
+    compare_reading は数字を数字のまま残すので、台本の読み（「じゅう」）と食い違いに見えた（2026-11-22 分身 AN の続きの (3)：相手役の声の「えっと、じゅう、の……」が4つの声とも
+    「えっと、 10 の」と聞かれ、確かめに通らなかった）。1〜9999（頭が0でない）は位取りの漢数字（「15」＝十五）、ほか（「0」「090」・5桁から）は1字ずつ（〇九〇）。"""
+    import unicodedata
+
+    def kanji(m: re.Match) -> str:
+        d = m.group()
+        if d[0] == "0" or len(d) > 4:
+            return "".join(_KANJI_DIGIT[int(c)] for c in d)
+        out = ""
+        for c, unit in zip(d.zfill(4), ("千", "百", "十", "")):
+            n = int(c)
+            if n:
+                out += ("" if n == 1 and unit else _KANJI_DIGIT[n]) + unit
+        return out
+    return _DIGITS.sub(kanji, unicodedata.normalize("NFKC", text))
+
+
 def morae(text: str) -> int:
     """おおよその音の数。数字は1字を2音として数える（「じゅう」「に」などの平均に近い）。"""
     n = 0

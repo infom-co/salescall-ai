@@ -51913,3 +51913,30 @@ class AN45FirstWordsTest(unittest.TestCase):
             self.assertIs(lines[0], g46.FIRST, name)
             self.assertIn(lines[0]["wav"].removeprefix("Puck_").removesuffix(".wav"), FIRST_WORDS, name)
             self.assertEqual(lines[1], g46.W("yes_reserved"), name)   # 第一声のあと、名乗りの最初の質問（予約）への答え
+
+
+class ANDigitsReadTest(unittest.TestCase):
+    """分身 AN の続きの (3)（書き置き rv191/AN/notes.md の (6-3)）：相手役の声の確かめの比べ方（listen.differences）は、別の耳の数字の書き方（「10」）と台本の読み（「じゅう」）を
+    同じと見る（数字の読みを当てる1か所＝jtext.spoken_digits）。⛔ それまでは「えっと、じゅう、の……」の声が4つとも「えっと、 10 の」と聞かれ、読みの比べで落ち、声が崩れて
+    いないのに作り直す台詞になっていた。台帳（results/callee/index.json）は、保存した別の耳の文字に今の決まりを当て直した（make_callee_samples の --recheck と同じ1か所。声は聞き直さない）"""
+
+    def test_digits_are_read_before_comparing(self):
+        from jtext import spoken_digits
+        from listen import differences
+        for text, want in (("10", "十"), ("15日の午後2時", "十五日の午後二時"), ("1234", "千二百三十四"), ("090", "〇九〇"), ("0", "〇"), ("10000", "一〇〇〇〇"),
+                           ("１０", "十"), ("じゅう", "じゅう")):
+            self.assertEqual(spoken_digits(text), want, text)
+        self.assertEqual(differences("えっと、じゅう、の", "えっと、 10 の"), [])
+        self.assertEqual(differences("15日の午後2時でお願いします。", "十五日の午後二時でお願いします。"), [])
+        self.assertNotEqual(differences("えっと、じゅう、の", "えっと、 11 の"), [])   # 違う数は違う
+
+    def test_the_ledger_follows_the_check_rule(self):
+        import json
+
+        import make_callee_samples as m
+        made = json.loads((m.OUT / "index.json").read_text(encoding="utf-8"))
+        for x in made:
+            if "heard" in x:
+                self.assertEqual(m.sample_ok(x["text"], x["heard"])["ok"], x.get("ok"), (x["voice"], x["id"]))
+        self.assertEqual({x["voice"] for x in made if x["id"] == "unclear" and x.get("ok") is True}, {"Puck", "Kore", "Leda", "Sadachbia"})
+        self.assertTrue(m.verified("Leda_unclear.wav") and m.verified("Sadachbia_unclear.wav"))
