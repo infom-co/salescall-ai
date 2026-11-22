@@ -3,9 +3,11 @@
   目的のお客様の判定の全部の項目と、尋ねているか
 - 束 b：正解の表（g59_calling_judge.cases）の全部の行の、相手の申し出（flowctl.offer_choices）と電話に出られない理由（flowctl.absent_why_choices）
   （2026-11-18 の rv92/H で足した2つの項目。2026-11-19 日本時間21時台に、この束の読み（rv150/readers/y3 の A_b・B_b）で正解の表に正解を付けた）
+- 束 m：正解の表の場面の業務の印（携帯電話の番号・個人のお客様・第一声でご本人が名乗った）のある行（g59_calling_judge.LINES_OWN＝2026-11-22 分身 AM。正解は仮）の、
+  目的のお客様の判定の全部の項目と、尋ねているか
 読み手に見せるのは、判定が見る文（説明の文と選べるもの＝meaning_judge.prompt_parts の1か所）と、行の場面の会話（本番の流れの制御で組んだ場面＝
 g59_flow_check.row_scene）だけ。正解の表の正解・前の言葉の読み（BEFORE_READ）は渡さない。答えの欄の書き方の例は、形だけの置き場（実在の行を使わない）。
-使い方：python g59_readers.py --out <書き出す場所> --dry-run（束 packet_a.md・packet_b.md・頼みの文 request_a.md・request_b.md・行の名札 key_a.json・key_b.json）
+使い方：python g59_readers.py --out <書き出す場所> --dry-run（束 packet_a.md・packet_b.md・packet_m.md・頼みの文 request_*.md・行の名札 key_*.json）
 """
 from __future__ import annotations
 
@@ -15,16 +17,22 @@ from pathlib import Path
 from common import base_parser, require_python, say
 
 PACKETS = {"a": "正解の表の候補（ご事情を伺った一言・詳しい呼ぶ一言・確かめたあとに答えてお呼びし直した一言のあと）",
-           "b": "正解の表の全部の行の、相手の申し出と電話に出られない理由"}
-ASKS = "asks"   # 尋ねているか（別の問い合わせ＝Flow.asks_context）の項目の鍵（束 a だけ）
+           "b": "正解の表の全部の行の、相手の申し出と電話に出られない理由",
+           "m": "ご本人の電話（携帯電話の番号・個人のお客様）と、第一声でお呼びする方ご本人が名乗った電話の行"}
+ALL_ITEMS = ("a", "m")   # 目的のお客様の判定の全部の項目と、尋ねているかを読む束（束 m＝正解の表の印のある行 g59_calling_judge.LINES_OWN＝2026-11-22 分身 AM。正解は仮）
+ASKS = "asks"   # 尋ねているか（別の問い合わせ＝Flow.asks_context）の項目の鍵（束 a・m だけ＝ALL_ITEMS）
 
 
 def _rows(name: str) -> list[dict]:
-    """束の行（測りの行の形＝row_scene・judge_questions にそのまま渡せる）。束 b は正解の表の行（正解は捨てる）。"""
+    """束の行（測りの行の形＝row_scene・judge_questions にそのまま渡せる）。束 b は正解の表の行・束 m は正解の表の場面の業務の印（携帯電話の番号・個人のお客様・
+    第一声でご本人が名乗った）のある行（どちらも正解は捨てる）。"""
     import g59_calling_judge as g
     if name == "a":
         return g.candidates()
-    return [{"id": f"T{i}", **g.case_row(c)} for i, c in enumerate(g.cases("確かめる一言"), 1)]
+    rows = [{"id": f"T{i}", **g.case_row(c)} for i, c in enumerate(g.cases("確かめる一言"), 1)]
+    if name == "m":
+        return [r for r in rows if r["mobile"] or r["personal"] or r["named_first"]]
+    return rows
 
 
 def _spoken(rep: dict) -> str:
@@ -34,13 +42,20 @@ def _spoken(rep: dict) -> str:
 
 
 def conversation(r: dict) -> list[tuple[str, str]]:
-    """行 r の場面の会話（お客様に聞こえた順）：本番の流れの制御で組んだ場面（g59_flow_check.row_scene）の、名乗りと呼ぶ一言（場面は流し終えた所から始まる）・
-    お客様の言葉ごとのこちらの返事（流れの制御の記録 log）・行の言葉。こちらが何も言わなかったお言葉は「（何も言わない）」。"""
+    """行 r の場面の会話（お客様に聞こえた順）：本番の流れの制御で組んだ場面（g59_flow_check.row_scene）の、名乗りと呼ぶ一言（場面は流し終えた所から始まる。業務は
+    行の印の業務＝g59_flow_check.business_of）・お客様の言葉ごとのこちらの返事（流れの制御の記録 log）・行の言葉。こちらが何も言わなかったお言葉は「（何も言わない）」。
+    第一声でご本人が名乗った電話の行（印 named_first）は、その第一声と、第一声のあとに流した名乗りと確かめる一言から（本番の始まり＝Flow.on_connect の道。2026-11-22 分身 AM）。"""
     import g59_flow_check as fc
     f = fc.row_scene(r)
-    parts = (fc.b_full if r.get("full") else fc.b).replay_parts()
-    out = [("こちら", "".join(parts[k] for k in ("greeting", "intro", "target")))]
+    if r.get("named_first"):
+        out = [("お客様", r["named_first"]),
+               ("こちら", "".join(_spoken(x["reply"]) for x in f.log if x["callee_turns"] == 1 and x.get("reply")))]
+    else:
+        parts = fc.business_of(r).replay_parts()
+        out = [("こちら", "".join(parts[k] for k in ("greeting", "intro", "target")))]
     for turn, words in sorted(f.calling_words.items()):
+        if r.get("named_first") and turn == 1:
+            continue   # 第一声（上に書いた）
         out.append(("お客様", words))
         out.append(("こちら", "".join(_spoken(x["reply"]) for x in f.log if x["callee_turns"] == turn) or "（何も言わない）"))
     return out + [("お客様", r["text"])]
@@ -66,15 +81,15 @@ def packet(name: str) -> dict:
         q, aq = g.judge_questions(r)
         fixed, tail = prompt_parts(q, r["text"], None, r["before"])
         row = {"no": no, "p": vid("P", fixed), "talk": conversation(r), "tail": tail.rstrip(),
-               "key": {k: r.get(k) for k in ("id", "text", "before", "asked", "successor", "full")}}
-        if name == "a":
+               "key": {k: r.get(k) for k in ("id", "text", "before", "asked", "successor", *g.MARKS)}}
+        if name in ALL_ITEMS:
             afixed, atail = prompt_parts(aq, r["text"], None, r["before"])
             row["asks"] = vid("A", afixed)
             if atail.rstrip() != tail.rstrip():
                 row["asks_tail"] = atail.rstrip()
         rows.append(row)
-    if name == "a":
-        items = list(dict.fromkeys(fc.key for r in _rows("a") for fc in g.judge_questions(r)[0].facets)) + [ASKS]
+    if name in ALL_ITEMS:
+        items = list(dict.fromkeys(fc.key for r in _rows(name) for fc in g.judge_questions(r)[0].facets)) + [ASKS]
     return {"name": name, "title": PACKETS[name], "items": items, "variants": variants, "rows": rows}
 
 
@@ -103,7 +118,7 @@ def request_text(name: str, out_dir: str) -> str:
     """読み手への頼みの文（rv56/readers/request.md の形。答えの例は形だけの置き場）。"""
     p = packet(name)
     keys = "・".join(p["items"])
-    which = ("型の文にある項目の全部（" + keys + "。asks は A の型の文の選べるもの）" if name == "a"
+    which = ("型の文にある項目の全部（" + keys + "。asks は A の型の文の選べるもの）" if name in ALL_ITEMS
              else "相手の申し出（offer）と電話に出られない理由（absent_why）の2つだけ（型の文のほかの項目は答えません）")
     return "\n".join([
         "あなたは、電話の会話の言葉を読む「読み手」です。答えは日本語で書いてください。（使い方：〈印〉を A か B に置き換えて、2人に同じ束を別々に頼む。）",
