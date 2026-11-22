@@ -26,7 +26,8 @@
 {% if rows %}
 <div class="table-scroll"><table class="list">
   <thead><tr>{% for c in (rows[0].columns if rows else columns) %}<th class="nowrap">{{ c }}</th>{% endfor %}</tr></thead>
-  <tbody>{% for r in rows %}<tr>{% for c, v in zip(r.columns, r.values()) %}{% if c in r.to_fill %}<td class="to-fill">{{ please_fill }}</td>{% else %}<td>{{ v }}</td>{% endif %}{% endfor %}</tr>{% endfor %}</tbody>
+  {#- 札の形（スマホ）では、会社名（列の名前の表 result_rows.COLUMNS の2つ目）を札の見出しに＝お客様リスト・探した結果と同じ形 -#}
+  <tbody>{% for r in rows %}<tr>{% for c, v in zip(r.columns, r.values()) %}{% if c in r.to_fill %}<td class="to-fill">{{ please_fill }}</td>{% else %}<td{% if c == columns[1] %} class="lead-cell"{% endif %}>{{ v }}</td>{% endif %}{% endfor %}</tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<div class="card">{{ empty("渡す行はまだありません", "渡すのは確定した結果だけです。電話をかけて結果が確定すると、ここに並びます（検証モードでは、承認待ちの「結果の確かめ」で確かめると確定します）。") }}</div>{% endif %}
 {% endblock %}

@@ -11,7 +11,7 @@
   <div class="table-scroll" style="margin-top:16px"><table class="list">
     <thead><tr><th>会社名</th><th>お呼びする方</th><th>管理番号</th><th>業務 ／ お客様リスト</th></tr></thead>
     <tbody>{% for r in found %}<tr>
-      <td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}/runs/{{ r.run_id }}/rows/{{ r.task_id }}">{{ r.source_name or "（会社名なし）" }}</a></td>
+      <td class="lead-cell"><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}/runs/{{ r.run_id }}/rows/{{ r.task_id }}">{{ r.source_name or "（会社名なし）" }}</a></td>
       <td>{{ r.target_name or "" }}</td><td class="nowrap">{{ r.client_ref or "" }}</td><td>{{ r.business }} ／ {{ r.run }}</td></tr>{% endfor %}</tbody>
   </table></div>
   {% if found|length == 200 %}<p class="muted">200件までを出しています。もっと絞ってください。</p>{% endif %}
