@@ -259,6 +259,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "recording_list_parts": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "version_name_readings": {"INSERT": frozenset({_CORE + "recordings.py"})},  # 録音を聞いて選んだ名前の読み（6-2。0100。版の読みは
     #                                                                           データベースが版の中身を置いたときに入れる＝0101）
+    "recording_unsaved": {"INSERT": frozenset({_CORE + "recordings.py"})},     # 録音とやり取りを残さない業務の通話（11-4。0284）
     "recording_holds": {"INSERT": frozenset({_CORE + "recordings.py"}),        # 測り終わるまで消さない録音（11-4 第2版。0056）
                         "UPDATE": frozenset({_CORE + "recordings.py"})},
     "fix_reports": {"INSERT": frozenset({_CORE + "fix_requests.py"})},        # 修正依頼の「直した」と承認（0048）

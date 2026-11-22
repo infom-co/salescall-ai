@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
 
-from salescall.core import fix_requests, notify, settings
+from salescall.core import fix_requests, notify, recordings, settings
 from salescall.core.access import Access, Actor, Tx, snapshot, tool_connection
 from salescall.link.backup_files import AI, RECORDING, SUBMISSION, WHOLE, good_folder
 from salescall.link.backup_files import file_name as _name
@@ -501,7 +501,8 @@ def prune_rules(app: Access, tenant_id: UUID | None) -> dict[str, Any]:
         else:
             days[RECORDING] = keep("recording.keep_days_drive")
             held = [str(r["h"]) for r in tx.all("SELECT salescall.recordings_held() AS h")]
-            rules = {r["f"]: {"days": dict(days), "verified": [], "held": held}
+            drop = [str(a) for a in recordings.unsaved_done(tx)]   # 残さない業務の通話（抜き取りが済んだ）＝日数を待たずに消す（0284）
+            rules = {r["f"]: {"days": dict(days), "verified": [], "held": held, "drop": drop}
                      for r in tx.all("SELECT folder_name AS f FROM salescall.client_backup_folders")}
             # 戻せることまで確かめた控え（フォルダとファイルの名前の組。ファイルの名前は時刻だけなので、依頼者が違えば同じ名前もある
             # ＝フォルダごとに見る。2026-10-18 の見直し）
