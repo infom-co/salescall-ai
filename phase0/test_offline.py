@@ -3102,7 +3102,7 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         for c in cases:
             text, accept, before, asked, successor, facts = c
             self.assertLessEqual(set(g.accept_of(facts, successor)), set(accept), text)
-            self.assertLessEqual(set(accept) - set(g.accept_of(facts, successor)), set(g.EXTRA.get((text, before), ())), text)   # 足した読みはご決定の分だけ
+            self.assertLessEqual(set(accept) - set(g.accept_of(facts, successor)), set(g.extra_of(text, before, c.marks())), text)   # 足した読みはご決定の分だけ（印の無い業務の行だけ＝extra_of）
             # 正解の項目と中の名前は、その場面で判定に見せる項目と選べるものの中（Flow._calling_questions と同じ選び分け。ご本人の電話の行は、ご本人の電話の説明＝own_phone）
             shown = {fc.key: fc.choices for fc in target_facets(bool(asked), successor, own_phone=c.mobile or c.personal)}
             self.assertEqual(set(facts), set(shown), text)   # どの行も、判定に見せる項目のすべてに正解がある（相手の申し出・理由も＝2026-11-19 日本時間21時台）
@@ -17226,10 +17226,10 @@ class G53EndTest(unittest.TestCase):
     def test_g59_has_the_calling_rows(self):
         from end_words import BEFORE_TARGET, CALLING
         from flowctl import END
-        from g59_calling_judge import cases
-        rows = {(c[0], c[2]): c for c in cases("x")}
-        for who, text, ends, _, _ in CALLING:
-            self.assertEqual(rows[(text, BEFORE_TARGET if who == "ご本人" else None)][5][END], set(ends), text)
+        from g59_calling_judge import case_of, cases
+        table = cases("x")
+        for who, text, ends, _, _ in CALLING:   # 表の行は印まで含めて引く1か所（case_of＝分身 AM の続き (2)）
+            self.assertEqual(case_of(text, BEFORE_TARGET if who == "ご本人" else None, table=table)[5][END], set(ends), text)
 
 
 
@@ -23146,9 +23146,10 @@ class G73WordsTest(unittest.TestCase):
         from flowctl import HEAR, HEAR_OK, target_facets
         from meaning_judge import Reading
         with m.patch.object(g73, "latest", self.latest):
-            rows = {(t, bool(a)): (acc, f) for t, acc, _, a, _, f in g.cases("x")}
+            table = g.cases("x")
             for w in self.WORDS[2:]:
-                acc, f = rows[(w["text"], w["asked"])]
+                c = g.case_of(w["text"], g.hear_before(w["asked"]), asked=w["asked"], table=table)   # 印まで含めて引く1か所（分身 AM の続き (2)）
+                acc, f = c[1], c[5]
                 self.assertEqual(f[HEAR], {w["truth"]})
                 self.assertEqual(set(f), {fc.key for fc in target_facets(w["asked"], False)})
             seen = []
@@ -36572,7 +36573,7 @@ class CallingOffersJudgedTest(unittest.TestCase):
         import g59_calling_judge as g
         import g59_tally as t
         text = "岡田は本日休みをいただいております。"
-        facts = next(f for tt, _, b, _, _, f in g.cases("x") if tt == text and not b)
+        facts = g.case_of(text)[5]   # 印まで含めて引く1か所（分身 AM の続き (2)）
         r = {"text": text, "before": None, "asked": False, "successor": False}
         right = {k: next(iter(v)) for k, v in facts.items()}
         self.assertEqual(right[self.WHY], "お休み")
@@ -40805,12 +40806,13 @@ class MeasureCallingConfirmTriggerTest(unittest.TestCase):
         # (c)：取り次ぎの言葉のあとに出た方の「はい。」（確かめのきっかけ＝取り次ぐと言われたことだけでは前と違う方にしない）のあとの、確かめへの「はい、そうです。」
         # ＝前の方（「はい。」の方）と同じ方・ご本人。ほかの確かめへの「はい、そうです。」の行（前の言葉「はい。」）と同じ正解
         import g59_calling_judge as g
-        rows = {(t, b): f for t, _, b, a, s, f in g.cases("x") if a and not s}
-        self.assertNotIn(("はい、そうです。", g.TO_TARGET), rows)
-        self.assertEqual(rows[("はい、そうです。", f"{g.TO_TARGET}／{g.ASKED_AFTER}")], rows[("はい、そうです。", g.ASKED_AFTER)])
+        table = g.cases("x")
+        row = lambda text, before: g.case_of(text, before, asked=True, successor=False, table=table)[5]   # 印まで含めて引く1か所（分身 AM の続き (2)）
+        self.assertRaises(KeyError, row, "はい、そうです。", g.TO_TARGET)
+        self.assertEqual(row("はい、そうです。", f"{g.TO_TARGET}／{g.ASKED_AFTER}"), row("はい、そうです。", g.ASKED_AFTER))
         # 「お電話代わりました。担当の山田です。」のあと、お呼びし直した一言への「はい。」で確かめた：正解は前と同じ（前の言葉に「代わって出た」山田様がいる＝別の方）
-        self.assertNotIn(("いいえ、私は山田と申します。", "お電話代わりました。担当の山田です。"), rows)
-        yamada = rows[("いいえ、私は山田と申します。", f"お電話代わりました。担当の山田です。／{g.ASKED_AFTER}")]
+        self.assertRaises(KeyError, row, "いいえ、私は山田と申します。", "お電話代わりました。担当の山田です。")
+        yamada = row("いいえ、私は山田と申します。", f"お電話代わりました。担当の山田です。／{g.ASKED_AFTER}")
         self.assertEqual((yamada["speaker"], yamada["who"]), ({"前と同じ方"}, {"別の方（どなたかは分からない）"}))
 
     def test_the_hearing_rows_after_the_confirm_have_its_trigger_and_are_still_hearing_only(self):
@@ -40820,10 +40822,10 @@ class MeasureCallingConfirmTriggerTest(unittest.TestCase):
         import g59_tally as t
         hear = g.lines_hear()
         self.assertTrue(any(a for _, a, _ in hear) and any(not a for _, a, _ in hear))
-        keys = {(x, b, bool(a)) for x, _, b, a, s, _ in g.cases("x") if not s}
+        table = g.cases("x")
         for text, asked, _ in hear:
             self.assertEqual(g.hear_before(asked), g.ASKED_AFTER if asked else None)
-            self.assertIn((text, g.hear_before(asked), asked), keys)
+            g.case_of(text, g.hear_before(asked), asked=asked, successor=False, table=table)   # 表にある（印まで含めて引く1か所＝分身 AM の続き (2)）
             self.assertTrue(t.hear_only({"text": text, "before": g.hear_before(asked), "asked": asked, "successor": False}), text)
 
 
@@ -40903,23 +40905,27 @@ class MeasureCallingShownQuestionTest(unittest.TestCase):
             self.assertEqual((q.text, bool(getattr(q, "inquiry", False))), want[r["scene"]], r["id"])
             self.assertEqual(aq.text, q.text, r["id"])
             self.assertNotIn("label", r)
-        table = {(t, b, bool(a), s) for t, _, b, a, s, _ in g.cases("x")}
-        self.assertTrue(all((r["text"], r["before"], bool(r["asked"]), r["successor"]) in table for r in rows))   # 48行とも表へ移した
+        table = g.cases("x")
+        for r in rows:   # 48行とも表へ移した（印まで含めて引く1か所＝分身 AM の続き (2)）
+            g.case_of(r["text"], r["before"], asked=bool(r["asked"]), successor=r["successor"], full=r["full"], table=table)
 
     def test_the_words_before_a_candidate_are_read_like_the_answer_table(self):
         # 候補の前の言葉の正しい読み（BEFORE_READ・電話を終える言葉かも）は、その言葉が表の行にもあれば、その行の正解の中
         import g59_calling_judge as g
         import g59_flow_check as fc
         from flowctl import END
-        table = {t: f for t, _, b, a, s, f in g.cases("x") if not b and not a and not s}
+        rows = g.cases("x")
         seen = 0
         for p in {p for r in g._candidate_rows() for p in r["before"].split("／")}:   # 候補の場面（表へ移した行も）
             code, _, *side = g.BEFORE_READ[p]
             reading = fc.facts(code) | (side[0] if side else {})
-            if p in table:
-                seen += 1
-                for k, v in reading.items():
-                    self.assertIn(v, table[p][k], (p, k))
+            try:   # 表の行（呼ぶ一言への返事・印の無い行）は印まで含めて引く1か所（分身 AM の続き (2)）
+                c = g.case_of(p, None, asked=False, successor=False, table=rows)
+            except KeyError:
+                continue
+            seen += 1
+            for k, v in reading.items():
+                self.assertIn(v, c[5][k], (p, k))
         # 「結構です。」「どちらの岡田でしょうか？」「お名前だけでは…」「失礼ですが、どちら様でしょうか？」（2026-11-20 に足した試しの言葉の行＝まとめ役 CL-1 の頼み rv178/X の続きの続き (3)）
         self.assertEqual(seen, 4)
         self.assertEqual(g.BEFORE_READ["お名前だけではどの者か分かりかねますので、お繋ぎできかねます。"][2][END], "どの方か分からず取り次げない")
@@ -42953,7 +42959,13 @@ class G59OfferWhyLabelTest(unittest.TestCase):
     def test_reasons_follow_the_rules(self):
         import g59_calling_judge as g
         from flowctl import ABSENT_WHY, ABSENT_WHY_NOT_SAID, CALLBACK_LABEL as L, OFFER, OFFER_NOT_SAID, UNDECIDED
-        got = {(t, b, bool(a)): f for t, _, b, a, _, f in g.cases(self.CONFIRM)}
+        table = g.cases(self.CONFIRM)
+        got = {(t, b, a): g.case_of(t, b, asked=a, table=table)[5] for t, b, a in (   # 印まで含めて引く1か所（分身 AM の続き (2)）
+            ("岡田は本日休みをいただいております。", None, False), ("いいえ、私は部下の山田です。岡田は出張中でして、戻りは来週になります。", "はい。", True),
+            ("いいえ、山田と申します。岡田は本日おりません。", "はい。", True), ("岡田は本日終日外出しておりまして。", None, False),
+            ("お待たせいたしました。岡田は会議中でして、本日は難しいようです。", "岡田ですね。少々お待ちください。", False), ("違います。岡田は会議中です。", "はい。", True),
+            ("いえ、岡田は席を外しております。", "はい。", True), ("営業のお電話でしたらお繋ぎできません。", None, False),
+            ("岡田は異動になりまして、今は私が担当しております。", None, False), ("お電話代わりました。岡田です。", None, False))}
         want = {("岡田は本日休みをいただいております。", None, False): {L["day_off"]},
                 ("いいえ、私は部下の山田です。岡田は出張中でして、戻りは来週になります。", "はい。", True): {L["long_absent"]},
                 # 「本日おりません」「本日終日外出」＝その日のうちには戻らない（不在の説明の「その日のうちに戻る」に当たらない・お休みとは言っていない＝
@@ -48641,10 +48653,10 @@ class XAsksWhoTableTest(unittest.TestCase):
     def test_2_the_test_words_are_rows_of_the_table(self):
         import g59_calling_judge as g
         b, _, _ = g.flows(None)
-        rows = {(c[0], c[2]) for c in g.cases(b.target.confirm())}
+        table = g.cases(b.target.confirm())
         for text in ("どちらの岡田でしょうか？", "営業部の岡田でしょうか、それとも経理の岡田でしょうか？", "どういったご用件でしょうか？", "失礼ですが、どちら様でしょうか？"):
-            self.assertIn((text, None), rows, text)
-        self.assertIn(("はい、それで？", "はい。／失礼ですが、どちら様でしょうか？"), rows)
+            g.case_of(text, None, table=table)   # 印の無い行がある（印まで含めて引く1か所＝分身 AM の続き (2)）
+        g.case_of("はい、それで？", "はい。／失礼ですが、どちら様でしょうか？", table=table)
 
 
 class XCallingAnswerReportCountTest(unittest.TestCase):
@@ -48660,7 +48672,7 @@ class XCallingAnswerReportCountTest(unittest.TestCase):
     def row(text, before=None):
         import g59_calling_judge as g
         b, _, _ = g.flows(None)
-        c = next(c for c in g.cases(b.target.confirm()) if c[0] == text and c[2] == before and not c.full)
+        c = g.case_of(text, before)   # 印の無い行（印まで含めて引く1か所＝分身 AM の続き (2)）
         return g.case_row(c), c[5]
 
     def test_0_the_reports_have_the_answer_with_the_called_person(self):
@@ -48899,9 +48911,9 @@ class XAskedAgainDescTest(unittest.TestCase):
         from flowctl import ASKS_YES, HEAR, HEAR_LOST, QUERY, QUERY_YES, UNDECIDED
         from review_words import answer_words
         b, _, _ = g.flows(None)
-        rows = {(c[0], c[2]): c for c in g.cases(b.target.confirm())}
+        table = g.cases(b.target.confirm())
         for text in ("え？", "すみません、聞こえなかったです", "何とおっしゃいました？"):
-            c = rows[(text, None)]
+            c = g.case_of(text, None, table=table)   # 印の無い行（⛔ 直す前は辞書のあとに並ぶ第一声の行で引いていた＝分身 AM の続き (2)）
             self.assertEqual(g.asks_truths(text), (ASKS_YES,), text)
             self.assertEqual(c[5][HEAR], {HEAR_LOST}, text)
             self.assertFalse(t.hear_only(g.case_row(c)), text)   # 聞こえ方だけを数える行ではない（尋ねているかも数える）
@@ -48945,7 +48957,7 @@ class XUnclearAgainTest(unittest.TestCase):
         import g59_calling_judge as g
         import g59_flow_check as fc
         row = next(c for c in g._candidate_rows() if c["id"] == cid)
-        c = next(c for c in g.cases("確かめる一言") if (c[0], c[2]) == (row["text"], row["before"]))
+        c = g.case_of(row["text"], row["before"], full=row["full"])   # 印まで含めて引く1か所（分身 AM の続き (2)）
         r = g.case_row(c)
         f, _, _ = fc.scene(g.steps_before(r["before"]), successor=r["successor"], checks=("judge", "judge2"))
         f.on_callee(); f.on_heard(r["text"])
@@ -51769,3 +51781,42 @@ class AMHearOnlyMarksTest(unittest.TestCase):
             where = {fn.name for fn in ast.walk(tree) if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
                      for node in ast.walk(fn) if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) == "lines_hear"}
             self.assertLessEqual(where, {"cases", "hear_rows"}, name)
+
+
+class AMCaseLookupTest(unittest.TestCase):
+    """分身 AM の続きの (2)（書き置きの (6-4)。CL-1 が書いてある決まりで決めた）：G-59 の正解の表の行を (相手の言葉, その前の言葉) で引くのは1か所（g59_calling_judge.case_of）で、
+    場面の業務の印まで含めて引く（印を書かなければ印の無い行）。同じ言葉・同じ前の言葉で印の違う行（会社の電話とご本人の電話・第一声でご本人が名乗った電話）を取り違えない。
+    1行に決まらなければ止める（KeyError）。⛔ 直す前は、前からの試験が (相手の言葉, その前の言葉) の辞書を作って引き、あとに並ぶ印のある行で印の無い行を上書きしていた
+    （「すみません、聞こえなかったです」を第一声の行で引いていた）"""
+
+    def test_case_of_reads_the_marks(self):
+        import g59_calling_judge as g
+        from flowctl import ABOUT, ABOUT_NO_SUCH, ABOUT_WRONG
+        table = g.cases("x")
+        self.assertEqual(g.case_of("うちには岡田という者はおりませんが。", full=True, table=table)[5][ABOUT], {ABOUT_NO_SUCH})
+        self.assertEqual(g.case_of("うちには岡田という者はおりませんが。", mobile=True, table=table)[5][ABOUT], {ABOUT_WRONG})
+        with self.assertRaises(KeyError):
+            g.case_of("うちには岡田という者はおりませんが。", table=table)   # 印の無い同じ言葉の行は無い
+        plain = g.case_of("すみません、聞こえなかったです", table=table)
+        named = g.case_of("すみません、聞こえなかったです", named_first=g.NAMED_FIRST, table=table)
+        self.assertEqual((plain[3] is None, named[3] is None), (True, False))
+        self.assertEqual(g.case_of("すみません、聞こえなかったです", g.UNHEARD_TWICE, mobile=True, table=table)[2], g.UNHEARD_TWICE)
+        self.assertIsNot(g.case_of("いいえ、違いますけど。", g.ASKED_AFTER, full=True, table=table),
+                         g.case_of("いいえ、違いますけど。", g.ASKED_AFTER, personal=True, table=table))
+        self.assertIs(g.case_of("はい、そうです。", g.ASKED_AFTER, table=table), g.case_of("はい、そうです。", g.ASKED_AFTER, asked=True, successor=False, table=table))
+
+    def test_extra_and_both_rows_read_the_marks(self):
+        # ご決定で足した読み（EXTRA）と2つの事実が重なる言葉の行（LINES_BOTH）は、印の無い業務の行のもの：(相手の言葉, その前の言葉) だけで引くと、同じ言葉・同じ前の言葉で
+        # 印のある行にも付く（今の表には、そういう行がまだ無い＝表に足したときに取り違えない）
+        import g59_calling_judge as g
+        text, before = "いいえ、違いますけど。", g.ASKED_AFTER
+        self.assertEqual(g.extra_of(text, before, {}), tuple(g.EXTRA.get((text, before), ())))
+        with unittest.mock.patch.dict(g.EXTRA, {(text, before): ["不在"]}):
+            self.assertEqual(g.extra_of(text, before, {}), ("不在",))
+            for m in ({"full": True}, {"mobile": True}, {"personal": True}, {"named_first": g.NAMED_FIRST}):
+                self.assertEqual(g.extra_of(text, before, m), (), m)
+        t, b, c, _ = g.LINES_BOTH[0]
+        row = {"text": t, "before": b, "asked": c, "successor": False}
+        self.assertTrue(g.both_row(row))
+        for m in ({"full": True}, {"mobile": True}, {"personal": True}, {"named_first": g.NAMED_FIRST}):
+            self.assertFalse(g.both_row({**row, **m}), m)

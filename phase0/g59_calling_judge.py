@@ -402,6 +402,19 @@ def hear_only(r: dict, rows: frozenset | None = None) -> bool:
             and (r["before"] or None) == hear_before(bool(r["asked"])))
 
 
+def both_row(r: dict) -> bool:
+    """測りの行 r（表の行の場面の欄 case_row・記録の行）が、2つの事実が重なる言葉の行（LINES_BOTH）か（唯一の決まり＝測り run の行の欄 both）：LINES_BOTH は印の無い
+    業務の行＝場面の業務の印が無く、言葉・その前の言葉・確かめたあとかが LINES_BOTH の行。⛔ 2026-11-22 分身 AM の続き (2) まで、(言葉, その前の言葉, 確かめたあとか)
+    だけで引き、印を見なかった（同じ言葉・同じ前の言葉の印のある行も、重なる言葉の行に数えうる＝書き置き rv191/AM/notes.md の (6-4)）"""
+    return not any(row_marks(r)) and (r["text"], r["before"], bool(r["asked"])) in {(t, b, c) for t, b, c, _ in LINES_BOTH}
+
+
+def extra_of(text: str, before: str | None, marks: dict) -> tuple:
+    """表の行に、ご決定で足した読み（EXTRA）（唯一の引き＝表 cases・試験）：ご決定は印の無い業務の行のもの＝場面の業務の印（marks＝Case.marks・case_row）のある行には
+    足さない。⛔ 2026-11-22 分身 AM の続き (2) まで、(言葉, その前の言葉) だけで引き、同じ言葉・同じ前の言葉の印のある行にも足しえた（書き置き rv191/AM/notes.md の (6-4)）"""
+    return () if any(row_marks(marks)) else tuple(EXTRA.get((text, before), ()))
+
+
 def accept_of(facts: dict[str, set], seeks_successor: bool = False) -> list[str]:
     """正解 ⇒ 受け取ってよい読み（正解の組み合わせを、流れの制御の1か所＝flowctl.facts_reading で読みにしたもの）。"""
     from itertools import product
@@ -505,10 +518,24 @@ def cases(confirm: str) -> list[Case]:
     marks = [{"full": True} if (t, b, c) in full and not s else {} for t, b, c, s, f in rows]
     rows += [(t, b, c, False, f) for t, b, c, _, f in LINES_OWN]
     marks += [m for *_, m, _ in LINES_OWN]
-    return [_case((t, sorted(set(accept_of(f, s)) | set(EXTRA.get((t, b), ()))), b, (SUCCESSOR["target_confirm"] if s else confirm) if c else None, s,
+    return [_case((t, sorted(set(accept_of(f, s)) | set(extra_of(t, b, m))), b, (SUCCESSOR["target_confirm"] if s else confirm) if c else None, s,
                    f | {END: f.get(END, {END_NONE}), HEAR: f.get(HEAR, {HEAR_OK}), OFFER: f.get(OFFER, {OFFER_NOT_SAID}),
                         ABSENT_WHY: f.get(ABSENT_WHY, {ABSENT_WHY_NOT_SAID})}), **m)
             for (t, b, c, s, f), m in zip(rows, marks)]
+
+
+def case_of(text: str, before: str | None = None, asked: bool | None = None, successor: bool | None = None, table: list | None = None, **marks) -> Case:
+    """正解の表の1行を、相手の言葉・その前に相手が言ったこと（と、確かめたあとか・後任の方をお呼びしたあとか）・場面の業務の印で引く（唯一の引き方＝前からの試験・道具が
+    表の行を引く所）。印（MARKS）は書かなければ印の無い行。1行に決まらなければ止める（KeyError＝黙って別の行を引かない）。table＝cases() を1回だけ作って渡すとき。
+    ⛔ 2026-11-22 分身 AM の続き (2) まで、引く所ごとに (相手の言葉, その前の言葉) の辞書を作り、同じ言葉・同じ前の言葉で印の違う行（会社の電話とご本人の電話・第一声で
+    ご本人が名乗った電話）を、あとに並ぶ行で上書きしていた（書き置き rv191/AM/notes.md の (6-4)）"""
+    want = row_marks(marks)
+    got = [c for c in (cases("x") if table is None else table)
+           if c[0] == text and (c[2] or None) == (before or None) and (asked is None or (c[3] is not None) == asked)
+           and (successor is None or c[4] == successor) and row_marks(case_row(c)) == want]
+    if len(got) != 1:
+        raise KeyError(f"正解の表に1行に決まらない（{len(got)}行）：{text}｜前の言葉 {before}｜印 {want}")
+    return got[0]
 
 
 def flows(sees_target: bool | None = None):
@@ -711,7 +738,7 @@ async def run(args) -> dict:
             row = {"text": text, "accept": ok, "asks_accept": want, "asks_kind": None if only else kind, "before": before, "asked": asked, "rep": rep,
                    "hear_only": only, **case.marks(),
                    "successor": successor, "facts_accept": {k: sorted(v) for k, v in facts.items()},
-                   "both": (text, before, bool(asked)) in {(t, b, c) for t, b, c, _ in LINES_BOTH}}
+                   "both": both_row(case_row(case))}
             rows.append(row)
             # 目的の人の判定と、こちらに尋ねているかの問い合わせ（本番と同じに、同じ言葉・同じ前の言葉で同時に出す＝convo.check_handler）
             pairs = ((q, ""), (aq, "_asks"))
