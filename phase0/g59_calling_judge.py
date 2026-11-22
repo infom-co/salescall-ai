@@ -386,6 +386,22 @@ def lines_hear() -> list[tuple[str, bool, dict[str, set]]]:
             for w in latest()["words"] if w["set"] == "HEAR_CALL"]
 
 
+def hear_rows() -> frozenset:
+    """試しの言葉（G-73）の組 HEAR_CALL の行の (相手の言葉, 確かめる一言のあとか)（唯一の読み口＝聞こえ方だけを数える行の見分け hear_only。数える行が多いときは
+    1回だけ作って hear_only に渡す）。"""
+    return frozenset((t, a) for t, a, _ in lines_hear())
+
+
+def hear_only(r: dict, rows: frozenset | None = None) -> bool:
+    """測りの行 r（表の行の場面の欄 case_row・記録の行）が、聞こえ方だけを数える行か（唯一の決まり＝測り run・数えるだけ --count・測りの数え g59_tally.hear_only）：
+    試しの言葉（G-73）の組 HEAR_CALL の行＝場面の業務の印が無い（G-73 の場面は印の無い業務＝row_marks）・後任の方の場面ではない・言葉と確かめたあとかが G-73 の行・その前の
+    言葉が hear_before の1か所。rows＝hear_rows()。⛔ 2026-11-22 分身 AM の続き (1) まで、run（言葉・前の言葉・確かめたあとか）・g59_tally.hear_only・--count（言葉と確かめた
+    あとか）の3か所が別々に見分け、どれも印を見なかった（同じ言葉・同じ前の言葉の印のある行を、聞こえ方だけの行と取り違えうる＝書き置き rv191/AM/notes.md の (6-3)）"""
+    rows = hear_rows() if rows is None else rows
+    return (not r["successor"] and not any(row_marks(r)) and (r["text"], bool(r["asked"])) in rows
+            and (r["before"] or None) == hear_before(bool(r["asked"])))
+
+
 def accept_of(facts: dict[str, set], seeks_successor: bool = False) -> list[str]:
     """正解 ⇒ 受け取ってよい読み（正解の組み合わせを、流れの制御の1か所＝flowctl.facts_reading で読みにしたもの）。"""
     from itertools import product
@@ -669,7 +685,7 @@ async def run(args) -> dict:
     else:
         judges = measured_judges(args)   # 測るのは選んだ意味の判定だけ（中身の判定は g63_grounding。選んでいなければ止める）
     rows, items, where = [], [], {}
-    hear_only = {(t, hear_before(a), a) for t, a, _ in lines_hear()}   # 聞こえ方だけを数える行（試しの言葉 G-73）
+    hear = hear_rows()   # 聞こえ方だけを数える行（試しの言葉 G-73）の見分けは hear_only の1か所
 
     def finish(row) -> None:
         # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える
@@ -688,7 +704,7 @@ async def run(args) -> dict:
         # 判定に見せる質問は、行の場面の本番の流れの制御の1か所（judge_questions＝Flow._calling_asked）
         q, aq = judge_questions(case_row(case), sees)
         for rep in range(args.repeat):
-            only = (text, before, bool(asked)) in hear_only
+            only = hear_only(case_row(case), hear)
             truths = asks_truths(text, only)   # 尋ねているかの正しい読み（1か所）：1つに決まる言葉だけ数える（「尋ねている」か＝ASKED に入るか）
             want = truths[0] in ASKED if len(truths) == 1 else None
             kind = truths[0] if len(truths) == 1 and truths[0] in ASKED else None
@@ -821,8 +837,9 @@ def main() -> None:
     from g73_system_words import require_complete
     if args.count:
         require_complete(args, "数えるだけ", stop=False)   # 試しの言葉がそろっているかも出す（止めない）
-        picked = [(text, bool(asked)) for text, _, _, asked, *_ in cases("x") if not args.only or text in args.only]
-        n, h = len(picked), len({x for x in picked} & {(t, a) for t, a, _ in lines_hear()})   # h＝聞こえ方だけを数える行（尋ねているかは問わない）
+        hear = hear_rows()
+        picked = [c for c in cases("x") if not args.only or c[0] in args.only]
+        n, h = len(picked), sum(hear_only(case_row(c), hear) for c in picked)   # h＝聞こえ方だけを数える行（尋ねているかは問わない＝hear_only の1か所）
         say(f"測る行：{n} 行（うち聞こえ方だけ {h} 行）× {args.repeat} 回り（1つの判定につき、問い合わせは "
             + (f"{(n - h) * args.repeat} 回＝尋ねているかだけ）" if args.asks_only
                else f"{(n * 2 - h) * args.repeat} 回＝目的のお客様の判定と、尋ねているか）"))

@@ -51741,3 +51741,31 @@ class AMConditionWordsTest(unittest.TestCase):
                 f.on_grounded(terms, Verdict(v))
                 voiced = f._proposal_problem({"terms": terms}, "P1") is None
                 self.assertEqual(voiced, G.decide(TARGET_INFO, said, terms, v) == G.OK, (terms, v))
+
+
+class AMHearOnlyMarksTest(unittest.TestCase):
+    """分身 AM の続きの (1)（書き置き rv191/AM/notes.md の (6-3)。CL-1 が書いてある決まりで決めた）：G-59 の測りで聞こえ方だけを数える行（試しの言葉 G-73 の組 HEAR_CALL）の
+    見分けは1か所（g59_calling_judge.hear_only）で、行の場面の業務の印も見る（G-73 の場面は印の無い業務＝同じ言葉・同じ前の言葉でも、印のある行は聞こえ方だけの行ではない）。
+    測り run・数えるだけ --count・測りの数え g59_tally.hear_only が同じ1か所を通る。⛔ 直す前は、run（言葉・前の言葉・確かめたあとか）・g59_tally.hear_only（言葉と確かめたあとか・
+    前の言葉）・--count（言葉と確かめたあとか）の3か所が別々に見分け、どれも印を見なかった"""
+
+    def test_marked_rows_are_not_hearing_only(self):
+        import g59_calling_judge as g
+        import g59_tally as t
+        text, asked, _ = g.lines_hear()[0]
+        plain = {"text": text, "before": g.hear_before(asked), "asked": asked, "successor": False}
+        self.assertTrue(g.hear_only(plain))
+        self.assertTrue(t.hear_only(plain))
+        for mark in ({"mobile": True}, {"personal": True}, {"named_first": g.NAMED_FIRST}, {"full": True}):
+            self.assertFalse(g.hear_only({**plain, **mark}), mark)
+            self.assertFalse(t.hear_only({**plain, **mark}), mark)
+        self.assertEqual(sum(g.hear_only(g.case_row(c)) for c in g.cases("x")), len(g.lines_hear()))   # 表の聞こえ方だけの行は G-73 の行の数だけ
+
+    def test_one_place_reads_the_hearing_rows(self):
+        # 試しの言葉の行（lines_hear）から聞こえ方だけの行を見分けるのは hear_rows の1か所（表を作る cases のほかに、lines_hear を読む所は無い）
+        import ast
+        for name in ("g59_calling_judge.py", "g59_tally.py"):
+            tree = ast.parse((Path(__file__).resolve().parent / name).read_text(encoding="utf-8"))
+            where = {fn.name for fn in ast.walk(tree) if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     for node in ast.walk(fn) if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) == "lines_hear"}
+            self.assertLessEqual(where, {"cases", "hear_rows"}, name)

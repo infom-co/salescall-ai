@@ -51,13 +51,13 @@ INCOMPLETE = "項目がそろわない"
 
 @functools.cache
 def _hear_rows() -> frozenset:
-    return frozenset((t, a) for t, a, _ in g.lines_hear())
+    return g.hear_rows()
 
 
 def hear_only(r: dict) -> bool:
-    """聞こえ方だけを数える行（試しの言葉 G-73。ほかの項目は正解を付けていない＝流れの制御の動きは数えない＝g59_calling_judge の run の hear_only）。"""
-    return (not r["successor"] and (r["text"], bool(r["asked"])) in _hear_rows()
-            and (r["before"] or None) == g.hear_before(bool(r["asked"])))   # 前の言葉は試しの言葉の行の1か所（hear_before）
+    """聞こえ方だけを数える行（試しの言葉 G-73。ほかの項目は正解を付けていない＝流れの制御の動きは数えない）。見分けは g59_calling_judge.hear_only の1か所（場面の業務の
+    印も見る）。ここは G-73 の行を1回だけ読んで渡す。"""
+    return g.hear_only(r, _hear_rows())
 
 
 def right_readings(got: dict, facts: dict) -> list[dict]:
