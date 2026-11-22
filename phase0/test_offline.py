@@ -3336,7 +3336,6 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         import g59_calling_judge as g
         import g59_flow_check as fc
         import g59_tally as t
-        from flowctl import ASKS_NO
         right, wrong, succ = fc.CASES[0][1:]
         self.assertTrue(fc.changes(right, wrong, succ))        # 変わる例（名乗りを聞いていない岡田様に、名乗りを流さない）
         self.assertFalse(fc.changes(right, right, succ))       # 同じ読みなら同じ
@@ -3348,7 +3347,7 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
             _, _, ctx = fc.run(wrong, succ)
             report = next(n for n, op in fc.REPORTS if op == wrong[-1][2])
             off = t.off_reports(fc.facts(wrong[-1][1]), facts, ctx | {"text": wrong[-1][0]})
-            if g.asks_truths(wrong[-1][0]) != (ASKS_NO,):
+            if g.asks_side(g.asks_truths(ctx | {"text": wrong[-1][0]})) is not False:   # 尋ねている側の読みが正解にある（asks_side の1か所＝分身 AM の続き2 (1)）
                 # こちらへの質問（「どちらの岡田でしょうか？」）：数えは、同時に出る尋ねているかの問い合わせを正しい読みで渡す（本番は質問に先に答える＝
                 # Flow._asking_now）＝目的のお客様の判定の外れは、目的の人の報告では動きを変えない（会話の試し run は尋ねているかを渡さない形）
                 self.assertNotIn(report, off, name)
@@ -52533,3 +52532,97 @@ class AMReadersAsksTailTest(unittest.TestCase):
             _, aq = g.judge_questions(r)
             self.assertEqual(row.get("asks_tail"), prompt_parts(aq, r["text"], None, r["before"])[1].rstrip(), row["no"])
         self.assertEqual(gr.packet_text("m").count("尋ねているかの判定が見る文の続き："), len(rows))
+
+
+class AMAsksHoldHandoverTest(unittest.TestCase):
+    """分身 AM の続き2 (1)（束 m の #4 を読み手2人がそろって「取り次ぎを待つ」と読んだ。CL-1 が書いてある決まりで決めた）：尋ねているかの選べるものには「取り次ぎを待つ」
+    「代わった人が話し始めた」があるのに、正解の唯一の決まり（g59_calling_judge.asks_truths）はその2つを返さなかった。表の全部の行を、説明の文だけから1行ずつ当て直した：
+    (a) 待つように言った15行＝「取り次ぎを待つ」だけ（「尋ねていない」の説明が「ほかの方に代わる・取り次ぐので待つように言ったときは、こちらではない」と外す）
+    (b) 電話を代わった方があいさつ・名乗りで話し始め、代わった方が誰かで答えが決まらない14行＝「尋ねていない」と「代わった人が話し始めた」の両方（2つの説明に当たる境目・流れの
+        制御の動きは同じ）。お呼びした方の名前を名乗った・その前の方がお呼びした方に取り次いだ行は、説明のとおり「尋ねていない」だけ
+    測りの数え（run の asks_accept＝asks_side・g59_tally と正解の動き＝g59_flow_check.calling_acts）は、行を渡して同じ1か所を読む"""
+
+    HOLD = [("岡田ですね。少々お待ちください。", None, {}), ("少々お待ちください。", None, {}),
+            ("岡田は外出しておりますので、別の者に代わります。少々お待ちください。", None, {}),
+            ("いえ、受付の者です。少々お待ちください。", "はい。", {}), ("いいえ、山田です。岡田に代わりますので少々お待ちください。", "はい。", {}),
+            ("岡田は退職いたしまして、後任の田中に代わりますので、少々お待ちください。", None, {}),
+            ("後任は田中になります。少々お待ちください。", "岡田は先月退職いたしました。", {}),
+            ("少々お待ちください。", "申し訳ございませんが、お取り次ぎすることはできません。", {}),
+            ("かしこまりました。少々お待ちください。", "どちらの岡田でしょうか？", {"full": True}),
+            ("岡田太郎ですね。少々お待ちください。", "どちらの岡田でしょうか？", {"full": True}),
+            ("承知しました。少々お待ちください。", "お名前だけではどの者か分かりかねますので、お繋ぎできかねます。", {"full": True}),
+            ("営業部の岡田太郎ですね。少々お待ちください。", "お名前だけではどの者か分かりかねますので、お繋ぎできかねます。", {"full": True}),
+            ("岡田ですね。少々お待ちください。", "はい。／失礼ですが、どちら様でしょうか？", {}),
+            ("アオバ物流さんですね。少々お待ちください。", "はい。／失礼ですが、どちら様でしょうか？", {}),
+            ("いえ、岡田は主人です。少々お待ちください。", None, {"named_first": "はい、岡田です。"})]
+    HANDOVER = [("お電話代わりました。", None), ("お電話代わりました。山本です。", None), ("お電話代わりました。山本です。", "岡田ですね。少々お待ちください。"),
+                ("はい、お電話代わりました。", "担当の者に代わりますので、少々お待ちください。"), ("お電話代わりました。", "岡田は外出しておりますので、別の者に代わります。"),
+                ("お電話代わりました。担当の山田です。岡田は本日不在にしております。", "担当の者に代わりますので、少々お待ちください。"),
+                ("お電話代わりました、山田です。あいにく岡田は外出しておりまして。", None),
+                ("お電話代わりました。山田です。", "岡田は外出しておりますので、別の者に代わります。少々お待ちください。"),
+                ("お電話代わりました、鈴木です。岡田は本日お休みをいただいております。", "岡田ですね。少々お待ちください。"),
+                ("お電話代わりました。佐藤と申します。岡田は席を外しておりまして。", "岡田ですね。少々お待ちください。"),
+                ("お電話代わりました。田中です。", "岡田は退職いたしまして、後任の田中に代わりますので、少々お待ちください。"),
+                ("はい、お電話代わりました。", "岡田は退職しておりますので、後任の者に代わります。少々お待ちください。"),
+                ("お電話代わりました。田中です。", "岡田は先月退職いたしました。／公認は田中になります。少々お待ちください。"),
+                ("お電話代わりました。山本です。", "岡田は先月退職いたしました。／後任は田中になります。少々お待ちください。")]
+
+    def test_1_every_row_is_reread(self):
+        import g59_calling_judge as g
+        from flowctl import ASKS_NO, HANDOVER, HOLD, PHONE, SPEAKER
+        table = g.cases("x")
+        rows = [(c, g.case_row(c)) for c in table if not g.hear_only(g.case_row(c))]
+        hold = {(c[0], c[2] or None, *g.row_marks(r)) for c, r in rows if HOLD in g.asks_truths(r)}
+        self.assertEqual(hold, {(t, b, *g.row_marks(m)) for t, b, m in self.HOLD})
+        # 待つように言った行（目的のお客様の判定の電話のやり取りの正解が「取り次ぎを待つ」）は、みな「取り次ぎを待つ」だけ
+        self.assertEqual({(c[0], c[2] or None, *g.row_marks(r)) for c, r in rows if HOLD in c[5][PHONE]}, hold)
+        for t, b, m in self.HOLD:
+            self.assertEqual(g.asks_truths(g.case_row(g.case_of(t, b, table=table, **m))), (HOLD,), t)
+        over = {(c[0], c[2] or None) for c, r in rows if HANDOVER in g.asks_truths(r)}
+        self.assertEqual(over, set(self.HANDOVER))
+        for t, b in self.HANDOVER:
+            c = g.case_of(t, b, table=table)
+            self.assertEqual(g.asks_truths(g.case_row(c)), (ASKS_NO, HANDOVER), t)   # 1つ目は前の読み（場面を組む steps_before は1つ目を渡す）
+            self.assertIn("前と違う方", c[5][SPEAKER], t)
+        # 電話を代わった方のほかの行（お呼びした方の名前を名乗った・お呼びした方に取り次いだあと）は「尋ねていない」だけ
+        for c, r in rows:
+            if "前と違う方" in c[5][SPEAKER] and (c[0], c[2] or None) not in over:
+                self.assertNotIn(HANDOVER, g.asks_truths(r), c[0])
+        # 言葉だけを渡すと、その前の言葉の無い印の無い行（前からの呼び出しの形）
+        self.assertEqual(g.asks_truths("お電話代わりました。"), (ASKS_NO, HANDOVER))
+        self.assertEqual(g.asks_truths("お電話代わりました。岡田です。"), (ASKS_NO,))
+        self.assertEqual(g.asks_truths("いえ、岡田は主人です。少々お待ちください。"), (HOLD,))
+
+    def test_2_the_handover_readings_move_the_flow_alike(self):
+        # 境目の2つの読み（尋ねていない・代わった人が話し始めた）で、行の場面の本番の流れの制御の動きが同じ（両方を正解にしてよいわけ）。待つように言った行も、
+        # 目的のお客様の判定が「取り次ぎを待つ」と読むので、尋ねているかの読みで動きは変わらない（正解は説明の文で1つに決まる）
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        import g59_tally as t
+        from flowctl import ASKS_NO, HANDOVER, HOLD
+        table = g.cases("x")
+        for (text, before), want in [(self.HANDOVER[0], HANDOVER), (self.HANDOVER[-1], HANDOVER), (self.HOLD[0][:2], HOLD), (self.HOLD[-1][:2], HOLD)]:
+            m = next((m for t_, b, m in self.HOLD if (t_, b) == (text, before)), {})
+            c = g.case_of(text, before, table=table, **m)
+            r = g.case_row(c)
+            for right in t.right_readings(c[5], c[5])[:4]:
+                self.assertEqual(fc.calling_acts(r, right, want), fc.calling_acts(r, right, ASKS_NO), text)
+            self.assertEqual(len(fc.calling_acts(r, t.right_readings(c[5], c[5])[0])), len(g.asks_truths(r)))   # 正しい読みの動きは、行の正しい読みのどれも
+
+    def test_3_the_measure_reads_the_one_place(self):
+        import ast, inspect
+        import g59_calling_judge as g
+        from flowctl import ASKS_NO, ASKS_OTHER, ASKS_WHO, ASKS_YES, HANDOVER, HOLD
+        self.assertIs(g.asks_side((HOLD,)), False)
+        self.assertIs(g.asks_side((ASKS_NO, HANDOVER)), False)   # どちらの読みも尋ねていない側＝数える（前は2つあると数えなかった形）
+        self.assertIs(g.asks_side((ASKS_WHO,)), True)
+        self.assertIsNone(g.asks_side((ASKS_YES, ASKS_NO)))
+        self.assertIsNone(g.asks_side(g.asks_truths("（雑音）", only=True)))
+        self.assertIsNone(g.asks_side((ASKS_OTHER, ASKS_NO)))
+        tree = ast.parse(inspect.getsource(g))
+        run = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "run")
+        calls = [n for n in ast.walk(run) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+        self.assertTrue(any(n.func.id == "asks_side" for n in calls))
+        truths = [n for n in calls if n.func.id == "asks_truths"]
+        self.assertEqual(len(truths), 1)
+        self.assertEqual(ast.unparse(truths[0].args[0]), "case_row(case)")   # 行を渡す（言葉だけでは、代わった方の行の正しい読みが決まらない）
