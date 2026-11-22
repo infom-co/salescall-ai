@@ -536,6 +536,13 @@ table.list .tag { white-space: normal; text-align: left; }
   table.list td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 4px; width: 7.5em;
                                       color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1.5; }
   table.list td.num, table.list th.num { text-align: left; }
+  /* 数の欄は2列に並べる（数の欄が1つずつ縦に並び、ホームの「依頼者ごと」は依頼者1件で画面1枚近くを使っていた。2026-11-22） */
+  table.list tr { display: flex; flex-wrap: wrap; }
+  /* 札の見出しにする欄（lead-cell。例：お客様リストの会社名）は、札の先頭に大きく（表の並びは変えず、見せる順だけ） */
+  table.list td.lead-cell { order: -1; padding-left: 0; font-size: 15px; font-weight: 700; padding-bottom: 6px; }
+  table.list td.lead-cell::before { display: none; }
+  table.list td.num[data-label] { width: 50%; padding-left: 8.4em; }
+  table.list td.num[data-label]::before { width: 8.2em; white-space: nowrap; }   /* 見出しは8文字まで1行（「まだかけていない」が数に重なっていた） */
   table.list td:empty { display: none; }
   table.list td.zero { display: none; }   /* 見出しに minor の付いた欄の 0 だけ（app.js の1か所が印を付ける） */
   .bulk .check-all-bar { display: inline-flex; }   /* 表の見出しが隠れるので、帯の「すべて選ぶ」を出す */

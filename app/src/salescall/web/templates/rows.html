@@ -51,7 +51,7 @@
       <td class="check"><input type="checkbox" name="task_id" value="{{ r.task_id }}" aria-label="{{ r.source_name or 'このお客様' }}を選ぶ"></td>
       <td class="num nowrap">{{ r.source_row or "" }}</td>
       <td class="wide nowrap">{{ r.client_ref or "" }}</td>
-      <td class="co"><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/rows/{{ r.task_id }}">{{ r.source_name or "（会社名なし）" }}</a>{% if lv != "call" %} {{ tag(words.exclusion_level(lv), "stop" if lv == "force" else "") }}{% endif %}</td>
+      <td class="co lead-cell"><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/rows/{{ r.task_id }}">{{ r.source_name or "（会社名なし）" }}</a>{% if lv != "call" %} {{ tag(words.exclusion_level(lv), "stop" if lv == "force" else "") }}{% endif %}</td>
       <td class="wide person">{{ r.target_name or "" }}{% if r.target_role %}<span class="muted">（{{ r.target_role }}）</span>{% endif %}</td>
       <td class="tel">{{ phone(r.dial_phone) }}</td>
       <td class="nowrap">{{ next_tag(r.next_kind, r.next_call_at, r.next_end_reason, waiting=more[r.task_id].title if r.task_id in more else "") }}{% if r.task_id in more %}
