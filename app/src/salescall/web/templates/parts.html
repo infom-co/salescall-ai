@@ -143,3 +143,9 @@
   </form></details>
 {%- endmacro %}
 
+
+{#- 動きの無い依頼者を、表の行に並べず名前だけの1行にまとめる形（1か所。費用と報酬・ホームの依頼者ごと。何を「動きが無い」とするかは使う画面が決める）。
+    2026-11-22 の見直し：0 ばかりの行・札が依頼者の数だけ続き、動きのある依頼者が埋もれていた -#}
+{% macro quiet_clients(label, clients) -%}
+{% if clients %}<p class="quiet-clients muted">{{ label }}（{{ clients|length }}）：{% for m in clients %}<a href="/c/{{ m.client_id }}">{{ m.name }}</a>{% if not loop.last %}、{% endif %}{% endfor %}</p>{% endif %}
+{%- endmacro %}

@@ -475,6 +475,10 @@ class Web(_World):
     def test_a_client_is_made_inactive_and_back_with_a_reason(self):
         tok = self.token("A")
         cid = self.post("A", "/t/clients", {"form_token": tok, "name": "架空の無効にする依頼者"}).headers["location"].split("/")[2].split("?")[0]
+        home = self.get("A", "/t").text                                                   # まだ何も無い依頼者は、ホームの表に並べず名前だけの1行に
+        quiet = home[home.index('class="quiet-clients'):]
+        self.assertIn(f'<a href="/c/{cid}">', quiet[:quiet.index("</p>")])
+        self.assertNotIn(f'<td><a href="/c/{cid}">', home)
         settings_page = self.get("A", f"/c/{cid}/settings").text
         self.assertIn("この依頼者を無効にする", settings_page)
         self.assertRegex(settings_page, r'data-confirm-ok="無効にする" data-confirm-tone="danger"')   # 最後の一押しは赤（app.js の1か所）

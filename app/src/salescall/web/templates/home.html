@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import stat, tag, empty, flash, readiness %}
+{% from "parts.html" import stat, tag, empty, flash, readiness, quiet_clients %}
 {% set active = "home" %}
 {% block title %}ホーム{% endblock %}
 {% block main %}
@@ -50,12 +50,16 @@
 
 <h2>依頼者ごと</h2>
 {% if per_client %}
+{#- まだお客様も電話も承認待ちも無い有効な依頼者は、表に並べず名前だけの1行に（何を「動きが無い」とするかは、この1か所） -#}
+{% set quiet = [] %}{% set busy = [] %}
+{% for c in per_client %}{% if c.active and not c.stopped and not (c.dialed or c.talked or c.call or c.hold or c.end or c.none or c.waiting) %}{% set _ = quiet.append(c) %}{% else %}{% set _ = busy.append(c) %}{% endif %}{% endfor %}
+{% if busy %}
 {#- 列は、電話の本数（今日）と、お客様の数（いまの予定ごと）が混ざるので、どれが何の数かを表の上に1行で書く（2026-11-21 の見直し） -#}
 <p class="muted">「今日かけた」「話せた」は今日の電話の本数、「{{ words.NEXT_KINDS["call"].screen }}」から「{{ words.NOT_PLANNED }}」まではお客様の数です（{{ words.NEXT_KINDS["hold"].screen }}＝判定し直すのを待っているお客様で、することはありません）。</p>
 <div class="table-scroll"><table class="list">
   <thead><tr><th>依頼者</th><th class="num">今日かけた</th><th class="num">話せた</th><th class="num">{{ words.NEXT_KINDS["call"].screen }}</th><th class="num minor">{{ words.NEXT_KINDS["hold"].screen }}</th><th class="num">{{ words.NEXT_KINDS["end"].screen }}</th><th class="num wide">{{ words.NOT_PLANNED }}</th><th class="num minor">承認待ち</th></tr></thead>
   <tbody>
-  {% for c in per_client %}
+  {% for c in busy %}
     <tr>
       {#- 新しい電話をかけていない依頼者は、名前の横に赤い札（無効＝取引を終えた など／止まっています＝依頼者の範囲の停止。答えは context.client と
           counts.stopped_clients の1か所＝タブの印と同じ） -#}
@@ -71,6 +75,8 @@
   {% endfor %}
   </tbody>
 </table></div>
+{% endif %}
+{{ quiet_clients("まだお客様も電話も無い依頼者", quiet) }}
 {% else %}
 <div class="card">{{ empty("依頼者はまだいません", "依頼者を作ると、ここに今日の数が出ます。") }}</div>
 {% endif %}
