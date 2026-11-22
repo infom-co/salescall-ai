@@ -18,6 +18,7 @@ from salescall.web.context import Identify, Person
 
 COOKIE = "salescall_session"
 WRONG = "ログインIDかパスワードが違います"
+PASSWORD_CHANGED = "パスワードを替えました。ほかの所で開いていたログインも外れています。新しいパスワードでログインしてください。"
 NOTE_2FA = "お客様情報を含むことになるため、安全のために二段階認証の設定をお願いします。"   # ✅ 2026-10-18 管理者（そのまま載せる）
 
 

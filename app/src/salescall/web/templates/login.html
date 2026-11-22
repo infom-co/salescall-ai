@@ -6,7 +6,7 @@
 <div class="card">
   <h1 class="login-brand">Sales<b>Call</b></h1>
   {# ログインの確かめは core の people の1か所。通らなかった理由は出さない（ログインIDが在るかを教えない） #}
-  {{ flash(error, false) }}
+  {{ flash(error, false) }}{% if done %}{{ flash(done, true) }}{% endif %}
   <form method="post" action="/login" class="stack">
     <label class="field" for="login-id">ログインID</label>
     <input id="login-id" type="text" name="login_id" autocomplete="username" required autofocus>

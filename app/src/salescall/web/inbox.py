@@ -182,13 +182,9 @@ def _approve_apology(tx: Tx, k: dict[str, str]) -> Any:
 
 def _apologies(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     items = []
-    for o in tx.all("SELECT o.order_id, o.task_id, o.pairs, o.improper, o.text_same_day, o.prepared_at,"
-                    "       (SELECT s.set_id FROM salescall.recording_sets s WHERE s.unit = 'apology' AND s.order_id = o.order_id"
-                    "         ORDER BY s.created_at DESC LIMIT 1) AS set_id"
-                    " FROM salescall.apology_orders o"
-                    " WHERE NOT EXISTS (SELECT 1 FROM salescall.apology_approvals a WHERE a.order_id = o.order_id)"
-                    "   AND (%s::uuid IS NULL OR o.task_id = %s::uuid)"
-                    " ORDER BY o.prepared_at, o.order_id", (task, task)):
+    # 一覧は core の apology.awaiting_approval の1か所（CL-2 へのお願い 29 の (b)。⛔ 2026-11-22 深夜まで、同じ決まりを画面の SQL に
+    # 写していて、同じ時刻の録音の組の選び方＝set_id の並びを落としていた）
+    for o in apology.awaiting_approval(tx, task_id=task):
         ev = [("お詫びで伝える文", o["text_same_day"])]
         ev += [("誤って伝えたこと → 正しい案内", f"{p['wrong']} → {p['correct']}") for p in (o["pairs"] or [])]
         ev += [("失礼な言葉", w) for w in (o["improper"] or [])]

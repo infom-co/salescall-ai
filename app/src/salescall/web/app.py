@@ -268,9 +268,9 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     # ── ログイン（web/login の1か所。ログインの表・パスワード・印は core の people＝CL-2 4-433）──────────
     login_limit = Limiter(10, 60.0)   # 同じ住所からのログインの試し（続けて誤ったときの止め方は、ログインごとに core が持つ）
 
-    def _login_page(request: Request, error: str = "", status: int = 200) -> HTMLResponse:
-        return templates.TemplateResponse(request, "login.html", {"error": error, "note": web_login.NOTE_2FA, "google_client_id": google_client_id},
-                                          status_code=status)
+    def _login_page(request: Request, error: str = "", status: int = 200, done: str = "") -> HTMLResponse:
+        return templates.TemplateResponse(request, "login.html", {"error": error, "done": done, "note": web_login.NOTE_2FA,
+                                                                  "google_client_id": google_client_id}, status_code=status)
 
     def _signed_in(session: Any) -> Response:
         """ログインが通った（1段目）。パスキーで確かめる方は、2段目の画面へ（印は、2段目が通るまで使えない＝core の people.by_session）。"""
@@ -291,7 +291,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             return RedirectResponse("/t", status_code=303)
         if _pending(request) is not None:   # パスワードは通って、2段目を待っている
             return RedirectResponse("/login/second", status_code=303)
-        return _login_page(request)
+        # パスワードを替えた直後（替えると、その方のログインはすべて外れる＝core の people.set_password）。言葉は画面の1か所
+        return _login_page(request, done=web_login.PASSWORD_CHANGED if request.query_params.get("changed") == "password" else "")
 
     @app.post("/login")
     async def login_post(request: Request) -> Response:
@@ -441,6 +442,26 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         except google_login.GoogleRefused as e:
             return JSONResponse({"error": str(e)}, status_code=400)
         return JSONResponse({"next": "/t/account?done=" + quote(f"Google のアカウント（{email}）を結び付けました。")})
+
+    @app.post("/t/account/password")
+    async def account_password(request: Request) -> Response:
+        """ご本人がパスワードを替える（いまのパスワードを確かめてから。決めるのは core の people.set_password の1か所＝長さの決まり・
+        替えたら、その方のログインの印をすべて使えなくする）。替えたら、ログインの画面へ（新しいパスワードでログインし直す）。"""
+        person, form = await _account_form(request)
+        if person is None or person.person_id is None:   # ログインの番号が無い（ログインの表を通らない入り方）方には替えるものが無い
+            return RedirectResponse("/t/account?ok=0&done=" + quote("画面を開き直してから、もう一度押してください。"), status_code=303)
+        new, again = str(form.get("new_password") or ""), str(form.get("new_password_again") or "")
+        if new != again:
+            return RedirectResponse("/t/account?ok=0&done=" + quote("新しいパスワードが、2つの欄で違います（何も変えていません）。")
+                                    + "#password", status_code=303)
+        try:
+            people.set_password(access, person, person.person_id, new, current=str(form.get("current_password") or ""))
+        except people.PasswordRefused as e:
+            return RedirectResponse("/t/account?ok=0&done=" + quote(f"{e}（何も変えていません）。") + "#password", status_code=303)
+        resp = RedirectResponse("/login?changed=password", status_code=303)
+        resp.delete_cookie(web_login.COOKIE)
+        resp.delete_cookie(ACTING_COOKIE)
+        return resp
 
     @app.post("/t/account/google/unlink")
     async def account_google_unlink(request: Request) -> Response:
@@ -833,6 +854,78 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             rows = ctx.system(registry.tenants)
             return page(request, "admin_tenants.html", person, ctx, tenants=rows, active="admin_tenants")
         return handle(request, render)
+
+    # ── ログインの管理（管理者だけ。計画書 1-4「管理者と契約者の違いは、ログインのID」・14-1 の認証。作る＝core の people.create・
+    #    パスワードを決め直す＝people.set_password（管理者は、いまのパスワードなしで決められる＝忘れたときの戻し方）・使える／使えない＝
+    #    people.set_active（理由は必ず）。どれも全体の取引の管理者だけ＝データベースが守る。契約者そのものを作る入口は ⏳ サブスクの契約の入口＝CL-2） ──
+    @app.get("/admin/people")
+    def admin_people(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            if not person.is_admin:
+                raise NotFound()
+            def read(tx: Any) -> dict[str, Any]:
+                rows = tx.all("SELECT p.person_id, p.tenant_id, p.kind, p.name, p.login_id, p.created_at,"
+                              "       salescall.person_active(p.person_id) AS active,"
+                              "       EXISTS (SELECT 1 FROM salescall.person_passwords w WHERE w.person_id = p.person_id) AS has_password"
+                              "  FROM salescall.people p ORDER BY p.kind, p.name, p.login_id")
+                tenants = registry.tenants(tx)
+                return {"tenants": [{**t, "people": [r for r in rows if r["tenant_id"] == t["tenant_id"]]} for t in tenants]}
+            # 種類の呼び名は core の health.KIND_NAMES の1か所（どの種類がログインになれるかは、データベースの salescall.is_person_kind が決める）
+            return page(request, "admin_people.html", person, ctx, active="people", done=done, ok=bool(ok), kinds=health.KIND_NAMES,
+                        **ctx.system(read))
+        return handle(request, render)
+
+    def _admin_people_act(request: Request, form: dict[str, Any], work: Callable[[Person, Ctx], Any], done: str,
+                          reason_field: str | None = None) -> HTMLResponse:
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            if not person.is_admin:
+                raise NotFound()
+            out = actions.act(secret, person.login_id, form, lambda: work(person, ctx), done=done, reason_field=reason_field)
+            return _back("/admin/people", out)
+        return handle(request, render)
+
+    def _same_twice(form: dict[str, Any]) -> str:
+        new = str(form.get("password") or "")
+        if new != str(form.get("password_again") or ""):
+            raise actions.Refused("パスワードが、2つの欄で違います")
+        return new
+
+    @app.post("/admin/people")
+    async def admin_people_create(request: Request) -> HTMLResponse:
+        form = dict(await request.form())
+        def work(person: Person, ctx: Ctx) -> Any:
+            kind = str(form.get("kind") or "")   # 種類が正しいかはデータベース（salescall.is_person_kind）が断る
+            try:
+                tenant = UUID(str(form.get("tenant_id") or ""))
+            except ValueError:
+                raise actions.Refused("契約者を選んでください") from None
+            password = _same_twice(form)
+            return ctx.system(lambda tx: people.create(tx, tenant_id=tenant, kind=kind, name=actions.name_of(form),
+                                                       login_id=str(form.get("login_id") or ""), password=password))
+        return _admin_people_act(request, form, work, f"ログイン「{str(form.get('login_id') or '').strip()}」を作りました。"
+                                 "ログインIDとパスワードを、ご本人に安全な方法で伝えてください。")
+
+    @app.post("/admin/people/{person_id}/password")
+    async def admin_people_password(request: Request, person_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        def work(person: Person, ctx: Ctx) -> Any:
+            if ctx.system(lambda tx: tx.one("SELECT 1 AS x FROM salescall.people WHERE person_id = %s", (person_id,))) is None:
+                raise NotFound()
+            return people.set_password(access, person, person_id, _same_twice(form))
+        return _admin_people_act(request, form, work, "パスワードを決め直しました。その方のログインはすべて外れました。新しいパスワードを、ご本人に安全な方法で伝えてください。")
+
+    @app.post("/admin/people/{person_id}/active")
+    async def admin_people_active(request: Request, person_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        active = str(form.get("active") or "") == "1"
+        def work(person: Person, ctx: Ctx) -> Any:
+            if person_id == person.person_id and not active:
+                raise actions.Refused("ご自分のログインは、使えないにできません（ほかの管理者に頼んでください）")
+            if ctx.system(lambda tx: tx.one("SELECT 1 AS x FROM salescall.people WHERE person_id = %s", (person_id,))) is None:
+                raise NotFound()
+            return ctx.system(lambda tx: people.set_active(tx, person_id, active, reason=str(form.get("reason") or "").strip()))
+        return _admin_people_act(request, form, work, "使えるようにしました。" if active else "使えないにしました。その方は、もうログインできません。",
+                                 reason_field="reason")
 
     # ── 名前の録音の審査（管理者だけ。✅ 2026-11-04 管理者「まとめて流して、私がレ点を入れたものをのみ登録、もしくは除外を入れたもののみ、
     #    登録されないという登録方法に」・「どの契約者・どの業務のものかは出るようにしとかないとダメ」。一覧＝core の recordings.name_reviews、
@@ -1795,8 +1888,12 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 except (business_rules.RulesMissing, business_rules.RulesInvalid):
                     rules = None
                 latest = business_settings.successor_tip(tx, version_id) == version_id   # 変える欄は、つながりのいちばん後の版にだけ出す
+                # 想定問答の行：標準・標準を上書き・この業務だけ・使わない、をどこから来たかつきで（core の answer_rows の1か所。✅ 2026-11-02
+                # 管理者「システムの想定問答…にデフォルトの想定を…トークスクリプト設定画面に表示しておき」。⛔ 2026-11-22 深夜まで業務の分だけ出していた）
+                answers = business_settings.answer_rows(s, business_settings.standard(tx, s.standard_id)) if s else []
                 return {"client": context.client(tx, client_id),
                         "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem, "missing": missing, "latest": latest,
+                        "answers": answers,
                         "policies": [(k, rules.retry[k]) for k in business_rules.POLICY_KEYS] if rules else [],
                         "system_policies": [(k, rules.retry[k]) for k in business_rules.SYSTEM_POLICIES] if rules else [],
                         # 言ってはいけないこと・「わからない」「答えたくない」の扱い（計画書 6-2・6-3。読むのは同じ business_rules.load の1か所）

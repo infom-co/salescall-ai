@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty, empty_line, flash, csrf %}
+{% block title %}ログインの管理{% endblock %}
+{% block main %}
+<h1>ログインの管理</h1>
+<p class="lead">管理者と契約者のログインを、契約者ごとに並べます。ログインを作る・パスワードを決め直す（忘れたとき）・使えないにする、ができます（管理者だけ）。管理者と契約者の違いは、ログインの種類（できる操作の範囲）だけです。</p>
+{{ flash(done, ok) }}
+{#- 作る・決め直す・使える／使えないは core の people の1か所（全体の取引の管理者だけ＝データベースが守る）。使えるかは salescall.person_active の答え -#}
+{% for t in tenants %}
+<section class="card" id="t-{{ t.tenant_id }}">
+  <div class="title-row"><h2 style="margin:0">契約者「{{ t.name }}」</h2>
+    <details class="adder"><summary class="btn small">＋ ログインを作る</summary>
+      <form class="panel stack" method="post" action="/admin/people">{{ csrf(token) }}
+        <input type="hidden" name="tenant_id" value="{{ t.tenant_id }}">
+        <fieldset class="plain"><legend class="field">種類</legend>
+          <label class="choice"><input type="radio" name="kind" value="operator" checked>
+            <span><b>{{ kinds.operator }}</b><span class="muted small-block">この契約者の画面を使い、設定を変え、確かめて承認します。</span></span></label>
+          <label class="choice"><input type="radio" name="kind" value="admin">
+            <span><b>{{ kinds.admin }}</b><span class="muted small-block">すべての契約者を見られ、全体の停止・システムの初めの値・ログインの管理もできます。</span></span></label>
+        </fieldset>
+        <label class="field" for="pn-{{ t.tenant_id }}">名前（記録に残ります）</label>
+        <input id="pn-{{ t.tenant_id }}" type="text" name="name" required placeholder="例：営業担当の田中">
+        <label class="field" for="pl-{{ t.tenant_id }}">ログインID</label>
+        <input id="pl-{{ t.tenant_id }}" type="text" name="login_id" required autocomplete="off">
+        <label class="field" for="pp-{{ t.tenant_id }}">パスワード</label>
+        <input id="pp-{{ t.tenant_id }}" type="password" name="password" required autocomplete="new-password">
+        <label class="field" for="pa-{{ t.tenant_id }}">パスワード（もう一度）</label>
+        <input id="pa-{{ t.tenant_id }}" type="password" name="password_again" required autocomplete="new-password">
+        <button class="btn main small" type="submit">作る</button>
+      </form></details></div>
+  {% if t.people %}
+  <div class="table-scroll" style="margin-top:12px"><table class="list">
+    <thead><tr><th>名前</th><th>ログインID</th><th>種類</th><th>状態</th><th></th></tr></thead>
+    <tbody>
+    {% for p in t.people %}
+      <tr>
+        <td class="lead-cell">{{ p.name }}{% if p.person_id == person.person_id %} <span class="muted">（ご自分）</span>{% endif %}</td>
+        <td>{{ p.login_id }}</td>
+        <td>{{ kinds.get(p.kind, words.NO_WORD) }}</td>
+        <td>{% if not p.active %}{{ tag("使えない", words.tone("stopped")) }}{% elif not p.has_password %}{{ tag("パスワードがまだ", words.tone("waiting")) }}{% else %}{{ tag("使える", words.tone("done")) }}{% endif %}</td>
+        <td><span class="btn-row">
+          <details class="adder more-act"><summary class="btn small">パスワードを決め直す</summary>
+            <form class="panel stack" method="post" action="/admin/people/{{ p.person_id }}/password"
+                  data-confirm="「{{ p.name }}」（{{ p.login_id }}）のパスワードを決め直します。その方のログインは、すべて外れます。" data-confirm-ok="決め直す">{{ csrf(token) }}
+              <label class="field" for="rp-{{ p.person_id }}">新しいパスワード</label>
+              <input id="rp-{{ p.person_id }}" type="password" name="password" required autocomplete="new-password">
+              <label class="field" for="ra-{{ p.person_id }}">新しいパスワード（もう一度）</label>
+              <input id="ra-{{ p.person_id }}" type="password" name="password_again" required autocomplete="new-password">
+              <button class="btn main small" type="submit">決め直す</button>
+            </form></details>
+          {% if p.person_id != person.person_id or not p.active %}
+          <details class="adder more-act"><summary class="btn small{% if p.active %} danger-text{% endif %}">{{ "使えないにする" if p.active else "使えるようにする" }}</summary>
+            <form class="panel stack" method="post" action="/admin/people/{{ p.person_id }}/active" data-needs-reason
+                  data-confirm="「{{ p.name }}」（{{ p.login_id }}）のログインを{{ '使えないにします。その方は、もうログインできません' if p.active else '使えるようにします' }}。" data-confirm-ok="{{ '使えないにする' if p.active else '使えるようにする' }}"{% if p.active %} data-confirm-tone="danger"{% endif %}>{{ csrf(token) }}
+              <input type="hidden" name="active" value="{{ '0' if p.active else '1' }}">
+              <label class="field" for="ar-{{ p.person_id }}">理由（記録に残ります）</label>
+              <input id="ar-{{ p.person_id }}" type="text" name="reason" required>
+              <button class="btn {{ 'danger' if p.active else 'main' }} small" type="submit">{{ "使えないにする" if p.active else "使えるようにする" }}</button>
+            </form></details>
+          {% endif %}
+        </span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}{{ empty_line("この契約者のログインはまだありません", "右の「＋ ログインを作る」で作ります。") }}{% endif %}
+</section>
+{% else %}
+<div class="card">{{ empty("契約者はまだいません", "契約者がサブスクを始めると、ここに並びます。") }}</div>
+{% endfor %}
+{% endblock %}

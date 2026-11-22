@@ -356,6 +356,14 @@ MODE_WORDS: dict[str, tuple[str, str]] = {
 }
 
 
+# 想定問答の行が、どこから来たか（core の business_settings.answer_rows の source。言葉は画面の1か所）
+ANSWER_SOURCE_WORDS = {
+    "standard": "標準",
+    "overridden": "標準をこの業務で書き替え",
+    "business": "この業務だけ",
+    "off": "この業務では使わない",
+}
+
 # 台本の版を替えたあとの1行（画面の1か所。替えるのは core の business_settings.assign。kind は品質の段の始め方＝quality_stage.prepare の答え）
 VERSION_START_WORDS = {
     "opened": "",
@@ -496,7 +504,7 @@ PAGES: dict[str, tuple[str, str]] = {
     "lines": ("回線と PC", "/t/lines"), "dnc": ("共通の発信禁止", "/t/dnc"), "settings": ("契約者の設定", "/t/settings"),
 }
 ADMIN_PAGES: dict[str, tuple[str, str]] = {"admin_tenants": ("契約者を選ぶ", "/admin/tenants"), "name_reviews": ("名前の録音の審査", "/admin/name-reviews"),
-                                           "system_settings": ("システムの初めの値", "/admin/settings")}
+                                           "people": ("ログインの管理", "/admin/people"), "system_settings": ("システムの初めの値", "/admin/settings")}
 
 
 # 依頼者・業務の中の画面（左の道しるべの「依頼者『○○』」「業務『○○』」のまとまりと、ページの上の行き先が、同じ名前をここから引く。

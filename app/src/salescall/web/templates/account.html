@@ -24,6 +24,22 @@
   <a class="btn main" href="/t/account?done=パスキーを登録しました。">書き留めました</a>
 </section>
 
+<section class="card" id="password">
+  <h2>パスワード</h2>
+  {#- 替えるのは core の people.set_password の1か所（いまのパスワードを確かめる・長さの決まり・替えたらログインをすべて外す） -#}
+  <details class="adder"><summary class="btn small">パスワードを替える</summary>
+    <form class="panel stack" method="post" action="/t/account/password">{{ csrf(token) }}
+      <label class="field" for="pw-current">いまのパスワード</label>
+      <input id="pw-current" type="password" name="current_password" autocomplete="current-password" required>
+      <label class="field" for="pw-new">新しいパスワード</label>
+      <input id="pw-new" type="password" name="new_password" autocomplete="new-password" required>
+      <label class="field" for="pw-again">新しいパスワード（もう一度）</label>
+      <input id="pw-again" type="password" name="new_password_again" autocomplete="new-password" required>
+      <p class="muted">替えると、この画面も含めて、開いているログインはすべて外れます。新しいパスワードでログインし直してください。</p>
+      <button class="btn main small" type="submit">パスワードを替える</button>
+    </form></details>
+</section>
+
 <section class="card">
   <h2>パスキー（2段階の確かめ）</h2>
   {% if not passkey %}

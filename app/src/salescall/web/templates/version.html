@@ -71,10 +71,13 @@
       <td>{{ tag("必須", "info") if q.required else "" }}</td><td class="wide">{{ words.question_choices(q) }}</td></tr>
   {% endfor %}</tbody></table></div>
 <h2>想定問答{{ info("business.answers", "想定問答") }}</h2>
-{% if s.answers %}
-<div class="table-scroll"><table class="list"><thead><tr><th>お客様の問い</th><th>答え</th></tr></thead>
-  <tbody>{% for name, text in s.answers %}<tr><td>{{ name }}</td><td>{{ text }}</td></tr>{% endfor %}</tbody></table></div>
-{% else %}{{ empty_line("この版で書いた想定問答はありません", "システムの標準の想定問答を使います。") }}{% endif %}
+{#- 標準の問答も、どこから来たかつきで並べる（読むのは core の business_settings.answer_rows の1か所） -#}
+{% if answers %}
+<div class="table-scroll"><table class="list"><thead><tr><th>お客様の問い</th><th>答え</th><th>どこから</th></tr></thead>
+  <tbody>{% for a in answers %}<tr{% if a.source == "off" %} class="muted"{% endif %}><td>{{ a.name }}</td>
+    <td>{% if a.source == "off" %}（答えません）{% else %}{{ a.text }}{% endif %}{% if a.source == "overridden" %}<span class="muted small-block">標準の答え：{{ a.standard_text }}</span>{% endif %}</td>
+    <td>{{ tag(words.ANSWER_SOURCE_WORDS[a.source], words.tone("info") if a.source in ("overridden", "business") else "") }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}{{ empty_line("想定問答はありません", "この版は、標準の想定問答も、この業務だけの想定問答も持っていません。") }}{% endif %}
 <h2>「わからない」「答えたくない」の扱い{{ info("business.handling", "「わからない」「答えたくない」の扱い") }}</h2>
 {% if handling %}
 <div class="table-scroll"><table class="list"><thead><tr><th>質問</th><th>お答え</th><th>理由</th><th class="wide">扱い</th></tr></thead>

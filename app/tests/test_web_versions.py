@@ -7,6 +7,8 @@ import re
 import unittest
 from urllib.parse import unquote
 
+from markupsafe import escape
+
 from salescall.core import business_settings, registry
 from tests.support import OPERATOR, World, app_access
 from tests.test_web import _World, ensure_rules
@@ -62,6 +64,34 @@ class Versions(_World):
         b = self.post("B", self.url, {"form_token": self.token("B"), "version_id": str(self.v2), "reason": "乗っ取り"})
         self.assertEqual(b.status_code, 404)                                    # ほかの契約者
         self.assertEqual(self.current(), self.v1)
+
+    def test_the_script_page_lists_the_standard_answers_with_where_they_come_from(self):   # ✅ 2026-11-02 管理者「デフォルトの想定を…表示しておき」
+        std = (("架空の標準の問い", "架空の標準の答えです。"), ("架空の書き替える問い", "架空の標準の答え2です。"),
+               ("架空の使わない問い", "架空の標準の答え3です。"))
+        with World().standard(std):
+            def make(tx):
+                raw = dict(business_settings._stored(tx, self.v1))
+                raw["answers"] = [{"name": "架空の書き替える問い", "text": "架空の業務の答えです。"},
+                                  {"name": "架空の業務だけの問い", "text": "架空の業務だけの答えです。"}]
+                raw["answers_off"] = ["架空の使わない問い"]
+                return business_settings.save_version(tx, self.a["business"], raw)
+            v3 = self.in_x(make)
+
+        def rows(tx):
+            s = business_settings.load(tx, v3)
+            return business_settings.answer_rows(s, business_settings.standard(tx, s.standard_id))
+        got = self.in_x(rows)
+        self.assertEqual({r["source"] for r in got}, {"standard", "overridden", "business", "off"})
+        page = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/versions/{v3}").text
+        part = page[page.index("想定問答"):]
+        self.assertIn("<th>どこから</th>", part)
+        from salescall.output import words
+        for r in got:
+            with self.subTest(name=r["name"]):
+                self.assertIn(str(escape(r["name"])), part)
+                self.assertIn(words.ANSWER_SOURCE_WORDS[r["source"]], part)
+        self.assertIn("標準の答え：架空の標準の答え2です。", part)                 # 書き替えた問いは、標準の答えも添える
+        self.assertNotIn("架空の標準の答え3です。", part)                         # 使わない問いの答えは出さない（「答えません」）
 
     def test_a_business_is_copied_from_a_version_and_opened(self):
         url = f"/c/{self.a['client']}/b/{self.a['business']}/versions/{self.v1}/copy"
