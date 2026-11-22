@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import functools
 
-from flowctl import (POINT_UNSAID, ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_NONE, ABOUT_WRONG, ABSENT_WHY, ABSENT_WHY_NOT_SAID, AWAY, END, END_NONE, HEAR, HEAR_OK, OFFER,
-                     OFFER_NOT_SAID, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, ELSEWHERE, ELSEWHERE_ALL, ELSEWHERE_NO, HESITATING, KEEP_ON,
-                     END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PHONE, PHONE_NONE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
-                     REFUSED_LABEL, REPEAT, HEAR_LOST, SPEAKER, SPEAKER_SAME, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHO, WHO_RECEPTION, WHY_NOT_SAID, WRONG,
+# お呼びする段の案の3行（CALLING_WORDS）を消したとき、そこだけで使っていた取り込み（目的のお客様の判定の項目・申し出・出られない理由・電話を終える言葉か・聞こえ方の名前）も
+# 外した（同じ3行は g59_calling_judge.LINES_OWN＝2026-11-22 分身 AP）
+from flowctl import (POINT_UNSAID, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_WRONG, AWAY, END_NONE, HEAR,
+                     AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, ELSEWHERE, ELSEWHERE_ALL, ELSEWHERE_NO, HESITATING, KEEP_ON,
+                     END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
+                     REFUSED_LABEL, REPEAT, HEAR_LOST, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHY_NOT_SAID, WRONG,
                      WRONG_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question, ladder_side_name, pain_question, since_form,
                      NEAR, NEAR_OFF, MISGIVING, MISGIVING_OFF, MISGIVING_UNSAID, UNTIL_WHY, UNTIL_LABEL, UNTIL_WHY_NOT_SAID, CYCLE, CYCLE_LABEL, CYCLE_NOT_SAID)
 from grounding import TOUCHED, UNTOUCHED, one_touched
@@ -988,27 +990,6 @@ PREP3_ROWS = [
 ]
 
 
-# お呼びする段（目的のお客様の判定＝G-59）の番号違いの試しの言葉（分身 AC＝頼みの (2)）のうち、ご本人の電話の行。行＝(相手の言葉, 場面, 正解)。
-# 場面＝{"asked": 確かめる一言への返事か, "own_phone": ご本人の電話か}（判定の説明の文は flowctl.target_facets(asked, False, own_phone) の1か所）。正解＝{項目の名前:
-# 正しい選べるものの集まり}（書いていない項目は数えない）。2026-11-20 rv176/S：答えを伏せた読み手2人（rv176/S/readers の束 c）の読みを当てた（2人がそろった読みはその読み・
-# 割れた項目は決まりで決めた＝rv176/S/notes.md の 9。お呼びした方が出られない理由は、番号違いでは使わない＝言っていないも決められないも正解＝11-19 日本時間21時台の決め）。
-# 会社の電話の行は G-59 の正解の表へ移した（g59_calling_judge.LINES_FULL）。ご本人の電話の行は、表の場面の業務（会社の電話＝g59_flow_check.b）では組めない＝ここに案として残す
-# （表へ移すには、ご本人の電話の業務の印を表の行が持つ形が要る）
-_SIDE_NONE = {END: {END_NONE}, HEAR: {HEAR_OK}, OFFER: {OFFER_NOT_SAID}}
-CALLING_WORDS = [
-    ("うちには岡田という者はおりませんが。", {"asked": False, "own_phone": True},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_WRONG}, **_SIDE_NONE, ABSENT_WHY: {ABSENT_WHY_NOT_SAID, UNDECIDED}},
-     "ご本人の電話（携帯電話の番号）：番号違いの説明「お呼びした方の電話ではない（そういう方はいない・…）」・在籍していないの説明から「そういう方はいない」を外した"),
-    ("いえ、そういう方はいませんけど。", {"asked": False, "own_phone": True},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_WRONG}, **_SIDE_NONE, ABSENT_WHY: {ABSENT_WHY_NOT_SAID, UNDECIDED}},
-     "ご本人の電話（個人のお客様の呼ぶ一言「（名前）様のお電話でお間違えないでしょうか？」への返事）：そういう方はいない＝番号違い。話している方は読み手2人がそろって"
-     "受付・取次ぎの方（お呼びした方をほかの人として話した）"),
-    ("いいえ、違いますけど。", {"asked": True, "own_phone": True},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_NONE}, **_SIDE_NONE, ABSENT_WHY: {ABSENT_WHY_NOT_SAID}},
-     "ご本人の電話でも、「違います」だけは「そういう方はいない・番号の間違いではないか」とは伝えていない＝事情は言っていない"),
-]
-
-
 # 正解が言葉・説明の文・ご決定から決まらない試しの言葉（正解を付けない＝答えを伏せた読み手へ回す。数えには入れない）。場面は answer_words と同じ形（qid の質問）
 TO_READERS = [
     # ⛔ 帳面 1 の (1) の分身 N の行の R8「うーん、どうでしょうねえ。」は、分身 S3 の続き (3) で束 s の #26 の読み手2人の読みを当てて answer_words へ移した
@@ -1094,5 +1075,5 @@ def counts() -> dict[str, int]:
     """足した試しの言葉の数（表ごと）。G-63 は添える形ごと（選択肢つき・質問だけ・添えない）に流すので、その数も。"""
     return {"G-53": len(answer_words()), "G-53（読み手へ）": len(TO_READERS), "G-63": len(GROUND_WORDS), "G-63（3つの形で流す行）": len(GROUND_WORDS) * 3,
             "取込の中身の判定": len(IMPORT_WORDS), "G-57": len(TALK_WORDS), "G-57（2つ目のお返事）": len(TALK_FOLLOW_WORDS),
-            "G-57（質問の種類ごと）": len(TALK_KIND_WORDS), "G-59（正解の表へ足す案）": len(CALLING_WORDS),
+            "G-57（質問の種類ごと）": len(TALK_KIND_WORDS),
             "G-53（判定に送る文が変わった場面の行）": sum(1 for it in answer_words() if it.get("scene") in NEW_SCENES)}

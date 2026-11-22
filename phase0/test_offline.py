@@ -41984,7 +41984,7 @@ class WrongNumberAnswerStageTest(unittest.TestCase):
         番号違いの行は番号違いの締め、言っていない行は締めない（数えの1か所 step_wants＝本番の流れの制御）。お呼びする段の行（G-59 の案）：正解の名前は、その場面の
         target_facets の選べるもの。"""
         import review_words as rw
-        from flowctl import ABOUT_WRONG, WRONG, WRONG_NOT_SAID, side_items, target_facets
+        from flowctl import ABOUT_WRONG, WRONG, WRONG_NOT_SAID, side_items
         from g53_meaning import judge_inputs, step_wants
         from meaning_judge import answer_items
         qs = rw.questions()
@@ -42000,12 +42000,7 @@ class WrongNumberAnswerStageTest(unittest.TestCase):
                 self.assertEqual("そういう方はいない" in answer_items(shown, asked)[WRONG][ABOUT_WRONG], own)
                 wants = step_wants(it, qs[it["qid"]], True)
                 self.assertEqual(wants == {"締める（wrong_party）"}, it["label"][WRONG] == [ABOUT_WRONG], wants)
-        self.assertEqual(rw.counts()["G-59（正解の表へ足す案）"], len(rw.CALLING_WORDS))
-        for text, scene, label, why in rw.CALLING_WORDS:
-            facets = {f.key: f for f in target_facets(scene["asked"], False, own_phone=scene["own_phone"])}
-            for key, got in label.items():
-                self.assertTrue(got <= set(facets[key].choices), (text, key, got))
-            self.assertTrue(why)
+        # お呼びする段の案の3行（review_words.CALLING_WORDS）は消した＝同じ3行は g59_calling_judge.LINES_OWN（AMCallingSceneMarksTest の test_3 が見張る。2026-11-22 分身 AP）
 
 
 class ComplaintSceneLineTest(unittest.TestCase):
@@ -52848,3 +52843,18 @@ class APHandoverActNameTest(unittest.TestCase):
             if G.flow_name(f, qid, rep, it, asked) == G.REPEAT_ACT:
                 self.assertEqual(rep.get("ack"), "shitsurei", it["text"])
                 self.assertTrue(heard_words(rep).startswith(ACK["shitsurei"]), it["text"])
+
+
+class APCallingDraftRowsGoneTest(unittest.TestCase):
+    """分身 AP（分身 AM の書き置きの5章の (6)）：試しの言葉の表の案の3行（review_words.CALLING_WORDS＝お呼びする段のご本人の電話の候補）と、その注・_SIDE_NONE・counts() の
+    「G-59（正解の表へ足す案）」を消した＝同じ3行は分身 AM が g59_calling_judge.LINES_OWN に入れた（同じ行を2か所に持たない＝10-18）。判定に送る文は変わらない"""
+
+    def test_the_draft_rows_live_in_one_place(self):
+        import g59_calling_judge as g
+        import review_words as rw
+        self.assertFalse(hasattr(rw, "CALLING_WORDS"))
+        self.assertFalse(hasattr(rw, "_SIDE_NONE"))
+        self.assertNotIn("G-59（正解の表へ足す案）", rw.counts())
+        texts = [c[0] for c in g.LINES_OWN]
+        for text in ("うちには岡田という者はおりませんが。", "いえ、そういう方はいませんけど。", "いいえ、違いますけど。"):
+            self.assertIn(text, texts)
