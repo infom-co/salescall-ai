@@ -702,6 +702,15 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             return ""
         return MERGE_WORDS.get(kind, "").format(chain=" ＞ ".join(SCOPE_SHORT[x] for x in reversed(levels)))
 
+    def _setting_shown(d: dict[str, Any], value: Any) -> str:
+        """設定の値の見せ方（1か所。いまの値も、これまでの値も同じ形で見せる）。選び肢の言葉は設定の定義の choice_words（CL-2 4-450）、
+        はい／いいえは words.yes_no、数・時間帯などは setting_forms.show と単位（words.SETTING_UNITS）。"""
+        if d["value_type"] == "choice":
+            return words.choice_word(d["choice_words"], value)
+        if d["value_type"] == "boolean":
+            return words.yes_no(d["key"], value)
+        return setting_forms.show(d["value_type"], value, words.SETTING_UNITS.get(d["key"], ""))
+
     def _settings_rows(tx: Any, level: str, tenant_id: UUID, client_id: UUID | None, business_id: UUID | None) -> list[dict[str, Any]]:
         """その段で決められる設定（いちばん細かく決められる段＝finest_scope がその段より細かいか同じ）と、その段で結局いくつか
         （合成は core の settings.resolve_detail の1か所）。"""
@@ -725,10 +734,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 got = settings.resolve_detail(tx, d["key"], tenant_id=tenant_id, client_id=client_id, business_id=business_id)
             except settings.SettingMissing:
                 got = None
-            # 選び肢の言葉・契約者向けの説明は、設定の定義の1か所（choice_words・help＝CL-2 4-450。開発の根拠を含まない日本語だけ）
-            shown = (None if got is None else words.choice_word(d["choice_words"], got["value"]) if d["value_type"] == "choice"
-                     else words.yes_no(d["key"], got["value"]) if d["value_type"] == "boolean"
-                     else setting_forms.show(d["value_type"], got["value"], words.SETTING_UNITS.get(d["key"], "")))
+            shown = None if got is None else _setting_shown(d, got["value"])
             rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": words.plain(d["help"]),
                          "got": got, "shown": shown,
                          "own": got is not None and got["from"] == level, "group": d["screen_group"], "confirm": d["confirm_text"],
