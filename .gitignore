@@ -1,4 +1,4 @@
-.venv/
+.venv
 __pycache__/
 *.pyc
 phase0/results/*.wav

@@ -295,9 +295,9 @@ class PerClient(unittest.TestCase):
     def test_a_contractor_backs_up_only_its_own_clients_and_copies_submissions(self):
         s, other = World().setup(), World().setup()
         sub = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: backup.record_submission(
-            tx, "結果_2026-10-17.csv", "架空の結果".encode()))
+            tx, "結果_2026-10-17.csv", "架空の結果".encode(), template_id=None))
         theirs = self.w.a.in_client(SYSTEM, other["tenant"], other["client"], lambda tx: backup.record_submission(
-            tx, "よその結果.csv", "よその結果".encode()))
+            tx, "よその結果.csv", "よその結果".encode(), template_id=None))
         results = self.run_contractor(s["tenant"])
         self.assertTrue(all(r.ok for r in results), [r.error for r in results if not r.ok])
         base = self.root / pc.BASE
@@ -329,7 +329,7 @@ class PerClient(unittest.TestCase):
         self.assertEqual(kinds, {("client_ai", s["tenant"]), ("prune", s["tenant"])})   # 記録はその契約者の分
         self.assertEqual(self.runs(other["tenant"]), [])                  # ほかの契約者からは見えない
         with self.assertRaises(Rejected):                                 # 書き出しは書かない取引（長く読んでも、通話の処理をやり直させない）
-            self.app.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: backup.record_submission(tx, "x.csv", b"x"),
+            self.app.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: backup.record_submission(tx, "x.csv", b"x", template_id=None),
                                read_only=True)
         with self.assertRaises(Rejected):                                 # 記録を書けるのはシステムの処理だけ
             self.app.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.execute(
@@ -365,11 +365,11 @@ class PerClient(unittest.TestCase):
         s = World().setup()
         other = World().setup(tenant=s["tenant"])
         put = lambda x, name: self.w.a.in_client(SYSTEM, x["tenant"], x["client"], lambda tx: backup.record_submission(   # noqa: E731
-            tx, name, "同じ結果".encode()))
+            tx, name, "同じ結果".encode(), template_id=None))
         got, started = [], threading.Event()
 
         def first(tx):
-            got.append(backup.record_submission(tx, "結果.csv", "同じ結果".encode()))
+            got.append(backup.record_submission(tx, "結果.csv", "同じ結果".encode(), template_id=None))
             started.set()
             import time
             time.sleep(1.0)
@@ -392,7 +392,7 @@ class PerClient(unittest.TestCase):
         写す。つなぐのは契約者（その PC の持ち主）なので、修正依頼ではなく、その契約者に「つないでください」と知らせる。"""
         s = World().setup()
         sub = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: backup.record_submission(
-            tx, "結果.csv", "架空の結果".encode()))
+            tx, "結果.csv", "架空の結果".encode(), template_id=None))
         content = lambda: self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(   # noqa: E731
             "SELECT content FROM salescall.submission_files WHERE submission_id = %s", (sub,)))["content"]
         (self.root / pc.DRIVE_MARK).unlink()
