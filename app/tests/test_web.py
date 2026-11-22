@@ -947,14 +947,26 @@ class Web(_World):
         row = settings_page[settings_page.index('id="s-line-test_number"'):]
         self.assertEqual("決めてください" in row[:row.index("</summary>")], not usable)
 
-    def test_a_setting_that_changes_how_calls_go_asks_with_its_name(self):   # words.CONFIRMED_SETTINGS の1か所（4回目の見直し「中」の9）
-        from salescall.output import words as w
-        page = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/settings").text
-        for key in w.CONFIRMED_SETTINGS:
-            row = page[page.index(f'id="s-{key.replace(".", "-")}"'):]
-            form = re.search(r"<form\b[^>]*>", row).group(0)
-            self.assertIn('data-confirm="業務「', form)                         # どこの設定かを名前つきで
-            self.assertIn(w.CONFIRMED_SETTINGS[key], form)
+    def test_a_setting_that_changes_how_calls_go_asks_with_its_name(self):   # 設定の定義の confirm_text の1か所（CL-2 4-470 の (2)）
+        import html as _html
+        wanted = app_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT key, confirm_text, finest_scope::text AS finest_scope FROM salescall.setting_definitions WHERE confirm_text IS NOT NULL"))
+        self.assertTrue(wanted)
+        pages = {"tenant": self.get("A", "/t/settings").text,
+                 "business": self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/settings").text}
+        for r in wanted:
+            for level, page in pages.items():
+                if level == "business" and r["finest_scope"] != "business":
+                    continue
+                with self.subTest(key=r["key"], level=level):
+                    row = page[page.index(f'id="s-{r["key"].replace(".", "-")}"'):]
+                    form = re.search(r"<form\b[^>]*>", row).group(0)
+                    self.assertIn('data-confirm="' + ("業務「" if level == "business" else ""), form)   # どこの設定かを名前つきで
+                    self.assertIn(_html.escape(r["confirm_text"], quote=True), form)
+        plain = app_access().in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT key FROM salescall.setting_definitions WHERE confirm_text IS NULL AND finest_scope::text = 'business' ORDER BY key LIMIT 1"))["key"]
+        row = pages["business"][pages["business"].index(f'id="s-{plain.replace(".", "-")}"'):]
+        self.assertNotIn("data-confirm=", re.search(r"<form\b[^>]*>", row).group(0))   # 文の無い設定は窓を通さない
         business = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}").text
         self.assertRegex(business, r"<h1>[^<]*<span class=\"tag info\">(検証モード|フルオート)</span></h1>")   # 進め方は見出しの横に
 

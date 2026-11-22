@@ -707,7 +707,9 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         （合成は core の settings.resolve_detail の1か所）。"""
         rows = []
         for d in tx.all("SELECT key, meaning, help, choice_words, value_type::text AS value_type, merge_kind::text AS merge_kind,"
-                        "       finest_scope::text AS finest_scope, choices, bound_key FROM salescall.setting_definitions ORDER BY key"):
+                        "       finest_scope::text AS finest_scope, choices, bound_key, screen_group::text AS screen_group, confirm_text,"
+                        "       array_position(enum_range(NULL::salescall.setting_group), screen_group) AS group_at"
+                        "  FROM salescall.setting_definitions ORDER BY key"):
             if SCOPES.index(d["finest_scope"]) < SCOPES.index(level):
                 continue
             # 会話AI・業務を取り込む AI の枠は、契約者が自分で API を契約するプランのときだけ出す（AI料金込みならシステムのキーなので、
@@ -729,9 +731,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                      else setting_forms.show(d["value_type"], got["value"], words.SETTING_UNITS.get(d["key"], "")))
             rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": words.plain(d["help"]),
                          "got": got, "shown": shown,
-                         "own": got is not None and got["from"] == level, "group": d["key"].split(".")[0],
+                         "own": got is not None and got["from"] == level, "group": d["screen_group"], "confirm": d["confirm_text"],
                          "merge": _merge_words(d["merge_kind"], d["finest_scope"]), "unit": words.SETTING_UNITS.get(d["key"], "")})
-        return sorted(rows, key=lambda r: (words.SETTING_ORDER.get(r["key"], len(words.SETTING_ORDER)), r["key"]))   # 意味の順（言葉の表の順）
+        # まとまりは設定の定義の screen_group（型の並び＝画面の並び。CL-2 4-470 の (1)）、まとまりの中は意味の順（言葉の表の順）
+        return sorted(rows, key=lambda r: (r["group_at"], words.SETTING_ORDER.get(r["key"], len(words.SETTING_ORDER)), r["key"]))
 
     def _settings_page(request: Request, level: str, client_id: UUID | None, business_id: UUID | None,
                        done: str | None, ok: int) -> HTMLResponse:

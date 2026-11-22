@@ -490,31 +490,31 @@ def page(key: str) -> str:
     return (PAGES.get(key) or ADMIN_PAGES[key])[0]
 
 
-# 設定のまとまりの名前（設定の名前の頭。データベースの設定の定義のすべての頭を書く。試験が突き合わせる）。
-# **並びは、設定の画面に出す順**＝契約者が業務を組み立てる仕事の順（業務 → いつかけるか → かける前の確かめ → お客様の扱い → 通話・会話 →
-# かけ直し → 決めたことの扱い → 結果 → 承認と品質 → 回線と PC → 費用・控え・知らせなどの裏方）。中の名前の順（英字の順）では並べない
+# 設定のまとまりの言葉（まとまりの種類は設定の定義の screen_group＝データベースの型 salescall.setting_group の1か所。CL-2 4-470 の (1)）。
+# 鍵は型の値のすべて（試験が突き合わせる）。**並びは持たない**：画面に出す順は型の並び（enum_range）で、設定の画面のサーバーが読む
+# （並びを2か所に持たない）。言葉は CL-2 の案を、契約者が探す言葉にそろえた
 SETTING_GROUPS: dict[str, str] = {
-    "business": "業務", "calling": "かける時間帯", "gate": "かける前の確かめ（回数・間隔）", "callee": "お客様の扱い",
-    "call": "通話の進め方", "conversation": "会話", "callback": "かけ直し", "retry": "かけ直しの回数", "decision": "取り消せない決定",
-    "dnc": "発信禁止", "output": "結果の出力", "approval": "承認", "quality": "品質の段（検証モード）", "verification": "通話のあとの確かめ",
-    "judge": "判定", "measure": "測り", "recording": "録音", "line": "回線", "dial": "発信", "pc": "PC", "stop": "止めると再開",
-    "budget": "費用と予算", "ai": "AI", "backup": "控え", "notify": "知らせ", "login": "ログイン",
+    "calling": "かける時間帯", "gate": "かける前の確かめ（本数・間隔・かけてよい番号）", "refusal": "断られたお客様と発信禁止",
+    "spoken_time": "お客様が言った時刻の読み方", "call": "通話の進め方", "callback": "お約束したかけ直し", "retry": "出なかったときのかけ直し",
+    "output": "結果の出力", "quality": "検証モードと品質", "line": "回線と PC", "ai": "AI", "stop": "止めると再開", "budget": "費用と予算",
+    "retention": "録音と控えを残す日数", "notify": "知らせ", "login": "ログイン", "timing": "仕組みの待ち時間",
 }
 
 
 # ふだん契約者が決める・変える設定のまとまり（設定の画面で開いて並べる。ほかは「くわしい設定」にたたむ。名前は SETTING_GROUPS の鍵）。
-# 選び方：業務の決め事（いつ・何回かけるか・お客様との約束・結果の渡し方・検証モード）と、最初に必ず決める知らせの受け先。
-# 「かける前の確かめ」は予約の期限・平均の通話時間を測る日数など裏側の値が多いので、たたむ側（探せば出る）
-EVERYDAY_GROUPS = frozenset({"business", "calling", "callee", "callback", "retry", "dnc", "output", "approval", "notify"})
+# 選び方：業務の決め事（いつかけるか・断られたお客様の扱い・お客様が言った時刻の読み方・お約束と出なかったときのかけ直し・結果の渡し方・
+# 検証モード）と、最初に必ず決める知らせの受け先。「かける前の確かめ」は予約の期限・平均の通話時間を測る日数など裏側の値が多いので、
+# たたむ側（探せば出る）
+EVERYDAY_GROUPS = frozenset({"calling", "refusal", "spoken_time", "callback", "retry", "output", "quality", "notify"})
 
 
 def grouped_settings(rows: list[dict[str, Any]]) -> list[tuple[str, list[dict[str, Any]]]]:
-    """設定の行を、まとまりごとに SETTING_GROUPS の並び（仕事の順）で返す1か所（設定の画面の目次と本文が使う）。まとまりの中は来た順。"""
-    order = {g: i for i, g in enumerate(SETTING_GROUPS)}
+    """設定の行を、まとまりごとに返す1か所（設定の画面の目次と本文が使う）。まとまりの順は、来た行の順（画面のサーバーが型の並び＝
+    salescall.setting_group の順で並べて渡す）。まとまりの中も来た順。"""
     out: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         out.setdefault(r["group"], []).append(r)
-    return sorted(out.items(), key=lambda gi: order.get(gi[0], len(order)))
+    return list(out.items())
 
 
 # 数の設定の単位（setting_units.json。値の形が integer・limit・integer_list の設定のすべてを書く。試験が突き合わせる。見出しの言葉と同じく
@@ -524,12 +524,6 @@ SETTING_UNITS: dict[str, str] = json.loads((Path(__file__).with_name("setting_un
 # はい／いいえの設定の、はいのとき・いいえのときの言葉（setting_yes_no.json。はい／いいえの設定のすべてを書く。試験が突き合わせる）。
 # 見出しが問いの形でない設定（例「決められない決定の扱い」）でも、答えが「はい／いいえ」で浮かないように、値そのものを言葉で見せる
 SETTING_YES_NO: dict[str, list[str]] = json.loads((Path(__file__).with_name("setting_yes_no.json")).read_text(encoding="utf-8"))
-# 変えると電話のかけ方が大きく変わる設定と、変えると何が起きるかの文（setting_confirm.json の1か所）：設定の画面は、この設定の「この値に変える」に
-# 名前つきの確かめの窓を付ける（2026-11-21 の見直し：検証モードを「使わない」にすると承認なしでかけ始めるのに、ほかの設定と同じ1回の押しで
-# 済んでいた）。⏳ 本来は設定の定義に「確かめが要る」の印を持たせる（CL-2 へのお願い 70 に足した）。届いたら、その印を読む形に替える
-CONFIRMED_SETTINGS: dict[str, str] = json.loads((Path(__file__).with_name("setting_confirm.json")).read_text(encoding="utf-8"))
-
-
 def yes_no(key: str, value: bool) -> str:
     """はい／いいえの設定の値の言葉（1か所。表の無い設定は「はい」「いいえ」）。"""
     w = SETTING_YES_NO.get(key) or ["はい", "いいえ"]

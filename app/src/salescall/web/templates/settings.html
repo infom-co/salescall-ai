@@ -59,7 +59,7 @@
       <span class="change" aria-hidden="true">変える</span>
     </summary>
     <form method="post" action="{{ action }}" class="setting-form" data-needs-reason
-          {%- if r.key in words.CONFIRMED_SETTINGS %} data-confirm-ok="この値に変える" data-confirm="{{ where }}の「{{ r.label }}」を変えます。{{ words.CONFIRMED_SETTINGS[r.key] }}"{% endif %}>
+          {%- if r.confirm %} data-confirm-ok="この値に変える" data-confirm="{{ where }}の「{{ r.label }}」を変えます。{{ r.confirm }}"{% endif %}>
       {{ csrf(token) }}<input type="hidden" name="key" value="{{ r.key }}">
       {% if needed %}<p class="need-why">{{ needed.title }}。{{ needed.how }}</p>{% endif %}
       <p>{{ r.meaning }}</p>

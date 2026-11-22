@@ -98,15 +98,15 @@ class Forms(unittest.TestCase):
     def test_every_setting_has_a_short_screen_name(self):   # 見出しの短い名前（output/words.SETTING_LABELS の1か所）
         keys = {r["key"] for r in app_access().in_system(SYSTEM, lambda tx: tx.all("SELECT key FROM salescall.setting_definitions"))}
         self.assertEqual(set(words.SETTING_LABELS), keys)
-        self.assertLessEqual(set(words.CONFIRMED_SETTINGS), keys)                 # 確かめの窓を付ける設定（setting_confirm.json）も実在の設定だけ
         for k, v in words.SETTING_LABELS.items():
             with self.subTest(key=k):
                 self.assertLessEqual(len(v), 24)
 
     def test_every_setting_group_has_a_word(self):
-        heads = app_access().in_system(SYSTEM, lambda tx: {r["k"].split(".")[0] for r in tx.all(
-            "SELECT key AS k FROM salescall.setting_definitions")})
-        self.assertEqual(heads - set(words.SETTING_GROUPS), set())
+        """まとまりの言葉は、まとまりの型（salescall.setting_group）の値のすべてに1つずつ（多くも少なくもない。CL-2 4-470 の (1)）。"""
+        kinds = app_access().in_system(SYSTEM, lambda tx: [r["g"] for r in tx.all(
+            "SELECT unnest(enum_range(NULL::salescall.setting_group))::text AS g")])
+        self.assertEqual(set(words.SETTING_GROUPS), set(kinds))
 
     def test_every_number_setting_has_a_unit_and_seconds_read_as_time(self):
         """数の設定には単位を添える（「30」ではなく「30日」）。長い秒は人の時間に直す（「300秒」ではなく「5分（300秒）」）。"""
@@ -131,8 +131,9 @@ class Forms(unittest.TestCase):
         self.assertEqual(words.yes_no("decision.undecided_as_decided", False), "契約者に委ねる（確かめるまでかけない）")
 
     def test_the_groups_are_in_the_order_of_the_work_not_of_the_internal_names(self):
-        rows = [{"group": g, "key": g + ".x"} for g in ("login", "approval", "calling", "business", "zzz")]
-        self.assertEqual([g for g, _ in words.grouped_settings(rows)], ["business", "calling", "approval", "login", "zzz"])
+        """まとまりの順は持たない（来た順のまま）：画面のサーバーが型の並び（salescall.setting_group）で並べて渡す。並べ直しは画面の試験で見る。"""
+        rows = [{"group": g, "key": g + ".x"} for g in ("login", "calling", "login", "budget")]
+        self.assertEqual([(g, len(r)) for g, r in words.grouped_settings(rows)], [("login", 2), ("calling", 1), ("budget", 1)])
 
 
     def test_the_everyday_groups_are_real_groups(self):   # ふだんのまとまり（開いて並べる）は、まとまりの名前の表の中から選ぶ
@@ -224,6 +225,8 @@ class Screens(unittest.TestCase):
     def test_the_everyday_groups_are_open_and_the_rest_is_folded_once(self):
         """設定の画面は、ふだんのまとまりだけを開いて並べ、残りは「くわしい設定」1つにたたむ（どのまとまりも1回だけ出る）。
         2026-11-20 の見直し：まとまり約30・項目100以上が同じ重さで並び、スマホで3万6千ピクセルの長さだった。"""
+        self.kinds = app_access().in_system(SYSTEM, lambda tx: [r["g"] for r in tx.all(
+            "SELECT unnest(enum_range(NULL::salescall.setting_group))::text AS g")])
         for path in ("/t/settings", f"/c/{self.a['client']}/b/{self.a['business']}/settings"):
             with self.subTest(path=path):
                 page = self.get("A", path).text
@@ -236,6 +239,10 @@ class Screens(unittest.TestCase):
                     with self.subTest(group=g):
                         self.assertIn(f'id="g-{g}"', opened if g in words.EVERYDAY_GROUPS else folded)
                 self.assertIn('href="#advanced"', opened)          # 目次から、たたんだ所へも行ける
+                at = {g: i for i, g in enumerate(self.kinds)}       # 開いた側もたたんだ側も、まとまりは型の並び（仕事の順）で
+                for part in (opened, folded):
+                    got = re.findall(r'<section class="setting-group" id="g-([a-z_]+)"', part)
+                    self.assertEqual(got, sorted(got, key=at.__getitem__))
                 self.assertNotIn("open>", folded.split(">", 1)[0] + ">")   # ふだんのまとまりがある段では、初めはたたんでいる
 
     def test_the_system_values_are_for_the_admin_only(self):
