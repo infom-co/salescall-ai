@@ -731,6 +731,13 @@ def set_name_review_skip(tx: Tx, tenant_id: UUID, skip: bool) -> None:
     tx.execute("SELECT salescall.set_name_review_skip(%s, %s)", (tenant_id, skip))
 
 
+def review_skips(tx: Tx) -> dict[UUID, bool]:
+    """全部の契約者の、名前の録音の管理者のチェックが要らないか（いまの値。真＝チェック不要）。審査を待つ録音の無い契約者も入る（チェック不要に
+    した契約者を、チェックする形に戻す入口を画面が出せるように＝CL-3 の連絡帳 4-1c の 72）。いまの値の決め方はデータベースの1か所
+    salescall.name_review_skipped（`name_reviews` の skipped と同じ）。読めるのは管理者だけ（システムの取引で）＝データベースが守る（0281）。"""
+    return {r["tenant_id"]: r["skipped"] for r in tx.all("SELECT * FROM salescall.name_review_skip_states()")}
+
+
 def admit_unreviewed_names(tx: Tx) -> int:
     """管理者のチェックを要らないとした契約者の、まだ決めていない業務の名前の録音を、システムの共通の録音に入れる（決まった間隔の仕事
     が、システムの取引で呼ぶ＝supervisor.jobs の trusted_names）。入れ方は管理者が入れるときと同じ1か所（データベースの

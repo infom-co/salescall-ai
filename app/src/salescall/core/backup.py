@@ -402,15 +402,17 @@ def _client_ai(app: Access, writer: Writer, tenant_id: UUID, client_id: UUID) ->
     return Result(True, file_name, None)
 
 
-def record_submission(tx: Tx, file_name: str, data: bytes) -> int:
+def record_submission(tx: Tx, file_name: str, data: bytes, *, template_id: int | None) -> int:
     """依頼者へ渡した結果のファイルを、提出用の控えのために置く（出力＝CL-3 が、渡したときに依頼者の取引で1回呼ぶ）。
+    template_id＝そのファイルを作った出力の型の版（core/output_templates.current が返した版の template_id。None＝既定の型。0280）。必ず渡す
+    （どの版で出したかを、黙って既定の型と記録しない）。
     契約者の PC の控えの処理がハードディスクへ写したら、中身は消える（Fly.io には残さない＝2026-10-17 ユーザー）。
     同じ依頼者に同じ中身（指紋 sha256）をもう置いていれば、何も書かずに、その控えの番号を返す（データベースの一意の約束
     submission_files_same_content＝同時に2回届いても1つだけ。0250・CL-3 の 31。画面の側で確かめ直さない）。"""
     sha = hashlib.sha256(data).hexdigest()
-    got = tx.one("INSERT INTO salescall.submission_files (tenant_id, client_id, file_name, sha256, content)"
-                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)"
-                 " ON CONFLICT (client_id, sha256) DO NOTHING RETURNING submission_id", (file_name, sha, data))
+    got = tx.one("INSERT INTO salescall.submission_files (tenant_id, client_id, file_name, sha256, content, template_id)"
+                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s)"
+                 " ON CONFLICT (client_id, sha256) DO NOTHING RETURNING submission_id", (file_name, sha, data, template_id))
     if got is not None:
         return got["submission_id"]
     return tx.one("SELECT submission_id FROM salescall.submission_files WHERE client_id = salescall.cur_client() AND sha256 = %s",
