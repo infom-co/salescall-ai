@@ -391,16 +391,19 @@ def set_r() -> list[dict]:
 
 
 def set_h() -> list[dict]:
-    """組 HEAR：こちらの声が届いていない様子かの試しの言葉（G-73）。数えるのは聞こえ方の読みだけ（答えの正解は付けていない＝hear_truth）。
+    """組 HEAR：こちらの声が届いていない様子かの試しの言葉（G-73）。数えるのは聞こえ方の読みだけ（答えの正解は付けていない＝hear_truths）。
     質問は測りの質問の表から（question_by_text）。"""
     return [{"set": "HEAR", "maker": w["maker"], "qid": question_by_text(w["question"]).id, "question": w["question"], "text": w["text"],
              "truth": None, "hear_truth": w["truth"]} for w in g73_words() if w["set"] == "HEAR"]
 
 
-def hear_truth(it: dict) -> str:
-    """こちらの声が届いていない様子かの正解：組 HEAR は作らせた種類、ほかの組の言葉はどれも「そういう様子は無い」（ふつうの答え・言葉）。"""
+def hear_truths(it: dict) -> tuple:
+    """こちらの声が届いていない様子かの正解（中の名前の並び）：組 HEAR は作らせた種類、ほかの組の言葉はどれも「そういう様子は無い」（ふつうの答え・言葉）。行の hear_truth に
+    名前を並べた行（2つの読みで流れの制御の動き・切れ方が同じ境目の行）は、並べた名前のどれも正解（ほかの項目の正解と同じ形。⛔ 2026-11-23 まで名前を1つしか持てず、崩れた言葉の
+    聞こえ方の境目＝束 ap1x の #15・#16 を正解にできなかった＝分身 AQ）"""
     from flowctl import HEAR_OK
-    return it.get("hear_truth") or HEAR_OK
+    got = it.get("hear_truth") or HEAR_OK
+    return tuple(got) if isinstance(got, (list, tuple)) else (got,)
 
 
 def g48_question(n: int, text: str, conditions: tuple, meanings: dict, facts: bool = True) -> Question:
@@ -2144,7 +2147,7 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
     ほかは「曖昧」の印 hedged の逆）× こちらへ尋ねた問いか（query_truths）× 別のお話か（away_truths）× 電話を終える言葉か（has_end なら end_accept・
     無ければ読んでいない）× こちらがかけた電話番号が違うと伝えたか（wrong_truths）× 声かけへのお返事だけか（prompt_truths）× 合わないと言わなかったほうで大丈夫そうか（ladder_other_truths）×
     どの答えもはっきり指していないときのいちばん近い答え（near_truths）× 迷っている点を言ったか（misgiving_truths＝答えごと）× 「〇時まで」の理由（until_truths）× 月単位の理由（cycle_truths）× わからない・答えたくない理由（付けた行は why_accept・付けていない行はどの理由も正しい）× 前の話の答え（会話になっていない
-    正解 talk False の行は、その答えと食い違う前の話の答え＝flowctl.off_talk の1か所。ほかは前の話から決まる答えは無い）。聞こえ方は hear_truth。"""
+    正解 talk False の行は、その答えと食い違う前の話の答え＝flowctl.off_talk の1か所。ほかは前の話から決まる答えは無い）。聞こえ方は hear_truths。"""
     from flowctl import why_choices
     out = []
     firms = (True, False) if either(it) else (not hedged(it),)
@@ -2166,9 +2169,9 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
                                             for lo in ladder_other_truths(it):
                                                 for nr in near_truths(it):
                                                     for mg in misgiving_truths(it, a):
-                                                        for ut, cy in itertools.product(until_truths(it), cycle_truths(it)):
+                                                        for ut, cy, hv in itertools.product(until_truths(it), cycle_truths(it), hear_truths(it)):
                                                             r = Reading(a, firm)
-                                                            for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it)), (WRONG, wn),
+                                                            for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hv), (WRONG, wn),
                                                                          (PROMPT_REPLY, pr), (LADDER_OTHER, lo), (NEAR, nr), (MISGIVING, mg), (UNTIL_WHY, ut), (CYCLE, cy)):
                                                                 setattr(r, k, v)
                                                             r.prior = p
@@ -2482,9 +2485,9 @@ def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
             if it.get("maker") == key:
                 continue  # 自分で作った答え
             if it.get(f"{key}聞こえ") is not None or it["set"] == "HEAR":   # こちらの声が届いていない様子か（項目を足す前の記録は数えない）
-                h, hw = it.get(f"{key}聞こえ"), hear_truth(it)
-                t["こちらの声が届いていない様子か"][f"{'組 HEAR' if it['set'] == 'HEAR' else 'ほかの組'}・{hw}・"
-                                         f"{'正しい' if h == hw else '⛔' + str(h)}"] += 1
+                h, hw = it.get(f"{key}聞こえ"), hear_truths(it)
+                t["こちらの声が届いていない様子か"][f"{'組 HEAR' if it['set'] == 'HEAR' else 'ほかの組'}・{'／'.join(hw)}・"
+                                         f"{'正しい' if h in hw else '⛔' + str(h)}"] += 1
             if it["set"] == "HEAR" and not _label(it):
                 continue  # 組 HEAR は、答えの正解を帳面（g53_labels.json）で付けた行のほかは、聞こえ方だけを数える（答えの段の聞き返しの言葉＝もう一度言ってほしい、には付けた）
             got, want = it[key], truth(it)
