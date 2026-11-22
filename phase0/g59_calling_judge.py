@@ -161,18 +161,36 @@ ASKS_EITHER = {"岡田はただいま外出しておりますので、私が代�
 ASKS_OTHER_EITHER = {"そうですね、戻りましたら折り返しさせましょうか？"}
 
 
-def asks_truths(text: str, only: bool = False) -> tuple[str, ...]:
-    """行の言葉の「尋ねているか」の正しい読み（唯一の決まり＝測り run の asks_accept・asks_kind と、測りの数えが場面に渡す正しい読み
-    g59_flow_check.calling_acts）：名乗り・用件を尋ねている（ASKING）・どの方をお呼びかを尋ねている（ASKING_WHO）・ほかのことを尋ねている（ASKING_OTHER）・どちらと読んでもよい
-    （ASKS_EITHER＝尋ねている・尋ねていない）・尋ねていない。聞こえ方だけを数える行（only）は正解を付けていない＝どれも。"""
-    from flowctl import ASKS_NO, ASKS_OTHER, ASKS_WHO, ASKS_YES
+def asks_truths(r: dict | str, only: bool = False) -> tuple[str, ...]:
+    """行 r（表の行の場面の欄 case_row・記録の行。言葉だけを渡すと、その前の言葉の無い・後任の方の場面ではない・印の無い行）の「尋ねているか」の正しい読み（唯一の決まり＝
+    測り run の asks_accept（asks_side）・asks_kind と、測りの数えが場面に渡す正しい読み g59_flow_check.calling_acts・場面を組む steps_before の前の言葉の読み）：
+    名乗り・用件を尋ねている（ASKING）・どの方をお呼びかを尋ねている（ASKING_WHO）・ほかのことを尋ねている（ASKING_OTHER）・どちらと読んでもよい
+    （ASKS_EITHER＝尋ねている・尋ねていない）・取り次ぎを待つ（ASKS_HOLD）・尋ねていないと代わった人が話し始めた（ASKS_HANDOVER_ROWS＝行で決まる）・尋ねていない。
+    聞こえ方だけを数える行（only）は正解を付けていない＝どれも。⛔ 2026-11-22 分身 AM の続き2 (1) まで、言葉だけを受け、取り次ぎを待つ・代わった人が話し始めた（判定の仕組みが
+    どの問いにも添える選べるもの）を返さなかった（束 m の #4 を読み手2人がそろって「取り次ぎを待つ」と読んだ＝書き置き rv191/AM/notes.md の続き2）"""
+    from flowctl import ASKS_NO, ASKS_OTHER, ASKS_WHO, ASKS_YES, HANDOVER, HOLD
+    r = {"text": r, "before": None, "successor": False} if isinstance(r, str) else r
+    text = r["text"]
     if only:
         return ASKS_YES, ASKS_WHO, ASKS_OTHER, ASKS_NO
+    if text in ASKS_HOLD:
+        return (HOLD,)
+    if not any(row_marks(r)) and (text, r["before"] or None, bool(r["successor"])) in ASKS_HANDOVER_ROWS:
+        return ASKS_NO, HANDOVER   # 1つ目は前の読み（場面を組む steps_before は1つ目を渡す）
     if text in ASKS_EITHER:
         return ASKS_YES, ASKS_NO
     if text in ASKS_OTHER_EITHER:
         return ASKS_OTHER, ASKS_NO
     return (ASKS_YES,) if text in ASKING else (ASKS_WHO,) if text in ASKING_WHO else (ASKS_OTHER,) if text in ASKING_OTHER else (ASKS_NO,)
+
+
+def asks_side(truths) -> bool | None:
+    """正しい読みの並び truths（asks_truths）が、こちらに尋ねている側（flowctl.ASKED）か（唯一の決まり＝測り run の asks_accept）：どれも尋ねている側なら真・どれも尋ねていない側
+    （尋ねていない・取り次ぎを待つ・代わった人が話し始めた）なら偽・分かれれば None（数えない）。⛔ 2026-11-22 分身 AM の続き2 (1) まで、正しい読みが2つ以上なら数えなかった
+    （尋ねていないと代わった人が話し始めた、の両方が正解の行を、数えから落とす形）"""
+    from flowctl import ASKED
+    sides = {x in ASKED for x in truths}
+    return sides.pop() if len(sides) == 1 else None
 
 
 # 2つの事実が重なる言葉（2026-10-29 に足した。⛔ 1つの選びの形では、どちらかの事実を捨てる）：(相手の言葉, その前に相手が言ったこと, 確かめたあとか, 正解)
@@ -250,8 +268,10 @@ LINES_FULL = [
 ]
 # ご本人の電話（かけた番号が携帯電話の番号＝印 mobile・個人のお客様＝印 personal）と、第一声でお呼びする方ご本人が名乗った電話（印 named_first）の行（2026-11-22 分身 AM＝
 # 担当 AK の棚卸しの F8・束3 の P2・P8・P11。CL-1 が決めた）：行の場面は印の業務と始まりで、本番の流れの制御に組む（g59_flow_check.business_of・row_scene＝業務設定の入口
-# instruction.Business.flow・Flow.judge_context の1か所）。⚠️ 正解は仮（判定に見せる言葉＝質問の文・その前に相手が言ったこと・お客様の言葉と、項目の説明の文だけから、分身 AM が
-# 決めた。答えを伏せた読み手の束 m＝g59_readers の読みが届くまで仮）。
+# instruction.Business.flow・Flow.judge_context の1か所）。正解は、判定に見せる言葉＝質問の文・その前に相手が言ったこと・お客様の言葉と、項目の説明の文だけから、分身 AM が
+# 決め、答えを伏せた読み手2人（束 m＝g59_readers。rv191/AM/readers の A_m・B_m）の読みを CL-1 が当てた（2026-11-22 分身 AM の続き2＝書き置き rv191/AM/notes.md）：
+# 2人がそろって作った側と違って読んだ所は、#4 の尋ねているか（取り次ぎを待つ＝asks_truths の ASKS_HOLD）と #8 の誰か（決められないも＝下の行）。#11 の番号違い（ご本人の電話で
+# お呼びした方ではないと答えただけ）は正解のまま「言っていない」で、境目を番号違いの説明の1か所（flowctl.wrong_number_choice）に書いた。1人だけの読みの所は今のまま
 # (相手の言葉, その前に相手が言ったこと, 確かめたあとか, 印, 正解)
 NAMED_FIRST = "はい、岡田です。"   # 第一声で、お呼びする方ご本人が名乗った（本書 9-4 の「電話に出た方の第一声」＝確かめる一言「「おかだ」様でいらっしゃいますでしょうか？」で確かめる）
 UNHEARD = "……"                    # 聞き取れなかったお言葉（会話AIの「聞き取れない」の報告・判定の読みは届かない＝Flow._calling_unheard の聞き返し）
@@ -265,7 +285,9 @@ LINES_OWN = [
     ("いえ、岡田はただいま外出しております。", None, True, {"named_first": NAMED_FIRST}, F("同", "受", "無", "在", "在")),
     ("失礼ですが、どちら様でしょうか？", None, True, {"named_first": NAMED_FIRST}, F("同", "不", "無", "無")),   # こちらに聞き返しただけ（尋ねているかは ASKING）
     ("すみません、聞こえなかったです", None, True, {"named_first": NAMED_FIRST}, F("同", "不", "無", "無") | {HEAR: {HEAR_LOST}}),
-    ("どちらの岡田でしょうか？", None, True, {"named_first": NAMED_FIRST}, F("同", "受", "無", "無")),   # お呼びした方をほかの人のこととして尋ねた（ASKING_WHO）
+    # お呼びした方をほかの人のこととして尋ねた（ASKING_WHO）。自分も岡田の一人で聞き返しただけとも読める（読み手2人＝束 m の #8）＝決められないも正解（尋ねているかが「どの方を
+    # お呼びかを尋ねている」のときの流れの制御の動きは2つの読みで同じ＝境目として両方。2026-11-22 分身 AM の続き2 (2)）
+    ("どちらの岡田でしょうか？", None, True, {"named_first": NAMED_FIRST}, F("同", "受不", "無", "無")),
     # P8：かけた番号が携帯電話の番号の業務で、2回聞き取れず、2回目の聞き返し（確かめる一言「「おかだ」様で大丈夫でしょうか？」）へのお返事（その前の言葉は聞き取れなかった2つ）
     ("はい、そうです。", UNHEARD_TWICE, True, {"mobile": True}, F("同", "本", "無", "無")),
     ("はい、岡田です。", UNHEARD_TWICE, True, {"mobile": True}, F("同", "本", "無", "無")),
@@ -310,6 +332,40 @@ BEFORE_READ = {TO_TARGET: _HOLDING, "それでは岡田にお繋ぎします。"
                WHOIS_AFTER: ("同不xx", ("replay_opening", {"part": "intro"})),
                # 聞き取れなかったお言葉：判定の読みは届かない（読みの字 None＝尋ねているかの読みも渡さない）・会話AIは「聞き取れない」と報告する（Flow._calling_unheard の聞き返し）
                UNHEARD: (None, ("report_unclear", {"question_id": "T1"}))}
+# 尋ねているかは「取り次ぎを待つ」（flowctl.HOLD）と読む言葉（asks_truths）：取り次ぐ・代わる・確かめるので、こちらに待つように言った言葉＝尋ねているかの選べるもの「取り次ぎを待つ」の
+# 説明（取り次ぐ・確かめてくるあいだ、こちらに待つように言った）に当たり、「尋ねていない」の説明が「ほかの方に代わる・取り次ぐので待つように言ったときは、不在を伝えていても、
+# こちらではない」と外す＝説明の文から1つに決まる。2026-11-22 分身 AM の続き2 (1)（束 m の #4 を読み手2人がそろって「取り次ぎを待つ」と読んだ。CL-1 が書いてある決まりで決めた）：
+# 表の全部の行を1行ずつ読み直し、目的のお客様の判定の電話のやり取りの正解が「取り次ぎを待つ」の15行（言葉は下の13）がみなこれ（ほかの行には待つように言った言葉は無い）。
+# 行の前の言葉（BEFORE_READ）の取り次ぎの言葉も同じ読み（場面を組む steps_before が渡す）。流れの制御の動きは「尋ねていない」と同じ（目的のお客様の判定が「取り次ぎを待つ」と
+# 読む＝g59_flow_check.calling_acts で確かめた）。⛔ それまでは「尋ねていない」を正解にしていた（説明の文が外す読み）
+ASKS_HOLD = {
+    # 表の行の言葉
+    "岡田ですね。少々お待ちください。", "少々お待ちください。", "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+    "いえ、受付の者です。少々お待ちください。", "いいえ、山田です。岡田に代わりますので少々お待ちください。",
+    "岡田は退職いたしまして、後任の田中に代わりますので、少々お待ちください。", "後任は田中になります。少々お待ちください。",
+    "かしこまりました。少々お待ちください。", "岡田太郎ですね。少々お待ちください。", "承知しました。少々お待ちください。", "営業部の岡田太郎ですね。少々お待ちください。",
+    "アオバ物流さんですね。少々お待ちください。", "いえ、岡田は主人です。少々お待ちください。",
+    # 行の前の言葉だけにある取り次ぎの言葉（「お繋ぎします」＝取り次ぐあいだ待つように言った・「別の者に代わります」＝ほかの方に代わるので待つように言った）
+    "それでは岡田にお繋ぎします。", "担当の者に代わりますので、少々お待ちください。", "岡田は外出しておりますので、別の者に代わります。",
+    "岡田は退職しておりますので、後任の者に代わります。少々お待ちください。", "公認は田中になります。少々お待ちください。", "後任の者に代わりますので、少々お待ちください。"}
+# 尋ねているかは「尋ねていない」と「代わった人が話し始めた」（flowctl.HANDOVER）のどちらと読んでもよい行（asks_truths）：電話を代わった方があいさつ・名乗りで話し始め、代わった方が
+# 誰かで答えが決まらない行。「代わった人が話し始めた」の説明（電話を代わった別の人が話し始めた・お呼びした方がいないので別の者に代わると言ったあと・お呼びした方と違う名前を
+# 名乗ったときも）にも、「尋ねていない」の説明（名乗った・不在を伝えた）にも当たる境目で、流れの制御の動きは2つの読みで同じ（calling_acts で確かめた）＝両方を正解（CL-1 の決まり＝
+# 2つの読みで動きが同じなら境目として両方）。同じ続き2 (1) で表の全部の行を1行ずつ読み直した：お呼びした方の名前を名乗った行・その前の方がお呼びした方に取り次いだあとの行
+# （取り次いだ先の方の名前を名乗っていない）は、「代わった人が話し始めた」の説明が「代わった方が誰かで答えが決まるとき…は、こちらではなく、その答え」と外す＝「尋ねていない」だけ。
+# 前の言葉で決まるので、行（言葉・その前の言葉・後任の方か）で持つ。印のある行は無い（asks_truths は印の無い行だけをここで引く）
+ASKS_HANDOVER_ROWS = {
+    ("お電話代わりました。", None, False), ("お電話代わりました。山本です。", None, False), ("お電話代わりました。山本です。", TO_TARGET, False),
+    ("はい、お電話代わりました。", TO_OTHER, False), ("お電話代わりました。", "岡田は外出しておりますので、別の者に代わります。", False),
+    ("お電話代わりました。担当の山田です。岡田は本日不在にしております。", TO_OTHER, False),
+    ("お電話代わりました、山田です。あいにく岡田は外出しておりまして。", None, False), ("お電話代わりました。山田です。", AWAY_TO_OTHER, False),
+    ("お電話代わりました、鈴木です。岡田は本日お休みをいただいております。", TO_TARGET, False),
+    ("お電話代わりました。佐藤と申します。岡田は席を外しておりまして。", TO_TARGET, False),
+    ("お電話代わりました。田中です。", TO_SUCCESSOR_NOW, False),
+    ("はい、お電話代わりました。", "岡田は退職しておりますので、後任の者に代わります。少々お待ちください。", False),
+    # 後任の方の場面（お呼びしているのは後任の方）：聞き違いの「公認は田中になります。」のあと（取り次いだ先がお呼びした後任の方か決まらない）・違うお名前を名乗った
+    ("お電話代わりました。田中です。", f"{DEPARTED_SAID}／公認は田中になります。少々お待ちください。", True),
+    ("お電話代わりました。山本です。", f"{DEPARTED_SAID}／{TO_SUCCESSOR}", True)}
 
 
 def steps_before(before: str | None) -> list:
@@ -324,7 +380,7 @@ def steps_before(before: str | None) -> list:
             continue
         code, op, *side = BEFORE_READ[p]
         out.append((p, facts(code) | side[0] if side else code, ("report_party", {"party": op}) if isinstance(op, str) else op,
-                    asks_truths(p)[0] if code is not None else None))
+                    asks_truths(p)[0] if code is not None else None))   # 前の言葉は言葉だけで読む（その前の言葉の無い印の無い行の読み）
     return out
 
 
@@ -743,8 +799,8 @@ async def run(args) -> dict:
         q, aq = judge_questions(case_row(case), sees)
         for rep in range(args.repeat):
             only = hear_only(case_row(case), hear)
-            truths = asks_truths(text, only)   # 尋ねているかの正しい読み（1か所）：1つに決まる言葉だけ数える（「尋ねている」か＝ASKED に入るか）
-            want = truths[0] in ASKED if len(truths) == 1 else None
+            truths = asks_truths(case_row(case), only)   # 尋ねているかの正しい読み（1か所・行で決まる）：尋ねている側か（ASKED に入るか）が1つに決まる行だけ数える（asks_side）
+            want = asks_side(truths)
             kind = truths[0] if len(truths) == 1 and truths[0] in ASKED else None
             row = {"text": text, "accept": ok, "asks_accept": want, "asks_kind": None if only else kind, "before": before, "asked": asked, "rep": rep,
                    "hear_only": only, **case.marks(),
