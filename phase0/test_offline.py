@@ -52914,7 +52914,7 @@ class APP1ReadersTest(unittest.TestCase):
         # 分身 AQ（束 ap1x の #19）：境目は「届いていない様子」の説明の1か所に、聞き返しと一緒に書いた（AQHearRepeatTest）
         line = "聞こえなかった・聞き取れなかったとは言わずに、こちらの名前・会社名・用件を尋ねたのと、こちらが話したことのある点を挙げて、もう一度説明してほしいと頼んだのは、もう一度と言っても、こちらではなく「そういう様子は無い」"
         self.assertIn(line, hear_choices(False)[HEAR_LOST])
-        self.assertNotIn(line, hear_choices(True)[HEAR_LOST])   # お呼びする段の文は変えない
+        self.assertIn(line, hear_choices(True)[HEAR_LOST])   # 分身 AQ：お呼びする段にも同じ文（AQCallingHearSameTest）
         it = next(i for i in self.items() if i["text"] == "すみません、会社名をもう一度教えてもらえますか？")
         self.assertEqual(G.hear_truths(it), (HEAR_OK,))   # 分身 AQ：正解の並び（hear_truths）にした
         q = (G.question_map() | questions())[it["qid"]]
@@ -53214,3 +53214,24 @@ class AQTwoReadsBordersTest(unittest.TestCase):
         h = t["J"]["数え"]["こちらの声が届いていない様子か"]
         self.assertTrue(any("正しい" in k for k in h), h)
         self.assertFalse(any("⛔" in k for k in h))
+
+
+class AQCallingHearSameTest(unittest.TestCase):
+    """分身 AQ（頼みの (3)＝分身 AP の書き置きの6章の (1)）：聞こえ方の境目の一文（聞き返しは届いていない様子・こちらの名前・会社名・用件を尋ねたのは、もう一度と言っても
+    そういう様子は無い）を、お呼びする段（目的のお客様の判定＝G-59）にも当てた（同じ理由＝10-19。文は1か所のまま）。G-59 の表の両側の正解は今のまま"""
+
+    def test_same_text_on_both_stages(self):
+        from flowctl import hear_choices
+        self.assertEqual(hear_choices(True), hear_choices(False))
+
+    def test_g59_rows_both_sides(self):
+        import g59_calling_judge as G
+        from flowctl import HEAR, HEAR_LOST, HEAR_OK
+        want = {"失礼ですが、どちら様でしょうか？": HEAR_OK, "失礼ですが、どういったご用件でしょうか？": HEAR_OK,
+                "すみません、もう一度大きな声でお願いできますか": HEAR_LOST, "あの、途中で切れちゃったみたいで、もう一度言ってもらえますか。": HEAR_LOST,
+                "電話が遠いみたいで、会社名のあたりが聞こえなかったんですが。": HEAR_LOST}
+        got = {}
+        for c in G.cases():
+            if c[0] in want:
+                got.setdefault(c[0], set()).update(c[5].get(HEAR) or ())
+        self.assertEqual(got, {k: {v} for k, v in want.items()})
