@@ -51879,3 +51879,23 @@ class AN46ReadingScenesTest(unittest.TestCase):
             self.assertEqual(len(out["rows"]), 1)
             self.assertIn("相手役の声が確かめに通っていない", out["rows"][0]["skipped"])
             self.assertIs(scenes.missing_voices, m.missing_voices)
+
+
+class ANSameWordsOneLineTest(unittest.TestCase):
+    """分身 AN の続きの (1)（書き置き rv191/AN/notes.md の (6-1)）：台詞の名前を決める1か所（make_callee_samples.talk_name・_talk_lines）は、手で名前を付けた台詞と同じ言葉なら、
+    その台詞を使う（同じ言葉の声を2つ作らない）。⛔ それまでは「そうなんですね。」が i_see と talk_9bdfadd6 の2つだった（お話に沿ったひとことのあとのお返事_1）"""
+
+    def test_one_name_for_one_words(self):
+        from collections import defaultdict
+
+        import make_callee_samples as m
+        import scenes
+        names = defaultdict(list)
+        for k, v in m.UTTERANCES.items():
+            names[m.text_and_how(v)[0]].append(k)
+        self.assertEqual({t: ks for t, ks in names.items() if len(ks) > 1}, {})
+        self.assertEqual(m.talk_name("そうなんですね。"), "i_see")
+        self.assertTrue(m.talk_name("うちは月曜が定休日なんですよ。").startswith("talk_"))   # 手で名前を付けていない言葉は今のまま
+        lines, _ = scenes.SCENES[f"{scenes.FOLLOW_SCENE}_1"].call()
+        self.assertEqual([x["wav"] for x in lines][2], "Puck_i_see.wav")
+        self.assertEqual(m.text_and_how(m.UTTERANCES["i_see"])[0], "そうなんですね。")   # 手の台詞の文と読み方は、表の言葉で上書きしない

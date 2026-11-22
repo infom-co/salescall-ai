@@ -194,16 +194,22 @@ UTTERANCES = {
 }
 
 
+# 手で名前を付けた台詞（上の一覧）の名前を、言葉から引く（試しの言葉の表から作る台詞の名前 talk_name が、同じ言葉ならこの名前を使う＝同じ言葉の声を2つ作らない）
+_NAMED = {(v if isinstance(v, str) else v[0]): k for k, v in UTTERANCES.items()}
+
+
 def talk_name(words: str) -> str:
-    """別のお話の台詞の名前（唯一の決め方＝言葉から決める。言葉は試しの言葉の表 review_words.TALK_WORDS の1か所＝ここに書き写さない）。"""
+    """別のお話の台詞の名前（唯一の決め方＝言葉から決める。言葉は試しの言葉の表 review_words.TALK_WORDS の1か所＝ここに書き写さない）。手で名前を付けた台詞と同じ言葉なら、
+    その台詞の名前（声も同じ1つ）。2026-11-22 分身 AN の続き：⛔ それまでは「そうなんですね。」が i_see と talk_9bdfadd6 の2つになり、声も2つ作ることになった"""
     import hashlib
-    return "talk_" + hashlib.sha1(words.encode("utf-8")).hexdigest()[:8]
+    return _NAMED.get(words) or "talk_" + hashlib.sha1(words.encode("utf-8")).hexdigest()[:8]
 
 
 def _talk_lines() -> dict[str, str]:
-    """会話AIの通話の試験（G-57）の別のお話の台詞（試しの言葉の表 review_words の1か所 talk_lines＝別のお話・2つ目のお返事・質問の種類ごとの場面の言葉）。"""
+    """会話AIの通話の試験（G-57）の別のお話の台詞（試しの言葉の表 review_words の1か所 talk_lines＝別のお話・2つ目のお返事・質問の種類ごとの場面の言葉）。手で名前を付けた台詞と
+    同じ言葉は足さない（その台詞を使う＝talk_name）。"""
     from review_words import talk_lines
-    return {talk_name(words): words for words in talk_lines()}
+    return {talk_name(words): words for words in talk_lines() if words not in _NAMED}
 
 
 UTTERANCES |= _talk_lines()
