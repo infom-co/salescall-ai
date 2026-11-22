@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from salescall.core import attempts, errors, gate, health, health_rules
+from salescall.core import answer_rate, attempts, errors, gate, health, health_rules
 from salescall.core.access import Tx
 from salescall.output import notices, words
 from salescall.web import links, names
@@ -53,6 +53,20 @@ def _lines(tx: Tx) -> list[Entry]:
             continue
         detail = st.stage.value + (f"・待っていること：{st.wait.value}" if st.wait else "")
         out.append(Entry(names.line_label(ln["name"], ln["caller_e164"]), detail, st.next_at, "/t/lines"))
+    return out
+
+
+def _answer_drops(tx: Tx) -> list[Entry]:
+    """今日、お客様に出てもらえた割合が大きく下がっている回線（計画書 8-6・5-2 の「応答率の低下」）。落ちたかを決めるのは core の
+    answer_rate.check の1か所（読むだけ。知らせは見守り役の answer_rate.watch が1回線1日1回出す）。画面では決め直さない。"""
+    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
+    out = []
+    for ln in tx.all("SELECT line_id, name, caller_e164 FROM salescall.lines WHERE retired_at IS NULL ORDER BY name, caller_e164, line_id"):
+        got = answer_rate.check(tx, tenant, ln["line_id"])
+        if got is None:
+            continue
+        out.append(Entry(names.line_label(ln["name"], ln["caller_e164"]),
+                         f"今日 {got.dials}本中 {got.answers}本＝{got.observed:.0%}（いつもの同じ時間帯なら約 {got.expected:.0%}）", None, "/t/lines"))
     return out
 
 
@@ -140,6 +154,9 @@ WATCHES: dict[str, Watch] = {
                                "管理者にだけ見えます。中身を「知らせ」の「管理者あて」で確かめてください。", "system", _undelivered(True)),
     "lines": Watch("確かめ中・休みの回線", "回線のせいか番号のせいかを確かめている回線と、休ませている回線です。直ったと確かめられると自動で戻ります"
                    "（休みから再開するときは「回線と PC」から）。", "tenant", _lines),
+    "answer_drops": Watch("出てもらえた割合が大きく下がっている回線（今日）", "今日お客様に出てもらえた割合が、その回線のいつもの同じ時間帯より"
+                          "大きく下がっています。番号が迷惑電話として扱われているおそれがあります。発信は止めていません。番号を休ませるか替えるかは、"
+                          "「回線と PC」で決めてください。", "tenant", _answer_drops),
     "ring_tests": Watch("テスト番号の結果（直近7日）", "回線が電話網につながるかを、テスト番号に鳴らして確かめた結果です。「見分けられなかった」ときは、"
                         "すぐお知らせしています。", "tenant", _ring_tests, attention=False),
     "undecided_rows": Watch("番号か回線か、決まらず休んでいるお客様", "お客様のところで鳴らなかった電話が、番号のせいか回線のせいか、同じ回線の次の電話で"

@@ -90,6 +90,24 @@ class WatchOnScreen(OurTroubles):
         self.assertIn("足りない録音：お名前「架空」", part[:3000])
         self.assertIn(f'/rows/{s["task"]}', part[:3000])
 
+    def test_a_line_whose_answer_rate_dropped_today_shows_with_the_numbers(self):   # 計画書 8-6・5-2「応答率の低下」（決めるのは core の1か所）
+        import unittest.mock
+        from salescall.core import answer_rate
+        s = self.ready()
+        asked = []
+
+        def check(tx, tenant, line_id, **_):
+            asked.append(tenant)
+            return answer_rate.Drop(40, 4, 0.1, 0.5, 0.0001)
+        with unittest.mock.patch.object(answer_rate, "check", check):
+            page = _http(s["tenant"]).get("/t/watch").text
+        self.assertTrue(asked and set(asked) == {s["tenant"]})                    # その契約者の取引で、その契約者として聞く
+        part = page[page.index('id="answer_drops"'):]
+        self.assertIn("今日 40本中 4本＝10%（いつもの同じ時間帯なら約 50%）", part[:3000])
+        with unittest.mock.patch.object(answer_rate, "check", lambda *a, **k: None):
+            page = _http(s["tenant"]).get("/t/watch").text
+        self.assertNotIn("今日 40本中", page)                                    # 落ちていなければ出ない
+
     def test_every_watch_says_where_it_is_read_and_what_it_means(self):
         for key, w in watch.WATCHES.items():
             with self.subTest(key=key):
