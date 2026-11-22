@@ -122,9 +122,10 @@
 {%- endmacro %}
 
 {#- 電話をかける・知らせを届けるための土台の抜け（答えは web/counts.readiness の1か所。ホーム・気をつけること・回線と PC が同じ部品で出す） -#}
-{% macro readiness(gaps) -%}
+{#- brief＝まとめて見る所（ホーム）：狭い幅では説明を2行までにする（全文は、押した先の画面の同じ札で読める） -#}
+{% macro readiness(gaps, brief=false) -%}
 {% for g in gaps %}
-<a class="card readiness attention-{{ 'stop' if g.kind == 'stop' else 'wait' }}" href="{{ g.link }}">
+<a class="card readiness attention-{{ 'stop' if g.kind == 'stop' else 'wait' }}{{ ' brief' if brief }}" href="{{ g.link }}">
   <b>{{ g.title }}</b><span class="muted">{{ g.how }}</span><span class="go-mark" aria-hidden="true">›</span>
 </a>
 {% endfor %}

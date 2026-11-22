@@ -10,7 +10,7 @@
 
 {#- 1段目：いま見ること（色が付くのは、することがあるときだけ） -#}
 <h2 class="home-band">いま見ること</h2>
-{{ readiness(ready) }}
+{{ readiness(ready, brief=true) }}
 <div class="grid cols-3 stats">
   <a class="card {{ 'attention-stop' if stops }}" href="/t/stops" style="text-decoration:none;color:inherit">
     {{ stat(words.page("stops"), stops|length, "stop") }}
