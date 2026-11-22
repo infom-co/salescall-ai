@@ -51724,26 +51724,35 @@ class AN57AnswerScenesTest(unittest.TestCase):
             self.assertFalse(scenes.SCENES[scenes.ANSWER_SCENES[1]].expect(call)["やわらかい言い方で終えた"], line)
 
     def test_4_a_question_back_is_answered_then_the_final_check(self):
+        # 判定の正解は境目（答えを伏せた読み手2人の読み＝束 an1 の #6）：「決められない」でも「パンフレットをお送りしてよろしいということ（言い切っていない）」でも、こちらへ尋ねた問いが
+        # ある＝どちらの読みでも、尋ねられたことに先に答え、確かめ直さない。相づちのあとの言い直しは、最終の確かめか言い切っていない答えの言い直し（4時11分28秒・4時23分33秒・
+        # 11時19分55秒）。「そうなんですね。」は、読み手2人とも「声かけへのお返事だけ」（束 an1 の #7）＝その読みを置いても動きは同じ
         import scenes
-        from flowctl import QUERY, QUERY_YES, UNDECIDED
+        from flowctl import PROMPT_REPLY, PROMPT_REPLY_YES, QUERY, QUERY_YES, UNDECIDED
         from meaning_judge import Reading
-        c = _SceneCall(scenes.ANSWER_SCENES[2])
-        asks = Reading(UNDECIDED)
-        setattr(asks, QUERY, QUERY_YES)
-        c.heard(asks)
-        r = c.judged()
-        self.assertEqual(r["result"], "callee_asked")
-        self.assertIn("こちらに尋ねています", r["message"])
-        r = c.own(self.ASKED)
-        self.assertEqual((r["result"], r["say"]), ("own_answer", self.ASKED))
-        c.heard(Reading(UNDECIDED))
-        r = c.report("replay_opening", {"part": "resume"})
-        self.assertEqual((heard_words(r), r.get("after")), ("はい、それではパンフレットをお送りさせていただきましょうか？", "final_do"))
-        c.heard(Reading("はい"))
-        r = c.report("confirm_field", {"question_id": "R9", "result": "affirmed"})
-        self.assertEqual((r["result"], c.f.export()["R9"]), ("end", "はい"))
-        checks = scenes.SCENES[scenes.ANSWER_SCENES[2]].expect(c.call())
-        self.assertTrue(all(checks.values()), checks)
+        for cond, firm, said, after in ((UNDECIDED, True, "はい、それではパンフレットをお送りさせていただきましょうか？", "final_do"),
+                                        ("はい", False, "はい、それではパンフレットをお送りさせていただきますね？", "hedged_do")):
+            c = _SceneCall(scenes.ANSWER_SCENES[2])
+            asks = Reading(cond, firm=firm)
+            setattr(asks, QUERY, QUERY_YES)
+            c.heard(asks)
+            r = c.judged()
+            if r is None:   # 答えに寄っている読みは報告の無いターンでは応じない＝会話AIが聞いた答えのとおりに報告する
+                r = c.report("record_answer", {"question_id": "R9", "condition_id": "はい"})
+            self.assertEqual(r["result"], "callee_asked", cond)
+            self.assertIn("「送ってもらったほうがいいですかね？」", r["message"], cond)
+            r = c.own(self.ASKED)
+            self.assertEqual((r["result"], r["say"]), ("own_answer", self.ASKED), cond)
+            nod = Reading(UNDECIDED)
+            setattr(nod, PROMPT_REPLY, PROMPT_REPLY_YES)
+            c.heard(nod)
+            r = c.report("replay_opening", {"part": "resume"})
+            self.assertEqual((heard_words(r), r.get("after")), (said, after), cond)
+            c.heard(Reading("はい"))
+            r = c.report("confirm_field", {"question_id": "R9", "result": "affirmed"})
+            self.assertEqual((r["result"], c.f.export()["R9"]), ("end", "はい"), cond)
+            checks = scenes.SCENES[scenes.ANSWER_SCENES[2]].expect(c.call())
+            self.assertTrue(all(checks.values()), (cond, checks))
         # 外れの形：答えずに言い直して確かめた（「それではパンフレットをお送りさせていただきますね？」）
         call = c.call()
         call["turns"][1]["tool_events"] = [{"name": "record_answer", "args": {"question_id": "R9", "condition_id": "はい"}, "reply": "confirm_required"}]
