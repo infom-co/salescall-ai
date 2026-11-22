@@ -150,6 +150,15 @@ class UiaScreen:
         except Exception:
             return "unknown"
 
+    # ── 折り返しの着信（計画書 8-7 ✅ 2026-11-23 管理者「イ」。docs/PHONE.md 2-8）。⏳ 着信の窓・番号・出るボタンの部品の名前は R-10 で読んでから
+    #    表 SCREEN に足す。それまでは、着信を「着信中」と読まず（いまの state は着信の窓を calling と読みうる＝かけない側）、番号は読まず、
+    #    出る操作は断る（出られない＝鳴らしたまま＝スマホの留守番電話）。推し量った部品の名前で押さない。
+    def incoming_number(self) -> str:
+        return ""
+
+    def answer(self) -> None:
+        raise NotImplementedError("着信に出る操作は、R-10 で画面の部品を読んでから作ります")
+
     def timer(self, call: Any | None = None) -> str | None:
         call = call or self._win("call")
         if call is None:

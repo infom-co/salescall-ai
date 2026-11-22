@@ -52,6 +52,16 @@ class FakeScreen:
         self.hung += 1
         self.now = "idle"
 
+    seen = "090-0000-0000"   # 架空の着信の番号（画面の文字のまま）
+    answered = 0
+
+    def incoming_number(self):
+        return self.seen
+
+    def answer(self):
+        self.answered += 1
+        self.now = "in_call"
+
     sms_error = None
 
     def send_sms(self, number, text):
@@ -313,6 +323,49 @@ class Apology(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IncomingCall(unittest.TestCase):
+    """折り返しの着信（計画書 8-7 ✅ 2026-11-23 管理者「イ」・docs/PHONE.md 2-8）：鳴ったら番号の文字のまま知らせ、鳴っているあいだは発信せず、
+    サーバーが「出る」と言ったときだけ出る。出ないまま鳴り終わったら、それも知らせる。"""
+
+    def setup(self):
+        screen = FakeScreen()
+        p, events, clock = None, [], Clock()
+        p = rakuten_link.RakutenLink(screen, FakeSound(), lambda v: None, clock=clock.now, sleep=clock.sleep, watch_every=None)
+        p.on_event(events.append)
+        return p, screen, events
+
+    def test_a_ringing_call_is_told_with_the_number_as_seen_and_answered_only_when_told(self):
+        p, screen, events = self.setup()
+        screen.now = "ringing_in"
+        p.poll_state()
+        self.assertEqual(events, [{"kind": "incoming", "phone_seen": "090-0000-0000"}])   # 形をそろえるのはサーバー
+        self.assertTrue(p.in_call())                                              # 鳴っているあいだは発信しない
+        with self.assertRaises(CallNotPlaced):
+            p.start_call("+819000000001", national="09000000001")
+        self.assertEqual(screen.answered, 0)                                      # 言われるまで出ない
+        p.answer_incoming()
+        self.assertEqual(screen.answered, 1)
+        p.poll_state()
+        self.assertEqual(events[-1], {"kind": "answered"})
+
+    def test_a_call_that_stopped_ringing_is_told_and_cannot_be_answered(self):
+        p, screen, events = self.setup()
+        screen.now = "ringing_in"
+        p.poll_state()
+        screen.now = "idle"
+        p.poll_state()
+        self.assertEqual(events[-1], {"kind": "incoming_ended"})
+        with self.assertRaises(CallNotPlaced):
+            p.answer_incoming()
+        self.assertEqual(screen.answered, 0)
+
+    def test_the_real_screen_does_not_answer_until_its_parts_are_read(self):
+        from salescall.agent.phones import screen_uia
+        self.assertEqual(screen_uia.UiaScreen.incoming_number(object.__new__(screen_uia.UiaScreen)), "")
+        with self.assertRaises(NotImplementedError):
+            screen_uia.UiaScreen.answer(object.__new__(screen_uia.UiaScreen))
 
 
 class SameShapeAsThePhoneOfTheLink(unittest.TestCase):

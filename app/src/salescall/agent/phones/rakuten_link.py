@@ -35,7 +35,9 @@ LINKED_FRESH = 3.0         # usable が覚えた「スマホと連携してい�
 class Screen(Protocol):
     """Rakuten Link の画面を操作する口（本物は UI Automation。⏳ 部品の名前は R-5・R-6 で決める）。"""
     def linked(self) -> bool | None: ...          # スマホと連携しているか（分からなければ None）
-    def state(self) -> str: ...                   # "idle"・"calling"・"in_call"・"unknown"
+    def state(self) -> str: ...                   # "idle"・"calling"・"in_call"・"ringing_in"（着信が鳴っている）・"unknown"
+    def incoming_number(self) -> str: ...         # 着信の画面に出ている番号の文字のまま（名前しか出ない・読めなければ ""）。⏳ R-10
+    def answer(self) -> None: ...                 # 着信に出る（出るボタンを押す。押せなければ例外）。⏳ R-10
     def dial(self, phone_e164: str) -> None: ...   # 番号を入れて発信を押す（押せなければ例外）
     def hang_up(self) -> None: ...
     def send_sms(self, number: str, text: str) -> None: ...   # 国内の形の番号へ1通（宛先が連絡先に無ければ LookupError）
@@ -94,6 +96,25 @@ class RakutenLink:
             self._pending = []   # 切った電話の声の印は残さない（次の電話に持ち越さない）
         self.sound.stop()
         self.screen.hang_up()
+
+    def answer_incoming(self) -> None:
+        """鳴っている着信に出る（計画書 8-7 ✅ 2026-11-23 管理者「イ：AI が出て名乗り、そのお客様の続きの電話として話す」。docs/PHONE.md 2-8）。
+        出るか出ないかを決めるのはサーバー（どのお客様か・止めているか＝CL-2 の1か所）で、部品は「出る」と言われたときだけ出る（AI のいない
+        無言の電話にしない）。鳴っていない・出られなかった＝CallNotPlaced（つながっていない）。出られたら、発信と同じく answered を知らせる。"""
+        with self._lock:
+            if self._state() != "ringing_in":
+                raise CallNotPlaced("着信が鳴っていない（鳴り終わった・もう出ている）")
+            self._tone = None
+            try:
+                self.screen.answer()
+            except Exception as e:
+                raise CallNotPlaced(f"着信に出る操作ができなかった：{type(e).__name__}") from None
+            end = self.clock() + DIAL_WAIT
+            while self.clock() < end:
+                if self._state() == "in_call":
+                    return
+                self.sleep(0.1)
+            raise CallNotPlaced("出るボタンを押しても、通話にならなかった")
 
     def test_ring(self, phone_e164: str, *, national: str) -> bool | None:
         """テスト番号へかけ、この回線から電話網へ発信できたかを答える（計画書 8-2・8-8。答えの意味は `link.phone.Phone.test_ring`）。
@@ -251,13 +272,22 @@ class RakutenLink:
             return "unknown"
 
     def poll_state(self) -> None:
-        """画面の状態を1回読み、移ったら出来事を知らせる（つながった answered・切れた ended）。"""
+        """画面の状態を1回読み、移ったら出来事を知らせる（つながった answered・切れた ended・着信が鳴った incoming＝番号の文字のまま・
+        出ないまま鳴り終わった incoming_ended。着信の名前は ⏳ CL-2 と決める＝CL-3 のお願い 80）。番号の形をそろえるのはサーバーの1か所。"""
         state = self._state()
         if state != self._last_state:
             if state == "in_call":
                 self._send_event({"kind": "answered"})
+            elif state == "ringing_in":
+                try:
+                    seen = self.screen.incoming_number() or ""
+                except Exception:
+                    seen = ""
+                self._send_event({"kind": "incoming", "phone_seen": seen})
             elif state == "idle" and self._last_state in ("calling", "in_call"):
                 self._send_event({"kind": "ended"})
+            elif state == "idle" and self._last_state == "ringing_in":
+                self._send_event({"kind": "incoming_ended"})
             self._last_state = state
 
     def _watch(self, every: float) -> None:
