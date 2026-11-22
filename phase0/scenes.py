@@ -16,12 +16,12 @@ import json
 import re
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
-from convo import callee_voice_for, callee_wav, run_call
+from convo import callee_voice_for, run_call
 from g22_opening import BUSINESS, W
 from g30_latency import keep_call
 from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import VOICE_TYPES, Target
-from make_callee_samples import UTTERANCES, talk_name, text_and_how, verified
+from make_callee_samples import UTTERANCES, missing_voices, talk_name, text_and_how
 from meaning_judge import STANDIN, add_judge_args, make_judges
 from flowctl import OWN_PARTS, PROMISE, refusal_in
 from review_words import TALK_WORDS, questions as review_questions
@@ -827,8 +827,8 @@ async def run(args) -> dict:
             for vt in args.type or VOICE_TYPES:
                 head = {"rep": rep, "scene": name, "type": vt, "note": sc.note}
                 lines, kw = sc.call()
-                missing = [x["wav"] for x in lines if "wav" in x and not verified(callee_wav(x["wav"], callee_voice_for(vt)))]
-                if missing:  # 確かめに通っていない相手役の声では動かさない
+                missing = missing_voices(lines, callee_voice_for(vt))
+                if missing:  # 確かめに通っていない相手役の声では動かさない（答え直しの台詞も＝make_callee_samples.missing_voices の1か所）
                     rows.append({**head, "skipped": f"相手役の声が確かめに通っていない：{missing}"})
                     say(f"[{rep}] {name} {vt}：動かさない（相手役の声が確かめに通っていない {missing}）")
                     continue

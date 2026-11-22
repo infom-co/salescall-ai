@@ -186,6 +186,11 @@ UTTERANCES = {
     "thinking_unsure": ("うーん、どうしようかな…。", "どうしようか考え込むように、語尾を小さく伸ばして、言い終えずに"),
     "hesitate_card": ("カードか振込か迷っています。", "どちらにするか迷っている様子で"),
     "ask_send": ("送ってもらったほうがいいですかね？", "こちらの考えを尋ねるように、語尾をはっきり上げて"),
+    # 2026-11-22 分身 AN（担当 AK の棚卸しの P13）：名前の読みの直し（G-46＝g46_reading_more）で、読みの中に「さ」「ん」のある読みへ直す（分身 AJ の書き置き rv191/AJ/notes.md の
+    # (続6-1)＝直していただいた読みの「さ」「ん」まで消していた形が、測りの名前に無かった）。カタカナで書いて読みを決める（上の「ナカシマ」と同じ。⛔「いえ、」は「え、」に聞こえる＝「いや、」）
+    "correct_saidou": "いや、サイドウです。",
+    "correct_kanno": "いや、カンノです。",
+    "name_only_kanno": "カンノです。",
 }
 
 
@@ -212,7 +217,7 @@ TONES = {"fax_tone": "fax"}
 PAUSED = {"hold_target_pause": ("hold_target", 1.5), "okada_whois_pause": ("okada_whois", 1.5)}
 # 別の耳は名前を漢字で書くので、カタカナで書いた名前の読みは比べられない（「中島」＝なかじま と読んでしまう）。名前だけ、その漢字に
 # 直してから比べる（読みそのものは G-44 の書き起こしで確かめた）。名前の一覧ではなく、この試験の材料の名前だけ
-NAME_SPELLINGS = {"ナカシマ": "中島", "カクタ": "角田", "カドタ": "角田"}
+NAME_SPELLINGS = {"ナカシマ": "中島", "カクタ": "角田", "カドタ": "角田", "サイドウ": "斎藤", "カンノ": "菅野"}
 INSTRUCTION = "あなたは音声の材料を作る係です。渡された言葉だけを、そのまま、自然な日本語で読み上げます。言葉を足しません。"
 # お客役の話し方（Leda・Sadachbia）：お店や会社から電話を受けた、ふつうのお客さん。営業や受付のような話し方にしない
 CUSTOMER_INSTRUCTION = ("あなたは、お店から電話を受けた、ふつうのお客さんです。渡された言葉だけを、そのまま、電話の相手に答えるように話します。"
@@ -280,6 +285,14 @@ def verified(wav: str) -> bool:
     index = OUT / "index.json"
     made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
     return any(m.get("wav") == wav and m.get("ok") is True and matches_script(m) for m in made)
+
+
+def missing_voices(lines: list, voice: str) -> list[str]:
+    """試験の台詞の並び lines（場面の相手役の台詞＝{"wav": …}・答え直しの台詞 if_asked_target・こちらの言った値で答えが変わる台詞 yes／no）のうち、声 voice の録音が
+    確かめ（verified）に通っていないもの（唯一の見分け＝通話の試験は、通っていない声では動かさない＝G-57 scenes.run・G-46 g46_reading_more.run）。"""
+    from convo import callee_wav
+    wavs = [x[k] for x in lines if isinstance(x, dict) for k in ("wav", "if_asked_target", "yes", "no") if k in x]
+    return list(dict.fromkeys(w for w in wavs if not verified(callee_wav(w, voice))))
 
 
 # 日本語の言葉の種類として範囲が決まっている一覧（業務や場面ごとの一覧ではない）

@@ -51757,3 +51757,125 @@ class AN57AnswerScenesTest(unittest.TestCase):
                            ("カードになさいますか？", False), ("", False)):
             self.assertEqual(soft_end(text), want, text)
 
+
+class AN46ReadingScenesTest(unittest.TestCase):
+    """分身 AN（担当 AK の棚卸しの P13・分身 AJ の書き置き rv191/AJ/notes.md の (6-4)・(続6-1)）：名前の読みの確かめの試験（G-46＝g46_reading_more.SCENES）に、(C) 読みの中に「さ」「ん」の
+    ある読みへの直し（「斎藤」さいとう→さいどう・「菅野」すがの→かんの）と、(D) 業務の名前の質問の答えの「（お名前）様」の言い直しを聞いたあとに直されたとき（会話AIが直した値を
+    どう報告するか・記録の値に「様」が残らないか・言い直しの「様」は1回か）を足した。台詞は相手役の言葉だけ（声はまだ作らない＝確かめに通っていない声の場面は動かさない＝
+    make_callee_samples.missing_voices の1か所・G-57 と同じ）。あわせて、どの場面の台詞の1つ目も電話に出た方の第一声にした（⛔ 10-24 から、台詞の1つ目を第一声として聞き、
+    そのあとの台詞が1つずつずれていた）。場面の正解は、本番の流れの制御（業務の Business.flow）に会話AIの正しい報告を通して出す（下の drive）。"""
+
+    @staticmethod
+    def drive(name: str, reports: list) -> tuple[dict, list[str]]:
+        """G-46 の場面 name を、会話AIの報告 reports（第一声のあとの台詞ごと。人の報告は先頭に足す）で流れの制御に通し、通話の記録（convo.run_call の形のうち
+        g46_reading_more.measures が読む所）と、こちらの言葉の並びを返す。もう確かめが済んだ質問への、値で答えの変わる台詞は飛ばす（convo.run_call と同じ）。"""
+        import g46_reading_more as g
+        from flowctl import label
+        from make_callee_samples import UTTERANCES, text_and_how
+        biz, lines, _ = g.SCENES[name]
+        f = biz.flow(play_recordings=True)
+        f.on_connect()
+        plan, turns, said = iter([("report_party", {"party": "person"}), *reports]), [], []
+        for line in lines:
+            if "if_value" in line:
+                qid, want = line["if_value"]
+                if f.items[qid].state in ("confirmed", "dont_know", "refused"):
+                    continue
+                line = {"wav": line["yes"] if f.items[qid].value == want else line["no"]}
+            f.on_callee(); f.on_heard(text_and_how(UTTERANCES[line["wav"].removeprefix("Puck_").removesuffix(".wav")])[0])
+            op, args = next(plan)
+            r = f.apply(op, args)
+            if op == "report_party" and r.get("result") not in ("opening", "end"):
+                r = f.on_first_words_end()
+            said.append(heard_words(r))
+            turns.append({"callee": line, "intended": "", "audio_seconds": 0,
+                          "tool_events": [{"name": op, "args": args, "reply": r.get("result"), "play": r.get("play"), "say": r.get("say")}]})
+            if r.get("play"):
+                f.on_played([p["text"] for p in r["play"]])
+        call = {"turns": turns, "flow_log": f.log,
+                "items": {k: {"state": v.state, "value": v.value, "condition": label(v.condition)} for k, v in f.items.items()}}
+        return call, said
+
+    @staticmethod
+    def plan(n1: list) -> list:
+        affirm = lambda q: ("confirm_field", {"question_id": q, "result": "affirmed"})   # noqa: E731
+        return [("record_answer", {"question_id": "Q1", "condition_id": "はい"}), *n1, affirm("N1"),
+                ("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "15日の午後2時"}), affirm("Q2")]
+
+    @staticmethod
+    def corrected(value: str):
+        return ("confirm_field", {"question_id": "N1", "result": "corrected", "correction": value})
+
+    def test_1_every_scene_starts_with_the_first_words_and_lines_come_from_the_one_list(self):
+        import g46_reading_more as g
+        import make_callee_samples as m
+        from scenes import FIRST_WORDS
+        for name, (_, lines, _) in g.SCENES.items():
+            self.assertIn(lines[0]["wav"].removeprefix("Puck_").removesuffix(".wav"), FIRST_WORDS, name)
+            self.assertEqual(lines[0], g.FIRST, name)   # 目的の人の無い業務＝お客様ご本人の第一声（scenes.Scene.call と同じ）
+            for x in lines:
+                for k in ("wav", "yes", "no"):
+                    if k in x:
+                        self.assertIn(x[k].removeprefix("Puck_").removesuffix(".wav"), m.UTTERANCES, name)
+        self.assertEqual({n: (b.questions[1].reading_of, b.questions[1].readings, w) for n, (b, _, w) in g.SCENES.items() if n.startswith("C")},
+                         {"C さいどうに直す": ("斎藤", ("さいとう", "さいどう"), "さいどう"), "C かんのに直す": ("菅野", ("すがの", "かんの"), "かんの"),
+                          "C 名前だけかんの": ("菅野", ("すがの", "かんの"), "かんの")})
+        # 業務の名前の質問（名前の型）：答えは「（お名前）様」で言い直す（分身 AJ の試験 AJNameSamaTest の質問と同じ文）
+        q = g.SCENES["D 様の言い直しのあとに直す"][0].questions[1]
+        self.assertEqual((q.id, q.type, q.text), ("N1", "name", AJNameSamaTest.Q))
+        # 相手役の名前の声の読みは、別の耳が書く漢字に直して比べる（台詞の表と同じ1か所）
+        self.assertEqual({k: m.NAME_SPELLINGS[k] for k in ("サイドウ", "カンノ")}, {"サイドウ": "斎藤", "カンノ": "菅野"})
+        self.assertTrue(m.sample_ok("いや、サイドウです。", "いや、斎藤です。")["ok"])
+
+    def test_2_readings_with_sa_and_n_are_kept_when_corrected(self):
+        # 直していただいた読みの「さ」「ん」を消さずに確かめ、確かめた読みもそのまま（⛔ 65d28d02 まで「さいどう」を「いどう」・「かんの」を「かの」と確かめた）
+        import g46_reading_more as g
+        for name, likely, want in (("C さいどうに直す", "さいとう", "さいどう"), ("C かんのに直す", "すがの", "かんの"), ("C 名前だけかんの", "すがの", "かんの")):
+            call, said = self.drive(name, self.plan([self.corrected(want)]))
+            self.assertEqual(said[1], f"はい、お名前の読みの方は「{likely}」様でよろしかったでしょうか？", name)
+            self.assertEqual(said[2], f"失礼いたしました。改めましてお名前の読みの方は「{want}」様でよろしかったでしょうか？", name)
+            m = g.measures(call, want)["checks"]
+            self.assertEqual((m["scene_ok"], m["asked"], m["n1_final"], m["ai_heard_right"], m["ai_sama"], m["record_sama"], m["restated_sama"]),
+                             (True, [likely, want], ("confirmed", want), True, [], False, [1]), name)
+
+    def test_3_the_corrected_name_after_a_sama_restatement(self):
+        # 業務の名前の質問：「カドタです。」→「はい、ありがとうございます。かどた様でよろしいでしょうか？」→「いや、カクタです。」。会話AIが直した値に「様」を付けて報告しても
+        # （分身 AJ の (6-4)）、言い直しの「様」は1回・記録の値は「かくた」（値を受け取る1か所 flowctl.normalize_value）。数えは、会話AIの報告の形（ai_sama）を分けて残す
+        import g46_reading_more as g
+        name = "D 様の言い直しのあとに直す"
+        for reported, sama in (("かくた様", ["かくた様"]), ("かくた", []), ("カクタ", [])):
+            call, said = self.drive(name, self.plan([("record_answer", {"question_id": "N1", "condition_id": "答えた", "value": "かどた"}),
+                                                     self.corrected(reported)]))
+            self.assertEqual(said[2], "はい、ありがとうございます。かどた様でよろしいでしょうか？", reported)
+            self.assertEqual(said[3].count("様"), 1, reported)
+            m = g.measures(call, "かくた")["checks"]
+            self.assertEqual((m["scene_ok"], m["ai_heard_right"], m["ai_sama"], m["record_sama"], m["restated_sama"]), (True, True, sama, False, [1]), reported)
+        # 外れの形：記録の値に「様」が残った・言い直しで「様」を重ねた
+        call, _ = self.drive(name, self.plan([("record_answer", {"question_id": "N1", "condition_id": "答えた", "value": "かどた"}), self.corrected("かくた")]))
+        call["items"]["N1"]["value"] = "かくた様"
+        call["flow_log"] = [dict(e, reply=dict(e["reply"], say="失礼いたしました。改めましてかくた様様で大丈夫でしょうか？"))
+                            if e["op"] == "confirm_field" and e["args"].get("result") == "corrected" else e for e in call["flow_log"]]
+        m = g.measures(call, "かくた")["checks"]
+        self.assertEqual((m["record_sama"], m["restated_sama"]), (True, [2]))
+
+    def test_4_scenes_without_verified_voices_are_not_run(self):
+        # 確かめに通っていない相手役の声では動かさない（make_callee_samples.missing_voices の1か所＝G-57 の scenes.run と G-46 の g46_reading_more.run）。
+        # 答え直しの台詞（if_asked_target）と、こちらの言った値で答えの変わる台詞（yes・no）も見る
+        import asyncio
+
+        import g46_reading_more as g
+        import make_callee_samples as m
+        import scenes
+        ok = {"Leda_hello.wav", "Leda_affirm.wav"}
+        with unittest.mock.patch.object(m, "verified", side_effect=lambda w: w in ok):
+            self.assertEqual(m.missing_voices([{"wav": "Puck_hello.wav"}, {"wav": "Puck_affirm.wav", "if_asked_target": "Puck_not_okada.wav"},
+                                               {"if_value": ("N1", "かんの"), "yes": "Puck_affirm.wav", "no": "Puck_correct_kanno.wav"}, {"silence_s": 2.0}],
+                                              "Leda"), ["Puck_not_okada.wav", "Puck_correct_kanno.wav"])
+            args = SimpleNamespace(repeat=1, only=["C 名前だけかんの"], pause=0.0, model="m", key_index=0)
+            with unittest.mock.patch.object(g, "make_client", return_value=None), unittest.mock.patch.object(g, "pick_key", return_value=None), \
+                    unittest.mock.patch.object(g, "run_call", side_effect=AssertionError("動かさない")), unittest.mock.patch.object(g, "save_partial"), \
+                    unittest.mock.patch.object(g, "say"):
+                out = asyncio.run(g.run(args))
+            self.assertEqual(len(out["rows"]), 1)
+            self.assertIn("相手役の声が確かめに通っていない", out["rows"][0]["skipped"])
+            self.assertIs(scenes.missing_voices, m.missing_voices)
