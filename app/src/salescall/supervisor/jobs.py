@@ -20,6 +20,7 @@ from salescall.core import (agents, ai_versions, answer_rate, attempts, backup, 
                             gate, health,
                             leases, measure, next_action, quality_stage, recording_audio, recordings, settle, usage, watch)
 from salescall.core.access import Access
+from salescall.link.protocol import RemoteError
 from salescall.supervisor import ACTOR, config, line, plugins, report
 from salescall.supervisor.links import Links
 
@@ -314,6 +315,20 @@ def contract_ends(ctx: Context) -> None:
           lambda c: ctx.access.in_tenant(ACTOR, ctx.tenant_id, lambda tx: contract_end.forget(tx, c)))
 
 
+def drive_removals(ctx: Context) -> None:
+    """契約が終わった依頼者のハードディスクの控えを、頼まれた分だけ、その契約者の PC に消させる（イ。0286）。つないでいる PC が無ければ、しない
+    （次の回に）。PC が消せなければ、その結果を残して次の回にまた頼む。"""
+    writer = ctx.links.writer(ctx.tenant_id)
+    if writer is None:
+        return
+    for r in ctx.access.in_tenant(ACTOR, ctx.tenant_id, contract_end.drive_removals):
+        try:
+            removed, error = writer.remove_folder(r["folder"]), None
+        except RemoteError as e:
+            removed, error = None, str(e)
+        ctx.access.in_tenant(ACTOR, ctx.tenant_id, lambda tx, r=r: contract_end.record_drive_removal(tx, r, removed=removed, error=error))
+
+
 def backup_watch(ctx: Context) -> None:
     """この契約者の控えが取れているか（その契約者の PC が止まっていても動く＝取れないことに気づく）。"""
     _each(ctx, "控えの見張り", _clients(ctx), lambda c: backup.watch_client(ctx.access, ctx.tenant_id, c))
@@ -390,7 +405,8 @@ JOBS: tuple[Job, ...] = (
     Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup, heavy=True),
     Job("backup_watch", 3600, "tenant", 600, backup_watch),
     Job("apologies", 60, "tenant", 600, apologies, heavy=True),
-    Job("contract_ends", 3600, "tenant", 1800, contract_ends),   # 契約が終わった依頼者をサーバーから外す（猶予が過ぎ、最後の控えを確かめたら）   # おわびの録音を PC へ配る（つないで1分のうちに。PC を待つので別の組で）
+    Job("contract_ends", 3600, "tenant", 1800, contract_ends),
+    Job("drive_removals", 300, "tenant", 1800, drive_removals, heavy=True),   # 頼まれたハードディスクの控えを消す（イ。PC を待つので別の組で）   # 契約が終わった依頼者をサーバーから外す（猶予が過ぎ、最後の控えを確かめたら）   # おわびの録音を PC へ配る（つないで1分のうちに。PC を待つので別の組で）
     Job("lasting_stops", 300, "tenant", 600, lasting_stops),
     Job("fixed_stops", 60, "tenant", 300, fixed_stops),
     Job("storage_recovery", 15, "tenant", 300, storage_recovery),   # データベースの止まりからの復旧（E21。見直し29a の 1）

@@ -58,6 +58,9 @@ class Failing:
     def prune(self, *a, **k):
         raise RemoteError(self.message, ask=self.ask)
 
+    def remove_folder(self, *a, **k):
+        raise RemoteError(self.message, ask=self.ask)
+
 
 class Backup(unittest.TestCase):
     def setUp(self):

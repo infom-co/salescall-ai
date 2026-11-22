@@ -10,6 +10,8 @@
 - 外すのは salescall.forget_client の1か所（`forget`。見守り役の仕事 contract_ends が、契約者の取引のシステムの処理で呼ぶ）。残す表・外す表・
   消してよいかの判断は、表の作り 0285 の説明のとおり（ほかの依頼者・契約者の判断に使う記録は残す）。外したあとは「使う」に戻せない。
 - ハードディスクの控えは、契約終了になった依頼者の分を日数で消さない（backup.prune_rules が `ended_clients` を読む）。
+- ハードディスクの控えを消すのは、管理者か契約者が画面で頼んだときだけ（イ。`request_drive_removal`。外したあとの依頼者だけ＝データベースが守る。
+  0286）。見守り役の仕事 drive_removals が、その契約者の PC に頼み、結果を残す（`record_drive_removal`）（失敗は次の回にまた頼む）。
 """
 
 from __future__ import annotations
@@ -93,3 +95,25 @@ def forget(tx: Tx, client_id: UUID) -> dict[str, Any]:
                 summary="契約が終わったので、サーバーからこの依頼者のデータを外しました（ハードディスクの控えは残っています）。",
                 refs={"client_id": client_id}, admin=True)
     return removed
+
+
+def request_drive_removal(tx: Tx, *, reason: str) -> int:
+    """取引の依頼者のハードディスクの控えを消すのを頼む（外したあとの依頼者だけ・管理者か契約者だけ＝データベースが守る）。頼んだ番号を返す。"""
+    return tx.one("INSERT INTO salescall.client_drive_removals (tenant_id, client_id, reason)"
+                  " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s) RETURNING removal_id", (reason.strip(),))["removal_id"]
+
+
+def drive_removals(tx: Tx) -> list[dict[str, Any]]:
+    """取引の契約者の、まだ消し終えていない頼み（頼んだ順。removal_id・client_id・folder＝その依頼者のハードディスクのフォルダの名前）。"""
+    return tx.all(
+        "SELECT r.removal_id, r.client_id, f.folder_name AS folder FROM salescall.client_drive_removals r"
+        " JOIN salescall.client_backup_folders f ON f.client_id = r.client_id"
+        " WHERE NOT EXISTS (SELECT 1 FROM salescall.client_drive_removal_results x WHERE x.removal_id = r.removal_id AND x.ok)"
+        " ORDER BY r.removal_id")
+
+
+def record_drive_removal(tx: Tx, removal: dict[str, Any], *, removed: int | None, error: str | None) -> None:
+    """PC が消した結果を残す（システムの処理だけ＝データベースが守る。失敗も残し、次の回にまた頼む）。"""
+    tx.execute("INSERT INTO salescall.client_drive_removal_results (removal_id, tenant_id, client_id, ok, removed, error)"
+               " VALUES (%s, salescall.cur_tenant(), %s, %s, %s, %s)",
+               (removal["removal_id"], removal["client_id"], error is None, removed, error))

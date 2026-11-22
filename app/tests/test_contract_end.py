@@ -8,11 +8,17 @@ import uuid
 from datetime import datetime, timedelta
 from unittest import mock
 
+import tempfile
+from pathlib import Path
+
+from salescall.agent import backup as pc
 from salescall.core import backup, contract_end
+from salescall.link.backup_files import AI, BASE, RECORDING, WHOLE
 from salescall.core.access import Rejected
 from salescall.supervisor import jobs
 from salescall.supervisor.links import NoLinks
 from tests.support import ADMIN, OPERATOR, SYSTEM, World, owner_access
+from tests.test_backup import Failing, writer
 from tests.test_gate import HOLDER
 from tests.test_settle import SettleBase
 
@@ -144,6 +150,60 @@ class ContractEnd(SettleBase):
         with mock.patch.object(contract_end, "forget_after", lambda tx: timedelta(0)):
             self.assertEqual(self.state(s).blocked, "提出用のファイルを、まだハードディスクへ写していません")
             self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], contract_end.forget_ready), [])
+
+    def forgotten(self, s):
+        """契約終了 → 控えを確かめる → 外す（猶予は待たない）。"""
+        self.w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: contract_end.end(tx, reason="試験"))
+        self.backed_up(s)
+        with mock.patch.object(contract_end, "forget_after", lambda tx: timedelta(0)):
+            jobs.contract_ends(jobs.Context(self.w.a, None, HOLDER, NoLinks(), s["tenant"]))
+        self.assertTrue(self.state(s).forgotten)
+
+    def test_the_drive_folder_is_removed_only_when_asked_after_the_removal(self):
+        """イ（✅ 2026-11-22 管理者）：ハードディスクの控えを消すのは、外したあとの依頼者について、管理者か契約者が頼んだときだけ。PC は、その依頼者の
+        フォルダの決まった種類の控えだけを消す（データベース全体の控え・人が置いたファイルは消さない）。消せなければ結果を残して、次の回にまた頼む。"""
+        s, waiting = self.ready(), self.ready()
+        self.w.a.in_client(OPERATOR, waiting["tenant"], waiting["client"], lambda tx: contract_end.end(tx, reason="試験"))
+        ask = lambda x, actor=OPERATOR: self.w.a.in_client(actor, x["tenant"], x["client"], lambda tx: contract_end.request_drive_removal(  # noqa: E731
+            tx, reason="試験：もう要らない"))
+        with self.assertRaises(Rejected) as refused:                             # 外す前（サーバーにまだ中身がある）は頼めない
+            ask(waiting)
+        self.assertEqual(refused.exception.constraint, "drive_removal_after_forget")
+        self.forgotten(s)
+        with self.assertRaises(Rejected) as refused:
+            ask(s, SYSTEM)
+        self.assertEqual(refused.exception.constraint, "drive_removal_by_person")
+        root = Path(tempfile.mkdtemp(prefix="salescall-test-hdd-"))
+        (root / pc.DRIVE_MARK).write_text("控え用")
+        folder = backup.client_folder(self.w.a, s["tenant"], s["client"])
+        files = []
+        for kind, name in ((AI, "salescall-20261101-010000.ai.enc"), (RECORDING, "salescall-20261101-010000-x-call.enc")):
+            (root / BASE / folder / kind).mkdir(parents=True)
+            files.append(root / BASE / folder / kind / name)
+            files[-1].write_bytes(b"x")
+        memo, whole = root / BASE / folder / "人が置いたメモ.txt", root / BASE / WHOLE / AI / "salescall-20261101-010000.dump.enc"
+        memo.write_text("消さない")
+        whole.parent.mkdir(parents=True)
+        whole.write_bytes(b"x")
+
+        class Links(NoLinks):
+            def __init__(self, w):
+                self.w = w
+
+            def writer(self, tenant_id):
+                return self.w
+        ctx = lambda w: jobs.Context(self.w.a, None, HOLDER, Links(w), s["tenant"])   # noqa: E731
+        ask(s)
+        jobs.drive_removals(ctx(Failing("試験：ハードディスクが外れている")))          # 消せない：結果を残し、頼みは残る
+        self.assertEqual(len(self.w.a.in_tenant(SYSTEM, s["tenant"], contract_end.drive_removals)), 1)
+        jobs.drive_removals(ctx(writer(root)))
+        self.assertEqual([f.exists() for f in files] + [memo.exists(), whole.exists()], [False, False, True, True])
+        self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], contract_end.drive_removals), [])
+        results = owner_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT ok, removed, error FROM salescall.client_drive_removal_results WHERE client_id = %s ORDER BY result_id", (s["client"],)))
+        self.assertEqual([(r["ok"], r["removed"]) for r in results], [(False, None), (True, 2)])
+        with self.assertRaises(pc.WriteFailed):                                   # データベース全体の控えのフォルダは消さない
+            pc.remove_client_folder(pc.Drive(root), WHOLE)
 
     def test_every_client_table_is_either_kept_or_removed_on_purpose(self):
         """表を足したら、残すか外すかを決める（決めずに足すと、ここが落ちる）。残す表は salescall.forget_kept_tables の1か所。"""

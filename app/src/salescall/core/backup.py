@@ -53,6 +53,10 @@ class Writer(Protocol):
 
     def prune(self, folders: dict[str, Any]) -> int: ...
 
+    def remove_folder(self, name: str) -> int:
+        """契約が終わった依頼者のフォルダの控えを消す（0286。消したファイルの数を返す）。"""
+        ...
+
 
 @dataclass(frozen=True)
 class Result:

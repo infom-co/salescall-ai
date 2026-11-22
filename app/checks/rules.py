@@ -242,6 +242,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "client_states": {"INSERT": frozenset({_CORE + "registry.py"})},
     "client_contract_ends": {"INSERT": frozenset({_CORE + "contract_end.py"})},          # 契約終了（0285）
     "client_contract_end_cancels": {"INSERT": frozenset({_CORE + "contract_end.py"})},   # 契約終了の取り消し（0285）
+    "client_drive_removals": {"INSERT": frozenset({_CORE + "contract_end.py"})},         # ハードディスクの控えを消す頼み（0286）
+    "client_drive_removal_results": {"INSERT": frozenset({_CORE + "contract_end.py"})},  # その結果（0286）
     "businesses": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
     "runs": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
     "lines": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},

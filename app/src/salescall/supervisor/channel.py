@@ -673,6 +673,12 @@ class RemoteWriter:
             raise RemoteError(str(got.get("error") or "PC の部品が古い控えを片付けられませんでした"), ask=got.get("ask"))
         return int(got.get("removed") or 0)
 
+    def remove_folder(self, name: str) -> int:
+        got = self._ask("remove_folder", wait=300, folder=name)
+        if not got.get("ok"):
+            raise RemoteError(str(got.get("error") or "PC の部品が依頼者のフォルダの控えを消せませんでした"), ask=got.get("ask"))
+        return int(got.get("removed") or 0)
+
 
 @dataclass
 class ApologySender:

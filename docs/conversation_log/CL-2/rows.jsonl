@@ -4706,3 +4706,9 @@
 {"at": "2026-11-23T06:50:20+09:00", "who": "CL-2", "text": "全部の組（56組・2,113件）が合格しました（第16便で試験の組が1つ増えて56組です）。main に上げる手順に進みます。"}
 {"at": "2026-11-23T06:50:29+09:00", "who": "CL-2", "text": "main の変更は Intent.md と phase0・文書だけでした。CL-1 の比べの試験を流している間に、CL-1 と CL-3 の新しい私あての知らせを読みます。"}
 {"at": "2026-11-23T06:53:18+09:00", "who": "CL-2", "text": "第15便・第16便を main に上げました（2f7944a0）。CL-1 と CL-3 への知らせを書きます。"}
+{"at": "2026-11-23T06:54:22+09:00", "who": "CL-2", "text": "Next the code: protocol (version 11), PC side, server writer, core, job."}
+{"at": "2026-11-23T06:54:44+09:00", "who": "CL-2", "text": "Now core (`contract_end`): request, pending list, and the job that runs it."}
+{"at": "2026-11-23T06:54:56+09:00", "who": "CL-2", "text": "I left a placeholder; replacing it with a record function and putting the loop in the job (core stays transaction-only)."}
+{"at": "2026-11-23T06:55:12+09:00", "who": "CL-2", "text": "Now the test for the HD-folder removal."}
+{"at": "2026-11-23T06:55:48+09:00", "who": "CL-2", "text": "5つとも通りました。壊し試しを足して流します。"}
+{"at": "2026-11-23T06:56:53+09:00", "who": "CL-2", "text": "壊し試しは6つとも、試験が見つけました。記録を書いてコミットします。"}

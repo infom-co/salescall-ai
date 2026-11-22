@@ -340,6 +340,8 @@ class Agent:
                 receiving.put(None)
         elif kind == "prune":
             self._spawn(self._prune(msg))
+        elif kind == "remove_folder":
+            self._spawn(self._remove_folder(msg))
         elif kind == "stop_playing":
             if (line := p.uuid_of(msg.get("line"))) in self.lines and line in self.phones:
                 self.phones[line].stop_playing()   # 答えない（止めたことは、電話の部品が出来事 stopped で返す）
@@ -480,6 +482,12 @@ class Agent:
 
     async def _prune(self, msg: dict[str, Any]) -> None:
         out = await self._write(lambda: self.writer.prune(msg.get("folders") or {}))
+        if out.get("ok"):
+            out = {"ok": True, "removed": out["value"]}
+        await self._send_now(p.dumps("backup_done", id=msg.get("id"), **out))
+
+    async def _remove_folder(self, msg: dict[str, Any]) -> None:
+        out = await self._write(lambda: self.writer.remove_folder(str(msg.get("folder") or "")))
         if out.get("ok"):
             out = {"ok": True, "removed": out["value"]}
         await self._send_now(p.dumps("backup_done", id=msg.get("id"), **out))

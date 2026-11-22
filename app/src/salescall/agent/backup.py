@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from salescall.link import sealing
-from salescall.link.backup_files import AI, BASE, DRIVE_MARK, PART, RECORDING, good_folder, good_name, held_call, taken_at
+from salescall.link.backup_files import AI, BASE, DRIVE_MARK, KINDS, PART, RECORDING, WHOLE, good_folder, good_name, held_call, taken_at
 from salescall.link.jst import JST
 from salescall.link.protocol import RemoteError
 
@@ -157,6 +157,32 @@ def prune(drive: Drive, folders: dict[str, Any], now: datetime | None = None) ->
     return removed
 
 
+def remove_client_folder(drive: Drive, name: str) -> int:
+    """契約が終わった依頼者のフォルダの控えを消す（✅ 2026-11-22 管理者「イ」。0286。サーバーが、外したあとの依頼者について、管理者か契約者が
+    頼んだときだけ頼む）。消すのは決まった種類（AI用・提出用・録音）のフォルダの中だけ。データベース全体の控えのフォルダは消さない。人が置いた
+    ほかのファイルは消さず、依頼者のフォルダが空になったときだけ、そのフォルダも消す。消したファイルの数を返す。"""
+    if not drive.attached():
+        raise DriveMissing("控え用のハードディスクがつながっていません")
+    if name == WHOLE or not good_folder([name, AI]):
+        raise WriteFailed("消してよい依頼者のフォルダの名前ではありません")
+    removed = 0
+    for kind in KINDS:
+        place = drive.place([name, kind])
+        if not place.is_dir():
+            continue
+        for f in sorted(place.rglob("*"), key=lambda x: len(x.parts), reverse=True):   # 深い方から（中のファイル → フォルダ）
+            if f.is_dir():
+                f.rmdir()
+            else:
+                f.unlink()
+                removed += 1
+        place.rmdir()
+    folder = drive.root / BASE / name
+    if folder.is_dir() and not any(folder.iterdir()):
+        folder.rmdir()
+    return removed
+
+
 @dataclass(frozen=True)
 class LocalWriter:
     """この PC のハードディスクと鍵に書く（PC の部品が、サーバーの頼みを受けて使う。誤りは、サーバーへ返す形＝RemoteError にする）。"""
@@ -169,6 +195,9 @@ class LocalWriter:
 
     def prune(self, folders: dict[str, Any]) -> int:
         return as_remote(lambda: prune(self.drive, folders))
+
+    def remove_folder(self, name: str) -> int:
+        return as_remote(lambda: remove_client_folder(self.drive, name))
 
 
 def as_remote(work: Any) -> Any:

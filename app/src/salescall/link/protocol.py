@@ -49,6 +49,8 @@ PC → サーバー：
                                                    PC の指紋と違うものだけ（中央の見守り役の仕事 apologies＝配るべき録音は core の recordings.apology_audio）
   backup_end {id}
   prune {id, folders}                              古い控えを消す（folders＝フォルダごとに、種類・残す日数・消さないもの）
+  remove_folder {id, folder}                       契約が終わった依頼者のフォルダの控えを消す（管理者か契約者が画面で頼んだとき。0286。答えは
+                                                   backup_done {id, ok, removed?, error?}。消すのは決まった種類の控えだけ＝agent.backup.remove_client_folder）
   stop_playing {line}                              その回線で流している声と、まだ流していない声を捨てて止める（答えを待たない頼み。止めた
                                                    ひと続きごとに、出来事 stopped が返る。流れの制御の見張りが外れた言葉を止めると決めたとき）
   emergency_state {event, open, at?}               PC の緊急停止の記録の状態（open=true＝記録した：at の押しに番号を書く／
@@ -68,7 +70,7 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-VERSION = 10                 # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected。
+VERSION = 11                 # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected。
                              # 4＝number_rejected をやめ not_placed の1つに（だれのせいかは証拠で決める＝0129）・期限切れは withheld。
                              # 5＝テスト番号に鳴るか試す test_ring＝0134。6＝test_ring の答えの意味：true＝回線から発信できた（話し中・
                              # 電源オフ・圏外のお知らせも）・null＝見分けられない・試さなかったときは error withheld＝0141・0143）。
@@ -77,6 +79,7 @@ VERSION = 10                 # やり取りの形の版（変えたら上げる�
                              # 9＝AI の声は枠 VOICE で印 ref つき・止める stop_playing・声の出来事 played・stopped（CL-3 の連絡帳 69）
                              # 10＝おわびの録音を前もって配る apology_begin・合図の apologies（CL-3 の連絡帳 74）。その声の型のおわびの録音を
                              # 持たない PC は、その声の型の start_call をかけない（error withheld。つながりが切れたとき、お客様を無言で切るため）
+                             # 11＝契約が終わった依頼者のフォルダの控えを消す remove_folder（0286。✅ 2026-11-22 管理者「イ」）
 BEAT_EVERY = 15              # 動いている合図の間隔（秒）
 REPLY_WAIT = 20              # 頼んだことの答えを待つ長さ（秒。過ぎたら「分からない」＝かけない側）
 APOLOGY_WAIT = 60            # 「おわびして切って」の答えを待つ長さ（秒）。おわびは2つの録音とお客様の返事の待ちで REPLY_WAIT を超えうる。
@@ -97,8 +100,8 @@ PLAYED, STOPPED = "played", "stopped"   # 声の出来事の種類（phone_event
 REF = re.compile(r"[A-Za-z0-9_-]{1,64}")   # 声のひと続きの印（サーバーが決める短い文字）
 
 PC_TO_SERVER = frozenset({"hello", "beat", "reply", "phone_event", "backup_ack", "backup_done", "emergency"})
-SERVER_TO_PC = frozenset({"welcome", "refuse", "request", "backup_begin", "apology_begin", "backup_end", "prune", "emergency_state",
-                          "stop_playing"})
+SERVER_TO_PC = frozenset({"welcome", "refuse", "request", "backup_begin", "apology_begin", "backup_end", "prune", "remove_folder",
+                          "emergency_state", "stop_playing"})
 # おわびの録音の部分（つながりが切れたときに PC が流す2つ＝共通の一言の名前。正本の名前は CL-1 の phrases.RECORDED・core の common_phrases）。
 # 配る（core の recordings.apology_audio）・持っているかを見る（PC の部品の `apologies_ready`）の1か所
 APOLOGY_PARTS: tuple[str, ...] = ("line_trouble_ask", "line_trouble_bye")
