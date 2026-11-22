@@ -205,6 +205,14 @@ class People(unittest.TestCase):
         self.assertIsNone(people.by_session(self.plain, again.token))
         self.assertIsNone(people.login(self.plain, login, TEST_PASSWORD))
         self.assertIsNotNone(people.login(self.plain, login, "あたらしいパスワードです123"))
+        # 管理者も、自分のパスワードは、いまのパスワードを確かめてから（開いたままの画面から替えさせない。CL-3 のお願い 82）
+        aid, alogin = self.make(self.a["tenant"], "admin")
+        admin_me = people.by_session(self.plain, people.login(self.plain, alogin, TEST_PASSWORD).token)
+        for current in (None, "ちがう"):
+            with self.subTest(current=current), self.assertRaises(people.PasswordRefused):
+                people.set_password(self.plain, admin_me, aid, "あたらしいパスワードです123", current=current)
+        people.set_password(self.plain, admin_me, aid, "あたらしいパスワードです123", current=TEST_PASSWORD)
+        self.assertIsNotNone(people.login(self.plain, alogin, "あたらしいパスワードです123"))
         # 続けて決めた回数（初め5回）誤ると、正しいパスワードでも決めた長さのあいだ断る
         for _ in range(5):
             self.assertIsNone(people.login(self.plain, login, "ちがうパスワードです12345"))

@@ -119,9 +119,11 @@ def first_admin(tx: Tx, *, tenant_name: str, name: str, login_id: str, password:
 
 
 def set_password(app: Access, person: Person | None, target: UUID, password: str, *, current: str | None = None) -> None:
-    """パスワードを決める・替える（1か所）。本人（person が target）は、いまのパスワード（current）を確かめてから替える。管理者は、ほかの方の
-    パスワードを決められる（全体の取引）。替えたら、その方の前のログインの印は、すべて使えなくする（ほかの所で開いたままの画面も）。"""
-    if person is not None and person.person_id == target and not person.is_admin:
+    """パスワードを決める・替える（1か所）。本人（person が target）は、管理者でも、いまのパスワード（current）を確かめてから替える（開いたままの
+    画面から、いまのパスワードを知らずに替えさせない）。管理者は、ほかの方のパスワードを決められる（全体の取引）。替えたら、その方の前のログインの
+    印は、すべて使えなくする（ほかの所で開いたままの画面も）。⛔ 2026-11-23（CL-3 のお願い 82）まで：本人の確かめを「管理者でない」ときだけに
+    していたので、管理者が自分のパスワードを替えるときは、いまのパスワードを確かめていなかった。"""
+    if person is not None and person.person_id == target:
         row = app.in_system(LOGIN_CHECKER, lambda tx: _lookup(tx, person.login_id))
         if current is None or row is None or row["hash"] is None or not _matches(current, row["hash"]):
             raise PasswordRefused("いまのパスワードが合いません")
