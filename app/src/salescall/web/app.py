@@ -2187,7 +2187,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 if not troubles.restore(tx, task_id, reason=str(form.get("reason") or "")):
                     raise actions.Refused("このお客様は、いま休んでいません（もう戻ったか、待っている理由が変わりました）。何も変えていません。")
             out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do),
-                              done="戻しました。このお客様に、またおかけします（同じ不具合で続けて終われば、また休みます）。", reason_field="reason")
+                              done="休みから再開しました。このお客様に、またおかけします（同じ不具合で続けて終われば、また休みます）。", reason_field="reason")
             return _back(base, out)
         return handle(request, render)
 

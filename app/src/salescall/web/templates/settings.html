@@ -101,12 +101,14 @@
 {% set mine = rows|selectattr("own")|list %}
 {#- この段より上の段（値を受け継ぐ元）の名前。どの段でも話が合うように、いまの段から作る -#}
 {% set uppers = {"tenant": ["システムの初めの値"], "client": ["システムの初めの値", "契約者"], "business": ["システムの初めの値", "契約者", "依頼者"]}.get(level, []) %}
-{% if level != "system" %}
+{#- 0件のときは札にせず1行だけ（2026-11-22 の見直し：スマホで、空の札が1画面を占め、目次と設定が画面の外に押し出されていた） -#}
+{% if level != "system" and mine %}
 <section class="card own-list">
   <h2>ここで決めている値 <span class="muted">（{{ mine|length }}）</span></h2>
-  {% if mine %}<ul>{% for r in mine %}<li><a href="#s-{{ r.key|replace('.', '-') }}">{{ r.label }}</a>：<b>{{ r.shown }}</b></li>{% endfor %}</ul>
-  {% else %}<p class="muted">まだありません。{{ uppers|join("・") }}で決めた値のまま動いています。変えるときは、下の項目の「変える」を押します。</p>{% endif %}
+  <ul>{% for r in mine %}<li><a href="#s-{{ r.key|replace('.', '-') }}">{{ r.label }}</a>：<b>{{ r.shown }}</b></li>{% endfor %}</ul>
 </section>
+{% elif level != "system" %}
+<p class="muted own-none">ここで決めている値は、まだありません（{{ uppers|join("・") }}で決めた値のまま）。</p>
 {% endif %}
 <div class="settings-filter"><input type="text" placeholder="設定を探す（例：時間帯・回数・間隔）" data-filter=".setting" aria-label="設定を探す"></div>
 {#- ふだん変える設定のまとまりだけを開いて並べ、ほかは「くわしい設定」にたたむ（どれがふだんのまとまりかは words.EVERYDAY_GROUPS の1か所。

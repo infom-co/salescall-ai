@@ -66,7 +66,7 @@ class WatchOnScreen(OurTroubles):
         http = _http(s["tenant"])
         row = f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}/rows/{s["task"]}'
         page = http.get(row).text
-        self.assertIn("手で戻す", page)
+        self.assertIn("休みから再開", page)
         token = re.search(r'name="form_token" value="([^"]+)"', page).group(1)
         none = http.post(f"{row}/restore", data={"form_token": token, "reason": ""}, follow_redirects=False)
         self.assertIn("ok=0", none.headers["location"])                         # 理由が無ければ戻さない
@@ -75,7 +75,7 @@ class WatchOnScreen(OurTroubles):
         self.assertTrue(r.headers["location"].startswith(row + "?"))
         self.assertIn("ok=1", r.headers["location"])
         self.assertFalse(self.resting(s, s["task"]))                            # core の troubles.restore が戻した
-        self.assertNotIn("手で戻す", http.get(row).text)
+        self.assertNotIn("休みから再開", http.get(row).text)
         again = http.post(f"{row}/restore", data={"form_token": token, "reason": "試験：もう1回"}, follow_redirects=False)
         self.assertIn("ok=0", again.headers["location"])                        # もう休んでいない＝断る・何も変えない
 

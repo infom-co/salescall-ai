@@ -24,12 +24,12 @@
     <dl class="facts">
       <dt>次の予定</dt><dd>{% set mc = pending|selectattr("kind", "equalto", "more_calls")|first %}{{ next_tag(row.next_kind, row.next_call_at, row.next_end_reason, waiting=mc.title if mc else "") }}</dd>
       {% if rest %}<dt>休み</dt><dd>{{ tag("休んでいます", "wait") }}<div class="muted">{{ rest }}</div>
-        {{ info("task.trouble_restore", "手で戻す") }}
-        <details class="adder"><summary class="btn small">手で戻す</summary>
+        {{ info("task.trouble_restore", "休みから再開") }}
+        <details class="adder"><summary class="btn small">休みから再開</summary>
           <form class="panel" method="post" action="{{ base }}/rows/{{ row.task_id }}/restore" data-needs-reason>{{ csrf(token) }}
             <label class="field">理由（記録に残ります）</label><input type="text" name="reason" placeholder="例：直ったことを確かめた">
-            <p class="muted">直ったことを確かめてから戻してください。戻すと、このお客様にまたおかけします（同じ不具合で続けて終われば、また休みます）。</p>
-            <button class="btn main small" type="submit" data-submit disabled>戻す</button></form></details></dd>{% endif %}
+            <p class="muted">直ったことを確かめてから再開してください。再開すると、このお客様にまたおかけします（同じ不具合で続けて終われば、また休みます）。</p>
+            <button class="btn main small" type="submit" data-submit disabled>再開する</button></form></details></dd>{% endif %}
       <dt>結果</dt><dd>{{ words.word(words.BUSINESS_STATES, row.business_state).screen }}
         {% if can_correct %}
         <details class="adder" id="result-fix"><summary class="btn small">結果を直す</summary>
@@ -44,7 +44,7 @@
         {% endif %}</dd>
       <dt>かけた回数</dt><dd class="num">{{ row.attempts }}</dd>
       <dt>かけるか</dt><dd>{{ tag(words.exclusion_level(level), words.tone("stopped" if level == "force" else "normal")) }}
-        {#- その場で変える操作は、どれも「押すと開く小窓」の1つの形（結果を直す・手で戻すと同じ） -#}
+        {#- その場で変える操作は、どれも「押すと開く小窓」の1つの形（結果を直す・休みから再開と同じ） -#}
         <details class="adder"><summary class="btn small">かけるかを変える</summary>
           <form class="panel" method="post" action="{{ base }}/exclude" data-needs-reason
                 data-confirm="お客様「{{ row.source_name or '（会社名なし）' }}」を「{select:level}」にします。" data-confirm-ok="変える">{{ csrf(token) }}

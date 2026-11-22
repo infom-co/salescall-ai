@@ -44,7 +44,7 @@
           {% else %}<div class="pc-none">どの PC にもつながっていません（このままでは電話はかかりません）</div>{% endif %}{% endif %}</td>
       <td class="nowrap">{{ rename("/t/lines/" ~ l.line_id ~ "/name", "回線", l.name, token) }}{% if not l.retired_at %}
         {% if l.resting %}
-        <details class="adder"><summary class="btn small">手で再開</summary>
+        <details class="adder"><summary class="btn small">休みから再開</summary>
           <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/resume" data-needs-reason data-confirm-ok="再開する"
                 data-confirm="回線「{{ line_label(l.name, l.caller_e164) }}」を再開します。この回線で、またおかけします（同じ不具合で続けて終われば、また休みます）。">{{ csrf(token) }}
             <p class="muted">直ったことを確かめてから再開してください。</p>
