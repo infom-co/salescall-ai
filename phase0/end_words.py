@@ -309,11 +309,12 @@ def calling_flow(row: tuple):
     _, words, ends, _, _ = row
     if ends[0] == END_NONE:
         return None
-    from flowctl import Flow
     import g59_flow_check as fc
-    b = fc.b_full   # 測りの業務（フルネームのある形）の唯一の定義（g59_flow_check.b_full。⛔ d8d03a78 まで、ここにも同じ定義を書いていた＝頼み rv140/AB の (2) の (b)）
-    f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts())
-    f.use_checks("judge")
+    # 流れの制御は、お呼びする段の測りの場面を組む1か所（g59_flow_check.scene＝業務設定の入口 instruction.Business.flow）で、行の業務（business_of の1か所＝印 full の
+    # フルネームのある形 b_full）から作る（同じ問いに答える所を2つ作らない＝10-18）。⛔ 2026-11-22 分身 AP まで、ここで Flow(…) を直接作っていた（業務設定の入口を通らず、
+    # かけた番号・個人のお客様・業務の設定を渡さない形＝分身 AM の書き置きの6章の (6-1)。今の業務＝フルネームのある会社の電話では、お客様に聞こえる言葉・記録・残る印は同じ＝
+    # rv192/AP/probe/ap/calling_rows_*.txt）。d8d03a78 まで業務の定義もここに書いていた（頼み rv140/AB の (2) の (b)）
+    f, _, _ = fc.scene([], business=fc.business_of({"full": True}))
     f.on_callee(); f.on_heard(words); f.on_check("judge", _reading(UNDECIDED, ends[0]))
     r = f.apply("request_end", {"reason": "not_transferred"})
     return f, _spoken(r), _marks(f)

@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import functools
 
-from flowctl import (POINT_UNSAID, ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_NONE, ABOUT_WRONG, ABSENT_WHY, ABSENT_WHY_NOT_SAID, AWAY, END, END_NONE, HEAR, HEAR_OK, OFFER,
-                     OFFER_NOT_SAID, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, ELSEWHERE, ELSEWHERE_ALL, ELSEWHERE_NO, HESITATING, KEEP_ON,
-                     END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PHONE, PHONE_NONE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
-                     REFUSED_LABEL, REPEAT, HEAR_LOST, SPEAKER, SPEAKER_SAME, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHO, WHO_RECEPTION, WHY_NOT_SAID, WRONG,
+# お呼びする段の案の3行（CALLING_WORDS）を消したとき、そこだけで使っていた取り込み（目的のお客様の判定の項目・申し出・出られない理由・電話を終える言葉か・聞こえ方の名前）も
+# 外した（同じ3行は g59_calling_judge.LINES_OWN＝2026-11-22 分身 AP）
+from flowctl import (POINT_UNSAID, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_WRONG, AWAY, END_NONE, HEAR,
+                     AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, ELSEWHERE, ELSEWHERE_ALL, ELSEWHERE_NO, HESITATING, KEEP_ON,
+                     END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
+                     REFUSED_LABEL, REPEAT, HEAR_LOST, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHY_NOT_SAID, WRONG,
                      WRONG_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question, ladder_side_name, pain_question, since_form,
                      NEAR, NEAR_OFF, MISGIVING, MISGIVING_OFF, MISGIVING_UNSAID, UNTIL_WHY, UNTIL_LABEL, UNTIL_WHY_NOT_SAID, CYCLE, CYCLE_LABEL, CYCLE_NOT_SAID)
 from grounding import TOUCHED, UNTOUCHED, one_touched
@@ -252,7 +254,11 @@ def answer_words() -> list[dict]:
         # こちらの名前・会社名を頼みの形で聞いた（「こちらへ尋ねた問いがある」の説明に入れた＝まとめ役 CL-1 の頼み rv178/X の6回目 (1)(3)。✅ 2026-11-06 日本時間15時20分30秒
         # 「(1)…OK」＝こちらの名前・会社名を尋ねたのは「もう一度言ってほしい」ではない）。答えは言っていない。別のお話かは付けない（どちらの読みも正解）
         _row("R1", "もう一度お名前をよろしいですか？", [UNDECIDED], None, QUERY_YES, why="頼みの形でこちらの名前を聞いた＝こちらへ尋ねた問い", reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
-        _row("R1", "すみません、会社名をもう一度教えてもらえますか？", [UNDECIDED], None, QUERY_YES, why="頼みの形でこちらの会社名を聞いた＝こちらへ尋ねた問い",
+        _row("R1", "すみません、会社名をもう一度教えてもらえますか？", [UNDECIDED], None, QUERY_YES,
+             why="頼みの形でこちらの会社名を聞いた＝こちらへ尋ねた問い。束 p1 の #38：答えの読み・こちらへ尋ねた問い・別のお話か（答えの話と別のお話の境目＝付けない）は"
+                 "読み手2人とも作った側と同じ。こちらの声が届いていない様子かは、読み手2人とも「そういう様子は無い」と「届いていない様子」の境目と読んだが、2つの読みで"
+                 "すぐあとに切れたときの切れ方（callee_cannot_hear）が違う＝決まりで決まる側（そういう様子は無い＝聞こえなかったとは言わずに名前・会社名を尋ねた。"
+                 "✅ 11-06 日本時間15時20分30秒の (1)）を説明の1か所（flowctl.hear_choices の答えの段の一文）に書いた＝正解は今のまま（2026-11-22 分身 AP）",
              reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY),
         _row("R1", "うちは振込だと手間なんですよね。", [UNDECIDED, "カード"], AWAY_YES, hedged=True, reason=WHY_OTHER,
              why="答えの手がかりだけのご事情＝別のお話（✅ 2026-11-15 日本時間21時55分35秒「伺い26：ア」）。振込を避ける向きに寄った考え"
@@ -828,8 +834,11 @@ AG_ROWS = [
 # 読むと、聞き取れたがはっきりしない扱いになる」）：答えの段・支払いの質問（R1）への崩れた言葉。正解は言葉と説明の文だけから決めた：どの言葉も、どの答えの向きも言い切って
 # いない（答えの言葉のかけらでも「言ったことから必ずその答えになる」とは言えない）＝決められない。言いかけて続きそうな言葉（言いよどみ）は「考えている途中」の説明（言いよどんで
 # いる最中で、このあと続けて答えそうなとき）にも当たる＝境目。別のお話か＝答えの話（ご事情・世間話・ほかの話題ではない＝「別のお話」の説明に当たらない。別のお話と読むと、ひとこと
-# 応えて伺い直す動きになる）。数える項目＝確かな「決められない」で、聞き取れたがはっきりしない扱い（聞き直す）になるか。⏳ 仮＝答えを伏せた読み手の束 b2（rv191/AL/readers）
-_GARBLED_WHY = "崩れた言葉。どの答えの向きも言い切っていない（かけらから「言ったことから必ずその答えになる」とは言えない）＝決められない・別のお話ではない＝答えの話。⏳ 仮（束 b2）"
+# 応えて伺い直す動きになる）。数える項目＝確かな「決められない」で、聞き取れたがはっきりしない扱い（聞き直す）になるか。答えを伏せた読み手の束 b2（rv191/AL/readers・CL-1 の
+# 並べた表 rv192/w/b2_readers.txt）：5行とも2人の読みは作った側の正解の中＝仮を外した。「か……ど……で……」「……ふ……りこ……」は2人とも「カード」「振込」と組み立てる読みも挙げ、
+# 1人は組み立ててよいかの決まりが説明に無いと書いた＝崩れた言葉から元の言葉を推し量って組み立てない、を答えを選ぶ決まりの1か所（meaning_judge.LEAN）に書いた（✅ 10-19
+# 「『ご時』…表示されてる時点でおかしいと判断しないと」・帳面 0-3「言葉からは言えない答えを正解に入れない」）＝正解は決められないのまま（2026-11-22 分身 AP）
+_GARBLED_WHY = ("崩れた言葉。どの答えの向きも言い切っていない（かけらから「言ったことから必ずその答えになる」とは言えない・元の言葉を推し量って組み立てない＝meaning_judge.LEAN）＝決められない・別のお話ではない＝答えの話（束 b2 の読み手2人の読みの中）")
 GARBLED_ROWS = [
     _row("R1", "ちょ……と……", [UNDECIDED, THINKING], AWAY_NO, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
          why=_GARBLED_WHY + "。言いかけて続きそう＝考えている途中との境目"),
@@ -847,23 +856,24 @@ GARBLED_ROWS = [
 # 束2 の P4（分身 AL＝担当 AK の棚卸しの P4・帳面 1 の (1) の (iv)・CL-1_OPEN の (A)(18)）：どの点かを伺う一言（phrases.CALLBACK_ASK_WHICH の other_point「ほかにご不明な点は
 # どのようなことになりますでしょうか？」＝✅ 2026-11-06 日本時間9時05分17秒）へのお返事。場面は POINT_WHICH_SCENE（g53_meaning._point_which_scene＝ご承認の手順の N2 に「はい、まだあります。」
 # ＝点は言っていない、と答えたあと、流れの制御がこの一言で伺った所。お返事は同じ質問 N2 の答えとして読む＝Flow._point_step）。正解は言葉と、N2 の選べるものの説明（flowctl._ROLE_MEANINGS
-# の other_point）だけから決めた。いちばん近い答えは、どの行も答えの読みが決められないではない（B1 の決め方）。⏳ 仮＝答えを伏せた読み手の束 b2（rv191/AL/readers）
+# の other_point）だけから決めた。いちばん近い答えは、どの行も答えの読みが決められないではない（B1 の決め方）。答えを伏せた読み手の束 b2（rv191/AL/readers）：7行とも
+# 2人の読みは作った側の正解の中＝仮を外した（「いや、いろいろとですね。」は2人とも「点は言っていない」を挙げ、もう1つの読みが2人で違う＝作った側の正解のまま。2026-11-22 分身 AP）
 _WP = "N2"
 WHICH_POINT_ROWS = [
     _row(_WP, "料金の支払い方法のところです。", ["分からない点がある"], scene=POINT_WHICH_SCENE, near=[NEAR_OFF], value="料金の支払い方法",
-         why="分からない点（支払い方法）を言った＝「分からない点がある」（分からない点・確かめたい点を言った）。⏳ 仮（束 b2）"),
+         why="分からない点（支払い方法）を言った＝「分からない点がある」（分からない点・確かめたい点を言った）。束 b2 の読み手2人とも同じ"),
     _row(_WP, "解約するときの手続きがよく分からなくて。", ["分からない点がある"], scene=POINT_WHICH_SCENE, near=[NEAR_OFF], value="解約するときの手続き",
-         why="分からない点（解約の手続き）を言った。⏳ 仮（束 b2）"),
+         why="分からない点（解約の手続き）を言った。束 b2 の読み手2人とも同じ"),
     _row(_WP, "ええと、さっきの料金のところをもう一度。", ["分からない点がある"], scene=POINT_WHICH_SCENE, near=[NEAR_OFF], value="料金のところ",
-         why="確かめたい点（料金）を言って、もう一度の説明を頼んだ＝分からない点がある（聞き取れなかったとは言っていない＝「もう一度言ってほしい」の説明に当たらない）。⏳ 仮（束 b2）"),
+         why="確かめたい点（料金）を言って、もう一度の説明を頼んだ＝分からない点がある（聞き取れなかったとは言っていない＝「もう一度言ってほしい」の説明に当たらない）。束 b2 の読み手2人とも「分からない点がある」（1人は「もう一度言ってほしい」との境目にも挙げた＝作った側の正解の中）"),
     _row(_WP, "いや、いろいろとですね。", [POINT_UNSAID], scene=POINT_WHICH_SCENE, near=[NEAR_OFF],
-         why="あると言ったが、どの点かは言っていない（試験 ApprovalTest の伺ったあとの言葉と同じ）。⏳ 仮（束 b2）"),
+         why="あると言ったが、どの点かは言っていない（試験 ApprovalTest の伺ったあとの言葉と同じ）。束 b2 の読み手2人とも「点は言っていない」を挙げ、もう1つの読み（考えている途中・決められない）が2人で違う＝作った側の正解のまま"),
     _row(_WP, "うーん、なんて言えばいいんですかね…。", [POINT_UNSAID, THINKING], scene=POINT_WHICH_SCENE, near=[NEAR_OFF],
-         why="どの点かは言っていない・言いよどんで続けて言いそう＝考えている途中との境目。⏳ 仮（束 b2）"),
+         why="どの点かは言っていない・言いよどんで続けて言いそう＝考えている途中との境目。束 b2 の読み手2人の読みの中"),
     _row(_WP, "やっぱり大丈夫です、分かりました。", ["分かった"], scene=POINT_WHICH_SCENE, near=[NEAR_OFF],
-         why="分かった＝ご納得いただけない点は無い。⏳ 仮（束 b2）"),
+         why="分かった＝ご納得いただけない点は無い。束 b2 の読み手2人とも同じ"),
     _row(_WP, "正直、今の業者で十分なんですよね。", ["断ろうとしている"], scene=POINT_WHICH_SCENE, near=[NEAR_OFF],
-         why="今の業者で十分という理由を挙げて、お断りしようとしている＝「断ろうとしている」。⏳ 仮（束 b2）"),
+         why="今の業者で十分という理由を挙げて、お断りしようとしている＝「断ろうとしている」。束 b2 の読み手2人とも同じ"),
 ]
 
 
@@ -980,27 +990,6 @@ PREP3_ROWS = [
 ]
 
 
-# お呼びする段（目的のお客様の判定＝G-59）の番号違いの試しの言葉（分身 AC＝頼みの (2)）のうち、ご本人の電話の行。行＝(相手の言葉, 場面, 正解)。
-# 場面＝{"asked": 確かめる一言への返事か, "own_phone": ご本人の電話か}（判定の説明の文は flowctl.target_facets(asked, False, own_phone) の1か所）。正解＝{項目の名前:
-# 正しい選べるものの集まり}（書いていない項目は数えない）。2026-11-20 rv176/S：答えを伏せた読み手2人（rv176/S/readers の束 c）の読みを当てた（2人がそろった読みはその読み・
-# 割れた項目は決まりで決めた＝rv176/S/notes.md の 9。お呼びした方が出られない理由は、番号違いでは使わない＝言っていないも決められないも正解＝11-19 日本時間21時台の決め）。
-# 会社の電話の行は G-59 の正解の表へ移した（g59_calling_judge.LINES_FULL）。ご本人の電話の行は、表の場面の業務（会社の電話＝g59_flow_check.b）では組めない＝ここに案として残す
-# （表へ移すには、ご本人の電話の業務の印を表の行が持つ形が要る）
-_SIDE_NONE = {END: {END_NONE}, HEAR: {HEAR_OK}, OFFER: {OFFER_NOT_SAID}}
-CALLING_WORDS = [
-    ("うちには岡田という者はおりませんが。", {"asked": False, "own_phone": True},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_WRONG}, **_SIDE_NONE, ABSENT_WHY: {ABSENT_WHY_NOT_SAID, UNDECIDED}},
-     "ご本人の電話（携帯電話の番号）：番号違いの説明「お呼びした方の電話ではない（そういう方はいない・…）」・在籍していないの説明から「そういう方はいない」を外した"),
-    ("いえ、そういう方はいませんけど。", {"asked": False, "own_phone": True},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_WRONG}, **_SIDE_NONE, ABSENT_WHY: {ABSENT_WHY_NOT_SAID, UNDECIDED}},
-     "ご本人の電話（個人のお客様の呼ぶ一言「（名前）様のお電話でお間違えないでしょうか？」への返事）：そういう方はいない＝番号違い。話している方は読み手2人がそろって"
-     "受付・取次ぎの方（お呼びした方をほかの人として話した）"),
-    ("いいえ、違いますけど。", {"asked": True, "own_phone": True},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_NONE}, **_SIDE_NONE, ABSENT_WHY: {ABSENT_WHY_NOT_SAID}},
-     "ご本人の電話でも、「違います」だけは「そういう方はいない・番号の間違いではないか」とは伝えていない＝事情は言っていない"),
-]
-
-
 # 正解が言葉・説明の文・ご決定から決まらない試しの言葉（正解を付けない＝答えを伏せた読み手へ回す。数えには入れない）。場面は answer_words と同じ形（qid の質問）
 TO_READERS = [
     # ⛔ 帳面 1 の (1) の分身 N の行の R8「うーん、どうでしょうねえ。」は、分身 S3 の続き (3) で束 s の #26 の読み手2人の読みを当てて answer_words へ移した
@@ -1086,5 +1075,5 @@ def counts() -> dict[str, int]:
     """足した試しの言葉の数（表ごと）。G-63 は添える形ごと（選択肢つき・質問だけ・添えない）に流すので、その数も。"""
     return {"G-53": len(answer_words()), "G-53（読み手へ）": len(TO_READERS), "G-63": len(GROUND_WORDS), "G-63（3つの形で流す行）": len(GROUND_WORDS) * 3,
             "取込の中身の判定": len(IMPORT_WORDS), "G-57": len(TALK_WORDS), "G-57（2つ目のお返事）": len(TALK_FOLLOW_WORDS),
-            "G-57（質問の種類ごと）": len(TALK_KIND_WORDS), "G-59（正解の表へ足す案）": len(CALLING_WORDS),
+            "G-57（質問の種類ごと）": len(TALK_KIND_WORDS),
             "G-53（判定に送る文が変わった場面の行）": sum(1 for it in answer_words() if it.get("scene") in NEW_SCENES)}

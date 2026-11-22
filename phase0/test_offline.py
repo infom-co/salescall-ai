@@ -144,8 +144,10 @@ class EnvAndRedactionTest(unittest.TestCase):
         err = RuntimeError(f"failed with key={self.secret}")
         info = common.describe_error(err)
         self.assertNotIn(self.secret, json.dumps(info))
-        common.RESULTS_DIR = self.tmp / "results"
-        path = common.save_result("TEST", {"leak": self.secret, "nested": {"also": f"x{self.secret}x"}})
+        # 結果の置き場は、この試験の間だけ一時の置き場に替え、終わったら戻す（⛔ 2026-11-22 まで替えたまま戻さず、試験の全部の中で、あとの試験の
+        # common.RESULTS_DIR が一時の置き場を指したままだった＝分身 AL の書き置きの6章の (3)）
+        with unittest.mock.patch.object(common, "RESULTS_DIR", self.tmp / "results"):
+            path = common.save_result("TEST", {"leak": self.secret, "nested": {"also": f"x{self.secret}x"}})
         self.assertNotIn(self.secret, path.read_text(encoding="utf-8"))
 
     def test_falls_back_to_environ_when_no_file(self):
@@ -41981,7 +41983,7 @@ class WrongNumberAnswerStageTest(unittest.TestCase):
         番号違いの行は番号違いの締め、言っていない行は締めない（数えの1か所 step_wants＝本番の流れの制御）。お呼びする段の行（G-59 の案）：正解の名前は、その場面の
         target_facets の選べるもの。"""
         import review_words as rw
-        from flowctl import ABOUT_WRONG, WRONG, WRONG_NOT_SAID, side_items, target_facets
+        from flowctl import ABOUT_WRONG, WRONG, WRONG_NOT_SAID, side_items
         from g53_meaning import judge_inputs, step_wants
         from meaning_judge import answer_items
         qs = rw.questions()
@@ -41997,12 +41999,7 @@ class WrongNumberAnswerStageTest(unittest.TestCase):
                 self.assertEqual("そういう方はいない" in answer_items(shown, asked)[WRONG][ABOUT_WRONG], own)
                 wants = step_wants(it, qs[it["qid"]], True)
                 self.assertEqual(wants == {"締める（wrong_party）"}, it["label"][WRONG] == [ABOUT_WRONG], wants)
-        self.assertEqual(rw.counts()["G-59（正解の表へ足す案）"], len(rw.CALLING_WORDS))
-        for text, scene, label, why in rw.CALLING_WORDS:
-            facets = {f.key: f for f in target_facets(scene["asked"], False, own_phone=scene["own_phone"])}
-            for key, got in label.items():
-                self.assertTrue(got <= set(facets[key].choices), (text, key, got))
-            self.assertTrue(why)
+        # お呼びする段の案の3行（review_words.CALLING_WORDS）は消した＝同じ3行は g59_calling_judge.LINES_OWN（AMCallingSceneMarksTest の test_3 が見張る。2026-11-22 分身 AP）
 
 
 class ComplaintSceneLineTest(unittest.TestCase):
@@ -49077,16 +49074,18 @@ class XReadersXLabelsTest(unittest.TestCase):
     こちらへ尋ねた問いがあるか＝2人がそろって「ある」・一つに決まる。別のお話か＝束 x の2人は「別のお話」、F5 の2人は書かなかった（答えの話の側）で、説明の文
     （ご事情・世間話・ほかの話題）に電話を代わった方のあいさつが入るかが書かれていない＝境目（どちらも正解）。どちらの読みでも正解の動きは同じ（流し直す）。
     ⛔ f37daf42 まで「無い」・「答えの話」。2026-11-22 分身 AL（担当 AK の棚卸しの束1 の P1）：電話を代わった方の言葉が答えの話か別のお話かの境目を説明の1か所
-    （flowctl.away_choices の「答えの話」）に書いた＝別のお話かは「答えの話」だけ（正解の表の32行をそろえた・仮＝束 p1＝ALHandoverAwayTest）"""
+    （flowctl.away_choices の「答えの話」）に書いた＝別のお話かは「答えの話」だけ（正解の表の32行をそろえた・仮＝束 p1＝ALHandoverAwayTest）。
+    2026-11-22 分身 AP（頼みの (3)）：束 p1 の読み手2人は、こちらへ尋ねた問いを2人とも「ある」と「無い」の境目と読んだ＝2つの読みで流れの制御のお客様に聞こえる言葉・記録・
+    動き・すぐあとに切れたときの切れ方が同じ＝境目（両方を正解＝APP1ReadersTest）。別のお話かの「答えの話」は束 p1 の2人とも同じ＝仮を外した"""
 
     W = "はい、代わりました〇〇です。ご用件を伺います。"
 
     def test_labels(self):
         import json
-        from flowctl import AWAY, AWAY_NO, AWAY_YES, QUERY, QUERY_YES
+        from flowctl import AWAY, AWAY_NO, AWAY_YES, QUERY, QUERY_NO, QUERY_YES
         labels = json.load(open("g53_labels.json", encoding="utf-8"))["labels"]
         for k in (f"E|G11|{self.W}|", f"E|G18|{self.W}|念のためご訪問は平日でよろしいでしょうか？"):
-            self.assertEqual((labels[k]["accept"], labels[k][QUERY], labels[k][AWAY]), (["代わった人が話し始めた"], [QUERY_YES], [AWAY_NO]), k)
+            self.assertEqual((labels[k]["accept"], labels[k][QUERY], labels[k][AWAY]), (["代わった人が話し始めた"], [QUERY_YES, QUERY_NO], [AWAY_NO]), k)
             self.assertEqual(labels[k]["away_talk_was"], [AWAY_YES, AWAY_NO], k)   # 直す前の境目は残す
 
     def test_the_correct_action_does_not_change(self):
@@ -49099,7 +49098,8 @@ class XReadersXLabelsTest(unittest.TestCase):
         qmap = G.question_map() | questions()
         for it in rows:
             got = {h: G.step_wants(it, qmap[it["qid"]], h) for h in (True, False)}
-            self.assertEqual(got, {h: {"「失礼いたしました。」のあと伺ったことを流し直す"} for h in (True, False)}, it["qid"])
+            # 動きの名前はお客様に聞こえる言葉（名乗りからの伺い直し）＝G.HANDOVER_ACT（⛔ 2026-11-22 分身 AP まで「「失礼いたしました。」のあと伺ったことを流し直す」）
+            self.assertEqual(got, {h: {"代わった方へ名乗りから伺い直す"} for h in (True, False)}, it["qid"])
 
 
 class VoicedTurnAckTest(unittest.TestCase):
@@ -52792,3 +52792,252 @@ class AMWrongNumberOwnPhoneBoundaryTest(unittest.TestCase):
             q = fc.row_scene(g.case_row(c)).judge_context()[0]
             words = "".join(prompt_parts(q, c[0], None, c[2]))   # 判定に送る文
             self.assertEqual(words.count("自分はお呼びした方ではない"), 1 if (c.mobile or c.personal) else 0, (text, m))   # ご本人の電話の判定にだけ・1か所
+
+
+# 分身 AP の試験が読む答えの段の測りの行（--reuse の記録＋表に足した行＝g53_meaning.with_new_rows の1か所）。1回だけ作って使い回し、電話を終える言葉の表の行（組 F＝
+# set_f。組み立てに約4秒）は作らない＝分身 AP の試験は組 F を読まない（試験の全部が 900 秒の上限に近い＝2026-11-22 日本時間23時台に 885 秒）
+_AP_ITEMS: list = []
+
+
+def ap_items() -> list:
+    if not _AP_ITEMS:
+        import json as _json
+        import g53_meaning as G
+        from common import latest_result
+        with unittest.mock.patch.object(G, "set_f", list):
+            _AP_ITEMS.extend(G.with_new_rows(_json.loads(latest_result("G-53d1base_*.json").read_text(encoding="utf-8"))["items"]))
+    return _AP_ITEMS
+
+
+class APFirmAgreementTest(unittest.TestCase):
+    """分身 AP（帳面 1 の (6) の (i) の L25）：言い切りの説明（meaning_judge.FIRM_NOT・FIRM_YES）。望み・考えを、こちらに同意を求める言い方や自分に言い聞かせる言い方で言い、
+    決めるのをこちらの同意に預けた言葉は、記録する前に確かめる側（✅ 2026-11-01 の (b)・11-06 日本時間4時11分28秒「…言い聞かせの意味合い…はい、それではパンフレットを
+    お送りさせていただきますね？で正解です」・本書 9-5 の「言い切っているか」）。そのまま記録する側の「お願いや問いかけの言い方で言っただけ」は答えが決まっているときだけ。
+    境目は確かめる側の条件の括弧の1か所だけ。⛔ 11-01 朝の書き直しで、この条件が抜けていた（前の文の旧＝FIRM_NOT にはあった）"""
+
+    BORDER = "答えはもう決めていて、言い方だけが柔らかい・お願いや問いかけの形なら、これに当たらない"
+
+    def test_the_agreement_condition_is_back_and_the_border_is_written_once(self):
+        from meaning_judge import FIRM_NOT, FIRM_YES, RULES, JEV_FIRM
+        self.assertIn("望みや考えを、こちらに同意を求める言い方や、自分に言い聞かせる言い方で言い、決めるのをこちらの同意に預けた", FIRM_NOT)
+        self.assertEqual(RULES.count(self.BORDER), 1)   # 判定の決まりの文に1回だけ
+        self.assertNotIn(self.BORDER, FIRM_YES)
+        self.assertIn(self.BORDER, JEV_FIRM["false"])   # 判断のモデルの言い切りの問いにも同じ1か所から
+        self.assertIn("お客様の答え（選んだもの、または選ぶのをこちらに任せること）が決まっていて、それをお願いや問いかけの言い方で言っただけ", FIRM_YES)
+
+    def test_rows_of_the_same_form_were_read_one_by_one(self):
+        # 正解の表の同じ形の行（「〜のほうがいいですかね」「〜のほうがいいかな」「〜かしら」「〜てもいいかな」など）は、1行ずつ当て直した理由（hedged_why）を持つ
+        import g53_meaning as G
+        items = ap_items()
+        want = {"折り返しのほうがいいですかね": True, "送ってもらったほうがいいですかね": True, "電話のほうがいいですかね": True, "訪問のほうがいいですかね": True,
+                "あったほうがいいかな…": True, "テーブルのほうがいいかな…": True, "振込のほうがいいかしら": True,
+                "費用が発生するなら、やっぱり必要ないかな。": True,   # 直す前は言い切り（印が無かった）
+                "じゃあ、やっぱり電話してもらってもいいかな。": False, "電話でお願いします。やっぱり電話のほうがいいかな。": False}
+        got = {}
+        for it in items:
+            if it["text"] in want:
+                lab = G._label(it) or {}
+                got[it["text"]] = G.hedged(it)
+                self.assertIn("L25", lab.get("hedged_why") or "", it["text"])
+        self.assertEqual(got, want)
+
+
+class APGarbledWordsTest(unittest.TestCase):
+    """分身 AP（頼みの (2)）：途切れて字のつながりのままでは言葉になっていない言葉（崩れた言葉）から、元の言葉を推し量って組み立てない（✅ 10-19「『ご時』…表示されてる
+    時点でおかしいと判断しないと」・帳面 0-3「言葉からは言えない答えを正解に入れない」）。決まりは答えを選ぶ決まりの1か所（meaning_judge.LEAN）だけに書き、判定の決まりの文
+    （RULES）にも判断のモデルの選択肢の定義（jev_criteria）にも、そこから渡る。⛔ 直す前は書いておらず、答えを伏せた読み手2人が「か……ど……で……」を「カード」・
+    「……ふ……りこ……」を「振込」と組み立てる読みを挙げた（束 b2 の #2・#3）。束 b2 の12行は読み手2人の読みが作った側の正解の中＝仮を外した"""
+
+    RULE = "いまの言葉が途切れて、字のつながりのままでは言葉になっていない（崩れている）ときは、元の言葉を推し量って組み立てて読まない"
+
+    def test_the_rule_is_in_the_one_place_and_reaches_every_judge(self):
+        import review_words as rw
+        from meaning_judge import LEAN, RULES, jev_criteria
+        self.assertIn(self.RULE, LEAN)
+        self.assertEqual(RULES.count(self.RULE), 1)
+        q = rw.questions()["R1"]
+        crit = jev_criteria(q)
+        self.assertTrue(all(self.RULE in d for n, d in crit.items() if n in q.conditions))
+
+    def test_the_rows_stay_undecided_and_are_no_longer_provisional(self):
+        import review_words as rw
+        from meaning_judge import UNDECIDED
+        for text in ("か……ど……で……", "……ふ……りこ……"):
+            it = next(r for r in rw.GARBLED_ROWS if r["text"] == text)
+            self.assertEqual(it["label"]["accept"], [UNDECIDED], text)   # 組み立てた読み（カード・振込）は正解に入れない
+            self.assertIn("組み立てない", it["label"]["why"], text)
+        for it in rw.GARBLED_ROWS + rw.WHICH_POINT_ROWS:
+            self.assertNotIn("仮", it["label"]["why"], it["text"])
+        point = next(r for r in rw.WHICH_POINT_ROWS if r["text"] == "いや、いろいろとですね。")
+        self.assertEqual(point["label"]["accept"], ["点は言っていない"])   # 2人の境目が違う＝作った側のまま
+
+
+class APP1ReadersTest(unittest.TestCase):
+    """分身 AP（頼みの (3)）：束 p1 で読み手2人がそろって挙げた境目を、2つの読みで流れの制御に通して決めた。(1)「お待たせいたしました、代わりにお伺いいたします。」
+    「はい、代わりました〇〇です。ご用件を伺います。」のこちらへ尋ねた問い＝聞こえる言葉・記録・動き・すぐあとに切れたときの切れ方が同じ＝境目（両方を正解）(2)「すみません、
+    会社名をもう一度教えてもらえますか？」のこちらの声が届いていない様子か＝すぐあとに切れたときの切れ方（callee_cannot_hear）が違う＝決まりで決まる側（そういう様子は無い＝
+    ✅ 11-06 日本時間15時20分30秒の (1)「こちらの名前・会社名・意味を尋ねたのは、もう一度言ってほしいとは別」）を説明の1か所（flowctl.hear_choices の答えの段）に書いた
+    （お呼びする段の文は変えない）(3) 電話を代わった方の32行は読み手2人とも作った側と同じ＝仮を外した"""
+
+    def items(self):
+        return ap_items()
+
+    def test_query_boundary_rows_are_both_and_the_flow_is_the_same(self):
+        import copy
+        import g53_meaning as G
+        from flowctl import QUERY, QUERY_NO, QUERY_YES
+        from review_words import questions
+        qmap = G.question_map() | questions()
+        rows = [it for it in self.items() if it["text"] in ("お待たせいたしました、代わりにお伺いいたします。", "はい、代わりました〇〇です。ご用件を伺います。")]
+        self.assertEqual(len(rows), 4)
+        for it in rows:
+            self.assertEqual(set(G.query_truths(it)), {QUERY_YES, QUERY_NO}, it["text"])
+            q = qmap[it["qid"]]
+            for r in G.label_readings(it, q, True):
+                got = []
+                for v in (QUERY_YES, QUERY_NO):
+                    rr = copy.deepcopy(r)
+                    setattr(rr, QUERY, v)
+                    f, qid, rep, asked = G.flow_reply(it, q, rr)
+                    f.on_line_end(False, False)
+                    got.append((heard_words(rep), f.export(), G.flow_name(f, qid, rep, it, asked), f.cut))
+                self.assertEqual(got[0], got[1], it["text"])
+
+    def test_asking_our_company_name_again_is_not_lost_hearing(self):
+        import copy
+        import g53_meaning as G
+        from flowctl import HEAR, HEAR_LOST, HEAR_OK, hear_choices
+        from review_words import questions
+        line = "聞こえなかった・聞き取れなかったとは言わずに、こちらの名前・会社名・用件を尋ねたのは、もう一度と言っても、こちら"
+        self.assertIn(line, hear_choices(False)[HEAR_OK])
+        self.assertNotIn(line, hear_choices(True)[HEAR_OK])   # お呼びする段の文は変えない
+        it = next(i for i in self.items() if i["text"] == "すみません、会社名をもう一度教えてもらえますか？")
+        self.assertEqual(G.hear_truth(it), HEAR_OK)
+        q = (G.question_map() | questions())[it["qid"]]
+        r = copy.deepcopy(G.label_readings(it, q, True)[0])
+        cuts = []
+        for v in (HEAR_OK, HEAR_LOST):   # 2つの読みで、すぐあとに切れたときの切れ方が違う＝境目にしない
+            setattr(r, HEAR, v)
+            f, *_ = G.flow_reply(it, q, copy.deepcopy(r))
+            f.on_line_end(False, False)
+            cuts.append(f.cut["callee_cannot_hear"])
+        self.assertEqual(cuts, [False, True])
+
+    def test_the_handover_rows_are_no_longer_provisional(self):
+        import g53_meaning as G
+        from flowctl import HANDOVER
+        rows = [it for it in self.items() if HANDOVER in G.accept(it)]
+        self.assertEqual(len(rows), 32)
+        for it in rows:
+            self.assertNotIn("⏳ 仮", (G._label(it) or {}).get("away_talk_why", ""), it["text"])
+
+
+class APAllResultsToolsTest(unittest.TestCase):
+    """分身 AP（分身 AL の書き置きの6章の (2)）：結果のファイルの全部を読む道具（ear_head_check・form_rule_eval・make_ack_clips・judge_cost・said_timing）も、
+    途中の写し（_partial.json）と数え直し（名前に TALLY）を結果として読まない＝読む所は common.result_files の1か所（同じ決まりを2か所に書かない）。
+    ⛔ 直す前は5つとも results を自分で glob し、写しと数え直しも読んでいた（CL-1 の置き場の結果で form_rule_eval の日時の値の数え 5,632 回のうち 369 回・
+    said_timing の文字のかたまり 21,334 のうち 722 が、写しと数え直しの重なり＝rv192/AP/probe/ap/rf_counts.txt）"""
+
+    TOOLS = ("ear_head_check.py", "form_rule_eval.py", "make_ack_clips.py", "judge_cost.py", "said_timing.py")
+
+    def test_the_tools_read_results_through_the_one_place(self):
+        import re
+        here = Path(__file__).resolve().parent
+        own = re.compile(r"glob\((?:[^()\n]|\([^()\n]*\))*results|[\"']results/")
+        for name in self.TOOLS:
+            src = (here / name).read_text(encoding="utf-8")
+            self.assertIn("result_files(", src, name)
+            self.assertEqual([l for l in src.splitlines() if own.search(l)], [], name)
+
+    def test_judge_cost_skips_partial_and_recount_files(self):
+        import json as _json
+        import unittest.mock as m
+        import judge_cost
+        rec = {"saved_at": "2026-11-01T00:00:00", "items": [{"qid": "G1", "text": "はい", "Claude Sonnet 5.5": "はい", "Claude Sonnet 5.5秒": 1.0}]}
+        other = {"saved_at": "2026-11-02T00:00:00", "items": [{"qid": "G2", "text": "いいえ", "Claude Sonnet 5.5": "いいえ", "Claude Sonnet 5.5秒": 2.0}]}
+        with tempfile.TemporaryDirectory() as d:
+            res = Path(d) / "results"
+            res.mkdir()
+            (res / "G-53x_20261101_000000.json").write_text(_json.dumps(rec), encoding="utf-8")
+            (res / "G-53x_partial.json").write_text(_json.dumps(other), encoding="utf-8")
+            (res / "G-53x-TALLY_20261102_000000.json").write_text(_json.dumps(other), encoding="utf-8")
+            with m.patch("common.HERE", Path(d)):
+                self.assertEqual(judge_cost.paid_calls(), {"2026-11-01": {"Claude Sonnet 5.5": 1}})
+
+
+class APResultsDirRestoredTest(unittest.TestCase):
+    """分身 AP（分身 AL の書き置きの6章の (3)）：試験 test_redact_in_errors_and_results は、結果の置き場（common.RESULTS_DIR）を一時の置き場に替えたら、終わったあとに戻す
+    （試験の置き場を汚さない＝あとの試験が、替わったままの置き場を読み書きしない）"""
+
+    def test_the_redact_test_puts_the_results_dir_back(self):
+        before = common.RESULTS_DIR
+        result = unittest.TestResult()
+        EnvAndRedactionTest("test_redact_in_errors_and_results").run(result)
+        self.assertTrue(result.wasSuccessful(), result.failures + result.errors)
+        self.assertEqual(common.RESULTS_DIR, before)
+
+
+class APHandoverActNameTest(unittest.TestCase):
+    """分身 AP（分身 AL の書き置きの6章の (4)）：正解の表の「代わった人が話し始めた」の行の動きの名前は、流れの制御のお客様に聞こえる言葉（名乗りからの伺い直し・「失礼いたしました。」は
+    入らない）を言う形（g53_meaning.HANDOVER_ACT）。もう一度言ってほしいと頼まれたときの「失礼いたしました。」のあとの流し直し（REPEAT_ACT）とは別の名前。録音で流す通話（流し直し）と
+    会話AIが話す通話（会話AIへ知らせる）は、聞こえる言葉が同じ＝同じ名前。⛔ 直す前は、録音で流す通話の形を REPEAT_ACT と同じ名前で数えていた"""
+
+    def test_names_say_what_the_customer_hears(self):
+        import g53_meaning as G
+        from flowctl import HANDOVER, REPEAT
+        from phrases import ACK
+        from review_words import questions
+        self.assertIn("名乗りから", G.HANDOVER_ACT)
+        self.assertNotEqual(G.HANDOVER_ACT, G.REPEAT_ACT)
+        qmap = G.question_map() | questions()
+        items = ap_items()
+        hand = [it for it in items if G.accept(it) == [HANDOVER]]
+        self.assertEqual(len(hand), 32)
+        for it in hand:   # 正解の動きの名前（step_wants と同じ1か所＝flow_name）は、行ごとに1回だけ流れの制御に通して見る（試験の全部が 900 秒の上限に近い）
+            q = qmap[it["qid"]]
+            f, qid, rep, asked = G.flow_reply(it, q, G.label_readings(it, q, True)[0])
+            self.assertEqual(G.flow_name(f, qid, rep, it, asked), G.HANDOVER_ACT, it["text"])
+            self.assertTrue(heard_words(rep).startswith("お忙しいところ恐れ入ります。"), it["text"])   # 名乗りから（「失礼いたしました。」は入らない）
+        self.assertEqual(G.step_wants(hand[0], qmap[hand[0]["qid"]], True), {G.HANDOVER_ACT})
+        again = [it for it in items if G.accept(it) == [REPEAT]][:6]
+        self.assertTrue(again)
+        for it in again:
+            q = qmap[it["qid"]]
+            f, qid, rep, asked = G.flow_reply(it, q, G.label_readings(it, q, True)[0])
+            if G.flow_name(f, qid, rep, it, asked) == G.REPEAT_ACT:
+                self.assertEqual(rep.get("ack"), "shitsurei", it["text"])
+                self.assertTrue(heard_words(rep).startswith(ACK["shitsurei"]), it["text"])
+
+
+class APCallingDraftRowsGoneTest(unittest.TestCase):
+    """分身 AP（分身 AM の書き置きの5章の (6)）：試しの言葉の表の案の3行（review_words.CALLING_WORDS＝お呼びする段のご本人の電話の候補）と、その注・_SIDE_NONE・counts() の
+    「G-59（正解の表へ足す案）」を消した＝同じ3行は分身 AM が g59_calling_judge.LINES_OWN に入れた（同じ行を2か所に持たない＝10-18）。判定に送る文は変わらない"""
+
+    def test_the_draft_rows_live_in_one_place(self):
+        import g59_calling_judge as g
+        import review_words as rw
+        self.assertFalse(hasattr(rw, "CALLING_WORDS"))
+        self.assertFalse(hasattr(rw, "_SIDE_NONE"))
+        self.assertNotIn("G-59（正解の表へ足す案）", rw.counts())
+        texts = [c[0] for c in g.LINES_OWN]
+        for text in ("うちには岡田という者はおりませんが。", "いえ、そういう方はいませんけど。", "いいえ、違いますけど。"):
+            self.assertIn(text, texts)
+
+
+class APEndWordsCallingFlowTest(unittest.TestCase):
+    """分身 AP（分身 AM の書き置きの6章の (6-1)）：電話を終える言葉の表のお呼びする段の流れ（end_words.calling_flow）は、お呼びする段の測りの場面を組む1か所（g59_flow_check.scene＝
+    業務設定の入口 instruction.Business.flow・行の業務 business_of）で流れの制御を作る（同じ問いに答える所を2つ作らない）。⛔ 直す前は Flow(…) を直接作り、業務設定（名乗りの名前・
+    判定に見せるお名前・知っていること・用件・かけた番号・個人のお客様）を渡していなかった。今の業務（フルネームのある会社の電話）では、表の行のお客様に聞こえる言葉・記録・
+    残る印は前と同じ（試験 test_calling_rows）"""
+
+    def test_the_table_flow_is_built_by_the_scene_entry(self):
+        import g59_flow_check as fc
+        from end_words import CALLING, calling_flow
+        want = fc.scene([], business=fc.business_of({"full": True}))[0]
+        for row in CALLING:
+            got = calling_flow(row)
+            if got is None:
+                continue
+            f = got[0]
+            for k in ("names", "judge_names", "knowledge", "purpose", "dialed_mobile", "personal", "policies"):
+                self.assertEqual(getattr(f, k), getattr(want, k), (row[1], k))

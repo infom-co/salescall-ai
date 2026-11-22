@@ -123,9 +123,10 @@ class _Hashing:
 
 def prune(drive: Drive, folders: dict[str, Any], now: datetime | None = None) -> int:
     """残す日数を過ぎた控えを消す（サーバーが決めた決まり。名前に日時のある控えのファイルだけ）。folders＝フォルダの名前 →
-    {"days": {種類: 日数}, "verified": [戻せることまで確かめた AI用のファイルの名前], "held": [測り終わるまで消さない通話の番号]}。
-    AI用は、戻せることまで確かめたもののうち一番新しいものを消さない（控えの失敗が長く続いても、1つは残る）。録音は、測り終わるまで
-    消さない通話のものを消さない。消した数を返す。"""
+    {"days": {種類: 日数}, "verified": [戻せることまで確かめた AI用のファイルの名前], "held": [測り終わるまで消さない通話の番号],
+    "drop": [日数を待たずに消す通話の番号]}。AI用は、戻せることまで確かめたもののうち一番新しいものを消さない（控えの失敗が長く続いても、
+    1つは残る）。録音は、測り終わるまで消さない通話のものを消さない。録音を残さない業務の通話で抜き取りが済んだもの（drop＝サーバーの
+    recordings.unsaved_done の1か所が決める。0284）は、日数を待たずに消す（held にあれば消さない）。消した数を返す。"""
     if not drive.attached():
         raise DriveMissing("控え用のハードディスクがつながっていません")
     now = datetime.now(JST) if now is None else now.astimezone(JST)
@@ -145,9 +146,11 @@ def prune(drive: Drive, folders: dict[str, Any], now: datetime | None = None) ->
                 verified = set(rule.get("verified", []))
                 newest = max((f.name for f in files if f.name in verified), default=None)
                 old = [f for f in old if f.name != newest]
-            if kind == RECORDING and old:
-                held = set(rule.get("held", []))
-                old = [f for f in old if held_call(f.name) not in held]
+            if kind == RECORDING:
+                held, drop = set(rule.get("held", [])), set(rule.get("drop", []))
+                expired = set(old)
+                old = [f for f in files if not f.name.endswith(PART) and (f in expired or held_call(f.name) in drop)
+                       and held_call(f.name) not in held]
             for f in old:
                 f.unlink()
                 removed += 1

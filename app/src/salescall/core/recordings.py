@@ -73,6 +73,21 @@ def hold(tx: Tx, attempt_id: UUID, reason: str) -> None:
                " ON CONFLICT (attempt_id, reason) DO NOTHING", (reason, attempt_id))
 
 
+def mark_unsaved(tx: Tx, attempt_id: UUID) -> None:
+    """その通話に「録音とやり取りを残さない業務の通話」の印を付ける（門がかけるとき＝gate.claim の1か所が、業務の設定 recording.save で
+    呼ぶ。計画書 11-4。0284）。"""
+    tx.execute("INSERT INTO salescall.recording_unsaved (tenant_id, client_id, attempt_id)"
+               " SELECT tenant_id, client_id, attempt_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
+
+
+def unsaved_done(tx: Tx) -> list[UUID]:
+    """残さない業務の通話のうち、日数を待たずに消してよいもの（その週か、それより後の週の抜き取りが済み、消さない通話でないもの）。決まりは
+    データベースの salescall.recordings_unsaved_done の1か所（✅ 2026-11-22 管理者「(ア) 抜き取りまで残す」。0284）。読むのは、やり取りの文字を
+    消す処理（データベースの中で同じ1か所を読む）・ハードディスクの片付けの決まり（backup.prune_rules の drop）・これから作る Fly.io の録音の
+    消し方（録音の置き場を作るとき）。契約者の取引のシステムの処理で呼ぶ。"""
+    return [r["a"] for r in tx.all("SELECT salescall.recordings_unsaved_done() AS a")]
+
+
 def release(tx: Tx, attempt_ids: list[UUID], reason: str, *, measurement: str) -> int:
     """測り終わった通話の印を外す（どの測定で使い終えたかを書く。1回だけ）。外した数を返す。ほかの理由の印が残っていれば消さない。"""
     if not measurement.strip():

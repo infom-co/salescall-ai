@@ -16,12 +16,11 @@
 from __future__ import annotations
 
 import asyncio
-import glob
 import json
 
 import numpy as np
 
-from common import HERE, base_parser, describe_error, make_client, pick_key, require_python, save_result, say, read_wav_pcm16_mono
+from common import HERE, base_parser, describe_error, make_client, pick_key, require_python, result_files, save_result, say, read_wav_pcm16_mono
 from listen import FEEDS, differences, hear
 
 AUDIO = HERE / "results" / "g19_audio"
@@ -46,7 +45,7 @@ def split_turns(pcm16: bytes, rate: int) -> list[bytes]:
 def clips(first_only_ai_opening: bool) -> list[dict]:
     """（通話、ターンの番号、言うつもりの言葉、声）の一覧。言うつもりの言葉が欠けたターンは除く。"""
     out = []
-    for f in sorted(glob.glob(str(HERE / "results" / "G-19_*.json"))):
+    for f in result_files("G-19_*.json"):   # 途中の写し（_partial.json）と数え直し（名前に TALLY）は読まない＝読む所は common.result_files の1か所（2026-11-22 分身 AP＝分身 AL の書き置きの6章の (2)）
         d = json.load(open(f, encoding="utf-8"))
         for r in d["rows"]:
             if not r.get("wav"):

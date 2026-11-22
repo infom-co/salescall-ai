@@ -1,9 +1,10 @@
 """日時の型の「値の形」の決まり（flowctl.form_problem）を、これまでの報告の値と、自然な言い方の例に当てる（DESIGN.md 6-2）。"""
-import collections, glob, json, re, sys
+import collections, json, re, sys
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))
 from flowctl import normalize_value
 
 from flowctl import form_problem  # 決まりは流れの制御の1か所から読む（ここに書き写さない）
+from common import result_files
 
 
 def ok(v):
@@ -29,7 +30,7 @@ def reported(qid, qtype):
         elif isinstance(x, list):
             for v in x:
                 walk(v)
-    for f in glob.glob(str(__import__('pathlib').Path(__file__).parent / 'results' / 'G-*.json')):
+    for f in result_files('G-*.json'):   # 途中の写し（_partial.json）と数え直し（名前に TALLY）は読まない＝読む所は common.result_files の1か所（2026-11-22 分身 AP＝分身 AL の書き置きの6章の (2)）。数えは CL-1 の置き場の結果で 5,632 回 → 5,263 回（数え直し・途中の写しの重なりが外れる）
         try:
             walk(json.load(open(f)))
         except Exception:

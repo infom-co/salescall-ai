@@ -10,10 +10,14 @@
 from __future__ import annotations
 
 import random
+import tempfile
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta
+from pathlib import Path
 
-from salescall.core import approval, attempts, measure, next_action, quality_stage, results
+from salescall.agent import backup as pc
+from salescall.core import approval, attempts, backup, conversation_io, measure, next_action, quality_stage, recordings, results
+from salescall.link.backup_files import JST, RECORDING
 from salescall.core.access import Rejected
 from tests.support import OPERATOR, SYSTEM, owner_access
 from tests.test_settle import SettleBase
@@ -207,6 +211,57 @@ class Samples(Base):
                                          (drawn[0],)))
         self.assertEqual((d["pool_size"], d["wanted"], d["drawn"]), (1, 0, 0))
         self.assertEqual(self.holds(s, a), [])
+
+    def test_an_unsaved_business_keeps_its_calls_until_the_week_is_drawn_then_drops_the_ones_not_chosen(self):
+        """業務ごとに録音とやり取りを残さない（計画書 11-4。✅ 2026-11-22 管理者「(ア) 抜き取りまで残す」。0284）：印はかけたときの設定で付く。
+        その週の抜き取りが済むまでは、日数を待たずに消す一覧（recordings.unsaved_done の1か所）に入らない。済んだら、選ばれなかった通話は
+        入り（やり取りの文字の消し方・ハードディスクの片付けが同じ一覧を読む）、選ばれた通話は正解が付くまで入らない。残す業務の通話には印が無い。"""
+        s, t, kept = self.ready(), self.ready(), self.ready()
+        for x, per_week in ((s, 0), (t, 1)):
+            self.put_client(x, "recording.save", False)
+            self.put_client(x, "measure.sample_per_week", per_week)
+        calls = {}
+        for name, x in (("s", s), ("t", t), ("kept", kept)):
+            calls[name] = self.call(x, items=TAKEN)
+            self.settle(x, calls[name])
+        for name, x in (("s", s), ("t", t)):
+            owner_access().in_client(SYSTEM, x["tenant"], x["client"], lambda tx, a=calls[name]: (   # 通話のやり取りの文字の場面を作る
+                tx.execute("ALTER TABLE salescall.call_utterances DISABLE TRIGGER USER"),            # （この取引の中だけ守りを外す）
+                tx.execute("INSERT INTO salescall.call_utterances (tenant_id, client_id, attempt_id, seq, speaker, turn, said, at_s)"
+                           " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 1, 'callee', 1, 'はい', 1.0)", (a,)),
+                tx.execute("ALTER TABLE salescall.call_utterances ENABLE TRIGGER USER")))
+        marked = lambda x, a: self.tx(x, lambda tx: tx.one(   # noqa: E731
+            "SELECT count(*) AS n FROM salescall.recording_unsaved WHERE attempt_id = %s", (a,)))["n"]
+        self.assertEqual([marked(s, calls["s"]), marked(t, calls["t"]), marked(kept, calls["kept"])], [1, 1, 0])
+        done = lambda x: self.w.a.in_tenant(SYSTEM, x["tenant"], recordings.unsaved_done)   # noqa: E731
+        self.assertEqual((done(s), done(t)), ([], []))                                   # 抜き取りが済むまでは残す
+        _, tuesday = self.next_tuesday(s)
+        self.tx(s, lambda tx: measure.draw(tx, now=tuesday - timedelta(days=7)))         # 前の週の抜き取りだけが済んでも、この週の通話は残す
+        self.assertEqual(done(s), [])
+        for x in (s, t, kept):
+            self.tx(x, lambda tx: measure.draw(tx, now=tuesday))
+        self.assertEqual((done(s), done(t), done(kept)), ([calls["s"]], [], []))         # 選ばれた通話（t）は正解が付くまで残す
+        said = lambda x, a: len(self.tx(x, lambda tx: conversation_io.utterances(tx, a)))   # noqa: E731
+        before = [said(s, calls["s"]), said(t, calls["t"])]
+        purge = lambda x: self.w.a.in_tenant(SYSTEM, x["tenant"], conversation_io.purge_utterances)   # noqa: E731
+        purge(s), purge(t)
+        self.assertEqual([said(s, calls["s"]), said(t, calls["t"])], [0, before[1]])     # やり取りの文字も、7日を待たずに同じ通話だけ消える
+        self.assertTrue(before[0] > 0 and before[1] > 0, before)
+        self.put_client(s, "recording.save", True)                                       # あとで残す形に変えても、前の通話は変わらない
+        self.assertEqual(done(s), [calls["s"]])
+        folder = backup.client_folder(self.w.a, s["tenant"], s["client"])
+        rules = backup.prune_rules(self.w.a, s["tenant"])
+        self.assertEqual(rules[folder]["drop"], [str(calls["s"])])
+        root = Path(tempfile.mkdtemp(prefix="salescall-test-hdd-"))                      # PC の片付け：日数を待たずに消す（ほかは日数のまま）
+        (root / pc.DRIVE_MARK).write_text("控え用")
+        place = root / pc.BASE / folder / RECORDING
+        place.mkdir(parents=True)
+        now = datetime.now(JST)
+        mine, other = (place / backup.recording_file_name(a, now, "call") for a in (calls["s"], calls["kept"]))
+        for f in (mine, other):
+            f.write_bytes(b"x")
+        self.assertEqual(pc.prune(pc.Drive(root), {folder: rules[folder]}, now=now), 1)
+        self.assertEqual((mine.exists(), other.exists()), (False, True))
 
     def test_verification_calls_and_calls_without_a_conversation_are_not_drawn(self):
         s, t = self.ready(), self.ready()
