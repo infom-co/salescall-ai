@@ -45,6 +45,21 @@ def tearDownModule():
 
 
 
+def child_python(*args: str) -> list[str]:
+    """試験が子の python を流す命令の頭（唯一の作り）：いつも -B を付ける（リポジトリの phase0 に __pycache__ を作らない＝共通の決まり「python はいつも -B」）。
+    分身 AU（帳面 1 の (6) の (i) の L29・分身 AT の書き置き rv196/AT/notes.md の 6章の (2)）。⛔ それまでは試験の7か所が -B を付けずに子を流し、試験の全部を流すたびに、
+    流した置き場の phase0 に __pycache__ ができた（2026-11-23 日本時間5時台にリポジトリで111本）"""
+    import sys
+    return [sys.executable, "-B", *args]
+
+
+def run_place(name: str) -> Path:
+    """試験がファイルを書く置き場（唯一の作り）：流しごとの1つの置き場（setUpModule の _RUN_TMP＝11-20）の下に、name で始まる新しい置き場を作る（終わりに
+    tearDownModule が消す）。試験は結果の置き場（results/）に書かない（分身 AU＝L29。⛔ それまでは試験の全部が、流した置き場の results/ に空の convo_audio を作り、
+    results/callee/Sadachbia_*_pause.wav を書き直していた＝分身 AR の書き置き rv196/AR/notes.md の 6章の (6)）"""
+    return Path(tempfile.mkdtemp(prefix=f"{name}-", dir=_RUN_TMP or None))
+
+
 def fc(name, **args):
     return SimpleNamespace(name=name, args=args, id="x")
 
@@ -6947,14 +6962,25 @@ class AckTimingTest(unittest.TestCase):
         asked = [{"op": "record_answer", "args": {}, "reply": {"result": "ask_back"}}]
         self.assertEqual(answer_again({"wav": "a.wav", "again": "b.wav"}, asked, 0), ({"wav": "b.wav", "again": "b.wav"}, 1))
 
+    def ai_place(self) -> Path:
+        """AIの声のファイルを置く所（会話の試験の AUDIO_DIR の代わり＝流しごとの置き場 run_place の下）。つなぐ道具（stitch_gap）が読む相づち・決まった言葉の声は、
+        結果の置き場のまま読む（近道）。試験の間だけ stitch_gap.AUDIO_DIR を置き換える"""
+        import stitch_gap
+        place = run_place("convo_audio")
+        for sub in ("ack", "script"):
+            (place / sub).symlink_to(stitch_gap.AUDIO_DIR.parent / sub)
+        (place / "convo_audio").mkdir()
+        patcher = unittest.mock.patch.object(stitch_gap, "AUDIO_DIR", place / "convo_audio")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return place / "convo_audio"
+
     def test_stitch_call_keeps_waited_turn(self):
         import numpy as np
 
         from common import write_wav
-        from convo import AUDIO_DIR
         from stitch_gap import stitch_call
-        AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-        ai = AUDIO_DIR / "_test_stitch_ai2.wav"
+        ai = self.ai_place() / "_test_stitch_ai2.wav"   # 流しごとの置き場（results/convo_audio を作らない＝分身 AU の L29）
         write_wav(ai, (np.ones(24000, dtype=np.int16) * 1000).tobytes(), 24000)
         try:
             waited = {"callee": {"wav": "Puck_filler_eto.wav"}, "first_audio_after_s": None, "tool_events": [], "intended": ""}
@@ -6974,10 +7000,8 @@ class AckTimingTest(unittest.TestCase):
         import numpy as np
 
         from common import write_wav
-        from convo import AUDIO_DIR
         from stitch_gap import stitch_call
-        AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-        ai = AUDIO_DIR / "_test_stitch_ai.wav"
+        ai = self.ai_place() / "_test_stitch_ai.wav"   # 流しごとの置き場（results/convo_audio を作らない＝分身 AU の L29）
         write_wav(ai, (np.ones(24000, dtype=np.int16) * 1000).tobytes(), 24000)
         try:
             t = {**self.turn(1.0, 0.5), "audio_file": ai.name}
@@ -7035,7 +7059,7 @@ class ClosedNetworkTest(unittest.TestCase):
         import subprocess
         import sys
         here = Path(__file__).resolve().parent
-        done = subprocess.run([sys.executable, "-c", code], cwd=here, capture_output=True, text=True, timeout=60)
+        done = subprocess.run(child_python("-c", code), cwd=here, capture_output=True, text=True, timeout=60)
         return done.stdout.split()
 
     def test_dry_run_closes_every_outbound_connection(self):
@@ -7095,7 +7119,7 @@ class DryRunResultTest(unittest.TestCase):
                 "common.base_parser('x').parse_args(['--dry-run'])\n"
                 "common.save_result('X', {'a': 1})\n"
                 "print(len(list(d.iterdir())))\n")
-        done = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parent, capture_output=True, text=True, timeout=60)
+        done = subprocess.run(child_python("-c", code), cwd=Path(__file__).resolve().parent, capture_output=True, text=True, timeout=60)
         self.assertEqual(done.stdout.split()[-1:], ["0"], done.stdout + done.stderr)
 
     def test_a_measure_without_a_judge_stops_before_counting(self):
@@ -8101,7 +8125,7 @@ class JudgePanelTest(unittest.TestCase):
                 "    except Exception:\n"
                 "        pass\n"
                 "print(','.join(before) or '-', ','.join(p for p in parts if p in sys.modules) or '-')\n")
-        done = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parent, capture_output=True, text=True, timeout=60)
+        done = subprocess.run(child_python("-c", code), cwd=Path(__file__).resolve().parent, capture_output=True, text=True, timeout=60)
         self.assertEqual(done.stdout.split(), ["-", "-"], done.stderr[-500:])   # 失敗の見分けの前も後も、部品は読み込まれていない
         # 部品が読み込まれていれば、見分けは今までどおり（番号と、待つ秒）
         req2 = httpx2.Request("POST", "https://x.invalid")
@@ -16529,9 +16553,19 @@ class ScenesTest(unittest.TestCase):
 
     def test_widened_pause_keeps_the_voice(self):
         # 間を長くした台詞：文と文の間だけが変わり、声の長さ（間を除く）は同じ
+        import shutil
+        import stitch_gap
         from barge import voice_runs, voiced
         from make_callee_samples import PAUSED, make_paused, verified
         from stitch_gap import callee_speech
+        # 作った声を書く所は流しごとの置き場（results/callee の Sadachbia_*_pause.wav を書き直さない＝分身 AU の L29）。もとの声は写して読む
+        place = run_place("callee")
+        for base, _ in PAUSED.values():
+            if (stitch_gap.CALLEE_DIR / f"Sadachbia_{base}.wav").exists():
+                shutil.copy(stitch_gap.CALLEE_DIR / f"Sadachbia_{base}.wav", place)
+        patcher = unittest.mock.patch.object(stitch_gap, "CALLEE_DIR", place)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         for uid, (base, pause_s) in PAUSED.items():
             src, out = f"Sadachbia_{base}.wav", f"Sadachbia_{uid}.wav"
             if not verified(src):
@@ -19927,7 +19961,7 @@ class OnelinerGuardTest(unittest.TestCase):
         import json, os, subprocess, sys, tempfile
         with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
             f.write("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
-        p = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "oneliner_guard.py")],
+        p = subprocess.run(child_python(str(Path(__file__).resolve().parent / "oneliner_guard.py")),
                            input=json.dumps({"transcript_path": f.name, **hook}),
                            capture_output=True, text=True, env={**os.environ, "ONELINER_GUARD_STATE": state})
         os.unlink(f.name)
@@ -20053,7 +20087,7 @@ class CompactGuardTest(unittest.TestCase):
 
     def hook(self, **hook):
         import json, subprocess, sys
-        p = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "oneliner_guard.py")],
+        p = subprocess.run(child_python(str(Path(__file__).resolve().parent / "oneliner_guard.py")),
                            input=json.dumps({"transcript_path": str(self.log), "hook_event_name": "PreToolUse", **hook}),
                            capture_output=True, text=True, env=self.env)
         return p.returncode, p.stderr
@@ -20061,7 +20095,7 @@ class CompactGuardTest(unittest.TestCase):
     def after(self):
         import subprocess, sys
         guard = Path(__file__).resolve().parent / "oneliner_guard.py"
-        return subprocess.run([sys.executable, str(guard), "--after-compact", str(self.dir / "out")], capture_output=True, text=True, env=self.env,
+        return subprocess.run(child_python(str(guard), "--after-compact", str(self.dir / "out")), capture_output=True, text=True, env=self.env,
                               input="", timeout=60)
 
     def test_blocks_until_the_boundary_time_is_put_out(self):
@@ -31044,7 +31078,7 @@ class MeasureReviewTest(unittest.TestCase):
         self.assertIn("試しの言葉（G-73）：results/", src)
         code = ("import sys, g73_system_words as g; g.latest = lambda: {'path': None, 'words': [], 'errors': {}}; "
                 "sys.argv = ['g59', '--fingerprint']; import runpy; runpy.run_path('g59_calling_judge.py', run_name='__main__')")
-        r = subprocess.run([sys.executable, "-c", code], cwd=here, capture_output=True, text=True, timeout=120)
+        r = subprocess.run(child_python("-c", code), cwd=here, capture_output=True, text=True, timeout=120)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("指紋を出しません", r.stderr)
         self.assertNotIn("指紋 ", r.stdout)
@@ -52070,7 +52104,7 @@ class ALAnswerStageFingerprintTest(unittest.TestCase):
         import tempfile
         from pathlib import Path
         here = Path(__file__).resolve().parent
-        r = subprocess.run([sys.executable, "-B", "g53_meaning.py", "--fingerprint"], cwd=here, capture_output=True, text=True, timeout=300)
+        r = subprocess.run(child_python("g53_meaning.py", "--fingerprint"), cwd=here, capture_output=True, text=True, timeout=300)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("指紋を出しません", r.stderr)
         with tempfile.TemporaryDirectory() as d:
@@ -52081,7 +52115,7 @@ class ALAnswerStageFingerprintTest(unittest.TestCase):
                     "runpy.run_path('g53_meaning.py', run_name='__main__')\n"
                     "s = socket.socket(); s.settimeout(1)\n"
                     "try:\n    s.connect(('192.0.2.1', 9))\nexcept OSError as e:\n    print('つなぎ：', e)\n")
-            r = subprocess.run([sys.executable, "-B", "-c", code], cwd=here, capture_output=True, text=True, timeout=600)
+            r = subprocess.run(child_python("-c", code), cwd=here, capture_output=True, text=True, timeout=600)
         self.assertEqual(r.returncode, 0, r.stderr[-2000:])
         self.assertIn("外へはつなぎません", r.stdout)
         for words in ("全部（", "前からの物差し（", "番号違いの行（", "前の話の問い合わせ（", "組 R：", "指紋 "):
@@ -52802,8 +52836,9 @@ class AMWrongNumberOwnPhoneBoundaryTest(unittest.TestCase):
             self.assertEqual(words.count("自分はお呼びした方ではない"), 1 if (c.mobile or c.personal) else 0, (text, m))   # ご本人の電話の判定にだけ・1か所
 
 
-# 分身 AP の試験が読む答えの段の測りの行（--reuse の記録＋表に足した行＝g53_meaning.with_new_rows の1か所）。1回だけ作って使い回し、電話を終える言葉の表の行（組 F＝
-# set_f。組み立てに約4秒）は作らない＝分身 AP の試験は組 F を読まない（試験の全部が 900 秒の上限に近い＝2026-11-22 日本時間23時台に 885 秒）
+# 分身 AP の試験が読む答えの段の測りの行（--reuse の記録＋表に足した行＝g53_meaning.with_new_rows の1か所）。1回だけ作って使い回す。⛔ 分身 AU（L29）まで、電話を終える言葉の
+# 表の行（組 F＝set_f）を作らない置き換えをしていた（はじめの理由＝組 F の組み立てが約4秒）＝分身 AT（L27）が正解の表を1つの流しの中で1回だけ組む形にしたあとは、組 F は 0.12 秒＝
+# 速さのためには要らない（同じことをする所を2つ持たない）＝外した（分身 AP の試験は行の言葉で引く＝組 F の行が入っても読む行は同じ）
 _AP_ITEMS: list = []
 
 
@@ -52812,8 +52847,7 @@ def ap_items() -> list:
         import json as _json
         import g53_meaning as G
         from common import latest_result
-        with unittest.mock.patch.object(G, "set_f", list):
-            _AP_ITEMS.extend(G.with_new_rows(_json.loads(latest_result("G-53d1base_*.json").read_text(encoding="utf-8"))["items"]))
+        _AP_ITEMS.extend(G.with_new_rows(_json.loads(latest_result("G-53d1base_*.json").read_text(encoding="utf-8"))["items"]))
     return _AP_ITEMS
 
 
@@ -53772,3 +53806,40 @@ class AUFirmChangeRequestTest(unittest.TestCase):
         for text in ("か……ど……で……", "……ふ……りこ……"):
             it = next(r for r in rw.GARBLED_ROWS if r["text"] == text)
             self.assertNotIn("⏳", it["label"]["why"], text)
+
+
+class AUTestPlaceTest(unittest.TestCase):
+    """分身 AU（帳面 1 の (6) の (i) の L29・分身 AT の書き置き rv196/AT/notes.md の 6章・分身 AR の書き置き rv196/AR/notes.md の 6章の (6)。CL-1 が書いてある決まりで決めた＝伺わない）：
+    (1) 試験が子の python を流すのは1か所（child_python＝いつも -B）。⛔ それまでは7か所が -B を付けず、試験の全部を流すたびに phase0 に __pycache__ ができた
+    (2) 試験がファイルを書くのは流しごとの1つの置き場（run_place＝setUpModule の置き場の下）。⛔ それまでは会話の声をつなぐ試験が results/convo_audio を作り（空のまま残る）、
+        間を長くした台詞の声の試験が results/callee/Sadachbia_*_pause.wav を書き直した
+    (3) 分身 AP の試験の行（ap_items）は、組 F を作らない置き換えをしない（分身 AT の L27 のあと速さのためには要らない＝同じことをする所を2つ持たない）"""
+
+    def test_1_children_always_run_with_b(self):
+        import inspect
+        import sys
+        src = Path(__file__).read_text(encoding="utf-8")
+        self.assertEqual(src.count("[sys" + ".executable"), 1)              # child_python の中の1か所だけ
+        self.assertIn("[sys" + ".executable" + ', "-B", *args]', inspect.getsource(child_python))
+        self.assertEqual(child_python("-c", "x"), list((sys.executable, "-B", "-c", "x")))
+
+    def test_2_tests_do_not_write_into_results(self):
+        import stitch_gap
+        results = stitch_gap.AUDIO_DIR.parent
+        convo_before = stitch_gap.AUDIO_DIR.exists()
+        paused = sorted(stitch_gap.CALLEE_DIR.glob("Sadachbia_*_pause.wav"))
+        stamps = {p.name: p.stat().st_mtime_ns for p in paused}
+        names = ("test_stitch_call_keeps_waited_turn", "test_stitch_call_orders_callee_ack_ai")
+        # 1つずつ流す（TestSuite で流すと、この試験のファイルの setUpModule・tearDownModule がもう一度流れ、流しごとの置き場が消える）
+        got = unittest.TestResult()
+        for case in (*(AckTimingTest(n) for n in names), ScenesTest("test_widened_pause_keeps_the_voice")):
+            case.run(got)
+        self.assertTrue(got.wasSuccessful(), [str(e) for _, e in got.failures + got.errors])
+        self.assertEqual(stitch_gap.AUDIO_DIR.exists(), convo_before)        # results/convo_audio を作らない
+        self.assertEqual({p.name: p.stat().st_mtime_ns for p in sorted(stitch_gap.CALLEE_DIR.glob("Sadachbia_*_pause.wav"))}, stamps)   # 書き直さない
+        self.assertEqual(stitch_gap.AUDIO_DIR.parent, results)               # 置き換えは試験の間だけ
+        self.assertTrue(str(run_place("x")).startswith(_RUN_TMP or tempfile.gettempdir()))
+
+    def test_3_ap_items_builds_the_rows_as_the_measure_does(self):
+        import inspect
+        self.assertNotIn("set_f", inspect.getsource(ap_items))
