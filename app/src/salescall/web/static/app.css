@@ -168,7 +168,10 @@ ul.numbers li.old .num { color: var(--muted); font-weight: 500; text-decoration:
 .more-note { margin-bottom: 14px; }
 
 .tag { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 600;
-       background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+       background: var(--surface-2); color: var(--muted); white-space: nowrap;
+       /* 札は文字の長さぶんの幅を取り、入れ物より長いときだけ折る（1か所。2026-11-22 の見直し：表の札の形や横並びの見出しの中で、短い札が
+          横の文字に押されて縮み、「な／し」「まだかけていな／い」と折れていた。入らなければ札ごと次の行へ送る） */
+       width: max-content; max-width: 100%; flex-shrink: 0; }
 .tag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 /* 長い札が表の中で折れるときは、点を1行目にそろえる（2026-11-21 の見直し：「【緊急】…」の札で点が2行の真ん中に来ていた。1行の札は変わらない） */
 td .tag { align-items: flex-start; } td .tag::before { margin-top: .6em; }
@@ -532,8 +535,10 @@ table.list .tag { white-space: normal; text-align: left; }
   table.list, table.list tbody, table.list tr, table.list td { display: block; width: 100%; }
   table.list tr { padding: 10px 12px; border-bottom: 1px solid var(--line); }
   table.list td { border: 0; padding: 3px 0; max-width: none; text-align: left; position: relative; }
-  table.list td[data-label] { padding-left: 8em; min-height: 1.6em; }   /* 値はふつうの文の流れのまま（中の名前や札が別の升目に分かれない） */
-  table.list td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 4px; width: 7.5em;
+  /* 欄の名前の幅は、名前の文字の大きさ（12px）で8文字＝96px＋あき8px の1か所（2026-11-22：値の側を 8em＝欄の文字の大きさで取っていて、
+     約30px余分にあき、札が値の幅に入らず折れていた） */
+  table.list td[data-label] { padding-left: 104px; min-height: 1.6em; }   /* 値はふつうの文の流れのまま（中の名前や札が別の升目に分かれない） */
+  table.list td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 4px; width: 96px;
                                       color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1.5; }
   table.list td.num, table.list th.num { text-align: left; }
   /* 数の欄は2列に並べる（数の欄が1つずつ縦に並び、ホームの「依頼者ごと」は依頼者1件で画面1枚近くを使っていた。2026-11-22） */
@@ -541,13 +546,16 @@ table.list .tag { white-space: normal; text-align: left; }
   /* 札の見出しにする欄（lead-cell。例：お客様リストの会社名）は、札の先頭に大きく（表の並びは変えず、見せる順だけ） */
   table.list td.lead-cell { order: -1; padding-left: 0; font-size: 15px; font-weight: 700; padding-bottom: 6px; }
   table.list td.lead-cell::before { display: none; }
-  table.list td.num[data-label] { width: 50%; padding-left: 8.4em; }
-  table.list td.num[data-label]::before { width: 8.2em; white-space: nowrap; }   /* 見出しは8文字まで1行（「まだかけていない」が数に重なっていた） */
+  table.list td.num[data-label] { width: 50%; padding-left: 104px; }
+  table.list td.num[data-label]::before { width: 96px; white-space: nowrap; }   /* 見出しは8文字まで1行（「まだかけていない」が数に重なっていた） */
   table.list td:empty { display: none; }
   table.list td.zero { display: none; }   /* 見出しに minor の付いた欄の 0 だけ（app.js の1か所が印を付ける） */
   .bulk .check-all-bar { display: inline-flex; }   /* 表の見出しが隠れるので、帯の「すべて選ぶ」を出す */
   /* 札の形では、レ点は札の右上に置く（レ点だけで1行を使っていた＝お客様リストの札が1件ごとに長かった。2026-11-22） */
-  table.list tr:has(> td.check) { position: relative; padding-right: 48px; }
+  /* 右のあきは、レ点と並ぶ先頭の欄（札の見出し）だけに取る（2026-11-22：札のすべての行に取っていて、下の欄の値の幅が狭くなっていた） */
+  table.list tr:has(> td.check) { position: relative; }
+  table.list tr:has(> td.check) > td.lead-cell { padding-right: 44px; }
+  table.list tr:has(> td.check):not(:has(> td.lead-cell)) { padding-right: 48px; }
   table.list td.check { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; padding: 0; display: grid; place-items: center; }
   table.list td.check input { width: 22px; height: 22px; }
   table.list td.check::before { display: none; }   /* 右上のレ点には見出しを付けない（見出しが欄の外へ伸び、横にはみ出した。名前は欄の aria-label が持つ） */
