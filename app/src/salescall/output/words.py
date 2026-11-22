@@ -356,6 +356,21 @@ MODE_WORDS: dict[str, tuple[str, str]] = {
 }
 
 
+# 名前を直した記録の種類（記録の表 name_changes の kind。データベースの CHECK と同じ4つ）
+NAME_CHANGE_KIND_WORDS = {"client": "依頼者", "business": "業務", "run": "お客様リスト", "line": "回線"}
+
+# かけ直しの申し出の理由（core の call_report.CALLBACK_REASONS のすべて。試験が突き合わせる）と、「〇時まで」の理由（UNTIL_WHYS。言い方は
+# 設定の見出し callback.until_* と同じ言葉）。お客様の画面の「お客様とのお約束」が出す（判定の中身 callback の reason・until_why）
+CALLBACK_REASON_WORDS = {
+    "absent": "不在（戻られたらかけ直す）", "long_absent": "長く不在（出張など）", "day_off": "お休み", "other_number": "別の番号へかけ直す",
+    "later": "あとでかけ直す", "other_means": "電話でないご連絡の方法", "ask_who": "分かる方に伺う", "ask_when": "分かる時に伺う",
+    "unavailable": "いまはお電話に出られないご事情",
+}
+UNTIL_WHY_WORDS = {
+    "other_party": "「〇時までにこの番号へ」（別の番号・別の方へ）", "unavailable": "「〇時まで出られない」",
+    "preparing": "「〇時までに確認します」", "available_until": "「〇時までなら大丈夫」",
+}
+
 # 想定問答の行が、どこから来たか（core の business_settings.answer_rows の source。言葉は画面の1か所）
 ANSWER_SOURCE_WORDS = {
     "standard": "標準",

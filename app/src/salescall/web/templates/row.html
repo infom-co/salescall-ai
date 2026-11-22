@@ -42,6 +42,12 @@
             <p class="muted">直した結果で確定し、次の予定も直しに従います（例：「お断り」に直すと、もうおかけしません）。</p>
             <button class="btn main small" type="submit" data-submit disabled>この結果に直す</button></form></details>
         {% endif %}</dd>
+      {%- if promise %}
+      {#- お客様とのお約束（いちばん新しい結果の判定の中身 callback。理由と「〇時まで」の理由の言葉は output/words の1か所） -#}
+      <dt>お客様とのお約束</dt><dd>{{ words.CALLBACK_REASON_WORDS.get(promise.reason, words.NO_WORD) }}{% if promise.theirs %}（お客様のほうから折り返すとおっしゃった）{% endif %}
+        {%- if promise.at %}<div class="muted">{{ time(promise.at) }}{% if promise.until %} 〜 {{ time(promise.until) }}{% endif %}</div>{% endif %}
+        {%- if promise.until_why %}<div class="muted">「〇時まで」の理由：{{ words.UNTIL_WHY_WORDS.get(promise.until_why, words.NO_WORD) }}</div>{% endif %}</dd>
+      {%- endif %}
       <dt>かけた回数</dt><dd class="num">{{ row.attempts }}</dd>
       <dt>かけるか</dt><dd>{{ tag(words.exclusion_level(level), words.tone("stopped" if level == "force" else "normal")) }}
         {#- その場で変える操作は、どれも「押すと開く小窓」の1つの形（結果を直す・休みから再開と同じ） -#}

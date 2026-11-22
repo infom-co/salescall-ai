@@ -63,6 +63,12 @@
   </tbody>
 </table></div>
 {% else %}<div class="card">{{ empty("回線はまだありません", "「＋ 回線を足す」から足してください。回線が無いと電話はかけられません。") }}</div>{% endif %}
+{#- 回線の名前を直した記録（読むのは web/counts.name_changes の1か所） -#}
+{% if renames %}
+<details class="more name-history"><summary>回線の名前を直した記録（{{ renames|length }}件）</summary>
+  <ul class="history-list">{% for n in renames %}<li><span class="when">{{ time(n.changed_at) }}</span>・「{{ n.old_name }}」→「{{ n.new_name }}」・{{ n.changed_by }}</li>{% endfor %}</ul>
+</details>
+{% endif %}
 
 <h2>PC</h2>
 {% if pcs %}

@@ -28,6 +28,8 @@
 </form>
 {% endif %}
 {{ imp.stopped_rows("登録できない行", stopped, row_names) }}
+{{ imp.zero_rows(zero_added, row_names) }}
+{{ imp.already_rows(already, row_names) }}
 {{ imp.register(ibase, key, "依頼者「" ~ client.name ~ "」・業務「" ~ business.name ~ "」のお客様リスト「" ~ run.name ~ "」に " ~ counts.registered ~ "行を登録する",
                 counts.registered or counts.already, token, base) }}
 {% endblock %}

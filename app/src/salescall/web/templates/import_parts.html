@@ -92,6 +92,33 @@
 {% endif %}
 {%- endmacro %}
 
+{#- 先頭の 0 を足した番号（表計算で 0 が落ちた番号。足したかは core の phone.normalize の1か所）。確かめてから登録していただく -#}
+{% macro zero_rows(rows, names={}) -%}
+{% if rows %}
+<h2>先頭の 0 を足した番号（{{ rows|length }}行）</h2>
+<p class="muted">表計算ソフトで先頭の 0 が消えていたとみなして、0 を足しました。違っていれば、ファイルを直して取り込み直してください。</p>
+<div class="table-scroll"><table class="list">
+  <thead><tr><th class="num">ファイルの行</th><th>登録する番号</th>{% if names or rows|selectattr("name")|list %}<th class="wide">会社名</th>{% endif %}</tr></thead>
+  <tbody>{% for r in rows %}<tr><td class="num">{{ r.row_no }}</td><td class="nowrap">{{ r.number.display or r.number.national }}</td>{% if names or rows|selectattr("name")|list %}<td class="wide">{{ r.name or names.get(r.row_no, "") }}</td>{% endif %}</tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+{%- endmacro %}
+
+{#- もう入っている行と、その理由（一覧と違う所・前回からお呼びする方が替わったこと・足す連絡先。文は core の importer の1か所）。
+    行が多いときに画面を埋めないよう、たたんで数を見せる（違う所は、開いた一覧の理由の欄で読む） -#}
+{% macro already_rows(already, names={}) -%}
+{% if already %}
+<details class="more already-rows"{% if already|length <= 20 %} open{% endif %}>
+  <summary>もう入っている行（{{ already|length }}行）と、前回からの違い</summary>
+  <div class="table-scroll"><table class="list">
+    <thead><tr><th class="num">ファイルの行</th><th class="wide">いまのお客様と、一覧との違い</th><th class="wide">会社名</th></tr></thead>
+    <tbody>{% for r in already %}<tr><td class="num">{{ r.row_no }}</td><td class="wide">{{ r.reason }}</td><td class="wide">{{ r.name or names.get(r.row_no, "") }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="muted">もう入っているお客様は2つになりません。値は一覧で書き戻さず、いまのお客様の値（ダッシュボードで直した値）のままです。一覧で増えた連絡先だけを足します。</p>
+</details>
+{% endif %}
+{%- endmacro %}
+
 {#- 登録する（取り消せない操作なので、どこへ何行かを名前つきで見せてから＝計画書 5-1。押せる・押せないは core の数で決まる） -#}
 {% macro register(ibase, key, label, enabled, token, cancel) -%}
 <form method="post" action="{{ ibase }}/{{ key }}/register" style="margin-top:20px">

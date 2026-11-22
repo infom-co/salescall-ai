@@ -203,6 +203,14 @@ class QuestionChoices(unittest.TestCase):
         self.assertEqual(words.question_choices(pick), "カード・現金")
 
 
+class CallbackWords(unittest.TestCase):
+    def test_every_callback_reason_and_until_reason_has_a_screen_word(self):
+        """かけ直しの申し出の理由と「〇時まで」の理由の画面の言葉は、core の並びのすべてにちょうど1つずつ（足したら言葉も足す＝ここが落ちる）。"""
+        from salescall.core import call_report
+        self.assertEqual(set(words.CALLBACK_REASON_WORDS), set(call_report.CALLBACK_REASONS))
+        self.assertEqual(set(words.UNTIL_WHY_WORDS), set(call_report.UNTIL_WHYS))
+
+
 class ExclusionWords(unittest.TestCase):
     def test_every_exclusion_level_has_a_clear_screen_name(self):
         """行の「かけない」の印の画面の名前は、core の段のすべてにあり、発信禁止と取り違えない言葉（「かけない」だけの名前を使わない）。"""

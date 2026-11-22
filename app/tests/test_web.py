@@ -445,6 +445,46 @@ class Web(_World):
         self.assertEqual(self._count_rows(), before + 1)
         self.assertEqual(self.post("A", key_url + "/register", {"form_token": tok}).status_code, 404)   # 置き場から消えた（二度登録しない）
 
+    def test_a_reimport_lists_the_customers_already_in_with_what_differs(self):   # ✅ 2026-11-16 管理者（CL-2 4-410）「変更がある部分を一覧で出し」
+        ensure_rules(World(), self.a)
+        phone, ref = fictional_jp_fixed(), f"RE-{uuid4().hex[:6]}"
+        first = ("会社名,電話番号,管理番号\n架空の取り込み直し商事,%s,%s\n" % (phone, ref)).encode()
+        tok = self.token("A")
+        key_url = self._upload(body=first).headers["location"]
+        self.post("A", key_url + "/preview", {"form_token": tok, "map_name": "会社名", "map_phone": "電話番号", "map_client_ref": "管理番号"})
+        self.assertIn("ok=1", self.post("A", key_url + "/register", {"form_token": tok}).headers["location"])
+        again = ("会社名,電話番号,管理番号\n架空の取り込み直し商事（社名変更）,%s,%s\n" % (phone, ref)).encode()
+        key_url = self._upload(body=again).headers["location"]
+        prev = self.post("A", key_url + "/preview", {"form_token": tok, "map_name": "会社名", "map_phone": "電話番号", "map_client_ref": "管理番号"})
+        self.assertEqual(prev.status_code, 200, prev.text[:300])
+        part = prev.text[prev.text.index("もう入っている行（1行）"):]
+        self.assertIn("一覧と違う所", part)                                     # 文は core の importer の1か所のまま
+        self.assertIn("架空の取り込み直し商事（社名変更）", part)
+
+    def test_a_number_whose_leading_zero_was_added_is_shown_in_the_preview(self):   # CL-2 4-23（足したかは core の phone.normalize の1か所）
+        ensure_rules(World(), self.a)
+        phone = fictional_jp_fixed()                                           # 国内の固定の番号（0 を外すと、表計算で 0 が落ちた形）
+        body = ("会社名,電話番号,管理番号\n架空の0が落ちた商事,%s,Z-%s\n" % (phone.replace("-", "").lstrip("0"), uuid4().hex[:6])).encode()
+        key_url = self._upload(body=body).headers["location"]
+        prev = self.post("A", key_url + "/preview", {"form_token": self.token("A"), "map_name": "会社名", "map_phone": "電話番号",
+                                                     "map_client_ref": "管理番号"})
+        self.assertEqual(prev.status_code, 200, prev.text[:300])
+        part = prev.text[prev.text.index("先頭の 0 を足した番号（1行）"):]
+        self.assertIn("架空の0が落ちた商事", part[:3000])
+
+    def test_the_row_page_shows_the_promise_with_the_reason_for_until(self):   # CL-2 4-149 (2)（判定の中身 callback を読むだけ）
+        import unittest.mock
+        from salescall.core import results
+        latest = {"task_id": self.a["task"], "version_no": 1, "kind": "judged", "business_state": "callback_scheduled", "attempt_id": None,
+                  "judge_version": "x", "complaint": False, "snapshot": {}, "decided_at": None, "decided_by": "試験",
+                  "detail": {"callback": {"reason": "later", "until_why": "preparing", "theirs": False,
+                                          "at": "2026-11-24T06:00:00+00:00", "until": "2026-11-24T06:30:00+00:00"}}}
+        with unittest.mock.patch.object(results, "latest", lambda tx, task_id: latest):
+            page = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/rows/{self.a['task']}").text
+        part = page[page.index("お客様とのお約束"):]
+        self.assertIn("あとでかけ直す", part[:800])
+        self.assertIn("「〇時まで」の理由：「〇時までに確認します」", part[:800])
+
     def test_s22_a_preview_that_became_old_is_not_registered(self):
         """S-22（docs/DASHBOARD.md 8-3）：プレビューのあとで中身が変わったら（ここでは、ファイルの番号が発信禁止に入った）、登録を送っても
         何も登録せず、もう一度プレビューを確かめるよう言う（決めるのは core の importer の1か所＝PlanChanged。画面はその文を出すだけ）。"""
@@ -505,6 +545,10 @@ class Web(_World):
         self.assertEqual(self.post("B", f"/c/{cid}/name", {"form_token": self.token("B"), "name": "乗っ取り"}).status_code, 404)
         self.assertIn("ok=1", self.post("A", f"/c/{cid}/b/{bid}/name", {"form_token": tok, "name": "架空の直した業務"}).headers["location"])
         self.assertIn("架空の直した業務", self.get("A", f"/c/{cid}/b/{bid}").text)
+        history = self.get("A", f"/c/{cid}/settings").text                   # 名前を直した記録（直す前と後。CL-2 4-78）
+        part = history[history.index("名前を直した記録"):]
+        self.assertIn("依頼者「架空の名前を直す依頼者」→「架空の直した依頼者」", part)
+        self.assertIn("業務「架空の名前を直す業務」→「架空の直した業務」", part)
         self.assertEqual(self.post("A", f"/c/{self.y['client']}/b/{bid}/name", {"form_token": tok, "name": "よその業務"}).status_code, 404)
         run = f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}"
         old = re.search(r"<h1>お客様リスト：(.*?)</h1>", self.get("A", run).text).group(1)
@@ -518,6 +562,7 @@ class Web(_World):
         self.assertIn("名前を直す", self.get("A", "/t/lines").text)
         self.assertIn("ok=1", self.post("A", line, {"form_token": tok, "name": "架空の直した回線"}).headers["location"])
         self.assertIn("架空の直した回線", self.get("A", "/t/lines").text)
+        self.assertIn("→「架空の直した回線」", self.get("A", "/t/lines").text)    # 回線の名前の記録も
         self.assertIn("ok=0", self.post("B", line, {"form_token": self.token("B"), "name": "乗っ取り"}).headers["location"])
 
     def test_a_client_is_made_inactive_and_back_with_a_reason(self):

@@ -783,6 +783,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 if client_id is not None:
                     out.update(client=context.client(tx, client_id),
                                businesses=context.businesses(tx),
+                               renames=counts.name_changes(tx, ("client", "business", "run")) if business_id is None else [],
                                business=None if business_id is None else context.business(tx, business_id))
                 return out
             if level == "system":   # 管理者だけ（ctx.system が断る）。仮の値は、見直す時と一緒に見せる（settings.provisional の1か所）
@@ -1181,7 +1182,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 # PC が1台も無いことは、上の「いま見ること」の札が1回だけ言う（counts.readiness と同じ数＝tenant_system の pcs）。回線ごとの
                 # 「どの PC にもつながっていない」は、PC はあるのにその回線を受け持つ PC が無いときだけ出す（11回くり返さない）
                 return {"lines": lines, "methods": registry.line_methods(tx), "pcs": pcs, "served": served,
-                        "pc_count": counts.tenant_system(tx)["pcs"]}
+                        "pc_count": counts.tenant_system(tx)["pcs"], "renames": counts.name_changes(tx, ("line",))}
             return page(request, "lines.html", person, ctx, ready=ctx.tenant(counts.readiness), active="lines", done=done, ok=bool(ok),
                         client_names={c["client_id"]: c["name"] for c in ctx.clients()}, **ctx.tenant(read))
         return handle(request, render)
@@ -1343,7 +1344,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                             "file_name": u.file_name}
                 u.preview = {"digest": plan.digest}
                 return {"stage": "preview", "counts": plan.counts(), "file_name": u.file_name,
-                        "stopped": [r for r in plan.rows if r.outcome == "stopped"]}
+                        "stopped": [r for r in plan.rows if r.outcome == "stopped"],
+                        "zero_added": _zero_added(plan.rows)}
             return _dnc_import_page(request, c, "preview", key=key, extra=extra)
 
         @app.post(prefix + "/{key}/register")
@@ -2087,6 +2089,11 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         return handle(request, render)
 
     # ── お客様リストの取込（docs/DASHBOARD.md 5-8）：ファイル → 列と欄の対応付け → プレビュー（行ごとの合否）→ 登録 ──────
+    def _zero_added(rows: Any) -> list[Any]:
+        """取り込む行のうち、番号の先頭の 0 が消えたとして 0 を足した行（表計算で 0 が落ちた番号＝core の phone.normalize の zero_added の1か所。
+        CL-2 4-23「取込のプレビューで、0 を足した列は『先頭の 0 を足した』と見せてください」）。登録する行と、もう入っている行。"""
+        return [r for r in rows if r.outcome in ("registered", "already") and r.number is not None and r.number.zero_added]
+
     def _run_in(tx: Any, business_id: UUID, run_id: UUID) -> dict[str, Any]:
         """住所の業務・実施回が、住所の依頼者の中でつながっているか（違えば NotFound）。実施回を返す。"""
         context.business(tx, business_id)
@@ -2241,6 +2248,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             u.preview = {"digest": plan.digest, "ai": plan.ai_readings, "confirmed": confirmed}
             return _import_page(request, "import_preview.html", client_id, business_id, run_id, key=key, plan=plan,
                                 counts=plan.counts(), stopped=[r for r in plan.rows if r.outcome == "stopped"],
+                                # もう入っている行と、その理由（一覧と違う所・前回からお呼びする方が替わったこと・足す連絡先。文は core の
+                                # importer の1か所＝✅ 2026-11-16 管理者「再取り込み時に、変更がある部分を一覧で出し、担当者が前回から代わっている点も
+                                # 一覧に記載する」＝CL-2 4-410。⛔ 2026-11-22 深夜まで、数だけを出していた）
+                                already=[r for r in plan.rows if r.outcome == "already"], zero_added=_zero_added(plan.rows),
                                 row_names=importing.row_names(sheet, u.mapping),
                                 mapping=u.mapping, file_name=u.file_name)
         return handle(request, render)
@@ -2296,12 +2307,19 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     except actions.REFUSALS as e:
                         step = {"error": str(e)}
                 latest = results.latest(tx, task_id)
+                # お客様とのお約束（いちばん新しい結果の判定の中身 callback を読むだけ＝core の judge._callback の1か所。「〇時まで」の理由＝
+                # until_why も見せる＝CL-2 4-149 (2)。⛔ 2026-11-22 深夜まで、判定の中身を画面に出していなかった）
+                cb = ((latest or {}).get("detail") or {}).get("callback")
+                promise = None if not isinstance(cb, dict) else {
+                    "reason": cb.get("reason"), "until_why": cb.get("until_why"), "theirs": cb.get("theirs"),
+                    "at": datetime.fromisoformat(cb["at"]) if cb.get("at") else None,
+                    "until": datetime.fromisoformat(cb["until"]) if cb.get("until") else None}
                 # こちらの不具合で休ませている・復旧を待っている行（戻せる段は core の troubles.RESTORABLE、待ちの言葉は gate.REASONS の1か所）
                 stage = health.task_of(tx, task_id).stage
                 rest = (gate.REASONS[gate.TASK_STAGE_REASONS[stage.name.lower()]].message
                         if stage in troubles.RESTORABLE else "")
                 return {"level": exclusions.level(tx, task_id), "rest": rest,
-                        "latest": latest, "can_correct": approval_core.correctable(tx, task_id) is not None,   # 直せるかは core の1か所（29 の (c)）
+                        "latest": latest, "promise": promise, "can_correct": approval_core.correctable(tx, task_id) is not None,   # 直せるかは core の1か所（29 の (c)）
                         "answers": result_rows.answers_for_check(tx, task_id),   # 依頼者へ渡す書き方のままの答え（結果のファイルと同じ1か所）
                         "pending": inbox.collect(tx, task=task_id),   # この行の承認待ち（受け箱と同じ1か所・同じ形で出す）
                         "client": context.client(tx, client_id),

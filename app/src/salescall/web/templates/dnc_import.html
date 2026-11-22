@@ -32,6 +32,7 @@
 {{ imp.counts([("かけない番号に加える行", counts.registered, "", "番号 " ~ counts.numbers ~ "件" ~ (("・管理番号 " ~ counts.client_refs ~ "件") if client else "")),
                 ("もう入っている行", counts.already, "", ""), ("加えられない行", counts.stopped, words.tone("waiting"), "")]) }}
 {{ imp.stopped_rows("加えられない行", stopped) }}
+{{ imp.zero_rows(zero_added) }}
 {{ imp.register(base, key, place ~ "に " ~ counts.registered ~ "行を登録する", counts.registered, token, back) }}
 {% endif %}
 {% endblock %}

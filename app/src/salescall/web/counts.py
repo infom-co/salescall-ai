@@ -199,6 +199,13 @@ def version_history(tx: Tx, run_id: UUID, limit: int = 10) -> list[dict[str, Any
                   " WHERE rv.run_id = %s ORDER BY rv.seq DESC LIMIT %s", (run_id, limit))
 
 
+def name_changes(tx: Tx, kinds: tuple[str, ...], limit: int = 50) -> list[dict[str, Any]]:
+    """名前を直した記録（新しい順。記録の表 name_changes を読むだけ＝書くのはデータベースの1か所 salescall.only_name_changes。CL-2 4-78
+    「名前を直した記録の一覧を出してください」）。読める範囲は取引のまま（依頼者の取引ならその依頼者の分、契約者の取引なら回線も）。"""
+    return tx.all("SELECT kind, old_name, new_name, changed_by, changed_at FROM salescall.name_changes WHERE kind = ANY(%s)"
+                  " ORDER BY changed_at DESC, change_id DESC LIMIT %s", (list(kinds), limit))
+
+
 # 版を使えないとみなす断り（core の取り込み importer が「版を直してから取り込んでください」と断るのと同じ4つ。2026-11-21：前は2つだけを
 # 数え、業務の決まりが無い・誤っている版を「使える」としていた＝はじめかたは済みなのに、取り込みで断られえた）
 _VERSION_UNUSABLE = (LookupError, business_settings.SettingsInvalid, business_settings.business_rules.RulesMissing,
