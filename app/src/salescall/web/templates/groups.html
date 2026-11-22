@@ -16,8 +16,8 @@
 <section class="card" style="margin-top:12px">
   <div class="title-row"><h2 style="margin:0">{{ loop.index }}. {{ g.name }} <span class="muted">（{{ g.clients|length }}）</span></h2>
     <span class="btn-row">
-      {% if not loop.first %}<form method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="move"><input type="hidden" name="group_id" value="{{ g.group_id }}"><input type="hidden" name="position" value="{{ loop.index - 1 }}"><button class="btn small" type="submit" aria-label="上へ">↑</button></form>{% endif %}
-      {% if not loop.last %}<form method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="move"><input type="hidden" name="group_id" value="{{ g.group_id }}"><input type="hidden" name="position" value="{{ loop.index + 1 }}"><button class="btn small" type="submit" aria-label="下へ">↓</button></form>{% endif %}
+      {% if not loop.first %}<form method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="move"><input type="hidden" name="group_id" value="{{ g.group_id }}"><input type="hidden" name="position" value="{{ loop.index - 1 }}"><button class="btn small" type="submit" aria-label="グループ「{{ g.name }}」を上へ" title="上へ">↑</button></form>{% endif %}
+      {% if not loop.last %}<form method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="move"><input type="hidden" name="group_id" value="{{ g.group_id }}"><input type="hidden" name="position" value="{{ loop.index + 1 }}"><button class="btn small" type="submit" aria-label="グループ「{{ g.name }}」を下へ" title="下へ">↓</button></form>{% endif %}
       <details class="adder"><summary class="btn small">名前を変える</summary>
         <form class="panel" method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="rename"><input type="hidden" name="group_id" value="{{ g.group_id }}">
           <input type="text" name="name" value="{{ g.name }}" required aria-label="グループの名前"><button class="btn main small" type="submit">変える</button></form></details>
