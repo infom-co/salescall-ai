@@ -21,7 +21,7 @@
   <div class="weekly">{% for k, label in days %}<label><span>{{ label }}</span><input type="text" name="f_{{ k }}" value="{% if v and v[k] %}{% for a in v[k] %}{{ a|join('-') }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}" placeholder="空＝かけない"></label>{% endfor %}</div>
 {% elif w in ("gap_never", "gap_day") %}
   {% set special = "never" if w == "gap_never" else "next_day" %}
-  <div class="gap"><select name="f_unit">
+  <div class="gap"><select name="f_unit" aria-label="単位">
     <option value="hours" {% if v is mapping and "hours" in v %}selected{% endif %}>時間あける</option>
     <option value="days" {% if v is mapping and "days" in v %}selected{% endif %}>日あける</option>
     <option value="{{ special }}" {% if v == special %}selected{% endif %}>{{ words.SETTING_VALUE_WORDS[special] }}</option>
@@ -36,7 +36,7 @@
   <input type="text" inputmode="numeric" name="f_v" value="" placeholder="部屋の番号（数字だけ）" aria-label="チャットワークの部屋の番号">
   <label class="choice"><input type="checkbox" name="f_clear" value="1"> 部屋を消す（欄は空のまま）</label>
 {% elif w == "choice" %}
-  <select name="f_v">{% for c in r.choices or [] %}<option value="{{ c }}" {% if c == v %}selected{% endif %}>{{ words.choice_word(r.choice_words, c) }}</option>{% endfor %}</select>
+  <select name="f_v" aria-label="{{ r.label }}">{% for c in r.choices or [] %}<option value="{{ c }}" {% if c == v %}selected{% endif %}>{{ words.choice_word(r.choice_words, c) }}</option>{% endfor %}</select>
 {% else %}
   <p class="muted">この設定は、まだ画面から変えられません。</p>
 {% endif %}
@@ -67,10 +67,10 @@
       {{ widget(r) }}
       {% if level == "system" %}
       <div class="gap"><select name="status" aria-label="仮か確定か"><option value="decided">確定の値</option><option value="provisional">仮の値（あとで見直す）</option></select>
-      <input type="text" name="review_when" placeholder="仮なら、いつ見直すか" style="max-width:260px"></div>
+      <input type="text" name="review_when" aria-label="いつ見直すか" placeholder="仮なら、いつ見直すか" style="max-width:260px"></div>
       {% endif %}
       <label class="field">理由（記録に残ります）</label>
-      <input type="text" name="reason" placeholder="なぜ変えるか（例：依頼者からのご希望・試してみて合わなかった）">
+      <input type="text" name="reason" aria-label="なぜ変えるか（記録に残ります）" placeholder="なぜ変えるか（例：依頼者からのご希望・試してみて合わなかった）">
       <div class="actions"><button class="btn main small" type="submit" data-submit disabled>この値に変える</button></div>
     </form>
   </details>
