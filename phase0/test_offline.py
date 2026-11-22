@@ -51854,3 +51854,23 @@ class AMHeardLineTest(unittest.TestCase):
             if c.mobile and c[2] == g.UNHEARD_TWICE:
                 said = [w for who, w in rows[(c[0], c[2])]["talk"] if who == "こちら"]
                 self.assertEqual(said[-1], ACK["moushiwake_heavy"] + c[3], c[0])   # お客様が聞いた一言（お詫びの録音＋確かめた言い方）
+
+
+class AMGroundTermsBoundaryTest(unittest.TestCase):
+    """分身 AM の続きの (4)（束 g63c の読み手 C・D の読みを CL-1 が当てた＝伺わない）：中身の判定の説明に、お客様がおっしゃったご自分のご都合に合わせると言い直しただけの言葉
+    （こちらから約束を足していない＝事実を言っていない）と、こちらがすることの料金・方法・期限・日時を約束する言葉（知らない事実がある）の境目を1か所（選べるものの説明 CHOICES の
+    「知らない事実がある」）だけに書く。説明の文は、文で問う判定（PROMPT の選べるもの）にも、判断のモデル（d1-ultra・Jev の criteria）にも同じ1か所から渡る。説明の例は、試しの言葉
+    （G-63 の条件の文字の4行）と同じ言い方にしない（測りが本番の力を表さなくなる）。⛔ 直す前は、読み手2人が「月曜日を避けて」を境目と読んだ（説明に境目が無い）"""
+
+    def test_the_boundary_is_written_once(self):
+        import g63_grounding as G
+        from grounding import CHOICES, NO_FACT, PROMPT, UNGROUNDED
+        self.assertIn("ご都合", CHOICES[UNGROUNDED])
+        self.assertIn("約束", CHOICES[UNGROUNDED])
+        for other in (*(CHOICES[k] for k in CHOICES if k != UNGROUNDED), PROMPT):
+            self.assertNotIn("ご都合", other)
+        words = "".join(CHOICES.values()) + PROMPT
+        for _, draft, _ in G.CASES[-4:]:   # 条件の文字の4行（(f) の段）
+            self.assertNotIn(draft, words)
+            self.assertNotIn(draft[:2], words, draft)   # 「月曜」「無料」「明日」「オン」
+        self.assertIn(NO_FACT, CHOICES[UNGROUNDED])   # 境目の向こう側の名前（事実を言っていない）を、同じ1か所で指す
