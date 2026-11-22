@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty_line, flash, csrf %}
+{% block title %}システムの様子{% endblock %}
+{% block main %}
+<h1>システムの様子</h1>
+<p class="lead">すべての契約者に効く、システムの持ち物です（管理者だけ）。祝日の暦は毎日、決まった間隔の仕事が確かめて取り込み、取り込めないときは管理者にお知らせします。</p>
+{{ flash(done, ok) }}
+
+<section class="card" id="calendar">
+  <h2>祝日の暦</h2>
+  {#- 何年まで入っているか・最後の取り込み（読むだけ。取り込むのは core の calendar.sync_official＝見守り役。翌年の分が無いかは calendar.next_year_missing の1か所） -#}
+  {% if cal.covered_until %}
+  <dl class="facts">
+    <dt>入っている年</dt><dd>{{ cal.covered_until }}年まで {% if next_year_missing %}{{ tag("翌年の分がまだ", words.tone("waiting")) }}{% endif %}</dd>
+    <dt>最後に取り込んだ時</dt><dd>{{ time(cal.last_loaded_at) }}</dd>
+  </dl>
+  {% if next_year_missing %}<p class="muted">翌年の祝日が、まだ公式の一覧に載っていません。載ると、決まった間隔の仕事が取り込みます（年が替わる前にお知らせします。入らないまま年が替わると、その年は電話をかけません）。</p>{% endif %}
+  {% else %}{{ empty_line("祝日の暦はまだ入っていません", "決まった間隔の仕事が動き始めると、公式の一覧から取り込みます。入るまでは、その日が祝日か分からないので、電話をかけません（門が通しません）。") }}{% endif %}
+</section>
+
+<section class="card" id="line-methods">
+  <div class="title-row"><h2 style="margin:0">回線の方式</h2>
+    <details class="adder"><summary class="btn small">＋ 方式を足す</summary>
+      <form class="panel stack" method="post" action="/admin/system/line-methods">{{ csrf(token) }}
+        <p class="muted">新しい回線の方式は、電話をつなぐ部品を作って確かめてから足します（足すと、回線を足すときに選べるようになります）。</p>
+        <label class="field" for="lm-method">中の名前（英字。電話の部品の名前と同じ）</label><input id="lm-method" type="text" name="method" required>
+        <label class="field" for="lm-label">画面の名前</label><input id="lm-label" type="text" name="label" required placeholder="例：Rakuten Link">
+        <button class="btn main small" type="submit">足す</button>
+      </form></details></div>
+  {% if methods %}<ul class="history-list">{% for m in methods %}<li>{{ m.label }}</li>{% endfor %}</ul>
+  {% else %}{{ empty_line("回線の方式はまだありません", "電話をつなぐ部品を確かめたら、ここで足します。") }}{% endif %}
+</section>
+
+<section class="card" id="voices">
+  <div class="title-row"><h2 style="margin:0">声の一覧</h2>
+    <details class="adder"><summary class="btn small">＋ 声を足す</summary>
+      <form class="panel stack" method="post" action="/admin/system/voices">{{ csrf(token) }}
+        <p class="muted">会話 AI のモデルが進んで声が増えたときに足します。話し方（声の型）は会話の担当が足し、録音がそろうまで、その声では話しません。</p>
+        <label class="field" for="v-name">声の名前（会話 AI の声の名前のまま。英字）</label><input id="v-name" type="text" name="voice_name" required>
+        <label class="field" for="v-note">覚え書き</label><input id="v-note" type="text" name="note" required placeholder="例：落ち着いた男性の声">
+        <fieldset class="plain"><legend class="field">画面に出す性別</legend>
+          <label class="choice"><input type="radio" name="display_gender" value="男性"> 男性</label>
+          <label class="choice"><input type="radio" name="display_gender" value="女性"> 女性</label>
+          <label class="choice"><input type="radio" name="display_gender" value="" checked> 分からない</label></fieldset>
+        <button class="btn main small" type="submit">足す</button>
+      </form></details></div>
+  {% if voices %}
+  <div class="table-scroll" style="margin-top:12px"><table class="list">
+    <thead><tr><th>声</th><th>性別</th><th>話し方（声の型）</th><th>状態</th><th></th></tr></thead>
+    <tbody>{% for v in voices %}
+      <tr><td class="lead-cell">{{ v.voice_name }}</td>
+        <td>{{ v.display_gender or "―" }}</td>
+        <td>{% if v.types %}{% for t in v.types %}{{ words.voice_type(t) }}{% if not loop.last %}・{% endif %}{% endfor %}{% else %}<span class="muted">まだ無い（この声では話しません）</span>{% endif %}</td>
+        <td>{% if v.retired_at %}{{ tag("使わない", "") }}<div class="muted">{{ v.retired_reason }}（{{ time(v.retired_at) }}）</div>{% else %}{{ tag("使う", words.tone("done")) }}{% endif %}</td>
+        <td>{% if not v.retired_at %}
+          <details class="adder more-act"><summary class="btn small danger-text">使わないにする</summary>
+            <form class="panel stack" method="post" action="/admin/system/voices/retire" data-needs-reason data-confirm-tone="danger"
+                  data-confirm="声「{{ v.voice_name }}」を使わないにします。すべての契約者で、この声では話さなくなります（元に戻せません）。" data-confirm-ok="使わないにする">{{ csrf(token) }}
+              <input type="hidden" name="voice_name" value="{{ v.voice_name }}">
+              <label class="field" for="vr-{{ v.voice_name }}">理由（記録に残ります）</label><input id="vr-{{ v.voice_name }}" type="text" name="reason" required placeholder="例：会話 AI のモデルが替わって無くなった">
+              <button class="btn danger small" type="submit">使わないにする</button>
+            </form></details>{% endif %}</td></tr>
+    {% endfor %}</tbody></table></div>
+  {% else %}{{ empty_line("声はまだありません", "会話 AI の声を足すと、ここに並びます。") }}{% endif %}
+</section>
+{% endblock %}

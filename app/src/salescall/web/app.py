@@ -32,7 +32,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
-from salescall.core import (agents, ai_plans, calling_hours, help_texts, conversation_io, customer_contacts, customer_rows, destinations, dnc, dnc_import, exclusions,
+from salescall.core import (agents, ai_plans, calendar, calling_hours, help_texts, conversation_io, customer_contacts, customer_rows, destinations, dnc, dnc_import, exclusions,
                             gate, health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
@@ -928,6 +928,61 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             return ctx.system(lambda tx: people.set_active(tx, person_id, active, reason=str(form.get("reason") or "").strip()))
         return _admin_people_act(request, form, work, "使えるようにしました。" if active else "使えないにしました。その方は、もうログインできません。",
                                  reason_field="reason")
+
+    # ── システムの様子（管理者だけ。設計書 5-13：祝日の暦・回線の方式・声の一覧。どれも core の1か所を読む・書く） ──
+    @app.get("/admin/system")
+    def admin_system(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            if not person.is_admin:
+                raise NotFound()
+            def read(tx: Any) -> dict[str, Any]:
+                # 祝日の暦：何年まで入っているか・最後に取り込んだ時（取り込むのは見守り役が毎日＝core の calendar.sync_official。知らせは
+                # calendar_sync_failed・翌年の分が無いときの知らせ）
+                cal = tx.one("SELECT max(last_year) AS covered_until, max(loaded_at) AS last_loaded_at, salescall.jst(now())::date AS today"
+                             " FROM salescall.calendar_loads")
+                voices = tx.all("SELECT v.voice_name, v.note, v.display_gender, v.added_at, v.retired_at, v.retired_reason,"
+                                " ARRAY(SELECT t.code FROM salescall.voice_types t WHERE t.voice_name = v.voice_name ORDER BY t.code) AS types"
+                                " FROM salescall.voices v ORDER BY v.retired_at NULLS FIRST, v.voice_name")
+                return {"cal": cal, "next_year_missing": calendar.next_year_missing(cal["covered_until"], cal["today"]),
+                        "methods": registry.line_methods(tx), "voices": voices}
+            return page(request, "admin_system.html", person, ctx, active="system", done=done, ok=bool(ok), **ctx.system(read))
+        return handle(request, render)
+
+    def _admin_system_act(request: Request, form: dict[str, Any], work: Callable[[Any], Any], done: str,
+                          reason_field: str | None = None) -> HTMLResponse:
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            if not person.is_admin:
+                raise NotFound()
+            def do(tx: Any) -> Any:
+                try:
+                    return work(tx)
+                except ValueError as e:
+                    raise actions.Refused(str(e)) from None
+            out = actions.act(secret, person.login_id, form, lambda: ctx.system(do), done=done, reason_field=reason_field)
+            return _back("/admin/system", out)
+        return handle(request, render)
+
+    @app.post("/admin/system/line-methods")
+    async def admin_line_method(request: Request) -> HTMLResponse:
+        form = dict(await request.form())
+        method = str(form.get("method") or "").strip()
+        return _admin_system_act(request, form, lambda tx: registry.add_line_method(tx, method, actions.name_of(form, "label")),
+                                 f"回線の方式「{str(form.get('label') or '').strip()}」を足しました。回線を足すときに選べます。")
+
+    @app.post("/admin/system/voices")
+    async def admin_voice_add(request: Request) -> HTMLResponse:
+        form = dict(await request.form())
+        gender = str(form.get("display_gender") or "") or None
+        return _admin_system_act(request, form, lambda tx: recordings.add_voice(tx, str(form.get("voice_name") or "").strip(),
+                                                                            note=str(form.get("note") or "").strip(), display_gender=gender),
+                                 f"声「{str(form.get('voice_name') or '').strip()}」を足しました。話し方（声の型）と録音がそろうまで、この声では話しません。")
+
+    @app.post("/admin/system/voices/retire")
+    async def admin_voice_retire(request: Request) -> HTMLResponse:
+        form = dict(await request.form())
+        name = str(form.get("voice_name") or "")
+        return _admin_system_act(request, form, lambda tx: recordings.retire_voice(tx, name, reason=str(form.get("reason") or "").strip()),
+                                 f"声「{name}」を使わないにしました。この声では、もう話しません。", reason_field="reason")
 
     # ── システムの標準の想定問答（管理者だけ。✅ 2026-11-02 管理者 伺い2「システムの想定問答…にデフォルトの想定を…表示しておき、基本はそれを使う」・
     #    CL-2 4-211 の (b)「管理者が標準の版を作る画面は save_standard を呼ぶだけ」）。直すと新しい標準の版（前の版は残る・変えられない）。業務の版を

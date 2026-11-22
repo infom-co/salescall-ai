@@ -531,7 +531,7 @@ PAGES: dict[str, tuple[str, str]] = {
     "lines": ("回線と PC", "/t/lines"), "dnc": ("共通の発信禁止", "/t/dnc"), "settings": ("契約者の設定", "/t/settings"),
 }
 ADMIN_PAGES: dict[str, tuple[str, str]] = {"admin_tenants": ("契約者を選ぶ", "/admin/tenants"), "name_reviews": ("名前の録音の審査", "/admin/name-reviews"),
-                                           "people": ("ログインの管理", "/admin/people"), "standard": ("標準の想定問答", "/admin/standard"), "system_settings": ("システムの初めの値", "/admin/settings")}
+                                           "people": ("ログインの管理", "/admin/people"), "standard": ("標準の想定問答", "/admin/standard"), "system": ("システムの様子", "/admin/system"), "system_settings": ("システムの初めの値", "/admin/settings")}
 
 
 # 依頼者・業務の中の画面（左の道しるべの「依頼者『○○』」「業務『○○』」のまとまりと、ページの上の行き先が、同じ名前をここから引く。
