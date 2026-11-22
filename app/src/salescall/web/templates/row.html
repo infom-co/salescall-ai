@@ -85,6 +85,7 @@
         <span class="num nowrap">{{ phone(n.phone) }}</span>
         <span class="muted">{{ words.NUMBER_LABEL_WORDS.get(n.label, words.NO_WORD) }}・{{ words.ORIGIN_WORDS.get(n.source, words.NO_WORD) }}</span>
         {% if n.dialing %}{{ tag("いまかける番号", words.tone("info")) }}{% elif n.sub %}{{ tag("サブ", "info") }}{% endif %}
+        {% if n.dialing and dial_voice %}<div class="muted small-block">このお客様の声が聞き取れなかった回線：{{ dial_voice }}本（声の通る回線からかけ直します）</div>{% endif %}
       </li>
       {% endfor %}
     </ul>

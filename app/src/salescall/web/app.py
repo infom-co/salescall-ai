@@ -36,6 +36,7 @@ from salescall.core import (agents, ai_plans, calling_hours, help_texts, convers
                             gate, health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
+from salescall.core import tasks as tasks_core
 from salescall.core import google_login, once, passkeys, people
 from salescall.core.access import Access
 from salescall.output import destinations as result_destinations
@@ -1213,7 +1214,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 for ln in tx.all("SELECT line_id, name, method, caller_e164, client_id, retired_at, retired_reason FROM salescall.lines"
                                  " ORDER BY retired_at NULLS FIRST, name, caller_e164, line_id"):   # 同じ名前の回線は番号の順（line_id の順＝ばらばらに見えた）
                     st = health.line_of(tx, ln["line_id"])
-                    lines.append({**ln, "stage": st.stage, "wait": st.wait, "next_at": st.next_at,
+                    lines.append({**ln, "stage": st.stage, "wait": st.wait, "next_at": st.next_at, "voice": words.line_voice_note(st),
                                   "resting": st.stage in health_rules.RESTS})
                 pcs = agents.pcs(tx)
                 # どの PC が、最後の合図でその回線を受け持っていたか（事実だけ。途切れたかの判断は core の agents.watch_lines の1か所なので、
@@ -2364,6 +2365,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     except actions.REFUSALS as e:
                         step = {"error": str(e)}
                 latest = results.latest(tx, task_id)
+                # いまかける番号の、そのお客様の声が聞き取れなかった回線の数（番号の欄 audio_lines＝core の health.number_of の1か所。CL-2 4-170）
+                dial_voice = len(health.number_of(tx, tasks_core.dial_number(tx, task_id)["contact_id"]).audio_lines)
                 # お客様とのお約束（いちばん新しい結果の判定の中身 callback を読むだけ＝core の judge._callback の1か所。「〇時まで」の理由＝
                 # until_why も見せる＝CL-2 4-149 (2)。⛔ 2026-11-22 深夜まで、判定の中身を画面に出していなかった）
                 cb = ((latest or {}).get("detail") or {}).get("callback")
@@ -2376,7 +2379,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 rest = (gate.REASONS[gate.TASK_STAGE_REASONS[stage.name.lower()]].message
                         if stage in troubles.RESTORABLE else "")
                 return {"level": exclusions.level(tx, task_id), "rest": rest,
-                        "latest": latest, "promise": promise, "can_correct": approval_core.correctable(tx, task_id) is not None,   # 直せるかは core の1か所（29 の (c)）
+                        "latest": latest, "promise": promise, "dial_voice": dial_voice, "can_correct": approval_core.correctable(tx, task_id) is not None,   # 直せるかは core の1か所（29 の (c)）
                         "answers": result_rows.answers_for_check(tx, task_id),   # 依頼者へ渡す書き方のままの答え（結果のファイルと同じ1か所）
                         "pending": inbox.collect(tx, task=task_id),   # この行の承認待ち（受け箱と同じ1か所・同じ形で出す）
                         "client": context.client(tx, client_id),

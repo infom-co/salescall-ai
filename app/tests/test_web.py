@@ -485,6 +485,15 @@ class Web(_World):
         self.assertIn("あとでかけ直す", part[:800])
         self.assertIn("「〇時まで」の理由：「〇時までに確認します」", part[:800])
 
+    def test_the_row_page_tells_how_many_lines_could_not_hear_the_customer(self):   # CL-2 4-170（番号の欄 audio_lines を読むだけ）
+        import unittest.mock
+        from salescall.core import health, health_rules as hr
+        url = f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/rows/{self.a['task']}"
+        self.assertNotIn("声が聞き取れなかった回線", self.get("A", url).text)
+        with unittest.mock.patch.object(health, "number_of", lambda tx, c: hr.Number(hr.NumberStage.NONE, audio_lines=frozenset({"a", "b"}))):
+            page = self.get("A", url).text
+        self.assertIn("このお客様の声が聞き取れなかった回線：2本", page)
+
     def test_s22_a_preview_that_became_old_is_not_registered(self):
         """S-22（docs/DASHBOARD.md 8-3）：プレビューのあとで中身が変わったら（ここでは、ファイルの番号が発信禁止に入った）、登録を送っても
         何も登録せず、もう一度プレビューを確かめるよう言う（決めるのは core の importer の1か所＝PlanChanged。画面はその文を出すだけ）。"""

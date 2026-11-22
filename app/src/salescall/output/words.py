@@ -507,6 +507,17 @@ def notice_tone(kind: str, urgent: bool) -> str:
     return TONES[NOTICE_ROLES.get(kind) or ("waiting" if urgent else "info")]
 
 
+def line_voice_note(line: Any) -> str:
+    """回線の声の続き（core の health_rules.Line の m＝声が聞き取れなかった違うお客様の数・suspect＝お客様の回線のせいと見た電話の続き）の
+    1行（回線の画面。CL-2 4-170「声の続き audio と並べて出してください」）。どちらも無ければ空。数え直すのは声が通った電話だけ（core の決まり）。"""
+    parts = []
+    if line.m:
+        parts.append(f"声が聞き取れずに終えた電話：違うお客様 {line.m}人")
+    if line.suspect:
+        parts.append(f"お客様の回線のせいと見た電話 {line.suspect}本")
+    return ("・".join(parts) + "（声が通って話し終えた電話があれば、数え直します）") if parts else ""
+
+
 def line_tone(stage: Any) -> str:
     """回線の段の色：元気＝色なし・それ以外（確かめ中・休み）＝待っていること（段の正本は core の health_rules.LineStage）。"""
     return TONES["normal" if getattr(stage, "name", "") == "HEALTHY" else "waiting"]

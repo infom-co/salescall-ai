@@ -228,6 +228,15 @@ class QuestionNotes(unittest.TestCase):
         self.assertEqual(set(words.GOAL_MODE_WORDS), set(call_report.GOAL_MODES))
 
 
+class LineVoiceNote(unittest.TestCase):
+    def test_the_voice_counts_of_a_line_are_said_only_when_there_are_some(self):   # CL-2 4-170
+        from salescall.core import health_rules as hr
+        self.assertEqual(words.line_voice_note(hr.Line(hr.LineStage.HEALTHY)), "")
+        got = words.line_voice_note(hr.Line(hr.LineStage.HEALTHY, audio=frozenset({"a", "b"}), suspect=1))
+        self.assertIn("違うお客様 2人", got)
+        self.assertIn("お客様の回線のせいと見た電話 1本", got)
+
+
 class ExclusionWords(unittest.TestCase):
     def test_every_exclusion_level_has_a_clear_screen_name(self):
         """行の「かけない」の印の画面の名前は、core の段のすべてにあり、発信禁止と取り違えない言葉（「かけない」だけの名前を使わない）。"""

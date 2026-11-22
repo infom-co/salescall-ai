@@ -38,6 +38,7 @@
       <td>{% if l.retired_at %}{{ tag("使用停止", "") }}<div class="muted">{{ l.retired_reason }}</div>
           {% else %}{{ tag(l.stage.value, words.line_tone(l.stage)) }}
           {% if l.wait %}<div class="muted">待っていること：{{ l.wait.value }}{% if l.next_at %}（{{ time(l.next_at) }}）{% endif %}</div>{% endif %}
+          {% if l.voice %}<div class="muted">{{ l.voice }}</div>{% endif %}
           {#- 回線の状態（電話網の側）と、PC につながっているか（こちらの側）は別のこと。PC が無いと、元気な回線でも電話はかからない -#}
           {% set pc = served.get(l.line_id) %}
           {% if pc %}<div class="muted">PC「{{ pc.label }}」（最後の合図 {{ time(pc.last_seen_at) if pc.last_seen_at else "まだ無し" }}）</div>
