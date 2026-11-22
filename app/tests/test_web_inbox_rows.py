@@ -331,7 +331,10 @@ class VerificationMode(ApprovalHelpers):
         shown = http.get(f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}/results').text
         self.assertIn(_files.TEMPLATE_NOT_READY, shown)                           # 押す前に、押せない理由を同じ言葉で（why_not_deliver の1か所）
         self.tx(s, lambda tx: _ot.stop_using(tx, business_id=s["business"], reason="試験"), OPERATOR)
-        self.assertIn(f'<b class="num">0</b><span>{_w.UNCONFIRMED_WORDS["awaiting_check"][0]}</span>', http.get(f"/c/{s['client']}/b/{s['business']}").text)   # 確かめたので0
+        after = http.get(f"/c/{s['client']}/b/{s['business']}").text                # 確かめたので0（ほかも0なら、見出しと1行だけ＝設計書 108）
+        self.assertTrue(f'<b class="num">0</b><span>{_w.UNCONFIRMED_WORDS["awaiting_check"][0]}</span>' in after
+                        or "いま、まだ渡せない結果はありません。" in after)
+        self.assertNotIn(f'<b class="num">1</b><span>{_w.UNCONFIRMED_WORDS["awaiting_check"][0]}</span>', after)
         self.assertEqual(self._post(http, csv_url, {}).status_code, 200)          # 同じ中身をもう1回渡しても
         self.assertEqual(kept(), 1)                                               # 控えは重ねない
 

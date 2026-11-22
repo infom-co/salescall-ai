@@ -171,6 +171,10 @@
   <div class="stack">
   <div class="card {{ 'attention-wait' if unconfirmed }}">
     <h2>まだ依頼者へ渡せない結果</h2>
+    {#- 0件のときは見出しと1行だけ（画面の主でない欄の0件は1行＝設計書 108） -#}
+    {% if not (f.unconfirmed.awaiting_check or f.unconfirmed.blocked or f.unconfirmed.unknown) %}
+    <p class="muted">いま、まだ渡せない結果はありません。</p>
+    {% else %}
     <p class="muted">結果が確定するまで、依頼者へ渡すファイルには、その結果を書きません。</p>
     <div class="mini-stats">
       <a class="mini {{ 'wait' if f.unconfirmed.awaiting_check }}" href="/t/inbox?kind=result_check&client={{ client.client_id }}">
@@ -178,11 +182,12 @@
       <div class="mini"><b class="num">{{ f.unconfirmed.blocked }}</b><span>{{ words.UNCONFIRMED_WORDS.blocked[0] }}</span><small>{{ words.UNCONFIRMED_WORDS.blocked[1] }}</small></div>
       <div class="mini"><b class="num">{{ f.unconfirmed.unknown }}</b><span>{{ words.UNCONFIRMED_WORDS.unknown[0] }}</span><small>{{ words.UNCONFIRMED_WORDS.unknown[1] }}</small></div>
     </div>
+    {% endif %}
   </div>
   <div class="card">
     <h2>いま電話を見送っているお客様</h2>
-    <p class="muted">かける直前の確かめで見送り、そのあとまだかけていないお客様の数です（理由別。終えたお客様は数えません）。</p>
     {% if f.denied_now %}
+    <p class="muted">かける直前の確かめで見送り、そのあとまだかけていないお客様の数です（理由別。終えたお客様は数えません）。</p>
     <ul class="reasons">{% for r, n in f.denied_now %}<li><span>{{ words.gate_reason(r) }}</span><b class="num">{{ n }}</b></li>{% endfor %}</ul>
     {% else %}<p class="muted">いま見送っているお客様はいません。</p>{% endif %}
   </div>

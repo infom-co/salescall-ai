@@ -480,7 +480,9 @@ ul.reasons li { display: flex; justify-content: space-between; gap: 12px; paddin
 ul.reasons li:last-child { border-bottom: 0; }
 .outcome h2 { display: flex; align-items: baseline; gap: 8px; }
 @media (max-width: 600px) { ul.bars li { grid-template-columns: 1fr 3em; } ul.bars .bar { grid-column: 1 / -1; grid-row: 2; } }
-.mini-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+/* 小さな数の枠は、名前が収まる幅（160px）を下回らない列の数で並べる（2026-11-22：スマホと、2つ並びの札の中で3列のまま狭く、
+   「承認待ち（結果の確かめ）」などの名前が枠からはみ出していた） */
+.mini-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
 .mini-stats .mini { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
                     background: var(--surface-2); color: inherit; text-decoration: none; }
 .mini-stats .mini b { font-size: 22px; line-height: 1.2; }
