@@ -10447,9 +10447,15 @@ class Flow:
             return None
         # 答えを選んでいず、迷っていない答えの道でもなく（_plain_reply）、理由がそろって「担当ではない」「いまは分からない」（WHY_ROUTED）でもない言葉（唯一の決まり）
         open_ = undecided(readings) and self._plain_reply(readings) and self._why_of("unknown") not in WHY_ROUTED
-        # 最初の答えの「まだ決めていない」（まだ助けも伺いもしていない・最終の確かめの前・判定を使う通話。理由の読みが割れた・無い「分からない」も）
-        first_undecided = (open_ and helped is None and point is None and estimate is None and self.judging and not self.items[qid].final
-                           and self._not_deciding(readings))
+        # 最初の答えの「まだ決めていない」（まだ助けも伺いもしていない・最終の確かめの前・判定を使う通話。理由の読みが割れた・無い「分からない」も）。当てる質問は、ご希望・申し出
+        # から選んでいただく業務の質問（asks_wish）と、ご承認の質問（approval＝手順の道）だけ（「分からない」と迷いを分ける門の1か所）：申し出の方法を選んでいただくシステムの
+        # 質問（WAY_ROLES＝W1・N5・C11）の「分からない」は、迷いへの応じ方（下の hesitates＝✅ 11-09 日本時間6時33分57秒）とは別に、それぞれの決まった道（W1 は方法を並べて
+        # 伺ったあとなら「承知しました。ご案内の方法の件は担当の者に申し伝えさせていただきますね。」＝Flow._wish_step）。✅ 2026-11-07 日本時間3時14分01秒「(2) H3…イ」・
+        # 11-07 日本時間18時03分49秒の段（選ぶ助けをするのは業務の質問だけ＝システムの質問はそれぞれの決まった道）（帳面 1 の (6) の (i) の L30・分身 AU。⛔ それまでは
+        # 門が hears_hesitation（WAY_ROLES を含む）だけで、判定が理由を言わなかった「わからない」と読むと「はい、どういった点でお迷いでしょうか？」・会話AIの報告だけで進むと
+        # 「承知しました。ご案内の方法の件は…」＝道で一言が違った＝分身 AR の書き置きの 6章の (2)）
+        first_undecided = ((asks_wish(q) or q.approval) and open_ and helped is None and point is None and estimate is None and self.judging
+                           and not self.items[qid].final and self._not_deciding(readings))
         if restating_value and open_ and self._not_deciding(readings):
             # 値の言い直しへの「まだ決まっていない」：同じ言い直しをくり返さず（11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）、すぐ保留で
             # 締めず（お客様が言った値を捨てない）に、ひとまずの形か承っておく形で受ける（_tentative）。目安を伺ったあと（estimate）に言っていただいた値も同じ

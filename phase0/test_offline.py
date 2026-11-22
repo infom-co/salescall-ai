@@ -53598,3 +53598,43 @@ class AUOfferBordersTest(unittest.TestCase):
         import review_words as rw
         for it in rw.WAY_ROWS:
             self.assertNotIn("⏳", it["label"]["why"], it["text"])
+
+
+class AUWayUnknownTest(unittest.TestCase):
+    """分身 AU（帳面 1 の (6) の (i) の L30・分身 AR の書き置きの 6章の (2)。CL-1 が書いてある決まりで決めた＝伺わない）：申し出た方法を並べて伺い直したあとの「うーん、分からないです。」
+    を、判定の組が理由を言わなかった「わからない」と読むと、流れの制御は「はい、どういった点でお迷いでしょうか？」を流していた（Flow._hesitation の最初の「まだ決めていない」の枝の
+    門が hears_hesitation＝申し出の方法を選んでいただくシステムの質問 WAY_ROLES を含む）。会話AIの報告だけで進む道は「承知しました。ご案内の方法の件は担当の者に申し伝えさせて
+    いただきますね。」＝道で一言が違った。✅ 2026-11-07 日本時間3時14分01秒「(2) H3…イ」（並べて伺ったあと方法を言っていただけない＝分からないも＝方法の件を申し伝える）・11-07
+    日本時間18時03分49秒の段（選ぶ助けをするのは業務の質問だけ）＝門を1か所で分けた（分からない＝業務の質問とご承認の質問だけ・迷いへの応じ方は今のまま＝11-09 日本時間6時33分57秒）"""
+
+    def reply(self, text: str, cond: str | None = None) -> str:
+        import copy
+        import g53_meaning as G
+        import review_words as rw
+        from meaning_judge import Reading
+        it = next(it for it in rw.WAY_ROWS if it["text"] == text)
+        q = rw.questions()[it["qid"]]
+        r = G.label_readings(it, q, False)[0]
+        if cond is not None:
+            r2 = Reading(cond, r.firm)
+            for k, v in r.__dict__.items():
+                setattr(r2, k, copy.deepcopy(v))
+            r = r2
+        return ARWayOfferWishSceneTest.heard(G.flow_reply(it, q, r)[2])
+
+    def test_1_unknown_after_listing_tells_the_way_matter(self):
+        h = self.reply("うーん、分からないです。")
+        self.assertTrue(h.startswith("承知しました。ご案内の方法の件は担当の者に申し伝えさせていただきますね。"), h)
+        self.assertNotIn("お迷い", h)
+
+    def test_2_hesitating_after_listing_is_as_before(self):
+        from flowctl import HESITATING
+        self.assertEqual(self.reply("うーん、分からないです。", HESITATING), "はい、どういった点でお迷いでしょうか？")
+
+    def test_3_the_truth_act_follows(self):
+        import g53_meaning as G
+        import review_words as rw
+        it = next(it for it in rw.WAY_ROWS if it["text"] == "うーん、分からないです。")
+        wants = G.step_wants(it, rw.questions()[it["qid"]], False)
+        self.assertFalse(any("お迷い" in w for w in wants), wants)
+        self.assertFalse(any(w.startswith((G.SCENE_MISSING, G.OTHER_ACT)) for w in wants), wants)
