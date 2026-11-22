@@ -542,10 +542,10 @@ table.list .tag { white-space: normal; text-align: left; }
   table.list, table.list tbody, table.list tr, table.list td { display: block; width: 100%; }
   table.list tr { padding: 10px 12px; border-bottom: 1px solid var(--line); }
   table.list td { border: 0; padding: 3px 0; max-width: none; text-align: left; position: relative; }
-  /* 欄の名前の幅は、名前の文字の大きさ（12px）で8文字＝96px＋あき8px の1か所（2026-11-22：値の側を 8em＝欄の文字の大きさで取っていて、
+  /* 欄の名前の幅は、名前の文字の大きさ（12px）で8文字＝100px（字の幅のゆとり4px を含む）＋あき8px の1か所（2026-11-22：値の側を 8em＝欄の文字の大きさで取っていて、
      約30px余分にあき、札が値の幅に入らず折れていた） */
-  table.list td[data-label] { padding-left: 104px; min-height: 1.6em; }   /* 値はふつうの文の流れのまま（中の名前や札が別の升目に分かれない） */
-  table.list td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 4px; width: 96px;
+  table.list td[data-label] { padding-left: 108px; min-height: 1.6em; }   /* 値はふつうの文の流れのまま（中の名前や札が別の升目に分かれない） */
+  table.list td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 4px; width: 100px;
                                       color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1.5; }
   table.list td.num, table.list th.num { text-align: left; }
   /* 欄の名前は折らずに1行（短い値の「折らない」が名前にも効いていた）。8文字を超える名前の欄は、名前を値の上に置く（app.js が long-label を付ける） */
@@ -555,8 +555,8 @@ table.list .tag { white-space: normal; text-align: left; }
   /* 札の見出しにする欄（lead-cell。例：お客様リストの会社名）は、札の先頭に大きく（表の並びは変えず、見せる順だけ） */
   table.list td.lead-cell { order: -1; padding-left: 0; font-size: 15px; font-weight: 700; padding-bottom: 6px; }
   table.list td.lead-cell::before { display: none; }
-  table.list td.num[data-label] { width: 50%; padding-left: 104px; }
-  table.list td.num[data-label]::before { width: 96px; white-space: nowrap; }   /* 見出しは8文字まで1行（「まだかけていない」が数に重なっていた） */
+  table.list td.num[data-label] { width: 50%; padding-left: 108px; }
+  table.list td.num[data-label]::before { width: 100px; white-space: nowrap; }   /* 見出しは8文字まで1行（「まだかけていない」が数に重なっていた） */
   /* 長い名前の欄（数の欄も）は名前を値の上に（数の欄の決まりより後ろに置く＝負けない） */
   table.list td.long-label[data-label] { padding-left: 0; }
   table.list td.long-label[data-label]::before { position: static; display: block; width: auto; margin-bottom: 2px; }
