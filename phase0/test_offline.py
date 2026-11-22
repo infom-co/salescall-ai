@@ -51562,3 +51562,71 @@ class AJNameSamaTailTest(unittest.TestCase):
                 AJNameSamaTest.told(f, "はい。")
                 f.apply("confirm_field", {"question_id": "R1", "result": "affirmed"})
                 self.assertEqual(f.items["R1"].value, want)
+
+
+class ALAnswerStageFingerprintTest(unittest.TestCase):
+    """分身 AL（担当 AK の棚卸しの F2）：答えの段（G-53）の判定に送る問い合わせの文の指紋は、リポジトリの1か所（g53_meaning.fingerprints・--fingerprint）が、測りで送る
+    問い合わせの全部（組ごと・番号違いの行・前の話の問い合わせ）と、前からの物差し（試しの言葉の表の番号違いを除く行）を出す。外へはつながない（--dry-run と同じ閉じ方）"""
+
+    @staticmethod
+    def rows():
+        from review_words import answer_words
+        rows = answer_words()
+        # 前の話を問う答え（R5＝選ぶ質問の言い換えの形・場面の前のお客様の言葉で前の話を問う）と、ふつうの答えを1つずつ
+        return [next(it for it in rows if it["qid"] == "R5"), next(it for it in rows if it["qid"] == "R1")]
+
+    @staticmethod
+    def qmap():
+        import g53_meaning as G
+        from review_words import questions
+        return G.question_map() | questions()
+
+    def test_same_material_same_fingerprint_and_one_character_changes_it(self):
+        import copy
+        import dataclasses
+        import g53_meaning as G
+        qmap, rows = self.qmap(), self.rows()
+        self.assertTrue(G.asks_prior(rows[0], qmap["R5"]))   # 前の話の問い合わせも入る行
+        a, b = G.fingerprints(rows, qmap), G.fingerprints(copy.deepcopy(rows), qmap)
+        self.assertEqual(a, b)
+        for name in ("組 R", G.FP_PRIOR, G.FP_ALL, G.FP_BEFORE, G.FP_WRONG):
+            self.assertIn(name, a)
+        self.assertEqual(a["組 R"][0], 2)
+        self.assertEqual(a[G.FP_PRIOR][0], 1)
+        self.assertEqual(a[G.FP_ALL][:2], (3, a["組 R"][1] + a[G.FP_PRIOR][1]))
+        # お客様の言葉の1文字：組と全部の指紋が変わる。前の話の問い合わせ（いまの言葉は見せない）は変わらない
+        moved = copy.deepcopy(rows)
+        moved[1]["text"] = moved[1]["text"][:-1] + ("？" if moved[1]["text"][-1] != "？" else "。")
+        c = G.fingerprints(moved, qmap)
+        self.assertNotEqual(c["組 R"][2], a["組 R"][2])
+        self.assertNotEqual(c[G.FP_ALL][2], a[G.FP_ALL][2])
+        self.assertEqual(c[G.FP_PRIOR], a[G.FP_PRIOR])
+        # 質問の文の1文字：その質問の行の問い合わせと前の話の問い合わせの指紋が変わる
+        q = qmap["R5"]
+        d = G.fingerprints(rows, qmap | {"R5": dataclasses.replace(q, text=q.text.replace("？", "。"))})
+        self.assertNotEqual(d["組 R"][2], a["組 R"][2])
+        self.assertNotEqual(d[G.FP_PRIOR][2], a[G.FP_PRIOR][2])
+
+    def test_the_tool_needs_a_record_and_closes_the_network(self):
+        import json as _json
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        here = Path(__file__).resolve().parent
+        r = subprocess.run([sys.executable, "-B", "g53_meaning.py", "--fingerprint"], cwd=here, capture_output=True, text=True, timeout=300)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("指紋を出しません", r.stderr)
+        with tempfile.TemporaryDirectory() as d:
+            rec = Path(d) / "G-53x_20261122_000000.json"
+            rec.write_text(_json.dumps({"items": []}), encoding="utf-8")
+            code = ("import sys, runpy, socket\n"
+                    f"sys.argv = ['g53', '--fingerprint', '--reuse', {str(rec)!r}]\n"
+                    "runpy.run_path('g53_meaning.py', run_name='__main__')\n"
+                    "s = socket.socket(); s.settimeout(1)\n"
+                    "try:\n    s.connect(('192.0.2.1', 9))\nexcept OSError as e:\n    print('つなぎ：', e)\n")
+            r = subprocess.run([sys.executable, "-B", "-c", code], cwd=here, capture_output=True, text=True, timeout=600)
+        self.assertEqual(r.returncode, 0, r.stderr[-2000:])
+        self.assertIn("外へはつなぎません", r.stdout)
+        for words in ("全部（", "前からの物差し（", "番号違いの行（", "前の話の問い合わせ（", "組 R：", "指紋 "):
+            self.assertIn(words, r.stdout)

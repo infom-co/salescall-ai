@@ -26,7 +26,7 @@ import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
-from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
+from common import HERE, KeyRing, _DryRun, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ABSENT_WHY, OFFER, ANY, END_DOUBT_WHY, before_words, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, AWAY, ELSEWHERE, ELSEWHERE_YES, ELSEWHERE_NO, QUERY_YES, QUERY_NO, END_ANGRY, END_HURRY, END_NONE,
                      END_PRESSED, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS,
                      WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading, WRONG, WRONG_NOT_SAID, LADDER_OTHER,
@@ -1741,6 +1741,68 @@ def query_changes(items: list[dict], qmap: dict) -> Counter:
     return out
 
 
+def with_new_rows(items: list[dict]) -> list[dict]:
+    """前の記録（--reuse）の答えに、本番で判定に渡る前の言葉を当て（g73_scene）、表・試しの言葉に足した行（電話を終える言葉の表 set_f・G-73 の set_n・set_h・
+    試しの言葉の表 set_r）のうち記録に無い行を足したもの（唯一の場所＝測り main と、送る文の指紋 fingerprints が同じ答えの並びを読む）。"""
+    items = [g73_scene(it) for it in items]
+    have = {(it["set"], it["qid"], it["text"]) for it in items}
+    return items + [it for it in set_f() + set_n() + set_h() + set_r() if (it["set"], it["qid"], it["text"]) not in have]
+
+
+FP_BEFORE = "前からの物差し（試しの言葉の表 review_words の番号違いを除く行＝作業場所の道具 g53fp.py と同じ範囲）"
+FP_WRONG = "番号違いの行（review_words.WRONG_ANSWER_ROWS）"
+FP_PRIOR = "前の話の問い合わせ（前の言葉のある答え＝asks_prior の1か所・PRIOR_READERS のそれぞれへ送る中身）"
+FP_ALL = "全部（組ごとの答えの問い合わせと前の話の問い合わせ）"
+
+
+def fingerprints(items: list[dict], qmap: dict) -> dict[str, tuple[int, int, str]]:
+    """答えの段の測り（G-53）で判定に送る問い合わせの文の、行の数・字の数・指紋（0円。唯一の場所＝--fingerprint が出す）。帳面 0-3 の (6)「測るのは文の指紋が
+    変わった問い合わせだけ」・(17)「測った結果と一緒に指紋を書く」を、測りで選べる単位（組＝--sets）ごとに比べる形：組ごと（正解の表 g53_labels.json の行の組・
+    電話を終える言葉の表の組 F・G-73 の試しの言葉の組・試しの言葉の表の組 R と言い直しへのお返事の行）・番号違いの行・前の話の問い合わせと、全部。どれも行の場面から
+    作った問い合わせ（judge_inputs＝送る所と同じ）を、送る1か所（meaning_judge.sent_text・prior_request）で文にしたもの。場面を組めない行（NoScene）と、判定に
+    見せる質問の無い行は送らないので入れない。前からの物差し（作業場所の rv140/AC/tools/g53fp.py＝試しの言葉の表の番号違いを除く行だけ）も同じ作りで並べる
+    （物差しが続くことを確かめる）。⛔ 2026-11-22（担当 AK の棚卸しの F2）まで、答えの段の指紋はリポジトリに道具が無く、作業場所の道具で試しの言葉の表の199行だけを
+    見ていた＝正解の表の行・番号違いの行・前の話の問い合わせの文が変わっても指紋が変わらなかった。"""
+    import hashlib
+    from meaning_judge import PRIOR_READERS, prior_request, sent_text
+    from review_words import WRONG_ANSWER_ROWS, answer_words
+
+    def text_of(rows: list[dict]) -> tuple[int, str]:
+        n, s = 0, ""
+        for it in rows:
+            if it["qid"] not in qmap:
+                continue
+            try:
+                shown, asked, before = judge_inputs(it, qmap[it["qid"]])
+            except NoScene:
+                continue
+            if shown is None:
+                continue
+            s += sent_text(shown, it["text"], asked, before)
+            n += 1
+        return n, s
+
+    def prior_of_rows(rows: list[dict]) -> tuple[int, str]:
+        n, s = 0, ""
+        for it in rows:
+            if it["qid"] in qmap and asks_prior(it, qmap[it["qid"]]):
+                shown, _, before = judge_inputs(it, qmap[it["qid"]])
+                s += "".join(json.dumps(prior_request(name, shown, before), ensure_ascii=False, sort_keys=True) for name in PRIOR_READERS)
+                n += 1
+        return n, s
+
+    fp = lambda s: hashlib.sha256(s.encode("utf-8")).hexdigest()[:16]   # noqa: E731
+    parts = {f"組 {name}": text_of([it for it in items if it["set"] == name]) for name in dict.fromkeys(it["set"] for it in items)}
+    parts[FP_PRIOR] = prior_of_rows(items)
+    out = {name: (n, len(s), fp(s)) for name, (n, s) in parts.items()}
+    every = "".join(s for _, s in parts.values())
+    out[FP_ALL] = (sum(n for n, _ in parts.values()), len(every), fp(every))
+    for name, rows in ((FP_BEFORE, [r for r in answer_words() if r not in WRONG_ANSWER_ROWS]), (FP_WRONG, WRONG_ANSWER_ROWS)):
+        n, s = text_of(rows)
+        out[name] = (n, len(s), fp(s))
+    return out
+
+
 def sent_inputs(it: dict, qmap: dict, *text: str) -> tuple:
     """判定に送る引数（judge・judge_other・JudgePanel.ask・prior_asked・read_prior_first の並び）：(判定に見せる質問, [お客様の言葉,] 言い直し, 前の言葉)＝
     judge_inputs の1か所。text を渡せば質問のあとに入れる。"""
@@ -2500,14 +2562,26 @@ def main() -> None:
     p.add_argument("--other-lanes", type=int, default=4,
                    help="Google 以外の判定1つにつき、同時に送る流れの本数（少しだけ聞き直すときは1＝前の部分の保存がまだ無いうちに同じ前の部分を"
                         "何本も同時に送ると、どれも書き込みになる。2026-10-30：95件の聞き直しで、4本なら最悪約57円・1本なら約25円の見込み）")
+    # 外へはつながない＝--dry-run と同じ閉じ方（common の _DryRun が、引数を読んだ所で close_network する）
+    p.add_argument("--fingerprint", action=_DryRun, help="測らずに、判定に送る問い合わせの文の長さと指紋だけを出す（組ごと・前の話・全部。--reuse の記録の答えで）")
     args = p.parse_args()
     args.judge = args.judge or ["3.5 Flash Lite"]
+    from review_words import questions as review_questions
+    qmap = question_map() | review_questions()   # 組 R の質問（見直し (12) の組 Q の試しの言葉）
+    if args.fingerprint:
+        # 送る答えは --reuse の記録で決まる（記録が無いと、測りは答えを作る＝文が決まらない）。鍵の輪も作らない（キーを読まない）
+        if not args.reuse:
+            raise SystemExit("--fingerprint は --reuse（測る答えの記録）と一緒に流します（記録が無いと、判定に送る答えが決まらないので指紋を出しません）")
+        from g73_system_words import latest
+        say(f"測る答えの記録：{args.reuse}")
+        say(f"試しの言葉（G-73）：results/{latest()['path']}")
+        for name, (n, chars, h) in fingerprints(with_new_rows(json.loads(open(args.reuse, encoding="utf-8").read())["items"]), qmap).items():
+            say(f"{name}：{n} 行・{chars} 字・指紋 {h}")
+        return
     ring = KeyRing(args)
     # 表示名 ⇒ モデルID は Gemini に聞く＝送るときだけ引く（答えを作る枝と、判定の前）。⛔ 2026-11-15 日本時間：ここで引いていたので、
     # 組み立てだけ（--dry-run）でも止まりの前に Gemini へ送っていた
     ids = None
-    from review_words import questions as review_questions
-    qmap = question_map() | review_questions()   # 組 R の質問（見直し (12) の組 Q の試しの言葉）
     qs, vqs = g48_questions(), value_questions()   # ⛔ 2026-11-02 に見つけた：作らずに使っていた（--reuse でない流し方・--add-de で止まっていた）
     if args.reuse:
         items = json.loads(open(args.reuse, encoding="utf-8").read())["items"]
@@ -2522,10 +2596,8 @@ def main() -> None:
                     it["見本"] = True
             items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by", *SIDE_SUFFIX.values(), *SPREAD_RECORD))
                                                              for j in args.judge)} for it in items]
-        items = [g73_scene(it) for it in items]   # 前の記録の試しの言葉にも、本番で判定に渡る前の言葉を当てる
-        have = {(it["set"], it["qid"], it["text"]) for it in items}
-        # 電話を終える言葉の試しの表の言葉・G-73 の試しの言葉（表・言葉を足したら、足した行だけ判定する）
-        items += [it for it in set_f() + set_n() + set_h() + set_r() if (it["set"], it["qid"], it["text"]) not in have]
+        # 前の記録の試しの言葉にも、本番で判定に渡る前の言葉を当て、電話を終える言葉の試しの表の言葉・G-73 の試しの言葉（表・言葉を足したら、足した行だけ判定する）を足す
+        items = with_new_rows(items)
         if args.add_de and not any(it["set"] in ("D", "E") for it in items):
             names = {m.display_name: m.name.split("/")[-1] for m in ring.client().models.list() if getattr(m, "display_name", None)}
             for m in MAKERS_DE:
