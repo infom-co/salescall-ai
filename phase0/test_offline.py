@@ -52663,3 +52663,33 @@ class APFirmAgreementTest(unittest.TestCase):
                 got[it["text"]] = G.hedged(it)
                 self.assertIn("L25", lab.get("hedged_why") or "", it["text"])
         self.assertEqual(got, want)
+
+
+class APGarbledWordsTest(unittest.TestCase):
+    """分身 AP（頼みの (2)）：途切れて字のつながりのままでは言葉になっていない言葉（崩れた言葉）から、元の言葉を推し量って組み立てない（✅ 10-19「『ご時』…表示されてる
+    時点でおかしいと判断しないと」・帳面 0-3「言葉からは言えない答えを正解に入れない」）。決まりは答えを選ぶ決まりの1か所（meaning_judge.LEAN）だけに書き、判定の決まりの文
+    （RULES）にも判断のモデルの選択肢の定義（jev_criteria）にも、そこから渡る。⛔ 直す前は書いておらず、答えを伏せた読み手2人が「か……ど……で……」を「カード」・
+    「……ふ……りこ……」を「振込」と組み立てる読みを挙げた（束 b2 の #2・#3）。束 b2 の12行は読み手2人の読みが作った側の正解の中＝仮を外した"""
+
+    RULE = "いまの言葉が途切れて、字のつながりのままでは言葉になっていない（崩れている）ときは、元の言葉を推し量って組み立てて読まない"
+
+    def test_the_rule_is_in_the_one_place_and_reaches_every_judge(self):
+        import review_words as rw
+        from meaning_judge import LEAN, RULES, jev_criteria
+        self.assertIn(self.RULE, LEAN)
+        self.assertEqual(RULES.count(self.RULE), 1)
+        q = rw.questions()["R1"]
+        crit = jev_criteria(q)
+        self.assertTrue(all(self.RULE in d for n, d in crit.items() if n in q.conditions))
+
+    def test_the_rows_stay_undecided_and_are_no_longer_provisional(self):
+        import review_words as rw
+        from meaning_judge import UNDECIDED
+        for text in ("か……ど……で……", "……ふ……りこ……"):
+            it = next(r for r in rw.GARBLED_ROWS if r["text"] == text)
+            self.assertEqual(it["label"]["accept"], [UNDECIDED], text)   # 組み立てた読み（カード・振込）は正解に入れない
+            self.assertIn("組み立てない", it["label"]["why"], text)
+        for it in rw.GARBLED_ROWS + rw.WHICH_POINT_ROWS:
+            self.assertNotIn("仮", it["label"]["why"], it["text"])
+        point = next(r for r in rw.WHICH_POINT_ROWS if r["text"] == "いや、いろいろとですね。")
+        self.assertEqual(point["label"]["accept"], ["点は言っていない"])   # 2人の境目が違う＝作った側のまま
