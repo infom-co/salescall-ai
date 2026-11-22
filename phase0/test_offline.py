@@ -49104,7 +49104,8 @@ class XReadersXLabelsTest(unittest.TestCase):
         qmap = G.question_map() | questions()
         for it in rows:
             got = {h: G.step_wants(it, qmap[it["qid"]], h) for h in (True, False)}
-            self.assertEqual(got, {h: {"「失礼いたしました。」のあと伺ったことを流し直す"} for h in (True, False)}, it["qid"])
+            # 動きの名前はお客様に聞こえる言葉（名乗りからの伺い直し）＝G.HANDOVER_ACT（⛔ 2026-11-22 分身 AP まで「「失礼いたしました。」のあと伺ったことを流し直す」）
+            self.assertEqual(got, {h: {"代わった方へ名乗りから伺い直す"} for h in (True, False)}, it["qid"])
 
 
 class VoicedTurnAckTest(unittest.TestCase):
@@ -52815,3 +52816,35 @@ class APResultsDirRestoredTest(unittest.TestCase):
         EnvAndRedactionTest("test_redact_in_errors_and_results").run(result)
         self.assertTrue(result.wasSuccessful(), result.failures + result.errors)
         self.assertEqual(common.RESULTS_DIR, before)
+
+
+class APHandoverActNameTest(unittest.TestCase):
+    """分身 AP（分身 AL の書き置きの6章の (4)）：正解の表の「代わった人が話し始めた」の行の動きの名前は、流れの制御のお客様に聞こえる言葉（名乗りからの伺い直し・「失礼いたしました。」は
+    入らない）を言う形（g53_meaning.HANDOVER_ACT）。もう一度言ってほしいと頼まれたときの「失礼いたしました。」のあとの流し直し（REPEAT_ACT）とは別の名前。録音で流す通話（流し直し）と
+    会話AIが話す通話（会話AIへ知らせる）は、聞こえる言葉が同じ＝同じ名前。⛔ 直す前は、録音で流す通話の形を REPEAT_ACT と同じ名前で数えていた"""
+
+    def test_names_say_what_the_customer_hears(self):
+        import g53_meaning as G
+        from flowctl import HANDOVER, REPEAT
+        from phrases import ACK
+        from review_words import questions
+        self.assertIn("名乗りから", G.HANDOVER_ACT)
+        self.assertNotEqual(G.HANDOVER_ACT, G.REPEAT_ACT)
+        qmap = G.question_map() | questions()
+        items = ap_items()
+        hand = [it for it in items if G.accept(it) == [HANDOVER]]
+        self.assertEqual(len(hand), 32)
+        for it in hand:   # 正解の動きの名前（step_wants と同じ1か所＝flow_name）は、行ごとに1回だけ流れの制御に通して見る（試験の全部が 900 秒の上限に近い）
+            q = qmap[it["qid"]]
+            f, qid, rep, asked = G.flow_reply(it, q, G.label_readings(it, q, True)[0])
+            self.assertEqual(G.flow_name(f, qid, rep, it, asked), G.HANDOVER_ACT, it["text"])
+            self.assertTrue(heard_words(rep).startswith("お忙しいところ恐れ入ります。"), it["text"])   # 名乗りから（「失礼いたしました。」は入らない）
+        self.assertEqual(G.step_wants(hand[0], qmap[hand[0]["qid"]], True), {G.HANDOVER_ACT})
+        again = [it for it in items if G.accept(it) == [REPEAT]][:6]
+        self.assertTrue(again)
+        for it in again:
+            q = qmap[it["qid"]]
+            f, qid, rep, asked = G.flow_reply(it, q, G.label_readings(it, q, True)[0])
+            if G.flow_name(f, qid, rep, it, asked) == G.REPEAT_ACT:
+                self.assertEqual(rep.get("ack"), "shitsurei", it["text"])
+                self.assertTrue(heard_words(rep).startswith(ACK["shitsurei"]), it["text"])
