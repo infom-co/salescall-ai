@@ -16,8 +16,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import (agents, ai_versions, answer_rate, attempts, backup, business_settings, calendar, conversation_io, gate, health,
-                            leases, measure, next_action, quality_stage, recordings, settle, usage, watch)
+from salescall.core import (agents, ai_versions, answer_rate, attempts, backup, business_settings, calendar, contract_end, conversation_io,
+                            gate, health,
+                            leases, measure, next_action, quality_stage, recording_audio, recordings, settle, usage, watch)
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, line, plugins, report
 from salescall.supervisor.links import Links
@@ -285,6 +286,34 @@ def backups(ctx: Context) -> None:
         backup.run_contractor(ctx.access, ctx.tenant_id, writer)
 
 
+def apologies(ctx: Context) -> None:
+    """その契約者のつないでいる PC ごとに、おわびの録音を前もって配る（PC の合図の指紋と違うものだけ。CL-3 の連絡帳 74）。配るべき録音は
+    core の recordings.apology_audio の1か所。音は recording_audio の1か所で読む。つながりが切れたら、その PC はやめる（つなぎ直したら、合図の
+    指紋を見て次の回に配り直す）。PC がしまえなかった（指紋が合わない・WAV でない）は誤りとして記録する（修正依頼）。"""
+    pcs = ctx.links.apology_pcs(ctx.tenant_id)
+    if not pcs:
+        return
+    wanted = ctx.access.in_tenant(ACTOR, ctx.tenant_id, recordings.apology_audio)
+    for pc in pcs:
+        held = pc.held()
+        try:
+            for voice, parts in wanted.items():
+                for part, sha in parts.items():
+                    if held.get(voice, {}).get(part) != sha:
+                        audio = ctx.access.in_tenant(ACTOR, ctx.tenant_id, lambda tx, sha=sha: recording_audio.read(tx, sha))
+                        pc.put(voice, part, sha, audio)
+        except ConnectionError:
+            continue
+
+
+def contract_ends(ctx: Context) -> None:
+    """契約が終わった依頼者のうち、いま外せるものをサーバーから外す（外せるかは salescall.forget_blocked の1か所＝猶予・最後の控え・提出用の
+    ファイル・かけている電話。0285）。1つの依頼者の誤りで、ほかを止めない。"""
+    ready = ctx.access.in_tenant(ACTOR, ctx.tenant_id, contract_end.forget_ready)
+    _each(ctx, "契約が終わった依頼者を外す", ready,
+          lambda c: ctx.access.in_tenant(ACTOR, ctx.tenant_id, lambda tx: contract_end.forget(tx, c)))
+
+
 def backup_watch(ctx: Context) -> None:
     """この契約者の控えが取れているか（その契約者の PC が止まっていても動く＝取れないことに気づく）。"""
     _each(ctx, "控えの見張り", _clients(ctx), lambda c: backup.watch_client(ctx.access, ctx.tenant_id, c))
@@ -360,6 +389,8 @@ JOBS: tuple[Job, ...] = (
     Job("backups", 300, "tenant", 4 * 3600, backups, heavy=True),
     Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup, heavy=True),
     Job("backup_watch", 3600, "tenant", 600, backup_watch),
+    Job("apologies", 60, "tenant", 600, apologies, heavy=True),
+    Job("contract_ends", 3600, "tenant", 1800, contract_ends),   # 契約が終わった依頼者をサーバーから外す（猶予が過ぎ、最後の控えを確かめたら）   # おわびの録音を PC へ配る（つないで1分のうちに。PC を待つので別の組で）
     Job("lasting_stops", 300, "tenant", 600, lasting_stops),
     Job("fixed_stops", 60, "tenant", 300, fixed_stops),
     Job("storage_recovery", 15, "tenant", 300, storage_recovery),   # データベースの止まりからの復旧（E21。見直し29a の 1）

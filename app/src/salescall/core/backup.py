@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
 
-from salescall.core import fix_requests, notify, recordings, settings
+from salescall.core import contract_end, fix_requests, notify, recordings, settings
 from salescall.core.access import Access, Actor, Tx, snapshot, tool_connection
 from salescall.link.backup_files import AI, RECORDING, SUBMISSION, WHOLE, good_folder
 from salescall.link.backup_files import file_name as _name
@@ -278,12 +278,26 @@ def _overdue(tx: Tx, part: str, since: Any) -> bool:
         {"since": since, "late": _overdue_after(tx), "part": part})["late"]
 
 
+def overdue(tx: Tx, part: str) -> bool:
+    """控えが「取れていない」か（読むだけ。知らせない）。part＝"client_ai"（依頼者の取引で、その依頼者の AI用）・"system"（全体の取引で、
+    データベース全体）。見張りを始めてよい時刻（依頼者を作ったとき・最初の契約者を作ったとき）と、取れていないとみなす長さは、ここと
+    `_overdue` の1か所（知らせを出す見張り `watch_client`・`watch_whole` も、画面の見張りの表示＝CL-3 のお願い 75 も、これを読む）。"""
+    if part == "client_ai":
+        row = tx.one("SELECT created_at FROM salescall.clients WHERE client_id = salescall.cur_client()")
+        if row is None:
+            raise ValueError("依頼者の AI用の控えは、その依頼者の取引で読みます")
+        return _overdue(tx, part, row["created_at"])
+    if part == "system":
+        since = tx.one("SELECT salescall.first_tenant_at() AS t")["t"]   # 全体の取引からは契約者の表を読めない（0102）
+        return since is not None and _overdue(tx, part, since)
+    raise ValueError(f"控えの種類は client_ai か system です（{part!r}）")
+
+
 def watch_client(app: Access, tenant_id: UUID, client_id: UUID) -> bool:
     """その依頼者の AI用の控えが取れているか（見守り役が、設定に関係なく依頼者ごとに呼ぶ＝1つの依頼者の誤りで、ほかの依頼者を見落と
     さない）。取れていなければ、その依頼者の取引で、契約者と管理者に1日1回知らせる（止めない）。知らせたかを返す。"""
     def work(tx: Tx) -> bool:
-        since = tx.one("SELECT created_at FROM salescall.clients WHERE client_id = %s", (client_id,))["created_at"]
-        if not _overdue(tx, "client_ai", since):
+        if not overdue(tx, "client_ai"):
             return False
         day = tx.today()
         notify.emit(tx, "backup_failed", key=f"backup_overdue:{day}:client_ai:{client_id}", summary=OVERDUE_CLIENT,
@@ -296,8 +310,7 @@ def watch_whole(app: Access) -> bool:
     """データベース全体の控えが取れているか（中央の見守り役が、設定に関係なく呼ぶ。見張るのは、最初の契約者を作ってから）。
     取れていなければ、管理者に1日1回知らせる（止めない）。"""
     def work(tx: Tx) -> bool:
-        since = tx.one("SELECT salescall.first_tenant_at() AS t")["t"]   # 全体の取引からは契約者の表を読めない（0102）
-        if since is None or not _overdue(tx, "system", since):
+        if not overdue(tx, "system"):
             return False
         day = tx.today()
         notify.emit(tx, "backup_failed", key=f"backup_overdue:{day}:system", summary=OVERDUE_WHOLE, admin=True, contractor=False)
@@ -420,9 +433,12 @@ def record_submission(tx: Tx, file_name: str, data: bytes, *, template_id: int |
 
 
 def client_ids(app: Access, tenant_id: UUID) -> list[UUID]:
-    """その契約者の依頼者（作った順。控えと中央の見守り役の契約者ごとの仕事が読む1か所）。"""
+    """その契約者の依頼者（作った順。控えと中央の見守り役の契約者ごとの仕事が読む1か所）。サーバーから外した依頼者（契約が終わった。0285）は
+    入れない（控え・控えの見張りを続けない。中身はハードディスクの控えにある）。"""
     return app.in_tenant(SYSTEM, tenant_id, lambda tx: [r["client_id"] for r in tx.all(
-        "SELECT client_id FROM salescall.clients ORDER BY created_at, client_id")])
+        "SELECT c.client_id FROM salescall.clients c"
+        " WHERE NOT EXISTS (SELECT 1 FROM salescall.client_forgets f WHERE f.client_id = c.client_id)"
+        " ORDER BY c.created_at, c.client_id")])
 
 
 def copy_submissions(app: Access, writer: Writer, tenant_id: UUID) -> list[Result]:
@@ -502,8 +518,9 @@ def prune_rules(app: Access, tenant_id: UUID | None) -> dict[str, Any]:
             days[RECORDING] = keep("recording.keep_days_drive")
             held = [str(r["h"]) for r in tx.all("SELECT salescall.recordings_held() AS h")]
             drop = [str(a) for a in recordings.unsaved_done(tx)]   # 残さない業務の通話（抜き取りが済んだ）＝日数を待たずに消す（0284）
-            rules = {r["f"]: {"days": dict(days), "verified": [], "held": held, "drop": drop}
-                     for r in tx.all("SELECT folder_name AS f FROM salescall.client_backup_folders")}
+            ended = set(contract_end.ended_clients(tx))   # 契約が終わった依頼者の控えは日数で消さない（✅ 2026-11-22 管理者。0285）
+            rules = {r["f"]: {"days": {} if r["c"] in ended else dict(days), "verified": [], "held": held, "drop": drop}
+                     for r in tx.all("SELECT folder_name AS f, client_id AS c FROM salescall.client_backup_folders")}
             # 戻せることまで確かめた控え（フォルダとファイルの名前の組。ファイルの名前は時刻だけなので、依頼者が違えば同じ名前もある
             # ＝フォルダごとに見る。2026-10-18 の見直し）
             rows = tx.all("SELECT b.folder_name AS folder, r.file_name AS f FROM salescall.backup_runs r"

@@ -26,10 +26,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 from uuid import UUID
 
 from websockets.asyncio.client import ClientConnection, connect
@@ -63,6 +65,46 @@ class NeedUpdate(Exception):
     """サーバーと版が違う。更新を待つ。"""
 
 
+class ApologyStore(Protocol):
+    """PC が前もって持つおわびの録音の置き場（中身をしまい、読むのは電話の部品＝CL-3 の agent/phones/apology_cache。ここは、サーバーから届いた
+    録音を渡し・持っている指紋を合図に入れるだけ。protocol の版 10）。"""
+
+    def held(self) -> dict[str, dict[str, str]]:
+        """持っている録音（声の型 → 部分 → 指紋）。"""
+        ...
+
+    def put(self, voice: str, part: str, sha256: str, audio: bytes) -> None:
+        """届いた録音をしまう（指紋が合わない・WAV でなければ ValueError）。"""
+        ...
+
+
+class MemoryApologies:
+    """おわびの録音の置き場の、メモリだけの形（電話の部品の置き場を渡されていないとき。PC の部品を立ち上げ直すと空になり、サーバーが
+    つないだあとに配り直す）。"""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._audio: dict[tuple[str, str], tuple[str, bytes]] = {}
+
+    def held(self) -> dict[str, dict[str, str]]:
+        with self._lock:
+            out: dict[str, dict[str, str]] = {}
+            for (voice, part), (sha, _) in self._audio.items():
+                out.setdefault(voice, {})[part] = sha
+            return out
+
+    def put(self, voice: str, part: str, sha256: str, audio: bytes) -> None:
+        if hashlib.sha256(audio).hexdigest() != sha256 or not (len(audio) >= 44 and audio[:4] == b"RIFF" and audio[8:12] == b"WAVE"):
+            raise ValueError("おわびの録音の指紋が合わないか、WAV ではありません")
+        with self._lock:
+            self._audio[(voice, part)] = (sha256, bytes(audio))
+
+    def audio(self, voice: str, part: str) -> bytes | None:
+        with self._lock:
+            got = self._audio.get((voice, part))
+            return None if got is None else got[1]
+
+
 @dataclass
 class Agent:
     cfg: Config
@@ -81,6 +123,7 @@ class Agent:
     offline_since: float | None = field(default_factory=time.monotonic)
     told: bool = False                                     # この途切れを、画面に知らせたか
     tell: Callable[[str], None] = notice.show             # 画面に知らせる（試験で差し替える）
+    apologies: ApologyStore = field(default_factory=MemoryApologies)   # 前もって持つおわびの録音（電話の部品の置き場を渡す）
 
     def __post_init__(self) -> None:
         if self.cfg.phone and not self.phones:
@@ -96,6 +139,7 @@ class Agent:
         drive = self.cfg.backup_drive is not None and backup.Drive(self.cfg.backup_drive).attached()
         flag = emergency.engaged()
         return {"lines": [str(x) for x in self._usable()], "drive": drive, "key": self.key_ready,
+                "apologies": p.apologies_of(self.apologies.held()),
                 "emergency": None if flag is None else {"reason": flag.get("reason"), "at": flag.get("at"),
                                                         "event": flag.get("event")}}
 
@@ -287,6 +331,10 @@ class Agent:
             if (ident := p.uuid_of(msg.get("id"))) is not None and ident not in self._incoming:
                 receiving = self._incoming[ident] = _Receiving()
                 self._spawn(self._take(ident, receiving, msg))
+        elif kind == "apology_begin":
+            if (ident := p.uuid_of(msg.get("id"))) is not None and ident not in self._incoming:
+                receiving = self._incoming[ident] = _Receiving()
+                self._spawn(self._take_apology(ident, receiving, msg))
         elif kind == "backup_end":
             if (receiving := self._incoming.get(p.uuid_of(msg.get("id")))) is not None:
                 receiving.put(None)
@@ -334,6 +382,9 @@ class Agent:
             generation = self.generation
             try:
                 voice = msg.get("voice") if isinstance(msg.get("voice"), str) else None   # この通話の声の型（おわびの録音も、この声）
+                if not p.apologies_ready(p.apologies_of(self.apologies.held()), voice):
+                    # その声の型のおわびの録音を持たない：かけない（つながりが切れたとき、お客様を無言で切ることになる。protocol の版 10）
+                    return {"ok": False, "error": "withheld"}
                 await loop.run_in_executor(None, lambda: phone.start_call(str(msg.get("phone")), voice_type=voice, national=national))
                 out: dict[str, Any] = {"ok": True}
             except CallNotPlaced:    # かけようとして、かけられなかった（だれのせいかは、サーバーが同じ回線の前後の電話で決める）
@@ -443,6 +494,43 @@ class Agent:
             return {"ok": False, "error": str(e), "ask": e.ask}
         except Exception as e:  # noqa: BLE001 中身は書かない（種類の名前だけ）
             return {"ok": False, "error": f"思いがけない誤り（{type(e).__name__}）"}
+
+
+    async def _take_apology(self, ident: UUID, receiving: "_Receiving", msg: dict[str, Any]) -> None:
+        """1つのおわびの録音を受け取り、置き場へしまう（届いた中身を書けた印で返す＝控えと同じ送る速さ。CL-3 の連絡帳 74）。"""
+        got, pieces = bytearray(), 0
+        voice, part = msg.get("voice"), msg.get("part")
+        try:
+            out: dict[str, Any] = {"ok": True}
+            if not (isinstance(voice, str) and p.REF.fullmatch(voice) and part in p.APOLOGY_PARTS):
+                out = {"ok": False, "error": "rejected"}   # 決まりに合わない声の型・部分（しまわない）
+            while out["ok"]:
+                try:
+                    piece = await asyncio.wait_for(receiving.queue.get(), p.PROGRESS_WAIT + p.PING_EVERY)
+                except asyncio.TimeoutError:
+                    out = {"ok": False, "error": "サーバーからおわびの録音の続きが届きません"}
+                    break
+                if receiving.dropped:
+                    return
+                if receiving.overflow or len(got) > p.MAX_FRAME * p.WINDOW:
+                    out = {"ok": False, "error": "rejected"}
+                    break
+                if piece is None:
+                    try:
+                        await asyncio.get_running_loop().run_in_executor(None, lambda: self.apologies.put(
+                            voice, part, str(msg.get("sha256")), bytes(got)))
+                    except ValueError:
+                        out = {"ok": False, "error": "rejected"}
+                    break
+                got.extend(piece)
+                pieces += 1
+                await self._send_now(p.dumps("backup_ack", id=ident, n=pieces))
+            if not receiving.dropped:
+                await self._send_now(p.dumps("backup_done", id=ident, **out))
+        finally:
+            receiving.dropped = True
+            if self._incoming.get(ident) is receiving:
+                del self._incoming[ident]
 
 
 class _Receiving:

@@ -32,12 +32,21 @@ from salescall.supervisor import channel, config
 from salescall.supervisor import line as line_mod
 from salescall.supervisor.links import Attached
 from salescall.supervisor.main import Supervisor
-from tests.support import OPERATOR, SYSTEM
+from tests.support import ADMIN, OPERATOR, SYSTEM, owner_access
 from tests.test_backup import drive_at
 from tests.test_gate import HOLDER, Base
 
 KEY = "架空の控えの鍵の元-0123456789-abcdefghij"
 
+
+
+class ReadyApologies(agent_main.MemoryApologies):
+    """おわびの録音を、どの声の型の分もすでに持っている PC の置き場（電話の試験の場面。配る試験は空の置き場から＝`Apologies`）。"""
+
+    def held(self):
+        got = super().held()
+        codes = [r["code"] for r in owner_access().in_system(SYSTEM, lambda tx: tx.all("SELECT code FROM salescall.voice_types"))]
+        return {code: got.get(code) or {part: "0" * 64 for part in protocol.APOLOGY_PARTS} for code in codes}
 
 
 class LiveCall:
@@ -182,16 +191,24 @@ class LinkBase(Base):
     def pc(self, s, label="架空の PC"):
         return agents.issue(self.w.a, SYSTEM, s["tenant"], label=label)
 
-    def agent(self, got, lines, phones=None, drive=None, hub=None, **env):
+    def agent(self, got, lines, phones=None, drive=None, hub=None, apologies=None, **env):
         hub = hub or self.hub
         values = {"SALESCALL_HUB_URL": f"ws://127.0.0.1:{hub.port}/link", "SALESCALL_LINES": ",".join(map(str, lines)), **env}
         if drive is not None:
             values.update(SALESCALL_BACKUP_DRIVE=str(drive), SALESCALL_BACKUP_KEY=KEY)
         a = agent_main.Agent(agent_config.load(values), PcPass(got.tenant_id, got.pc_id, got.token),
-                             phones if phones is not None else {line: FakePhone() for line in lines})
+                             phones if phones is not None else {line: FakePhone() for line in lines},
+                             apologies=apologies if apologies is not None else ReadyApologies())
         r = Running(a)
         self.addCleanup(r.close)
         return r
+
+    def driver(self, line, at):
+        """その回線の電話の部品（本番と同じく、かける前に声の型を決める＝回線ごとの処理の prepare_call。声の型の無い電話は、どのおわびを流すかが
+        決まらないので PC がかけない＝protocol の版 10）。"""
+        d = self.hub.driver(line, at)
+        d.prepare_call("S2")
+        return d
 
     def beaten(self, r, got):
         """すぐ合図を送らせ、サーバーが受け取って記録し終えるまで待つ。"""
@@ -213,6 +230,56 @@ class LinkBase(Base):
         return self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: [
             r["event_id"] for r in stops.open_stops(tx, tenant_id=s["tenant"], client_id=None, business_id=None)
             if r["cause"] == "manual"])
+
+
+class Apologies(LinkBase):
+    def test_a_pc_without_the_apology_recordings_does_not_call_and_the_server_hands_them_out(self):
+        """おわびの録音を PC に前もって配る（CL-3 の連絡帳 74。protocol の版 10）：その声の型のおわびの録音を持たない PC は、その声の型の電話を
+        かけない（withheld＝つながりが切れたとき、お客様を無言で切ることになる）。中央の見守り役の仕事 apologies が、配るべき録音（core の
+        recordings.apology_audio＝その声の共通の一言のいまの組の2つの部分・音の置き場に音があるもの）のうち、PC の指紋と違うものだけを送る。
+        配ったあとは、その声の型でかけられる。2回目は何も送らない。"""
+        from salescall.core import common_phrases, recording_audio, recordings
+        from salescall.supervisor import jobs
+        s = self.ready()
+        voice, code = f"Apology{uuid.uuid4().hex[:8]}", f"A{uuid.uuid4().hex[:6]}"
+        def wav(n):
+            data = n.encode() * 50
+            return (b"RIFF" + (36 + len(data)).to_bytes(4, "little") + b"WAVEfmt " + (16).to_bytes(4, "little")
+                    + bytes([1, 0, 1, 0]) + (16000).to_bytes(4, "little") + (32000).to_bytes(4, "little") + bytes([2, 0, 16, 0])
+                    + b"data" + len(data).to_bytes(4, "little") + data)
+        def make(tx):
+            recordings.add_voice(tx, voice, note="試験の声", display_gender=None)
+            recordings.add_voice_type(tx, code, voice, default_for_voice=True, note="試験の声の型")
+            parts = []
+            for name in recordings.COMMON_PARTS:
+                stored = recording_audio.put(tx, wav(f"{voice}:{name}"))
+                parts.append(recordings.Part(name, common_phrases.TEXTS[name], stored.audio_ref, stored.audio_sha256))
+            recordings.approve(tx, recordings.create_set(tx, unit="contractor", voice_name=voice, parts=parts))
+        owner_access().in_system(ADMIN, make)
+        wanted = self.w.a.in_tenant(SYSTEM, s["tenant"], recordings.apology_audio)
+        self.assertEqual(set(wanted[code]), set(protocol.APOLOGY_PARTS))
+        self.assertNotIn("S2", wanted)                                     # 音の置き場に音の無い録音（架空の録音）は配らない
+        got, phone, store = self.pc(s), FakePhone(), agent_main.MemoryApologies()
+        self.agent(got, [s["line"]], {s["line"]: phone}, apologies=store)
+        self.attached(s, got)
+        session = self.hub.sessions[got.pc_id]
+        call = lambda: self.hub.ask(session, "request", op="start_call", line=s["line"], phone="+81300000001",   # noqa: E731
+                                    national="0300000001", voice=code)
+        self.assertEqual((call().get("ok"), call().get("error")), (False, "withheld"))   # 持っていない：かけない
+        self.assertEqual(phone.calls, [])
+        ctx = jobs.Context(self.w.a, None, HOLDER, self.hub, s["tenant"])
+        jobs.apologies(ctx)
+        self.assertEqual(store.held()[code], wanted[code])
+        for part in protocol.APOLOGY_PARTS:
+            self.assertEqual(store.audio(code, part), wav(f"{voice}:{part}"))
+        self.assertEqual(session.apologies[code], wanted[code])           # サーバーも、配った分を知っている
+        sent = []
+        with mock.patch.object(channel.ApologySender, "put", lambda *a: sent.append(a)):
+            jobs.apologies(ctx)
+        self.assertEqual(sent, [])                                         # 同じ指紋は送らない
+        self.assertTrue(call().get("ok"))                                  # 配ったあとは、その声の型でかけられる
+        self.assertEqual(phone.calls, ["+81300000001"])
+        self.assertTrue(agent_main.MemoryApologies().held() == {} and not protocol.apologies_ready({}, code))
 
 
 class Connect(LinkBase):
@@ -250,7 +317,7 @@ class Connect(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         heard, events = [], []
         driver.on_audio(heard.append)
         driver.on_event(events.append)
@@ -269,7 +336,7 @@ class Connect(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         events = []
         driver.on_event(events.append)
         driver.send_audio(b"\x01", ref="turn-7")
@@ -287,7 +354,7 @@ class Connect(LinkBase):
         self.assertEqual(protocol.voice_of(protocol.voice_frame(s["line"], "x_1", b"\x05")[17:]), ("x_1", b"\x05"))
         with self.assertRaises(protocol.BadMessage):                       # 印の長さと中身が合わない枠は読まない
             protocol.voice_of(bytes([9]) + b"ab")
-        self.assertEqual(protocol.VERSION, 9)
+        self.assertGreaterEqual(protocol.VERSION, 9)   # 声の印・止める頼み・声の出来事の形の版から（10＝おわびの録音を前もって配る）
 
     def test_the_phone_answers_and_failures_map_to_the_dial_exit(self):
         """通話中か・かける・切るは、PC の部品を通して電話の部品へ。かけようとして、かけられなかった＝CallNotPlaced（だれのせいかは
@@ -298,7 +365,7 @@ class Connect(LinkBase):
         phone = FakePhone(busy=True)
         self.agent(got, [s["line"]], {s["line"]: phone})
         at = self.attached(s, got)
-        driver = self.hub.driver(s["line"], at)
+        driver = self.driver(s["line"], at)
         self.assertTrue(driver.in_call())
         phone.busy = False
         self.assertFalse(driver.in_call())
@@ -316,12 +383,12 @@ class Connect(LinkBase):
         driver.apologize_and_hang_up()                                       # サーバーの側の誤り：おわびして切る
         self.assertEqual(phone.apologies, 1)
         with self.assertRaises(ConnectionError):                               # つないでいない回線（答えられない＝出口が「通話中」とみなす）
-            self.hub.driver(uuid.uuid4(), at).in_call()
+            self.driver(uuid.uuid4(), at).in_call()
         away = Attached(s["tenant"], uuid.uuid4(), at.conn)
         with self.assertRaises(ConnectionError):                               # その回線をつないでいない PC
-            self.hub.driver(s["line"], away).in_call()
+            self.driver(s["line"], away).in_call()
         with self.assertRaises(CallWithheld):                                # つないでいない：かけていないと確かに言える（回線の異常ではない）
-            self.hub.driver(s["line"], away).start_call("+81300000003")
+            self.driver(s["line"], away).start_call("+81300000003")
 
     def test_lines_of_another_tenant_are_dropped_and_two_pcs_on_one_line_keep_the_first(self):
         """名乗った回線は、その契約者の使っている回線だけが残る（ほかの契約者の回線の電話をかけさせない）。同じ回線を2つの PC が
@@ -333,7 +400,7 @@ class Connect(LinkBase):
         at = self.attached(s, got)
         self.assertNotIn(other["line"], self.hub.lines())
         self.assertEqual(first.agent.lines, [s["line"]])                    # PC の部品も、確かめ直した回線だけを使う
-        driver = self.hub.driver(s["line"], at)                              # 1台目の PC で動いている回線の流れ
+        driver = self.driver(s["line"], at)                              # 1台目の PC で動いている回線の流れ
         heard = []
         driver.on_audio(heard.append)
         second = self.pc(s, "架空の2台目の PC")
@@ -363,7 +430,7 @@ class CallingState(LinkBase):
         s = self.ready()
         got = self.pc(s)
         self.agent(got, [s["line"]])
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         session = self.hub.sessions[got.pc_id]
         with mock.patch.object(protocol, "CALL_QUIET", 0.0):                    # 声だけでは通話中にならない
             self.assertFalse(session.calling())
@@ -380,7 +447,7 @@ class CallingState(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         session = self.hub.sessions[got.pc_id]
         with mock.patch.object(protocol, "CALL_QUIET", 0.0):
             driver.start_call("+81300000003")
@@ -403,7 +470,7 @@ class CallingState(LinkBase):
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
         at = self.attached(s, got)
-        driver = self.hub.driver(s["line"], at)
+        driver = self.driver(s["line"], at)
         for answer in (True, False, None):
             phone.ring = answer
             self.assertIs(driver.test_ring("+81300000009"), answer)
@@ -428,7 +495,7 @@ class CallingState(LinkBase):
         with self.assertRaises(CallWithheld):
             driver.test_ring("+81300000009")
         self.assertEqual(len(phone.rings), 4)
-        gone = self.hub.driver(s["line"], Attached(s["tenant"], uuid.uuid4(), 0))   # つながっていない
+        gone = self.driver(s["line"], Attached(s["tenant"], uuid.uuid4(), 0))   # つながっていない
         with self.assertRaises(CallWithheld):
             gone.test_ring("+81300000009")
         self.assertGreaterEqual(protocol.VERSION, 6)
@@ -455,11 +522,11 @@ class CallingState(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         session = self.hub.sessions[got.pc_id]
         for op in ("start_call", "test_ring"):
             with self.subTest(op=op):
-                answer = self.hub.ask(session, "request", op=op, line=s["line"], phone="+81300000000")
+                answer = self.hub.ask(session, "request", op=op, line=s["line"], phone="+81300000000", voice="S2")
                 self.assertEqual((answer.get("ok"), answer.get("error")), (False, "withheld"))
         self.assertEqual((phone.calls, phone.rings), ([], []))
         driver.start_call("+81300000001")
@@ -474,7 +541,7 @@ class CallingState(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         driver.send_sms("+819000000001", "架空の知らせ")
         self.assertEqual(phone.texts, [("09000000001", "架空の知らせ")])
         phone.busy = True
@@ -564,13 +631,13 @@ class LostConnection(LinkBase):
         self.hub.close()
         until(lambda: phone.apologies >= 1, "おわびを流して切る")
         with self.assertRaises(ConnectionError):                               # 答えられない（出口が「通話中」とみなす）
-            self.hub.driver(s["line"], Attached(s["tenant"], got.pc_id, 1)).in_call()
+            self.driver(s["line"], Attached(s["tenant"], got.pc_id, 1)).in_call()
 
     def reachable(self):
         """画面の知らせを受け取る PC の部品（つながらない所へつなぐ。時刻は試験が渡す＝時計に頼らない）。"""
         told = []
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link"}
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, tell=told.append)
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, tell=told.append, apologies=ReadyApologies())
         # 途切れの始まりも試験が決める（⛔ 2026-11-02：本物の時計の値＝小数のついた大きな数のままだと、「(始まり + 600) − 始まり」が
         # 小数の丸めで 599.9999… になり、「10分たったか」の比べがその回だけ通らなかった＝流すたびに落ちたり通ったりした）
         a.offline_since = 1000.0
@@ -637,7 +704,7 @@ class LostConnection(LinkBase):
                 super().start_call(phone, national=national)
         phone = SlowPhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         caller = threading.Thread(target=lambda: self.assertRaises(Exception, driver.start_call, "+81300000000"))
         caller.start()
         until(lambda: self.hub.sessions[got.pc_id].pending, "かけてと頼んだ")
@@ -663,7 +730,7 @@ class LostConnection(LinkBase):
             def drop(self):
                 order.append("控えをやめる")
                 super().drop()
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {uuid.uuid4(): Mute()})
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {uuid.uuid4(): Mute()}, apologies=ReadyApologies())
 
         async def go():
             a._incoming[uuid.uuid4()] = Receiving()
@@ -684,7 +751,7 @@ class LostConnection(LinkBase):
                 time.sleep(1.0)
                 super().play_apology_and_hang_up()
         phones = {uuid.uuid4(): Talking(busy=True) for _ in range(3)}
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), phones)
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), phones, apologies=ReadyApologies())
 
         async def go():
             a._lost()
@@ -708,7 +775,7 @@ class LostConnection(LinkBase):
             def play_apology_and_hang_up(self):
                 order.append("おわび")
         self.agent(got, [s["line"]], {s["line"]: SlowPhone()})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         caller = threading.Thread(target=driver.start_call, args=("+81300000000",))
         caller.start()
         until(lambda: self.hub.sessions[got.pc_id].pending, "かけてと頼んだ")
@@ -733,7 +800,7 @@ class LostConnection(LinkBase):
                 self.calls.append(phone)
         phone = SlowPhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         with mock.patch.object(protocol, "ANSWER_BY", 0.5):
             first = threading.Thread(target=lambda: self.assertRaises(RuntimeError, driver.start_call, "+81300000000"))
             first.start()
@@ -751,7 +818,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         live = LiveCall(s["line"])                                           # 回線ごとの処理が、この通話を進めている
         driver.start_call("+81300000009")
         phone.busy = True
@@ -778,7 +845,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         live = LiveCall(s["line"])
         driver.start_call("+81300000009")
         phone.busy = True
@@ -810,7 +877,7 @@ class LostConnection(LinkBase):
                 super().play_apology_and_hang_up()
         phone = SlowApology()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         live = LiveCall(s["line"])
         self.addCleanup(live.over)
         with mock.patch.object(protocol, "REPLY_WAIT", 0.5):
@@ -848,7 +915,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         session = self.hub.sessions[got.pc_id]
         live = LiveCall(s["line"])                                           # 回線ごとの処理は、まだ進めている（戻っていない）
         self.addCleanup(live.over)
@@ -875,7 +942,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
         phone = FakePhone(busy=True)
         r = self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         aid = self.w.insert_claim(s, expires_in=timedelta(minutes=5))
         for state in ("dialing", "ringing", "answered", "in_conversation"):    # 通話の途中
             self.w.move(s, aid, state)
@@ -900,7 +967,7 @@ class LostConnection(LinkBase):
                 raise CallNotPlaced("試験：アプリが受け付けない")
         phone = Refusing()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
         with mock.patch.object(protocol, "ANSWER_BY", 0.2), self.assertRaises(CallNotPlaced):
             driver.start_call("+81300000002")
         self.assertEqual(phone.apologies, 0)
@@ -910,7 +977,7 @@ class LostConnection(LinkBase):
         s = self.ready()
         got = self.pc(s)
         self.agent(got, [s["line"]])
-        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver = self.driver(s["line"], self.attached(s, got))
 
         async def inside():
             driver.in_call()
@@ -928,7 +995,7 @@ class LostConnection(LinkBase):
         after = until(lambda: (at := self.hub.lines().get(s["line"])) is not None and at.conn != before.conn and at, "つなぎ直した")
         self.assertEqual((after.tenant_id, after.pc_id), (before.tenant_id, before.pc_id))
         with self.assertRaises(ConnectionError):                               # 前のつなぎには頼めない（出口が「通話中」とみなす）
-            self.hub.driver(s["line"], before).in_call()
+            self.driver(s["line"], before).in_call()
 
     def test_the_same_pc_opening_a_new_connection_before_the_old_one_is_noticed_is_not_a_second_pc(self):
         """同じ PC が、サーバーが前のつなぎの切れに気づく前につなぎ直しても、「2台の PC が同じ回線を使っている」と知らせない
@@ -957,7 +1024,7 @@ class Emergency(LinkBase):
         self.assertEqual(self.open_manual(s), [flag])
         self.assertEqual(self.hub.lines(), {})                                  # かけない
         session = self.hub.sessions[got.pc_id]
-        driver = self.hub.driver(s["line"], Attached(s["tenant"], got.pc_id, session.conn))
+        driver = self.driver(s["line"], Attached(s["tenant"], got.pc_id, session.conn))
         self.assertTrue(driver.in_call())
         with self.assertRaises(CallWithheld):
             driver.start_call("+81300000000")
@@ -1136,7 +1203,7 @@ class Backups(LinkBase):
         記録し、あとでやり直す）。"""
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d2")),
                   "SALESCALL_BACKUP_KEY": KEY}
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {})
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, apologies=ReadyApologies())
         place = Path(values["SALESCALL_BACKUP_DRIVE"]) / pc_backup.BASE / "架空の依頼者" / "AI"
 
         async def go():
@@ -1155,7 +1222,7 @@ class Backups(LinkBase):
         2026-10-22 の見直し）。"""
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d4")),
                   "SALESCALL_BACKUP_KEY": KEY}
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {})
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, apologies=ReadyApologies())
         place = Path(values["SALESCALL_BACKUP_DRIVE"]) / pc_backup.BASE / "架空の依頼者" / "AI"
 
         async def go():
@@ -1173,7 +1240,7 @@ class Backups(LinkBase):
         """中身を書けなかったら（ディスクの誤り など）、終わりを待たずに書くのをやめ、書きかけを消す。"""
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d3")),
                   "SALESCALL_BACKUP_KEY": KEY}
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {})
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, apologies=ReadyApologies())
         place = Path(values["SALESCALL_BACKUP_DRIVE"]) / pc_backup.BASE / "架空の依頼者" / "AI"
 
         async def go():

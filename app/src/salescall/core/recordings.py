@@ -47,6 +47,7 @@ from uuid import UUID
 
 from salescall.core import business_settings, common_phrases, readings as readings_mod
 from salescall.core.access import Tx
+from salescall.link.protocol import APOLOGY_PARTS
 
 
 @dataclass(frozen=True)
@@ -448,6 +449,27 @@ _COVERS = ("NOT EXISTS (SELECT 1 FROM salescall.recording_list_parts l WHERE l.l
 def _common_args() -> tuple[list[str], list[str]]:
     """共通の一言の部分の名前と文（SQL に渡す並び。`_HAS_TEXTS`・`missing_parts`・`_on_common` が読む1か所＝common_phrases.TEXTS）。"""
     return list(common_phrases.TEXTS), list(common_phrases.TEXTS.values())
+
+
+if not set(APOLOGY_PARTS) <= set(COMMON_PARTS):   # おわびの録音は共通の一言の部分（名前がずれたら、読み込みで止める）
+    raise ImportError(f"おわびの録音の部分が共通の一言にありません：{set(APOLOGY_PARTS) - set(COMMON_PARTS)}")
+
+
+def apology_audio(tx: Tx) -> dict[str, dict[str, str]]:
+    """PC の部品に前もって配るおわびの録音（声の型 → 部分 → 音の指紋。CL-3 の連絡帳 74）：使っている声の声の型ごとに、その声の共通の一言の
+    いまの組（流す組と同じ見方＝`_COMMON`・共通の一言がその文ですべてそろった組＝`_HAS_TEXTS`）の、おわびの部分（link.protocol の `APOLOGY_PARTS`）。
+    部分がそろわない声の型は入れない（その声の型では、PC がかけない＝protocol の版 10）。音は recording_audio の1か所で読む（指紋が音の名前）。"""
+    out: dict[str, dict[str, str]] = {}
+    for r in tx.all(
+            "SELECT t.code, r.part, r.audio_sha256 FROM salescall.voice_types t"
+            " JOIN salescall.voices v ON v.voice_name = t.voice_name AND v.retired_at IS NULL"
+            " JOIN salescall.current_recording_sets s ON s.voice_name = t.voice_name AND " + _COMMON + " AND " + _HAS_TEXTS +
+            " JOIN salescall.recordings r ON r.set_id = s.set_id AND r.part = ANY(%s)"
+            # 配れるのは、音の置き場に音がある録音だけ（無い録音は、流すこともできない＝その声の型はかけない側に倒れる）
+            "   AND EXISTS (SELECT 1 FROM salescall.recording_audio a WHERE a.audio_sha256 = r.audio_sha256)"
+            " ORDER BY t.code, r.part", (*_common_args(), list(APOLOGY_PARTS))):
+        out.setdefault(r["code"], {})[r["part"]] = r["audio_sha256"]
+    return {code: parts for code, parts in out.items() if set(parts) == set(APOLOGY_PARTS)}
 
 
 def ready_voices(tx: Tx, version_id: UUID) -> list[str]:

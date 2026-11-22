@@ -58,6 +58,22 @@ class Links(Protocol):
         """いまつないでいる PC と、つなぎ口が待ち受けを始めてからの秒数（PC の合図の途切れの見張りが読む＝agents.watch_down）。"""
         ...
 
+    def apology_pcs(self, tenant_id: UUID) -> list["ApologyPc"]:
+        """その契約者のつないでいる PC ごとの、おわびの録音を配る口（中央の見守り役の仕事 apologies が使う。CL-3 の連絡帳 74）。"""
+        ...
+
+
+class ApologyPc(Protocol):
+    """1つの PC に、おわびの録音を前もって配る口（protocol の apology_begin）。"""
+
+    def held(self) -> dict[str, dict[str, str]]:
+        """その PC が持っていると合図で言った録音（声の型 → 部分 → 指紋）。"""
+        ...
+
+    def put(self, voice: str, part: str, sha256: str, audio: bytes) -> None:
+        """1つの録音を送り、PC がしまったら戻る（しまえなければ RemoteError）。"""
+        ...
+
 
 class NoLinks:
     """PC の部品がつながっていない（つなぎ口を開かない動かし方・試験）。"""
@@ -76,3 +92,6 @@ class NoLinks:
 
     def connected(self) -> tuple[frozenset[UUID], float | None]:
         return frozenset(), None   # つなぎ口が無い：分からない（合図の記録だけで見る）
+
+    def apology_pcs(self, tenant_id: UUID) -> list[ApologyPc]:
+        return []
