@@ -14349,7 +14349,10 @@ class TargetTest(unittest.TestCase):
         self.assertTrue(any(n.startswith("取り次がれて") and f"{RELAY_WORDS}⇒{TARGET_IS_THERE}" in n for n in target_facets()[1].notes))
         self.assertIn("お呼びした方に取り次ぐ", next(t for t in facet_terms(False, False) if t.startswith(RELAY_WORDS)))
         from flowctl import HANDOVER
-        self.assertIn("お呼びした方に取り次いだ", KIND_DESC[HANDOVER])
+        # 代わった方が誰かで答えが決まるときの行き先は、その問いの選べるものの名前で（分身 AU＝L26。尋ねているかは「尋ねていない」。答えの段には書かない）
+        from meaning_judge import answer_kinds
+        self.assertIn("お呼びした方に取り次いだ", answer_kinds(aq)[HANDOVER])
+        self.assertNotIn("お呼びした方に取り次いだ", KIND_DESC[HANDOVER])
         f.on_check("judge", TARGET_IS_THERE)
         f.apply("report_party", {"party": "target"})
         f.on_callee(); f.on_heard("はい、予約しています。")
@@ -53638,3 +53641,58 @@ class AUWayUnknownTest(unittest.TestCase):
         wants = G.step_wants(it, rw.questions()[it["qid"]], False)
         self.assertFalse(any("お迷い" in w for w in wants), wants)
         self.assertFalse(any(w.startswith((G.SCENE_MISSING, G.OTHER_ACT)) for w in wants), wants)
+
+
+class AUHandoverNamedTest(unittest.TestCase):
+    """分身 AU（帳面 1 の (6) の (i) の L26・分身 AQ の書き置き rv196/AQ/notes.md の 3章・分身 AM の書き置き rv191/AM/notes.md の続き2 の (6-3)。CL-1 が書いてある決まりで決めた＝
+    伺わない）：電話を代わった方の説明（meaning_judge.KIND_DESC の HANDOVER）の終わり「代わった方が誰かで答えが決まるとき（…）は、こちらではなく、その答えを選ぶ」が、答えの段（G-53）・
+    尋ねているか（G-59）・待たせた方が戻ったか（G-68）に同じ文で入り、指す先の選べるものを名指していなかった（答えの段には指す先が無い）。帳面 0-3「判定（AI）への文も、初めて読む人が
+    そのまま分かる言葉で書く」・(a)・(b)＝問いごとに、そこで選ぶ選べるものの名前で書く（作る所は answer_kinds の1か所）：尋ねているかは「尋ねていない」・戻ったかは「別の方が出た」・
+    答えの段は書かない。決められないの「そちら」も名前で指す。正解の表の値は今のまま（G-53 の組 E の32行・G-59 の尋ねているか・G-68 の26の言葉を1行ずつ読み直した＝書き置きの 2章）"""
+
+    def test_1_each_question_names_its_own_choice(self):
+        from flowctl import ASKS_NO, HANDOVER, HOLD, HOLD_BACK, RETURNED_OTHER, UNDECIDED, WAIT_PLAIN, Question
+        from meaning_judge import ANSWER_KINDS, KIND_DESC, TALK_UNDECIDED, answer_kinds, options
+        import g68_returned as R
+        _, rq, _ = R.scene(R.HOLD_TARGET, "お電話代わりました。岡田です。")
+        ret = answer_kinds(rq)[HANDOVER]
+        self.assertTrue(ret.endswith(f"は、こちらではなく「{RETURNED_OTHER}」"), ret)
+        self.assertIn(RETURNED_OTHER, [n for n, _, _ in options(rq)])
+        from flowctl import ASKS_MEANINGS
+        aq = Question("A1", "x", "yes_no", required=False, conditions=tuple(ASKS_MEANINGS), meanings=dict(ASKS_MEANINGS), named=True)
+        asks = answer_kinds(aq)[HANDOVER]
+        self.assertTrue(asks.endswith(f"は、こちらではなく「{ASKS_NO}」"), asks)
+        self.assertIn(ASKS_NO, [n for n, _, _ in options(aq)])
+        # 答えの段：誰かで決まる答えが無い＝書かない
+        q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        self.assertNotIn("その答え", answer_kinds(q)[HANDOVER])
+        self.assertNotIn("こちらではなく", answer_kinds(q)[HANDOVER])
+        self.assertEqual(answer_kinds(q)[HANDOVER], KIND_DESC[HANDOVER])
+        # 決められないの「そちら」は名前で指す（その問いの選べるものの名前）
+        for name in (HOLD, WAIT_PLAIN, HOLD_BACK, HANDOVER):
+            self.assertIn(f"「{name}」", ANSWER_KINDS[UNDECIDED])
+            self.assertIn(name, answer_kinds(q))
+        for name in (HOLD, HANDOVER):
+            self.assertIn(f"「{name}」", TALK_UNDECIDED)
+            self.assertIn(name, answer_kinds(aq))
+        for d in (ANSWER_KINDS[UNDECIDED], TALK_UNDECIDED, *(k[HANDOVER] for k in (answer_kinds(q), answer_kinds(aq), answer_kinds(rq)))):
+            self.assertNotIn("その答え", d)
+            self.assertNotIn("に当たるときは、そちら", d.replace("」に当たるときは、そちら", ""))
+
+    def test_2_the_tables_keep_their_truths(self):
+        import json
+        from pathlib import Path
+        import g53_meaning as G
+        import g59_calling_judge as C
+        import g68_returned as R
+        from flowctl import ASKS_NO, HANDOVER, RETURNED_OTHER
+        labels = json.loads((Path(G.__file__).parent / "g53_labels.json").read_text(encoding="utf-8"))["labels"]
+        self.assertEqual(sum(1 for v in labels.values() if HANDOVER in v["accept"]), 32)
+        self.assertEqual(sum(1 for v in labels.values() if v["accept"] == [HANDOVER]), 32)
+        # 尋ねているか：お呼びした方の名前を名乗った・取り次いだ先の方の行は「尋ねていない」だけ（境目の行 ASKS_HANDOVER_ROWS は今のまま）
+        self.assertEqual(C.asks_truths({"text": "お電話代わりました。岡田です。", "before": None, "successor": False}), (ASKS_NO,))
+        self.assertEqual(C.asks_truths({"text": "お電話代わりました。", "before": None, "successor": False}), (ASKS_NO, HANDOVER))
+        # 戻ったか：お呼びした方が名乗った・お電話代わりました、は「別の方が出た」
+        want = {t: w for _, t, w in R.CASES + R.NEW_CASES}
+        for t in ("お電話代わりました。岡田です。", "お待たせいたしました、岡田です。", "はい、お電話代わりました。"):
+            self.assertEqual(want[t], RETURNED_OTHER, t)

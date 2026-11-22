@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, DATE_TIME_TYPES, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, DATE_TIME_TYPES, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, ASKS_NO, RETURNED_OTHER, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices, LADDER_OTHER, LADDER_SIDE_TAIL, ladder_choice_desc, ladder_other_choices, ladder_sides,
                      NEAR, near_choices, near_fits, MISGIVING, misgiving_choices, misgiving_fits,
@@ -112,8 +112,7 @@ KIND_DESC = {HOLD: "この電話の間に、取り次ぐ・確かめてくるあ
              #    言い直しを認めたと読んだ（確からしさ 0.69）＝話し始めた言葉がどんなものかを書いていなかった ⇒ 意味で足した（言葉の形の例は足さない）
              HANDOVER: "電話を代わった別の人が、話し始めた（「お電話代わりました」など。名乗る・待たせたことを詫びるなど、電話に出たあいさつで、頭の"
                        "「はい」もあいさつの「はい」。答えではない）。お呼びした方がいないので別の者に代わると"
-                       "言ったあとに代わった方が出たとき・お呼びした方と違う名前を名乗ったときも、こちら。代わった方が誰かで答えが決まるとき"
-                       "（お呼びした方の名前を名乗った・その前に取り次いだ方が、お呼びした方に取り次いだ）は、こちらではなく、その答えを選ぶ",
+                       "言ったあとに代わった方が出たとき・お呼びした方と違う名前を名乗ったときも、こちら",
              # 2026-10-25 G-53：言い直しへの「確認しておきます。」（これから確かめるだけ）を、考えない Sonnet 5.5 が答えと読んだ ⇒「答えになっていない」の例に足した。
              # ⛔ 同じ日に「聞いたことと違う範囲やもの（親会社・ほかの支店など）について言っただけ」も足したが、取り消した（✅ 2026-10-28 ユーザー：
              #    「『グループ全体だと50名超えますが…』を、4つの判定がそろって『50名以上』と読むことに何の問題があるんですか？人が見ても、その部分だけ
@@ -143,11 +142,19 @@ KIND_DESC = {HOLD: "この電話の間に、取り次ぐ・確かめてくるあ
              UNDECIDED: "この言葉と、前の質問・前の会話からは決められない（受け入れにも断りにも取れる・事実を伺う質問への言葉なら、どれかの答えの意味とも、断りの意味とも取れる・"
                         "どの答えも指していない・選ぶのを避けた・"
                         "どの答えがよいかを、こちらの考えとして尋ねた（自分の考えは言っていない）・"
-                        "話すことを終える言葉とも、質問への答えとも取れる。待つように言った・代わった人が話し始めた、に当たるときは、そちら）"}
+                        f"話すことを終える言葉とも、質問への答えとも取れる。「{HOLD}」「{WAIT_PLAIN}」「{HOLD_BACK}」「{HANDOVER}」に当たるときは、そちら）"}
 # 電話のやり取りを読む問い合わせ（尋ねているか・待たせた方が戻ったか＝TALK_KINDS）の「決められない」：お客様の答えの説明（上）は入れない
 #    （✅ 2026-10-31 ユーザー：(4) の案「OK」＝答えの段の説明を直すたびに、この2つの問い合わせの文が変わっていた・文の約30%が答え用だった）
-TALK_UNDECIDED = ("この言葉と、前の会話からは決められない（聞き違いもありうるので、近い言葉に読み替えない。待つように言った・代わった人が"
-                  "話し始めた、に当たるときは、そちら）")
+TALK_UNDECIDED = (f"この言葉と、前の会話からは決められない（聞き違いもありうるので、近い言葉に読み替えない。「{HOLD}」「{HANDOVER}」に当たるときは、"
+                  "そちら）")
+# 電話を代わった方の説明（KIND_DESC の HANDOVER）の終わりに、代わった方が誰かで答えが決まるときの行き先を、その問いで選ぶ選べるものの名前で書く（唯一の場所＝answer_kinds）：
+# 尋ねているか（asks＝G-59）は「尋ねていない」（名乗った・あいさつをした方は、こちらに尋ねていない）・待たせた方が戻ったか（returned＝G-68）は「別の方が出た」（お呼びした方ご本人が
+# 名乗った・取り次いだ先の方が出た＝前の言葉を言った方とは別の方）。答えの段（G-53）には、代わった方が誰かで決まる答えが無い＝書かない（帳面 0-3「判定（AI）への文も、初めて
+# 読む人がそのまま分かる言葉で書く」・(a)・(b)「場面だけの文は、その場面のときだけ作る」。帳面 1 の (6) の (i) の L26・分身 AU。⛔ それまでは3つの問いに同じ文「…こちらではなく、
+# その答えを選ぶ」が入り、指す先の選べるものがあるのは戻ったかだけ＝分身 AM の書き置き rv191/AM/notes.md の続き2 の (6-3)・分身 AQ の書き置き rv196/AQ/notes.md の 3章。
+# 決められないの「そちら」（KIND_DESC の UNDECIDED・TALK_UNDECIDED）も名前で指した）
+HANDOVER_WHO = {"asks": ASKS_NO, "returned": RETURNED_OTHER}
+HANDOVER_WHO_TEXT = "。代わった方が誰かで答えが決まるとき（お呼びした方の名前を名乗った・その前に取り次いだ方が、お呼びした方に取り次いだ）は、こちらではなく「{who}」"
 CONFIRM_DESC = {"affirmed": "こちらが言い直した値で合っていると認めた", "corrected": "違う・直した（別の値を言った）"}
 # 選ぶ質問（choice）の言い直しへの「違う」（判定に見せる名前, 説明）。中の名前は値を伺う型の言い直しへの「違う・直した」と同じ corrected（流れの制御は同じ1か所
 # Flow._denied_again＝「失礼いたしました。」＋「それでは（いまの質問）」）。選べるもう一方を言ったなら、その選択肢（今の訂正の道）・迷い・どれとも決まらないなら
@@ -587,7 +594,8 @@ def answer_kinds(q) -> dict:
     """答えでない言葉の選べるもの（唯一の場所）：電話のやり取りを読む問い合わせは KIND_DESC＋決められない・答えの段の問い合わせは ANSWER_KINDS
     （迷っている＝HESITATING は、迷っているお客様に応じる質問だけ＝flowctl.hears_hesitation の1か所＝選ぶ助けを伝える業務の質問と、説明した内容のご承認の質問）。"""
     if talk_question(q):
-        return KIND_DESC | {UNDECIDED: TALK_UNDECIDED}
+        who = HANDOVER_WHO[question_kind(q)]
+        return KIND_DESC | {HANDOVER: KIND_DESC[HANDOVER] + HANDOVER_WHO_TEXT.format(who=who), UNDECIDED: TALK_UNDECIDED}
     kinds = ANSWER_KINDS if hears_hesitation(q) else {k: d for k, d in ANSWER_KINDS.items() if k != HESITATING}
     if offer := getattr(q, "taken_offer", ""):
         # 受けていただいた申し出から始まった質問（flowctl.Flow._taken_offer の1か所）だけ、その申し出の取り消し（flowctl.WITHDREW）。並びは「決められない」の前
