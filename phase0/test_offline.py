@@ -52909,9 +52909,10 @@ class APP1ReadersTest(unittest.TestCase):
         import g53_meaning as G
         from flowctl import HEAR, HEAR_LOST, HEAR_OK, hear_choices
         from review_words import questions
-        line = "聞こえなかった・聞き取れなかったとは言わずに、こちらの名前・会社名・用件を尋ねたのは、もう一度と言っても、こちら"
-        self.assertIn(line, hear_choices(False)[HEAR_OK])
-        self.assertNotIn(line, hear_choices(True)[HEAR_OK])   # お呼びする段の文は変えない
+        # 分身 AQ（束 ap1x の #19）：境目は「届いていない様子」の説明の1か所に、聞き返しと一緒に書いた（AQHearRepeatTest）
+        line = "聞こえなかった・聞き取れなかったとは言わずに、こちらの名前・会社名・用件を尋ねたのと、こちらが話したことのある点を挙げて、もう一度説明してほしいと頼んだのは、もう一度と言っても、こちらではなく「そういう様子は無い」"
+        self.assertIn(line, hear_choices(False)[HEAR_LOST])
+        self.assertNotIn(line, hear_choices(True)[HEAR_LOST])   # お呼びする段の文は変えない
         it = next(i for i in self.items() if i["text"] == "すみません、会社名をもう一度教えてもらえますか？")
         self.assertEqual(G.hear_truth(it), HEAR_OK)
         q = (G.question_map() | questions())[it["qid"]]
@@ -53146,3 +53147,31 @@ class AQReadersAp1xRowsTest(unittest.TestCase):
         for it in ap_items():
             if it["text"] == "費用が発生するなら、やっぱり必要ないかな。" and G._label(it):
                 self.assertEqual(G.accept(it), ["断ろうとしている"])   # 正解は今のまま
+
+
+class AQHearRepeatTest(unittest.TestCase):
+    """分身 AQ（束 ap1x の (f)）：こちらが直前に言ったことのもう一度を頼んだ（聞き返した）言葉は、聞こえなかったとは言わなくても「届いていない様子」・こちらの名前・会社名・用件を
+    尋ねた・ある点の説明をもう一度頼んだ言葉は、もう一度と言っても「そういう様子は無い」。境目は「届いていない様子」の説明の1か所（flowctl.hear_choices）。✅ 2026-11-06 日本時間15時20分30秒の (1)・
+    11-02 日本時間23時15分58秒（G-73 の「え、ごめんなさい、もう一回お願いできますか」＝届いていない様子）。⛔ 直す前は、答えを伏せた読み手2人が、2人ともこの言葉を「そういう様子は無い」とも
+    読んだ（束 ap1x の #19）。2つの読みで切れ方の callee_cannot_hear が違う（rv196/AQ/probe/aq/tr_hear19.txt）"""
+
+    AGAIN = "直前にこちらが言ったことを、もう一度言ってほしいと頼んだ（聞こえなかったとは言わなくても）"
+
+    def test_the_border_is_one_sentence_in_one_place(self):
+        from flowctl import HEAR_LOST, HEAR_OK, hear_choices
+        d = hear_choices(False)
+        self.assertIn(self.AGAIN, d[HEAR_LOST])
+        self.assertEqual(sum(v.count("会社名") for v in d.values()), 1)
+        self.assertNotIn("会社名", d[HEAR_OK])
+
+    def test_both_sides_of_the_table(self):
+        # 正解の表の両側：聞き返し（届いていない様子）と、名前・会社名を尋ねた・ある点の説明をもう一度頼んだ言葉（そういう様子は無い）＝値は今のまま
+        import g53_meaning as G
+        from flowctl import HEAR_LOST, HEAR_OK
+        want = {"え、ごめんなさい、もう一回お願いできますか": HEAR_LOST, "すみません、今なんて言いました？": HEAR_LOST, "え、何ておっしゃいました？": HEAR_LOST,
+                "すみません、会社名をもう一度教えてもらえますか？": HEAR_OK, "もう一度お名前をよろしいですか？": HEAR_OK, "ええと、さっきの料金のところをもう一度。": HEAR_OK}
+        got = {}
+        for it in ap_items():
+            if it["text"] in want:
+                got[it["text"]] = G.hear_truth(it)
+        self.assertEqual(got, want)
