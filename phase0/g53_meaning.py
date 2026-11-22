@@ -345,14 +345,16 @@ def end_questions(facts: bool = True) -> list[Question]:
 
 def set_f() -> list[dict]:
     """電話を終える言葉の試しの表（end_words.ANSWER）の答えの段の言葉（同じ質問・同じ言葉は1つ＝業務の最終目的かは判定の読みを変えない）。
-    質問は測りの質問の表から（question_by_text）。正解は表から読む（_label）。"""
+    質問は測りの質問の表から（question_by_text）。正解は表から読む（_label）。表の正解（answer_truths＝1つの流しの中で1回だけ組んで覚えた正解の写し）は1回だけ読む
+    （⛔ 2026-11-23 分身 AT まで、行ごとに正解の表を組み直し、1回に約4秒＝書き置き rv192/AP/notes.md の6章の (5)）"""
     from end_words import ANSWER, answer_truths
+    truths = answer_truths()
     out, seen = [], set()
     for qtext, words, *_ in ANSWER:
         if (qtext, words) not in seen:
             seen.add((qtext, words))
             out.append({"set": "F", "maker": "表", "qid": question_by_text(qtext).id, "question": qtext, "text": words,
-                        "truth": answer_truths()[(qtext, words)]["accept"][0]})
+                        "truth": truths[(qtext, words)]["accept"][0]})
     return out
 
 

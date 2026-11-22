@@ -53107,3 +53107,53 @@ class ATCallingTableOnceTest(unittest.TestCase):
             self.assertEqual([c[0] for c in got if g.hear_only(g.case_row(c))], [word["text"]])   # 替えた行で組んだ表
             self.assertEqual(len(got), len(real) - len(hear) + 1)
         self.assertEqual(self.rows(g.cases("x")), self.rows(real))   # 戻れば前の表
+
+
+class ATEndTruthsOnceTest(unittest.TestCase):
+    """分身 AT（帳面 1 の (6) の (i) の L27・書き置き rv192/AP/notes.md の6章の (5)）：電話を終える言葉の表の答えの段の正解（end_words.answer_truths＝1回に約0.15秒）は、
+    1つの流しの中で1回だけ組んで覚え（_answer_truths）、呼ぶたびに写しを渡す。答えの段の測りの行の組 F（g53_meaning.set_f）と、測りの行の全部（with_new_rows）は、
+    覚えた正解を読む＝同じ流しで2回目の呼び出しは正解を組み直さない・呼ぶ側が書き換えても次に呼ぶ側は変わらない・覚えた正解と組み直した正解が同じ。⛔ 直す前は、
+    set_f が行ごとに正解を組み直し（1回に約4秒）、前からの試験のいくつかが毎回組んでいた"""
+
+    def test_the_second_call_in_a_run_does_not_build_again(self):
+        import json as _json
+        import end_words as E
+        import g53_meaning as G
+        from common import latest_result
+        items = _json.loads(latest_result("G-53d1base_*.json").read_text(encoding="utf-8"))["items"]
+        first, f_rows, rows = E.answer_truths(), G.set_f(), G.with_new_rows(items)
+        with unittest.mock.patch.object(E, "misgiving_fits", side_effect=AssertionError("組み直した")):   # 正解の組み立てが行ごとに読む（end_words の中の名前だけを替える）
+            self.assertEqual(E.answer_truths(), first)
+            self.assertEqual(G.set_f(), f_rows)
+            self.assertEqual(G.with_new_rows(items), rows)
+            f = next(it for it in rows if it["set"] == "F")
+            self.assertEqual(G.accept(f), first[(f["question"], f["text"])]["accept"])
+
+    def test_a_caller_changing_its_truths_does_not_change_the_next_caller(self):
+        import copy
+        import end_words as E
+        import g53_meaning as G
+        want, f_want = copy.deepcopy(E.answer_truths()), copy.deepcopy(G.set_f())
+        a = E.answer_truths()
+        lists = [v for got in a.values() for v in got.values() if isinstance(v, list)]
+        try:
+            for v in lists:
+                v.append("★")
+            for got in a.values():
+                got["★"] = "★"
+            a.pop(next(iter(a)))
+            f = G.set_f()
+            f[0]["truth"] = "★"
+            f.pop()
+            self.assertEqual(E.answer_truths(), want)
+            self.assertEqual(G.set_f(), f_want)
+        finally:   # 直す前の形（行の正解の欄の並びが足しの正解の定数と同じ物）でも、ほかの試験に書き換えを残さない
+            for v in lists:
+                while "★" in v:
+                    v.remove("★")
+
+    def test_the_remembered_truths_are_the_same_as_rebuilt_ones(self):
+        import end_words as E
+        self.assertEqual(E.answer_truths(), E._answer_truths.__wrapped__())
+        self.assertIs(E._answer_truths(), E._answer_truths())   # 覚えた正解は1つ
+        self.assertIsNot(E.answer_truths(), E.answer_truths())   # 渡すのは呼ぶたびの写し
