@@ -302,9 +302,9 @@
           if (td.tagName !== "TD") return;
           var t = td.textContent.trim();
           if (t.length <= 8) td.classList.add("short");   // 短い値は途中で折らない（「対応 / 中」と折れていた）
-          // 欄の名前が8文字を超える欄と、入力の板（たたんだ操作）を持つ欄は、札の形では名前を値の上に置く（名前は横の100pxに入らず
+          // 欄の名前が8文字を超える欄と、入力の板（たたんだ操作）・複数行の入力欄を持つ欄は、札の形では名前を値の上に置く（名前は横の100pxに入らず
           // 値に重なっていた。板は名前の右の狭い所に押し込められ、選び肢の名前が縦に折れていた。2026-11-22）
-          if ((td.getAttribute("data-label") || "").length > 8 || td.querySelector("details.adder")) td.classList.add("long-label");
+          if ((td.getAttribute("data-label") || "").length > 8 || td.querySelector("details.adder, textarea")) td.classList.add("long-label");
           // スマホの札の形では、0 の段を出さないのは、見出しに minor の付いた欄だけ（CSS）。単位つきの 0（「0円」「0本」「0件」）も同じ。
           // 「0.5」「0:30」のような 0 で始まる別の値は当てない。報酬・費用・今日かけた などの主な欄は、0 でも必ず出す
           // （2026-11-21 の見直し：すべての欄で隠していたので、費用と報酬の画面から報酬・費用の数が消え、依頼者どうしを比べられなかった）

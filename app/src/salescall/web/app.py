@@ -928,6 +928,46 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         return _admin_people_act(request, form, work, "使えるようにしました。" if active else "使えないにしました。その方は、もうログインできません。",
                                  reason_field="reason")
 
+    # ── システムの標準の想定問答（管理者だけ。✅ 2026-11-02 管理者 伺い2「システムの想定問答…にデフォルトの想定を…表示しておき、基本はそれを使う」・
+    #    CL-2 4-211 の (b)「管理者が標準の版を作る画面は save_standard を呼ぶだけ」）。直すと新しい標準の版（前の版は残る・変えられない）。業務の版を
+    #    新しい標準に替えるのは決まった間隔の仕事（business_settings.derive_for_standard の1か所）。標準の録音がそろうまで、替わった版ではかけない ──
+    @app.get("/admin/standard")
+    def admin_standard(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        from salescall.core import business_settings
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            if not person.is_admin:
+                raise NotFound()
+            def read(tx: Any) -> dict[str, Any]:
+                std = business_settings.current_standard(tx)
+                made = None if std.standard_id is None else tx.one(
+                    "SELECT standard_no, created_at, created_by FROM salescall.standard_versions WHERE standard_id = %s", (std.standard_id,))
+                return {"std": std, "made": made}
+            return page(request, "admin_standard.html", person, ctx, active="standard", done=done, ok=bool(ok), **ctx.system(read))
+        return handle(request, render)
+
+    @app.post("/admin/standard")
+    async def admin_standard_save(request: Request) -> HTMLResponse:
+        from salescall.core import business_settings
+        form = await request.form()
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            if not person.is_admin:
+                raise NotFound()
+            names, texts, drops = form.getlist("name"), form.getlist("text"), set(form.getlist("drop"))
+            answers = [{"name": n.strip(), "text": t.strip()} for i, (n, t) in enumerate(zip(names, texts))
+                       if str(i) not in drops and (n.strip() or t.strip())]   # 空の足す行は使わない（片方だけなら core が断る）
+            def do(tx: Any) -> Any:
+                if tuple((a["name"], a["text"]) for a in answers) == business_settings.current_standard(tx).answers:
+                    raise actions.Refused("いまの版と同じ中身です（新しい版は作っていません）")
+                try:
+                    return business_settings.save_standard(tx, {"answers": answers})
+                except business_settings.SettingsInvalid as e:
+                    raise actions.Refused(str(e)) from None
+            out = actions.act(secret, person.login_id, dict(form), lambda: ctx.system(do),
+                              done=f"標準の想定問答の新しい版を作りました（{len(answers)}問）。前の版は残ります。使っている業務の台本は、決まった間隔の仕事が"
+                                   "新しい標準に合わせた版を作り、標準の録音がそろってから替わります。")
+            return _back("/admin/standard", out)
+        return handle(request, render)
+
     # ── 名前の録音の審査（管理者だけ。✅ 2026-11-04 管理者「まとめて流して、私がレ点を入れたものをのみ登録、もしくは除外を入れたもののみ、
     #    登録されないという登録方法に」・「どの契約者・どの業務のものかは出るようにしとかないとダメ」。一覧＝core の recordings.name_reviews、
     #    聞く＝recording_audio.review_listen、決める＝recordings.review_names、チェック不要の契約者＝set_name_review_skip。docs/DASHBOARD.md 5-15）

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "parts.html" import empty_line, flash, csrf, info %}
+{% block title %}標準の想定問答{% endblock %}
+{% block main %}
+<h1>標準の想定問答</h1>
+<p class="lead">どの業務も、初めはこの想定問答を使います（業務は、同じ問いに自分の答えを書けば書き替えられ、使わないにもできます）。直すと標準の新しい版ができます（前の版は残り、変えられません）。使っている業務の台本は、決まった間隔の仕事が新しい標準に合わせた版を作り、標準の録音がそろってから替わります。</p>
+{{ flash(done, ok) }}
+{#- 置くのは core の business_settings.save_standard の1か所（確かめに通らなければ何も置かない。作れるのは管理者だけ＝データベースが守る） -#}
+<p class="muted">{% if made %}いまの版：版 {{ made.standard_no }}（{{ time(made.created_at) }}・{{ made.created_by }}）・{{ std.answers|length }}問{% else %}まだ標準の版がありません。{% endif %}</p>
+<form method="post" action="/admin/standard" class="card"
+      data-confirm="標準の想定問答の新しい版を作ります。すべての契約者の業務に効きます（業務が書き替えた問いは、業務の答えのままです）。標準の録音がそろうまで、新しい版に替わった業務の電話は待ちます。" data-confirm-ok="新しい版を作る">
+  {{ csrf(token) }}
+  {% if not std.answers %}{{ empty_line("標準の想定問答はまだありません", "下の空の行に問いの名前と答えを書いて、新しい版を作ります。") }}{% endif %}
+  <div class="table-scroll"><table class="list">
+    <thead><tr><th>お客様の問い（問いの名前）</th><th class="wide">答え</th><th>外す</th></tr></thead>
+    <tbody>
+    {% for name, text in std.answers %}
+      <tr><td><input type="text" name="name" value="{{ name }}" aria-label="問いの名前（{{ loop.index }}）"></td>
+          <td class="wide"><textarea name="text" rows="2" aria-label="「{{ name }}」の答え">{{ text }}</textarea></td>
+          <td><label class="choice"><input type="checkbox" name="drop" value="{{ loop.index0 }}"> 外す</label></td></tr>
+    {% endfor %}
+    {% for i in range(3) %}
+      <tr><td><input type="text" name="name" value="" placeholder="足す問いの名前（例：番号の出どころ）" aria-label="足す問いの名前（{{ i + 1 }}）"></td>
+          <td class="wide"><textarea name="text" rows="2" placeholder="答えの文（録音で流します）" aria-label="足す問いの答え（{{ i + 1 }}）"></textarea></td>
+          <td></td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <div class="actions"><button class="btn main" type="submit">新しい版を作る</button></div>
+</form>
+{% endblock %}
