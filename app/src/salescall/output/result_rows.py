@@ -89,7 +89,7 @@ NOT_ASKED = "伺っていない（対象外）"   # 伺わなかった質問（�
 # お客様の言葉の書き方（✅ 2026-11-20 管理者：40字で切るのは「場合によっては残した方がいいね」・選び「ウ」（依頼者ごとに選べる）・「業務ごと」）。
 # 業務ごとの設定 `WORDS_SETTING`（short＝縮める／full＝全部残す。初めの値は short＝2026-11-08「お客様の言葉で簡潔に渡せるように！」のまま）。
 # 縮め方はここ1か所（`shorten`）：発話を「／」でつないだもののうち最後の2つまで・1つ40字まで（会話の側の今の縮め方 Flow.customer_words と同じ）。
-# ⏳ 設定の定義は CL-2 へのお願い 54（無い間は short）。⏳ 会話の側が、しまう前に40字で切っているので、全部残す業務でも、いまは切れた言葉が
+# 設定の定義は CL-2 の 0266（お願い 54）。⏳ 会話の側が、しまう前に40字で切っているので、全部残す業務でも、いまは切れた言葉が
 # 届く（縮めずに全部しまうのは CL-1 へのお願い 4-2 の6）。
 WORDS_SETTING = "output.customer_words"
 WORDS_MAX_SAID = 2
@@ -103,14 +103,13 @@ def shorten(text: str) -> str:
 
 
 def words_mode(tx: Tx, business_id: Any) -> str:
-    """その業務のお客様の言葉の書き方（設定 `WORDS_SETTING` の1か所。無ければ short）。"""
+    """その業務のお客様の言葉の書き方（設定 `WORDS_SETTING` の1か所）。定義が無いのは作りの誤りなので、黙って short にせず止める。"""
     from salescall.core import settings
-    try:
-        mode = settings.resolve(tx, WORDS_SETTING, tenant_id=tx.one("SELECT salescall.cur_tenant() AS t")["t"],
-                                client_id=tx.one("SELECT salescall.cur_client() AS c")["c"], business_id=business_id)
-    except settings.SettingMissing:
-        return "short"
+    mode = settings.resolve(tx, WORDS_SETTING, tenant_id=tx.one("SELECT salescall.cur_tenant() AS t")["t"],
+                            client_id=tx.one("SELECT salescall.cur_client() AS c")["c"], business_id=business_id)
     return "full" if mode == "full" else "short"
+
+
 WORDS_SUFFIX = "（お客様の言葉）"       # 質問ごとの2列目の見出しの後ろ
 
 
