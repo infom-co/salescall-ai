@@ -53382,7 +53382,7 @@ class AQHearRepeatTest(unittest.TestCase):
     11-02 日本時間23時15分58秒（G-73 の「え、ごめんなさい、もう一回お願いできますか」＝届いていない様子）。⛔ 直す前は、答えを伏せた読み手2人が、2人ともこの言葉を「そういう様子は無い」とも
     読んだ（束 ap1x の #19）。2つの読みで切れ方の callee_cannot_hear が違う（rv196/AQ/probe/aq/tr_hear19.txt）"""
 
-    AGAIN = "直前にこちらが言ったことを、もう一度言ってほしいと頼んだ（聞こえなかったとは言わなくても）"
+    AGAIN = "直前にこちらが言ったことを、もう一度言ってほしいと頼んだ（聞こえなかったとは言わなくても"   # 括弧の終わりの前に、言葉にしない短い聞き返しの一文（分身 AU＝ASK_BACK_SHORT）
 
     def test_the_border_is_one_sentence_in_one_place(self):
         from flowctl import HEAR_LOST, HEAR_OK, hear_choices
@@ -53696,3 +53696,37 @@ class AUHandoverNamedTest(unittest.TestCase):
         want = {t: w for _, t, w in R.CASES + R.NEW_CASES}
         for t in ("お電話代わりました。岡田です。", "お待たせいたしました、岡田です。", "はい、お電話代わりました。"):
             self.assertEqual(want[t], RETURNED_OTHER, t)
+
+
+class AUTwoReadsBordersTest(unittest.TestCase):
+    """分身 AU（束 aq2 の #3・束 aq1 の #20＝答えを伏せた読み手2人がそろって正解の外も読んだ所。CL-1 が書いてある決まりで決めた＝伺わない）：2つの読みで流れの制御に通し、
+    動き・記録・すぐあとに切れたときの切れ方が違ったので、境目にせず、決まりで決まる側を説明の1か所に書いた（✅ 2026-11-06 日本時間4時11分28秒の考え＝同じなら境目・違えば説明）。
+    (4c) お呼びする段の「え？」（言葉にしない短い聞き返し）：聞こえ方は「届いていない様子」・尋ねているかは「尋ねている」（まとめ役 CL-1 の頼み rv178/X の6回目 (2)(3)・✅ 11-06
+         日本時間15時20分30秒の (1)）。言い方は flowctl.ASK_BACK_SHORT の1か所（尋ねているか・聞こえ方・答えの段の「もう一度言ってほしい」が同じ言葉＝10-19）
+    (4e) 言い直した日時への「その時間だったかな…」のわからない理由：どの答えかを言いながら自信がなさそうなだけは、分からないとは言っていない（理由は「わからない」「答えたくない」と
+         言ったときの理由）＝「いまは分からない」の説明の1か所"""
+
+    def test_1_the_short_bounce_back_is_named_in_one_wording(self):
+        from flowctl import ASK_BACK_SHORT, ASKS_MEANINGS, ASKS_YES, HEAR_LOST, REPEAT, hear_choices
+        from meaning_judge import ANSWER_KINDS
+        for d in (ASKS_MEANINGS[ASKS_YES], hear_choices(True)[HEAR_LOST], hear_choices(False)[HEAR_LOST], ANSWER_KINDS[REPEAT]):
+            self.assertIn(ASK_BACK_SHORT, d)
+        import g59_calling_judge as C
+        c = next(c for c in C.cases() if c[0] == "え？" and c[2] is None)
+        from flowctl import HEAR, ASKS_YES as Y
+        self.assertEqual((c[5][HEAR], C.asks_truths(C.case_row(c))), ({HEAR_LOST}, (Y,)))
+
+    def test_2_a_value_said_with_doubt_is_not_dont_know(self):
+        import json
+        from pathlib import Path
+        import g53_meaning as G
+        from flowctl import DONT_KNOW_LABEL, WHY_NOT_SAID, why_choices
+        d = why_choices(False)[DONT_KNOW_LABEL["unknown_now"]]
+        self.assertIn(f"こちらではなく「{WHY_NOT_SAID}」", d)
+        labels = json.loads((Path(G.__file__).parent / "g53_labels.json").read_text(encoding="utf-8"))["labels"]
+        reason = {k.split("|")[2]: v.get("reason") for k, v in labels.items()}
+        for t in ("その時間だったかな…", "その番号だったかな…", "火曜日だったかな…", "携帯の番号だったかな。", "初めてだったかな。"):
+            self.assertNotIn(DONT_KNOW_LABEL["unknown_now"], reason[t], t)
+            self.assertIn(WHY_NOT_SAID, reason[t], t)
+        for t in ("どうだったかな。", "覚えていないです。", "うろ覚えです。", "表記が芝だったか三田だったか…"):
+            self.assertIn(DONT_KNOW_LABEL["unknown_now"], reason[t], t)

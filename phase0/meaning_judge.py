@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, DATE_TIME_TYPES, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, ASKS_NO, RETURNED_OTHER, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, DATE_TIME_TYPES, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, ASKS_NO, ASK_BACK_SHORT, RETURNED_OTHER, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices, LADDER_OTHER, LADDER_SIDE_TAIL, ladder_choice_desc, ladder_other_choices, ladder_sides,
                      NEAR, near_choices, near_fits, MISGIVING, misgiving_choices, misgiving_fits,
@@ -584,7 +584,7 @@ ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電
                 # 範囲は流れの制御が言い直すものと同じ（11-08 の A-3＝お答え・ご説明も言い直す・伺い76＝待っていただく一言も言い直す＝Flow._wait_again）。
                 # ⛔ 72dbd454 まで「伺ったこと（質問・確かめの一言）」だけで、流れの制御が言い直すものより狭かった
                 REPEAT: "直前にこちらが言ったこと（伺ったこと・お答えしたこと・お待ちいただくようにお願いしたことなど）が聞こえなかった・聞き取れなかったので、"
-                        "もう一度言ってほしいと頼んだ（もう一度とは言わなくても、聞こえなかった・聞き取れなかったと言ったのも。こちらの名前・会社名や、"
+                        f"もう一度言ってほしいと頼んだ（もう一度とは言わなくても、聞こえなかった・聞き取れなかったと言ったのも。{ASK_BACK_SHORT}。こちらの名前・会社名や、"
                         "こちらが言ったことの意味など、ほかのことを尋ねたのではない。答えではない）",
                 # 残り（代わった人が話し始めた・決められない）は KIND_DESC のまま（1か所。⛔ 11-06 1時台に、ここを手で並べて「決められない」を落とした）
                 **{k: d for k, d in KIND_DESC.items() if k != HOLD}}
