@@ -4581,3 +4581,15 @@
 {"at": "2026-11-22T19:25:55+09:00", "who": "CL-2", "text": "New answers from CL-3 (5-000000000000000000 and 5-00000000000000000). Reading both in full, plus any new 4-1c entries."}
 {"at": "2026-11-22T19:26:14+09:00", "who": "CL-2", "text": "Meanwhile, reading the notice entry point for batch 13 (read only)."}
 {"at": "2026-11-22T19:27:04+09:00", "who": "CL-2", "text": "CL-1 の比べの試験は1,985件すべて合格しました。ただ、キーの頭の文字「AIza」を含むファイルが7つ出たので、上げる前に中身を確かめます。"}
+{"at": "2026-11-22T19:27:29+09:00", "who": "CL-2", "text": "本物のキーではなく、いま私が書いた「AIza」という説明の文でした。連絡帳の状態を直し、知らせ 4-474 を書いてから上げます。"}
+{"at": "2026-11-22T19:29:16+09:00", "who": "CL-2", "text": "試験を流して、名指しが付いた文と、引けない印で止まる所を洗い出します。"}
+{"at": "2026-11-22T19:29:21+09:00", "who": "CL-2", "text": "その間に、説明の文の「再開」へのそろえ（CL-3 の (6)）を見ます。"}
+{"at": "2026-11-22T19:29:44+09:00", "who": "CL-2", "text": "次に、お願い73（設定の値の記録を読む部品）のために、設定の読み書きの1か所を読みます。"}
+{"at": "2026-11-22T19:30:09+09:00", "who": "CL-2", "text": "Now writing the test for the settings history. Looking at how the existing settings tests set up their data."}
+{"at": "2026-11-22T19:30:16+09:00", "who": "CL-2", "text": "Adding the history test to the PerClientSettings class."}
+{"at": "2026-11-22T19:30:46+09:00", "who": "CL-2", "text": "The existing mutation on the notice module must follow the new code. First, a look at test_notify and the World helpers so I can write the naming test."}
+{"at": "2026-11-22T19:31:23+09:00", "who": "CL-2", "text": "Next, the mutations for the new code (replacing the old line-naming one)."}
+{"at": "2026-11-22T19:32:20+09:00", "who": "CL-2", "text": "試験の結果を待つ間に、設計書 15-2 の記録の形を確かめます。"}
+{"at": "2026-11-22T19:39:34+09:00", "who": "CL-2", "text": "新しく足した壊し試しは9つとも、試験が見つけました。知らせを読む試験の組の終わりを待ちます。"}
+{"at": "2026-11-22T19:49:43+09:00", "who": "CL-2", "text": "The two groups are still running (280 and 117 tests done). I'll wait for the finish notice before fixing what failed."}
+{"at": "2026-11-22T19:49:45+09:00", "who": "CL-2", "text": "The other waiter (bboxuqpdg) will tell me when both groups finish."}

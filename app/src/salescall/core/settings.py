@@ -105,6 +105,33 @@ def set_value(tx: Tx, key: str, value: Any, *, scope: Literal["system", "tenant"
     return row["value_id"]
 
 
+_SCOPE_TARGET = {"system": (False, False, False), "tenant": (True, False, False), "client": (True, True, False),
+                 "business": (True, True, True)}   # 範囲ごとに、契約者・依頼者・業務の印が要るか（表の約束 setting_values_scope_target と同じ）
+
+
+def history(tx: Tx, key: str, *, scope: Literal["system", "tenant", "client", "business"], tenant_id: UUID | None = None,
+            client_id: UUID | None = None, business_id: UUID | None = None) -> list[dict[str, Any]]:
+    """その範囲（段）のその設定の値の記録を、新しい順に（いちばん上が、その段のいまの値）。計画書 5-3 の (11)「変更内容・日時・対象・
+    バージョンを記録し、以前の版へ戻せる」。✅ CL-3 のお願い 73（2026-11-22）：画面の「これまでの値」（だれが・いつ・なぜ）。前の値に戻すのは、
+    前の値と理由を `set_value` の1か所に渡すだけ（戻すための別の入口を作らない＝値は追記だけのまま）。
+
+    読める範囲は表の行ごとの守りのまま（取引の契約者・依頼者の値だけ＝ほかの依頼者の段は空）。各行は value_id・value・status（仮／確定）・
+    rationale（根拠）・review_when（いつ見直すか）・set_at・set_by（だれが＝操作した方の名前）。無い設定は SettingMissing、段と印の組が
+    合わない（依頼者の段なのに依頼者の印が無いなど）は ValueError（黙って空の記録を返さない）。"""
+    if scope not in _SCOPE_TARGET:
+        raise ValueError(f"段が分かりません：{scope}")
+    given = (tenant_id is not None, client_id is not None, business_id is not None)
+    if given != _SCOPE_TARGET[scope]:
+        raise ValueError(f"段「{_SCOPE_NAME[scope]}」に渡す印が合いません（契約者・依頼者・業務＝{given}）")
+    if tx.one("SELECT 1 AS x FROM salescall.setting_definitions WHERE key = %s", (key,)) is None:
+        raise SettingMissing(key)
+    return tx.all(
+        "SELECT value_id, value, status::text AS status, rationale, review_when, set_at, set_by FROM salescall.setting_values"
+        " WHERE key = %s AND scope = %s AND tenant_id IS NOT DISTINCT FROM %s AND client_id IS NOT DISTINCT FROM %s"
+        "   AND business_id IS NOT DISTINCT FROM %s ORDER BY value_id DESC",
+        (key, scope, tenant_id, client_id, business_id))
+
+
 def resolve(tx: Tx, key: str, *, tenant_id: UUID | None, client_id: UUID | None,
             business_id: UUID | None) -> Any:
     """その範囲で、結局いくつか（Q10。DESIGN.md 8章）。値が決まらなければ SettingMissing。"""

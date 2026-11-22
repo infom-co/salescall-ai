@@ -418,7 +418,8 @@ class VersionAndStage(Base):
         self.assertEqual(self.reason(s, task=t), "no_version")
         notes = self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'"
                                              " AND refs ->> 'reason' = 'no_version'"))
-        self.assertEqual([n["summary"] for n in notes], [gate.SETTING_GAPS["no_version"]])   # 黙って待たせない（2026-10-17）
+        self.assertEqual([n["summary"] for n in notes],
+                         [self.w.said(s["tenant"], s["client"], gate.SETTING_GAPS["no_version"], s["business"])])   # 黙って待たせない（2026-10-17）
 
     def test_version_without_stage_cannot_dial(self):
         s = self.ready()
@@ -1117,10 +1118,11 @@ class CallerNumberAndVoice(Base):
             self.assertIsInstance(got, gate.Denied)
             self.assertEqual((got.reason, gate.REASONS[got.reason].handling), ("voice_not_ready", "run"))
             told = self.tx(b, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'"))
-            self.assertEqual([r["summary"] for r in told], [gate.VOICE_PARTS_MISSING.format(missing)])
+            parts_missing = self.w.said(b["tenant"], b["client"], gate.VOICE_PARTS_MISSING.format(missing), b["business"])
+            self.assertEqual([r["summary"] for r in told], [parts_missing])
             admin = self.w.a.in_system(ADMIN, lambda tx: tx.all(
                 "SELECT summary FROM salescall.notification_events WHERE for_admin AND origin_tenant = %s", (u,)))
-            self.assertEqual([r["summary"] for r in admin], [gate.VOICE_PARTS_MISSING.format(missing)])   # 直せる管理者へも
+            self.assertEqual([r["summary"] for r in admin], [parts_missing])   # 直せる管理者へも（同じ文）
             self.assertEqual(self.tx(b, lambda tx: recordings.missing_parts(tx, b["version"])), [missing])
             with self.assertRaises(Rejected):                                      # 契約者は共通の一言の組を作れない（0171）
                 self.w.a.in_tenant(OPERATOR, u, lambda tx: recordings.create_set(
@@ -1264,7 +1266,7 @@ class CallerNumberAndVoice(Base):
         self.assertEqual(self.reason(b), "voice_not_ready")
         told = self.tx(b, lambda tx: tx.all(
             "SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'"))
-        self.assertEqual([r["summary"] for r in told], [gate.VOICE_NOT_READY])
+        self.assertEqual([r["summary"] for r in told], [self.w.said(b["tenant"], b["client"], gate.VOICE_NOT_READY, b["business"])])
         x = self.ready(tenant=only_s)                                              # 承認していない組は使わない
         self.tx(x, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=x["version"], parts=[
             recordings.Part("intro", "架空の録音（intro）。", "test://Leda/intro", "1" * 64)]), OPERATOR)   # 版の一覧の部分
@@ -1630,7 +1632,8 @@ class CallerNumberAndVoice(Base):
         notice = self.tx(b, lambda tx: tx.all("SELECT summary FROM salescall.notification_events"
                                               " WHERE kind = 'setting_missing' AND refs ->> 'client_id' = %s",
                                               (str(b["client"]),)))
-        self.assertEqual([n["summary"] for n in notice], [gate.OWN_LINE_MISSING])   # 依頼者ごとの発信番号が無いと知らせる
+        self.assertEqual([n["summary"] for n in notice],
+                         [self.w.said(b["tenant"], b["client"], gate.OWN_LINE_MISSING)])   # 依頼者ごとの発信番号が無いと知らせる（どの依頼者か）
         self.assertEqual(gate.OWN_LINE_MISSING,
                          "この依頼者に専用の発信番号がありません。発信番号を依頼者タブの「回線（発信番号）」で設定してください。")
         self.lease(b)

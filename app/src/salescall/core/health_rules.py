@@ -796,14 +796,14 @@ def _r6(task: Task, ev: Event, rules: Rules) -> _Step:
 
 
 def _r7(task: Task, ev: Event, rules: Rules) -> _Step:
-    acts = (_do(RECORD, about=f"{ev.by}が手で戻した：{ev.reason}"),)
+    acts = (_do(RECORD, about=f"{ev.by}が手で再開した：{ev.reason}"),)
     return _Step(_back(task), acts + ((_do(REDIAL, line=None),) if task.answered else ()))
 
 
 def _r8(task: Task, ev: Event, rules: Rules) -> _Step:
     rest = (_do(NOTIFY, to=BOTH, note="task_resting",
                 about="こちらのプログラムの不具合で、同じお客様への電話が続けて終わりました。このお客様は休ませ、次のお客様へ進みます"
-                      "（その不具合を直したと記録され、そのあとプログラムが替わったら、自動で戻ります。管理者・契約者が戻すこともできます）。"),)
+                      "（その不具合を直したと記録され、そのあとプログラムが替わったら、自動で戻ります。管理者・契約者が再開することもできます）。"),)
     return _Step(replace(_back(task), stage=TaskStage.RESTING, kinds=frozenset({task.n_kind, ev.kind}), attempt=ev.attempt,
                          answered=bool(ev.answered), since=ev.at), _per_call(ev) + rest)
 
@@ -813,7 +813,7 @@ def _r9(task: Task, ev: Event, rules: Rules) -> _Step:
 
 
 def _r10(task: Task, ev: Event, rules: Rules) -> _Step:
-    acts = (_do(RECORD, about=f"{ev.by}が手で戻した：{ev.reason}"),) if ev.code == "E12" else ()
+    acts = (_do(RECORD, about=f"{ev.by}が手で再開した：{ev.reason}"),) if ev.code == "E12" else ()
     return _Step(_back(task, n=0, n_kind=None, storage_retried=False), acts + ((_do(REDIAL, line=None),) if task.answered else ()))
 
 

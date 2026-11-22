@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+import uuid
 from unittest import mock
 
 from salescall.core import calendar, notify, stops
@@ -54,7 +55,7 @@ class Ledger(unittest.TestCase):
         stranger = self.w.setup()
         key = f"test:{s['task']}"
         self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: notify.emit(
-            tx, "judge_unknown", key=key, summary="x", refs={"attempt_id": "a1"}, admin=True))
+            tx, "judge_unknown", key=key, summary="x", refs={"error_id": "e1"}, admin=True))
         sql = "SELECT tenant_id, refs, for_admin FROM salescall.notification_events WHERE event_key = %s"
         admin = self.a.in_system(ADMIN, lambda tx: tx.all(sql, ("admin:" + key,)))
         self.assertEqual(len(admin), 1)
@@ -69,6 +70,41 @@ class Ledger(unittest.TestCase):
             self.a.in_system(OPERATOR, lambda tx: tx.execute(
                 "INSERT INTO salescall.notification_events (kind, event_key, summary, for_admin)"
                 " VALUES ('judge_unknown', 'forged', 'x', true)"))
+
+    def test_the_text_names_the_client_business_and_line_it_points_to(self):
+        """知らせの文の頭の名指し（`notify.about` の1か所。CL-2 の 4-470 の (5) への CL-3 の答え＝(イ)）：大事な方から依頼者・業務・回線。業務は
+        細かい印（お客様の行・実施回・業務設定の版）からも引く。依頼者だけを指す知らせは依頼者だけ・契約者全体の知らせは付けない。名前は
+        縮めない。印があるのに引けない・依頼者が食い違うは止める（黙って名指しの無い文にしない）。管理者あての写しも同じ文。"""
+        s = self.w.setup()
+        names = self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT c.name AS client, b.name AS business FROM salescall.clients c JOIN salescall.businesses b USING (client_id)"
+            " WHERE b.business_id = %s", (s["business"],)))
+        line = self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: notify.about(tx, {"line_id": s["line"]}))
+        self.assertTrue(line.startswith("回線「") and line.endswith("」："), line)
+        both = f"依頼者「{names['client']}」・業務「{names['business']}」："
+        in_client = lambda refs: self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: notify.about(tx, refs))
+        for ref in ({"task_id": s["task"]}, {"run_id": s["run"]}, {"version_id": s["version"]}, {"business_id": s["business"]},
+                    {"task_id": str(s["task"]), "client_id": str(s["client"])}):
+            with self.subTest(ref=ref):
+                self.assertEqual(in_client(ref), both)
+        self.assertEqual(in_client({}), f"依頼者「{names['client']}」：")                          # 取引の依頼者
+        self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: notify.about(tx, {"client_id": s["client"]})),
+                         f"依頼者「{names['client']}」：")                                         # 差し込む値の依頼者
+        self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: notify.about(tx, {})), "")   # 契約者全体
+        self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: notify.about(
+            tx, {"business_id": s["business"], "line_id": s["line"]})), both[:-1] + "・" + line)      # 依頼者・業務・回線の順
+        with self.assertRaises(LookupError):
+            in_client({"task_id": str(uuid.uuid4())})
+        other = self.w.client(s["tenant"])
+        with self.assertRaises(ValueError):
+            self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: notify.about(tx, {"task_id": s["task"], "client_id": other}))
+        key = f"named:{s['task']}"
+        self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: notify.emit(
+            tx, "judge_unknown", key=key, summary="試験の文", refs={"task_id": s["task"]}, admin=True))
+        sql = "SELECT summary FROM salescall.notification_events WHERE event_key = %s"
+        own = self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.all(sql, (key,)))
+        copy = self.a.in_system(ADMIN, lambda tx: tx.all(sql, ("admin:" + key,)))
+        self.assertEqual([r["summary"] for r in own + copy], [both + "試験の文"] * 2)
 
     def test_frozen(self):
         s = self.w.setup()
