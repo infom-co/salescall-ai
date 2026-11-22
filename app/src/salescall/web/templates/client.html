@@ -91,6 +91,8 @@
   <span class="go">承認待ちを開く</span>
 </a>
 {% endif %}
+{#- 業務がまだ無い依頼者では、お客様リストの段を出さない（上の「はじめかた」が次にすることを言っている。同じことを2回言わない） -#}
+{% if business or businesses %}
 <section id="runs">
 <div class="title-row" style="margin-top:20px"><h2 style="margin:0">お客様リスト</h2>
 {% if business %}
@@ -134,6 +136,7 @@
 <div class="card">{{ empty("お客様リストはまだありません", "右上の「＋ お客様リストを作る」から作ります。" if business else ("業務のタブを選んで、お客様リストを作ります。" if businesses else "業務を作ると、その業務のタブでお客様リストを作れます（上の「はじめかた」）。")) }}</div>
 {% endif %}
 </section>
+{% endif %}
 {% set fresh = not figures.results %}
 {% if not fresh %}
 <h2 class="home-band" style="margin-top:28px">今日の動きと成果</h2>

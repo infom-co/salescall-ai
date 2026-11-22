@@ -791,6 +791,7 @@ class Web(_World):
         self.assertIn("<h2>はじめかた</h2>", page)
         cid = r.headers["location"].split("/c/")[1].split("?")[0]
         self.assertIn(f'<form class="inline-create" method="post" action="/c/{cid}/businesses">', page)
+        self.assertNotIn('id="runs"', page)                                    # 業務が無いあいだは、お客様リストの段を出さない
         made = self.post("A", f"/c/{cid}/businesses", {"form_token": self.token("A"), "name": "架空のはじめての業務"})
         self.assertEqual(made.status_code, 303)
         self.assertNotIn('class="inline-create"', self.get("A", f"/c/{cid}").text)   # 業務ができたら、もう出さない
