@@ -45,6 +45,22 @@
   {% endfor %}{% endif %}
 </details>
 {% endfor %}
+{#- 依頼者を作った直後（業務がまだ1つも無い）：次にすることは業務を作ること。その場で作れるようにする（前は「上の『＋ 業務』から」の
+    文だけで、流れがそこで途切れた＝2026-11-22 に、依頼者を作る流れを通して見つけた）。作る受け口はタブの「＋ 業務」と同じ1か所 -#}
+{% if not business and not businesses %}
+<section class="card setup" style="margin-top:16px">
+  <h2>はじめかた</h2>
+  <ol class="steps-check">
+    <li class="next"><span class="mark" aria-hidden="true">1</span>
+      <span class="what"><b>業務を作る</b><small>依頼者から頼まれている電話の仕事ごとに1つ作ります（例：予約の確かめ・資料のご案内）。作ると、その業務の「はじめかた」で続きの手順（電話の台本・お客様リスト・回線と PC など）を案内します。</small>
+        <form class="inline-create" method="post" action="/c/{{ client.client_id }}/businesses">{{ csrf(token) }}
+          <label class="field" for="first-business">業務の名前</label>
+          <span class="gap"><input id="first-business" type="text" name="name" required placeholder="例：予約の確かめ"><button class="btn main" type="submit">業務を作る</button></span>
+        </form></span>
+      <span class="state">{{ tag("まだ", "wait") }}</span></li>
+  </ol>
+</section>
+{% endif %}
 {% if steps and not (steps|selectattr("done")|list|length == steps|length) %}
 {# はじめかた：まだ動き出していない業務で、次にすることを並べる（どの手順も、データにあるかを読むだけ＝counts.setup_steps） #}
 <section class="card setup" style="margin-top:16px">
@@ -115,7 +131,7 @@
   </tbody>
 </table></div>
 {% else %}
-<div class="card">{{ empty("お客様リストはまだありません", "右上の「＋ お客様リストを作る」から作ります。" if business else "業務のタブを選んで、お客様リストを作ります（業務がまだ無ければ、上の「＋ 業務」から）。") }}</div>
+<div class="card">{{ empty("お客様リストはまだありません", "右上の「＋ お客様リストを作る」から作ります。" if business else ("業務のタブを選んで、お客様リストを作ります。" if businesses else "業務を作ると、その業務のタブでお客様リストを作れます（上の「はじめかた」）。")) }}</div>
 {% endif %}
 </section>
 {% set fresh = not figures.results %}

@@ -18,7 +18,7 @@
     </details>
     <div class="scroller" data-scroll-current>
       {% for c in clients %}<a class="tab{{ ' off' if not c.active }}" href="/c/{{ c.client_id }}" data-client="{{ c.client_id }}" {% if client and client.client_id == c.client_id %}aria-current="page"{% endif %}>{{ c.name }}{% if not c.active %}<span class="off-word">（無効）</span>{% endif %}<span class="tab-mark" aria-hidden="true"></span></a>{% endfor %}
-      {% if not clients %}<span class="tab empty">依頼者はまだいません</span>{% endif %}
+      {% if not clients %}<span class="tab tab-none">依頼者はまだいません</span>{% endif %}
     </div>
     <details class="adder">
       <summary aria-label="依頼者を作る">＋ 依頼者</summary>
@@ -42,7 +42,7 @@
     <div class="scroller">
     <a class="tab" href="/c/{{ client.client_id }}" {% if not business %}aria-current="page"{% endif %}>概要（全業務）</a>
     {% for b in businesses %}<a class="tab" href="/c/{{ client.client_id }}/b/{{ b.business_id }}" {% if business and business.business_id == b.business_id %}aria-current="page"{% endif %}>{{ b.name }}</a>{% endfor %}
-    {% if not businesses %}<span class="tab empty">業務はまだありません</span>{% endif %}
+    {% if not businesses %}<span class="tab tab-none">業務はまだありません</span>{% endif %}
     </div>
     <details class="adder">
       <summary aria-label="業務を作る">＋ 業務</summary>

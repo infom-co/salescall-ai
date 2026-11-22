@@ -784,6 +784,18 @@ class Web(_World):
         self.assertNotIn('id="undelivered_admin"', operator)                    # 契約者には項目ごと出さない
         self.assertNotIn("架空の届かない管理者あての知らせ", operator)
 
+    def test_a_new_client_shows_how_to_begin_with_making_a_business_on_the_spot(self):
+        """依頼者を作った直後（業務がまだ無い）は、依頼者の画面の「はじめかた」で、その場で業務を作れる（作る受け口はタブの「＋ 業務」と同じ）。"""
+        r = self.post("A", "/t/clients", {"form_token": self.token("A"), "name": "架空のはじめての依頼者"})
+        page = self.get("A", r.headers["location"].split("?")[0]).text
+        self.assertIn("<h2>はじめかた</h2>", page)
+        cid = r.headers["location"].split("/c/")[1].split("?")[0]
+        self.assertIn(f'<form class="inline-create" method="post" action="/c/{cid}/businesses">', page)
+        made = self.post("A", f"/c/{cid}/businesses", {"form_token": self.token("A"), "name": "架空のはじめての業務"})
+        self.assertEqual(made.status_code, 303)
+        self.assertNotIn('class="inline-create"', self.get("A", f"/c/{cid}").text)   # 業務ができたら、もう出さない
+        self.assertNotIn('class="inline-create"', self.get("A", f"/c/{self.a['client']}").text)
+
     def test_a_new_business_shows_how_to_begin_and_a_running_one_does_not_ask_again(self):   # はじめかた（counts.setup_steps）
         r = self.post("A", f"/c/{self.a['client']}/businesses", {"form_token": self.token("A"), "name": "架空の新しく始める業務"})
         self.assertEqual(r.status_code, 303)
