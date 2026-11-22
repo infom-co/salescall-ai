@@ -1929,7 +1929,11 @@ KEEP_ON_ACT = "待たずに伺う前のお話へ戻る（その言葉を読み�
 WISH_ACT = "ほかのご希望を伺う"
 DASH_ACT = "「-」にして次へ"
 REJECT_ACT = "差し戻す（お客様には何も聞こえない）"
-HANDOVER_ACT = "代わった方へ名乗りから伺い直す（会話AIへ知らせる）"
+# 電話を代わった方が話し始めた（答えの読み flowctl.HANDOVER）ときの動き＝お客様に聞こえる言葉で名付ける：名乗りから伺い直す。録音で流す通話はプログラムが名乗りの録音から
+# 流し直し（返事の result が replayed・流す録音に名乗り opening）、会話AIが話す通話は会話AIへ知らせて名乗りから言い直させる（rejected）＝どちらも同じ名前（聞こえる言葉が同じ）。
+# ⛔ 2026-11-22 まで、録音で流す通話の形を、もう一度言ってほしいと頼まれたときの動き REPEAT_ACT（「失礼いたしました。」のあと伺ったことを流し直す）と同じ名前で数えていた＝
+# お客様に聞こえる言葉（名乗りからの伺い直し・「失礼いたしました。」は入らない）と名前が違った（分身 AL の書き置きの6章の (4)・rv191/AL/probe/p1/handover_two_before.md。分身 AP）
+HANDOVER_ACT = "代わった方へ名乗りから伺い直す"
 CONCERN_ACT = "言っていただいた点に応える"
 MAYBE_ACT = "可能性を確かめる："
 OTHER_ACT = "その他："
@@ -1999,6 +2003,9 @@ def _flow_base(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None)
             and rep.get("question_id") != CALLBACK_IDS["time"]:
         return KEEP_ON_ACT   # H2 を伺っている間に、待たずにお話を続けた（flowctl.Flow._wait_continue）＝伺う前の質問へ（かけ直しの時刻を伺う番ではない）
     if res == "replayed":
+        # 流し直し：「失礼いたしました。」のあと伺ったことを流し直す（もう一度言ってほしい＝Flow._repeat_now）か、名乗りの録音から流し直す（電話を代わった方＝HANDOVER_ACT）
+        if rep.get("ack") != "shitsurei" and any(p.get("kind") == "opening" for p in rep.get("play") or []):
+            return HANDOVER_ACT
         return REPEAT_ACT
     if res == "callee_asked":
         # 報告より先に応える番（決めた所の種類 asked・返事の中で決まった番＝気がかりを伺ったあとのお話）か、受け取った答えに添えた質問に先に答える番

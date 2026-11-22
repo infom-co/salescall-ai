@@ -14,11 +14,10 @@
 from __future__ import annotations
 
 import collections
-import glob
 import json
 import os
 
-from common import HERE
+from common import HERE, result_files
 
 PAID = ("Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5", "Claude Haiku 5.5（考える）", "Claude Haiku 5.5")   # 記録の欄の名前（送った回数を数える有料の判定）
 
@@ -37,7 +36,7 @@ def paid_calls() -> dict:
         elif isinstance(x, list):
             for v in x:
                 walk(v, day)
-    for f in sorted(glob.glob(str(HERE / "results" / "**" / "*.json"), recursive=True)):
+    for f in result_files("**/*.json"):   # 途中の写し（_partial.json）と数え直し（名前に TALLY）は読まない＝読む所は common.result_files の1か所（2026-11-22 分身 AP＝分身 AL の書き置きの6章の (2)）
         try:
             d = json.load(open(f, encoding="utf-8"))
         except (ValueError, OSError):
