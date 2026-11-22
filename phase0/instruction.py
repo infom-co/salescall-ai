@@ -491,15 +491,17 @@ class Business:
                 out[quote(hira(reading))] = f"{name}（{hira(reading)}）"
         return out
 
-    def flow(self, recorded: bool = True, play_recordings: bool = False, **kw) -> "Flow":
+    def flow(self, recorded: bool = True, play_recordings: bool = False, sees_target: bool | None = None, **kw) -> "Flow":
         """この業務・この電話の流れの制御（flowctl.Flow）を作る唯一の場所（通話の駆動側・試験の両方）。recorded＝名乗りを録音で流す形（本番の形＝
         DESIGN.md 6-13。流し直しにも使う）。目的の人のある業務は、繋がるまで最初の質問を渡さない（DESIGN.md 4-3）＝名乗り・用件の文は、
-        AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
+        AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。sees_target＝判定にお呼びする方の名前と読みを見せるか
+        （judge_names の1か所。既定は本番の形。名前を伏せる形の測り＝G-59 の --hide-names だけが偽を渡す）。
+        お呼びする段の測りの場面（g59_flow_check.scene）も、ここで作る（かけた番号が携帯電話の番号か・個人のお客様かを、本番と同じこの1か所で読む＝2026-11-22 分身 AM）"""
         from flowctl import Flow, is_mobile
         return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, client_does=self.client_does, handoff_ways=tuple(self.handoff_ways),
                     close_offer=self.close_offer, way_words=self.way_words, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
                     answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
-                    name_readings=self.name_readings(), judge_names=self.judge_names(),
+                    name_readings=self.name_readings(), judge_names=self.judge_names(sees_target=sees_target),
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か・担当の方が替わった電話か
                     promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again, handover=self.handover,
                     # 業務設定の会話の秒と時間（CALL_SETTINGS の1か所＝with_call_settings が CL-2 の設定から入れる）

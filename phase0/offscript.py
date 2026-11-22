@@ -2,7 +2,7 @@
 
 - off_script：渡した言い方（言い直し・聞き返し・締めなど、返事に「言い方」があるターン）と、AIが話し始めた言葉（AI自身の文字。声の
   すぐあとに届く）を、頭の受けの言葉・お詫びを除いた読みで比べる。話し始めの CHECK_KANA 字（言い終わった単語まで）のうち、渡した言い方と
-  合う字が MIN_MATCH に届かなければ外れた（言い回しが少し違うだけ・漢数字の書き方の違いは外れにしない）。
+  合う字が MIN_MATCH に届かなければ外れた（言い回しが少し違うだけ・数の書き方の違いは外れにしない）。
   ⛔ G-57 の3回目：言い直し「ありがとうございます。夕方の5時頃でよろしいでしょうか？」のはずが、「承知いたしました。では、これらを踏まえて、
      実際のプレゼン資料の構成や…」と、用件と関係の無い話を12秒した。
 - SpeechGate：AIの声を電話へ流してよい所（決まるまでは、最初の文の切れ目で待つ）。止めたときに相手に何が聞こえていたかも、ここで決める。
@@ -18,12 +18,14 @@ from __future__ import annotations
 import re
 from difflib import SequenceMatcher
 
-from jtext import compare_reading
+from jtext import spoken_reading
 from phrases import ACK, APOLOGY, LEAD_IN
 
 CHECK_KANA = 8     # 話し始めの、受けの言葉を除いた何字（読み）で決めるか（早く決めるほど、相手に聞こえる外れた言葉が短い）
 # そのうち、渡した言い方と合う字の割合がこれ未満なら外れた。2026-10-19 に G-57 の言い方を渡したターン174で測った：本当に外れた2つは
 # 0.0（声の無い英語の文字）と 0.125（「これらを踏まえて…」）、言い方どおり・言い回しが少し違うだけ（「3人で」⇒「3名様で」）は 0.5 以上 ⇒ 間の 0.3
+# 2026-11-22 分身 AO：読みを数の書き方をそろえる1つの入口（jtext.spoken_reading）に替えたあと、試験 OffScriptTest.test_recorded_g57_turns と同じ選び方の267ターンで数え直した：
+# 外れは 0.0（</li>…）の1つ・言い方どおりのいちばん低いのは 0.5 のまま（前の形と同じ）。記録の組 8,415 でも止める答えは1つも変わらない（決める時機が早まるだけ）⇒ 線は今のまま
 MIN_MATCH = 0.3
 # 話し始めに置いてよい言葉（受けの言葉・相づち・お詫び）。渡した言い方の頭と違っても、外れにしない
 _LEADS = sorted({w.strip("、。") for ws in LEAD_IN.values() for w in ws} | {w.strip("、。") for w in ACK.values()}
@@ -31,8 +33,9 @@ _LEADS = sorted({w.strip("、。") for ws in LEAD_IN.values() for w in ws} | {w.
 
 
 def _reading(text: str) -> str:
-    from flowctl import _kanji_to_digits  # 漢数字の書き方の違い（「十五日」「15日」）を外れにしない（値の書き方をそろえる1か所）
-    return compare_reading(_kanji_to_digits(text or ""))
+    # 数の書き方の違い（「十五日」「15日」「じゅうご日」・「1万円」「10000円」・電話番号の区切り）を外れにしない＝測りの比べ方と同じ1つの入口（jtext.spoken_reading）。
+    # ✅ 2026-11-22 CL-1（分身 AO の書き置き rv192/AO/notes.md）。⛔ それまでは漢数字を数字に直してから読み（flowctl._kanji_to_digits）、測りの比べ方と逆の向きだった
+    return spoken_reading(text or "")
 
 
 _LEAD_READINGS = None

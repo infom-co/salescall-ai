@@ -6,7 +6,7 @@
 ⛔ 1回目は、電話のやり取りの字に事情の字（言っていない）を入れ、判定の返事が読めない形になって、どれも「確かめる」で同じに見えた ⇒ 読めない返事を
    作ったら止める（heard の assert）"""
 import json, dataclasses
-from flowctl import Flow, ABOUT, PHONE, SPEAKER, WHO
+from flowctl import ABOUT, PHONE, SPEAKER, WHO
 from instruction import Target
 from g22_opening import BUSINESS
 from meaning_judge import read
@@ -15,6 +15,22 @@ from meaning_judge import read
 b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
 # フルネームのある業務（詳しい呼ぶ一言＝target_full を流せる場面の行だけ。行の印 full）。呼ぶ一言・確かめる一言・ご事情を伺う一言の文は b と同じ
 b_full = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長", full_name="岡田太郎", full_reading="おかだたろう"))
+# かけた番号が携帯電話の番号の業務（行の印 mobile）の番号。携帯電話の番号かは本番の1か所（flowctl.is_mobile を業務設定の入口 instruction.Business.flow が読む）が決める
+MOBILE = "+819012345678"
+
+
+def business_of(r: dict):
+    """測りの行 r の場面の業務（唯一の作り＝場面を組む row_scene・読み手の束の会話 g59_readers.conversation）：場面の業務の印（g59_calling_judge.MARKS）から。
+    full＝フルネームのある業務（b_full）・mobile＝かけた番号が携帯電話の番号（業務設定の phone_e164）・personal＝個人のお客様（Target.kind。お名前と読みは同じ）。
+    印から流れの制御に渡る真偽（Flow の dialed_mobile・personal）は、業務設定の入口（Business.flow）が本番と同じに決める＝ここでは業務だけを替える（2026-11-22 分身 AM＝
+    担当 AK の棚卸しの F8・束3）"""
+    bz = b_full if r.get("full") else b
+    if r.get("mobile"):
+        bz = dataclasses.replace(bz, phone_e164=MOBILE)
+    if r.get("personal"):
+        t = bz.target
+        bz = dataclasses.replace(bz, target=Target(kind="個人", name=t.name, reading=t.reading, full_name=t.full_name, full_reading=t.full_reading))
+    return bz
 K = {"同": "前と同じ方", "違": "前と違う方", "本": "ご本人", "受": "受付・取次ぎの方", "後": "代理の方（後任）", "代": "代理の方（どれかは分からない）",
      "別": "別の方（どなたかは分からない）", "不": "決められない", "無": "何もない", "待": "取り次ぎを待つ", "x": "言っていない", "在": "不在", "籍": "在籍していない"}
 
@@ -41,21 +57,24 @@ def heard(f, text, code, asks=None):
 def shown(r):
     return r.get("result"), [p.get("part", p.get("kind")) for p in r.get("play") or []], (r.get("say") or "")[:30]
 
-def scene(steps, successor=False, checks=("judge",), business=None, sees_target=None, first=None):
+def scene(steps, successor=False, checks=("judge",), business=None, sees_target=None, first=None, first_party="person"):
     """お呼びする段の場面を、本番の流れの制御（Flow）に組む唯一の所（会話の試し run・G-68 の測り g68_returned が通る）。steps：[(相手の言葉, 読みの字,
     AIの報告 (op, args) か None)]。checks＝流れの制御が待つ確かめの名前（Flow.use_checks）。business＝業務（既定は b・フルネームのある行は b_full）。
     手順に4つ目を書けば、その言葉の尋ねているかの読み（heard の asks）。
     sees_target＝お呼びする方の名前と読みを判定に見せるか（測りの --hide-names＝instruction.Business.judge_names の1か所）。
     first＝電話に出た方の第一声（本番の始まり＝繋がってから第一声を聞き、会話AIの「人」の報告のあとに名乗りと呼ぶ一言を流す Flow.on_connect の道で組む）。
     None は第一声を待たない古い形（名乗りの終わりが呼ぶ一言＝測りの表の行の場面）。2つの形で、判定に見せる質問とその前の言葉が同じこと（第一声は判定に渡らない）を
-    試験 CallingBeforeTest が確かめる。
+    試験 CallingBeforeTest が確かめる。first_party＝第一声への会話AIの報告（既定は「人」。第一声でお呼びする方ご本人が名乗った電話＝行の印 named_first は「目的の人」＝
+    流れの制御は呼ぶ一言ではなく確かめる一言を流す＝Flow._first_words_named_target）。
+    流れの制御は業務設定の入口（instruction.Business.flow＝本番の1か所）で作る（かけた番号が携帯電話の番号か・個人のお客様かも、そこで読む）。⛔ 2026-11-22 分身 AM まで、
+    ここで Flow を直接作り、かけた番号も個人のお客様も渡さなかった＝測りの場面は会社の電話の業務だけ（担当 AK の棚卸しの F8。印の無い行の判定に送る文と動きは同じ）。
     返す：(流れの制御, 報告の返事の並び, 最後の言葉の場面)。"""
     bz = business or b
-    f = Flow(bz.questions, opening=bz.replay_parts(), target=bz.replay_parts(), play_recordings=True, judge_names=bz.judge_names(sees_target=sees_target))
+    f = bz.flow(recorded=True, play_recordings=True, sees_target=sees_target)
     f.use_checks(*checks)
     if first is not None:
         f.on_connect(); f.on_callee(); f.on_heard(first)
-        f.apply("report_party", {"party": "person"}); f.on_activity(False); f.on_first_words_end()
+        f.apply("report_party", {"party": first_party}); f.on_activity(False); f.on_first_words_end()
     if successor:
         heard(f, "岡田は先月退職いたしました。", "同受x籍")
         f.apply("request_callback", {"why": "departed"})
@@ -78,16 +97,19 @@ class Unreadable(Exception):
 
 
 def row_scene(r: dict, sees_target=None, first=None):
-    """測りの行 r（g59_tally の行＝text・before・asked・successor。フルネームのある業務の行は印 full）の場面を本番の流れの制御に組み、行の言葉を聞いた
+    """測りの行 r（g59_tally の行＝text・before・asked・successor と場面の業務の印＝g59_calling_judge.MARKS）の場面を本番の流れの制御に組み、行の言葉を聞いた
     ところ（判定を渡す前）の流れの制御を返す（唯一の作り。判定に見せる質問 g59_calling_judge.judge_questions もここを通る）。前の言葉は、正解の表の前の
-    言葉の読み（g59_calling_judge.steps_before）で流す。組んだ場面が行の場面（確かめる一言のあとか・判定に渡す前の言葉）と違えば NoScene（黙って違う場面で
-    数えない）。sees_target・first は scene と同じ（測りの --hide-names・電話に出た方の第一声から始める本番の始まり）。"""
+    言葉の読み（g59_calling_judge.steps_before）で流す。業務は印の業務（business_of）。第一声でご本人が名乗った電話の行（印 named_first）は、その第一声から
+    （会話AIの報告は目的の人＝確かめる一言から始まる）。組んだ場面が行の場面（確かめる一言のあとか・判定に渡す前の言葉）と違えば NoScene（黙って違う場面で
+    数えない）。sees_target・first は scene と同じ（測りの --hide-names・電話に出た方の第一声から始める本番の始まり。印 named_first の行は、その印の第一声）。"""
     import g59_calling_judge as g
     try:
         steps = g.steps_before(r["before"])
     except KeyError as e:
         raise NoScene(f"前の言葉の正しい読みが表（BEFORE_READ）に無い：{e}") from None
-    f, _, _ = scene(steps, successor=r["successor"], business=b_full if r.get("full") else None, sees_target=sees_target, first=first)
+    named = r.get("named_first")
+    f, _, _ = scene(steps, successor=r["successor"], business=business_of(r), sees_target=sees_target, first=named or first,
+                    first_party="target" if named else "person")
     f.on_callee(); f.on_heard(r["text"])
     built = (f.asked_target is not None, f.judge_context()[2] or None)
     if built != (bool(r["asked"]), r["before"] or None):
@@ -124,10 +146,10 @@ def calling_acts(r: dict, got: dict, asks: str | None = None) -> tuple:
     （g59_calling_judge.asks_truths。どちらでもよい言葉は、そのどれも）＝目的のお客様の判定の外れを比べる形。尋ねているかの判定の読みを渡すと、その読み1つ（測りの数えの
     「尋ねているか」の問い合わせ＝g59_tally.off_reports が、got に正解の表の読みを渡して比べる。⛔ 4bc94b4d まで、尋ねているかはいつも正しい読みを渡し、尋ねているかの外れは
     値だけで数えていた＝まとめ役 CL-1 の頼み rv178/X の4回目 (1)）。返す：尋ねているかの読みごとの、報告ごとの名前の並び。
-    同じ行・同じ読みは1回だけ流す（同じ行＝場面を組む row_scene が読む欄の全部。フルネームのある業務の印 full も＝⛔ 分身 S（rv176/S）まで鍵に無く、印の無い行の動きを
+    同じ行・同じ読みは1回だけ流す（同じ行＝場面を組む row_scene が読む欄の全部。場面の業務の印＝g59_calling_judge.row_marks も＝⛔ 分身 S（rv176/S）まで鍵に印 full が無く、印の無い行の動きを
     印のある行にも使っていた＝試験 RereadRowsTest の test_4）。組めない場面は NoScene・今の問いで読めない読み（目的のお客様の判定・尋ねているかのどちらも）は Unreadable。"""
     import g59_calling_judge as g
-    k = (r["text"], r["before"] or None, bool(r["asked"]), r["successor"], bool(r.get("full")), json.dumps(got, ensure_ascii=False, sort_keys=True), asks)
+    k = (r["text"], r["before"] or None, bool(r["asked"]), r["successor"], *g.row_marks(r), json.dumps(got, ensure_ascii=False, sort_keys=True), asks)
     if k not in _ACTS:
         out = []
         for a in (asks,) if asks is not None else g.asks_truths(r["text"]):
