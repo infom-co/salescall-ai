@@ -668,3 +668,6 @@ details.setting.just-changed { border-color: var(--ok); box-shadow: 0 0 0 2px va
 
 /* 回線が PC につながっていないこと（lines.html）：急ぎの色は使わず、文で（「止まっている」の赤とは別のこと） */
 .pc-none { font-size: 12px; color: var(--wait); margin-top: 2px; }
+
+/* 直す途中の手順の上に出す「何をどう直すか」（row.html） */
+dl.facts.so-far { background: var(--bg); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; }

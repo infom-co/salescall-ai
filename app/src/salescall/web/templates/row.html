@@ -111,6 +111,8 @@
         {% if draft.back_answered %}<input type="hidden" name="back" value="{{ draft.back or 'new' }}">{% endif %}
         {% if draft.keep is not none %}<input type="hidden" name="keep" value="{{ 1 if draft.keep else 0 }}">{% endif %}
         {% if question %}
+          {#- 何をどう直すか（いまの値 → 新しい値と、ここまでの答え）。最後の確かめと同じ1つの要約（rowfix.summary） -#}
+          <dl class="facts so-far">{% for h, v in confirm %}<dt>{{ h }}</dt><dd>{{ v }}</dd>{% if loop.first and draft.field in row %}<dt>いまの値</dt><dd>{{ (phone(row[draft.field]) if draft.field == "dial_phone" else row[draft.field]) or "（空）" }}</dd>{% endif %}{% endfor %}</dl>
           <div class="question">
             <div class="q-title">{{ question.title }}</div>
             <p class="muted">{{ question.hint }}</p>
@@ -122,7 +124,7 @@
         {% else %}
           <div class="confirm">
             <div class="q-title">この内容で直します</div>
-            <dl class="facts">{% for h, v in confirm %}<dt>{{ h }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>
+            <dl class="facts">{% for h, v in confirm %}<dt>{{ h }}</dt><dd>{{ v }}</dd>{% if loop.first and draft.field in row %}<dt>いまの値</dt><dd>{{ (phone(row[draft.field]) if draft.field == "dial_phone" else row[draft.field]) or "（空）" }}</dd>{% endif %}{% endfor %}</dl>
           </div>
           <input type="hidden" name="go" value="1">
           <div class="actions"><a class="btn" href="{{ base }}/rows/{{ row.task_id }}#fix">やめる</a><button class="btn main" type="submit">この内容で直す</button></div>

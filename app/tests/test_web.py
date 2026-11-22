@@ -294,7 +294,10 @@ class Web(_World):
         url, tok = self._row_url(), self.token("A")
         form = {"form_token": tok, "field": "target_name", "value": "架空の別の方", "reading": "べつのかた"}
         step = self.post("A", url + "/fix", form)
-        self.assertIn("いまの担当の方と同じ方ですか", step.text)
+        self.assertIn("いままでの担当の方と同じ方ですか", step.text)
+        so_far = step.text[step.text.index('class="facts so-far"'):step.text.index('class="question"')]
+        self.assertIn("架空の別の方", so_far)                                      # 途中の手順でも、何をどう直すかが見える（新しい値）
+        self.assertIn("いまの値", so_far)
         forged = self.post("A", url + "/fix", {**form, "go": "1"})             # 選ばずに「直す」を送っても書かない
         self.assertIn("ok=0", forged.headers["location"])
         self.assertNotEqual(self._tasks_now("target_name"), "架空の別の方")

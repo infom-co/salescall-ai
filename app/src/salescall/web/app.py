@@ -2049,7 +2049,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 if draft is not None:
                     try:
                         q = rowfix.next_question(tx, task_id, draft)
-                        step = {"question": q} if q else {"confirm": rowfix.summary(tx, task_id, draft)}
+                        # どの手順でも「何をどう直すか」を上に出す（前の手順で入れた値が見えないまま選ばせない）
+                        step = {"question": q, "confirm": rowfix.summary(tx, task_id, draft)}
                     except actions.REFUSALS as e:
                         step = {"error": str(e)}
                 latest = results.latest(tx, task_id)

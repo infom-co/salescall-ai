@@ -86,8 +86,9 @@ def next_question(tx: Tx, task_id: UUID, d: Draft) -> Question | None:
     if d.same is None:
         needed = True if d.is_dial else row_fixes.same_person_choice_needed(tx, task_id, field=d.field, value=d.value)
         if needed:
-            return Question("same", "その先の担当の方は、いまの担当の方と同じ方ですか",
-                            "誤字の直しなど同じ方なら、約束も予定もそのままです。違う方なら、担当の方が替わります（約束は引き継がず、引き継ぎを確かめる電話からです）。",
+            return Question("same", ("新しい番号でお話しする方は、いままでの担当の方と同じ方ですか" if d.is_dial
+                                     else "直したあとのお名前の方は、いままでの担当の方と同じ方ですか"),
+                            "誤字の直しや、同じ方の別の番号なら「同じ方」：約束も予定もそのままです。違う方なら、担当の方が替わります（約束は引き継がず、引き継ぎを確かめる電話からです）。",
                             [("1", "同じ方"), ("0", "違う方")])
     if d.same is False and not d.back_answered:
         choices = row_fixes.back_choices(tx, task_id)
