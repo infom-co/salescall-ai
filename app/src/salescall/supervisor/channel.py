@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -87,6 +88,7 @@ class _Session:
     drive: bool = False
     key: bool = False
     emergency: dict[str, Any] | None = None
+    apologies: dict[str, dict[str, str]] = field(default_factory=dict)   # 持っているおわびの録音（合図の apologies。配ったら足す）
     voice_at: float = 0.0                                      # 通話の声・頼み・電話の出来事が最後に通った時刻（控えを送る速さ）
     pending: dict[UUID, asyncio.Future] = field(default_factory=dict)
     flows: dict[UUID, "_Flow"] = field(default_factory=dict)  # 送っている控え → PC が書けた数
@@ -289,6 +291,7 @@ class Hub:
         session.lines = list(kept)
         session.drive, session.key = bool(msg.get("drive")), bool(msg.get("key"))
         session.emergency = msg.get("emergency") if isinstance(msg.get("emergency"), dict) else None
+        session.apologies = p.apologies_of(msg.get("apologies"))
         with self.lock:
             # 同じ PC の前のつなぎ（すぐつなぎ直して、サーバーがまだ前のつなぎを持っている）は数えない（2026-10-22 の見直し：
             # 「2台の PC が同じ回線を使っている」と誤って知らせた）
@@ -518,6 +521,13 @@ class Hub:
         since = getattr(self, "listening_since", None)
         return pcs, (0.0 if since is None or not self.running() else time.monotonic() - since)
 
+    def apology_pcs(self, tenant_id: UUID) -> list["ApologySender"]:
+        """その契約者のつないでいる PC ごとの、おわびの録音を配る口（止めた通行証の PC は除く）。"""
+        with self.lock:
+            got = sorted((s for s in self.sessions.values() if s.who.tenant_id == tenant_id and s.revoked_at is None),
+                         key=lambda s: s.conn)
+        return [ApologySender(self, s) for s in got]
+
     def whole_writer(self) -> "RemoteWriter | None":
         """データベース全体の控えを書く PC：サーバーの設定で決めた契約者（管理者自身の契約者）の PC だけ（すべての契約者のデータが入る）。"""
         return self.writer(self.cfg.admin_tenant) if self.cfg.admin_tenant else None
@@ -662,4 +672,28 @@ class RemoteWriter:
         if not got.get("ok"):
             raise RemoteError(str(got.get("error") or "PC の部品が古い控えを片付けられませんでした"), ask=got.get("ask"))
         return int(got.get("removed") or 0)
+
+
+@dataclass
+class ApologySender:
+    """1つの PC に、おわびの録音を前もって配る（links.ApologyPc。送り方は控えと同じ＝`Hub.ask` の source。CL-3 の連絡帳 74）。"""
+    hub: Hub
+    session: _Session
+
+    def held(self) -> dict[str, dict[str, str]]:
+        return {voice: dict(parts) for voice, parts in self.session.apologies.items()}
+
+    def put(self, voice: str, part: str, sha256: str, audio: bytes) -> None:
+        with tempfile.NamedTemporaryFile(prefix="salescall-apology-", suffix=".wav") as f:
+            f.write(audio)
+            f.flush()
+            try:
+                got = self.hub.ask(self.session, "apology_begin", wait=60, source=Path(f.name), live=False,
+                                   voice=voice, part=part, sha256=sha256)
+            except (ConnectionError, TimeoutError, asyncio.TimeoutError, ConnectionClosed):
+                # つながりが切れた・答えが無い：誤りではない（つなぎ直したら、合図の指紋を見て、次の回に配り直す）
+                raise ConnectionError("おわびの録音を配る PC の部品とのつながりが切れました") from None
+        if not got.get("ok"):
+            raise RemoteError(str(got.get("error") or "PC の部品がおわびの録音をしまえませんでした"))
+        self.session.apologies.setdefault(voice, {})[part] = sha256   # 次の合図を待たずに、配った分を足す
 

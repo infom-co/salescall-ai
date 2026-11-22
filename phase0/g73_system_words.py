@@ -38,9 +38,19 @@ UNSURE = "どちらとも取れない"   # 決められない（UNDECIDED）の�
 # 渡さない（before_words。W1 のきっかけの「どちらも要らないです。」を前の話の答えに「無い」と読み、正しい答えにも意味合いを尋ねていた＝G-53d1base）
 APPROVAL_SAID = ("届いてないです。", "いや、それはちょっと。", "料金のところですね。", "そうなんですね。", "なるほど。")   # ご承認の手順の試し（ApprovalTest と同じ）
 POINT_BEFORE = {"not_agreed": APPROVAL_SAID[:2], "other_point": APPROVAL_SAID[1:4], "agreed_now": APPROVAL_SAID[2:5]}
-# ほかのご希望（W1）の場面：(元の質問＝測りの質問の表 g53_meaning.question_map の番号, 最終目的にするか, W1 を伺うきっかけのお客様の答え)。選ぶ質問の
-# 「どれも要らない」（✅ 2026-11-03 日本時間19時54分）と、はい／いいえで伺う最終目的の言い切っていないお断り（✅ 同じ日の21時38分）
-WISH_SCENES = (("G17", False, "どちらも要らないです。"), ("E1", True, "うーん、お電話はちょっと…。"))
+# ほかのご希望（W1）の場面：(元の質問＝測りの質問の表 g53_meaning.question_map の番号, 最終目的にするか, W1 を伺うきっかけのお客様の答え, 業務でご案内できる方法)。選ぶ質問の
+# 「どれも要らない」（✅ 2026-11-03 日本時間19時54分）と、はい／いいえで伺う最終目的の言い切っていないお断り（✅ 同じ日の21時38分）。
+# 業務でご案内できる方法（業務設定の「ご案内できる方法」＝Question.offer_ways）のある場面の元の質問は、ご案内の方法でご案内してよいかを伺う質問（取込で文字のAI 2つが質問の文から
+# 決める Question.asks_way＝ways.decide。E1「担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？」は、決まりの文 ways.PROMPT の「お電話を差し上げる」の質問）＝本番の
+# W1 は、断られた方法（お電話）を除いた方法を申し出る形（flowctl._wish_text の1か所。✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」＝「はい、それではメールやLINE、
+# ZOOMなどでご案内させていただくこともできますが！」）。方法の並びは、試験の同じ形の業務（NoneOfThemTest.way_question）と同じ。⛔ 2026-11-23 分身 AR まで、E1 に方法を持たせず、
+# 本番では申し出の形になる W1 を「それではほかにご希望などはございますでしょうか？」の形のまま測っていた（担当 AK の棚卸しの P15）
+WISH_WAYS = ("お電話", "メール", "LINE", "ZOOM")
+WISH_SCENES = (("G17", False, "どちらも要らないです。", ()), ("E1", True, "うーん、お電話はちょっと…。", WISH_WAYS))
+# 場面の試しの言葉（G-73）を作ったときの W1 の質問の文 → 場面の鍵（answer_scenes が、この文の言葉もその場面の言葉として読む）。W1@E1 の言葉（101）は、場面を申し出の形に
+# 直す前の質問の文で作った＝作り直す（お金のかかる作業＝担当 AK の棚卸しの E10）までは、この言葉を申し出の形の場面の言葉として読み、正解は新しい質問の選べるものに1行ずつ
+# 当て直した（g53_labels.json の W1@E1 の行の why・2026-11-23 分身 AR）
+WORDS_MADE_WITH = {"それではほかにご希望などはございますでしょうか？": "W1@E1"}
 WISH_UNSURE = "どれとも決められない一言（「うーん」「そうですねえ」など、考えている言葉や相づち）"
 # 「ほかの希望を言った」を作らせるときだけ添える注意（判定・会話AIに見せる意味の言葉は変えない＝聞こえ方の紛らわしい言葉 _hear_kinds と同じ形）。
 # ⛔ 2026-11-05 日本時間20時台：添えずに作らせると、「担当の方の名前を教えてもらえますか。」のような、こちらへの質問が混ざった（正解が決まらない）
@@ -64,15 +74,18 @@ def _point_sets() -> list[dict]:
 def wish_scenes(qmap: dict) -> dict:
     """ほかのご希望（W1）の試しの場面の質問（唯一の場所＝測りの質問の表 g53_meaning.question_map と、言葉を作る場面 _wish_sets が使う）：
     {測りの質問の表の鍵: (元の質問, W1, きっかけの答え)}。W1 は流れの制御の callback_question の1か所から作る（元の質問ごとに文と選択肢が違うので、
-    鍵は「W1@元の質問の番号」）。最終目的にする元の質問は、お断りの答え（いいえ）を断り・目的から遠ざかる向きにする（取込が決める形）。"""
+    鍵は「W1@元の質問の番号」）。最終目的にする元の質問は、お断りの答え（いいえ）を断り・目的から遠ざかる向きにする（取込が決める形）。業務でご案内できる方法のある
+    場面は、元の質問をご案内の方法を伺う質問（取込が決める asks_way）にし、その方法（業務設定の offer_ways）を持たせる（W1 は申し出の形＝WISH_SCENES の注）。"""
     import dataclasses
 
     out = {}
-    for qid, goal, said in WISH_SCENES:
+    for qid, goal, said, ways in WISH_SCENES:
         of = qmap[qid]
         if goal:
             no = tuple(c for c in of.conditions if c == "いいえ")
             of = dataclasses.replace(of, final_goal=True, declines=no, away=no)
+        if ways:
+            of = dataclasses.replace(of, asks_way=True, offer_ways=tuple(ways))
         w = callback_question("other_wish", of=of)
         out[f"{w.id}@{of.id}"] = (of, w, said)
     return out
@@ -98,8 +111,10 @@ def _wish_sets() -> list[dict]:
 @functools.lru_cache(maxsize=1)
 def answer_scenes() -> dict[str, dict]:
     """答えの段の試しの場面（N1〜N3・W1）の、質問の文 ⇒ {"qid": 測りの質問の表の鍵, "before": 判定に渡す前の言葉（本番と同じ1か所 before_words）}
-    （唯一の読み口＝測りの道具 g53_meaning.set_n）。"""
-    return {s["question"]: {"qid": s["qid"], "before": before_words(s["q"], list(s["before"]))} for s in _point_sets() + _wish_sets()}
+    （唯一の読み口＝測りの道具 g53_meaning.set_n）。言葉を作ったときの質問の文が今の場面の質問の文と違う場面は、作ったときの文も同じ場面に当てる（WORDS_MADE_WITH）。"""
+    scenes = {s["question"]: {"qid": s["qid"], "before": before_words(s["q"], list(s["before"]))} for s in _point_sets() + _wish_sets()}
+    by_key = {v["qid"]: v for v in scenes.values()}
+    return scenes | {text: by_key[key] for text, key in WORDS_MADE_WITH.items() if text not in scenes}
 
 
 # こちらの声が届いていない様子：答えの段のいろいろな質問のあとに、お客様が言う言葉（そういう様子の無い、紛らわしい言葉も作らせる）

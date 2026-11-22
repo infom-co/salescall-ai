@@ -42110,7 +42110,10 @@ class RereadRowsTest(unittest.TestCase):
                  "C1", "それでは12月7日からの週と12月14日からの週ではどちらがよろしいでしょうか？", ""),
              # 分身 AL（担当 AK の棚卸しの束2 の P4）：どの点かを伺う一言のあと（N2 に「点は言っていない」と答えたあと、流れの制御がどの点かを1回伺った所）
              "どの点かを伺う一言のあと（ご承認の手順の「ほかに…」に、分からない点があるとだけ言われた＝N2 の「点は言っていない」の次）": (
-                 "N2", "ほかにご不明な点はどのようなことになりますでしょうか？", "")}
+                 "N2", "ほかにご不明な点はどのようなことになりますでしょうか？", ""),
+             # 分身 AR（担当 AK の棚卸しの P5）：申し出た方法を並べて伺い直した一言のあと（W1@E1 のご案内の方法の申し出に「はい、お願いします。」と方法を言わずに受けていただいた所）
+             "申し出た方法を並べて伺い直した一言のあと（ご案内の方法の申し出に「はい、お願いします。」と方法を言わずに受けていただいた＝W1 の「方法は言っていない」の次）": (
+                 "W1", "それではメールとLINEとZOOMのどちらがよろしいでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -42127,14 +42130,14 @@ class RereadRowsTest(unittest.TestCase):
     def test_1_new_scenes_are_built_by_the_one_count(self):
         import g53_meaning as g
         from flowctl import AWAY, AWAY_NO, PROMPT_REPLY, PROMPT_REPLY_YES, VALUE_CHOICE, WRONG, WRONG_NOT_SAID
-        from review_words import AF_ROWS, AG_ROWS, AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, WHICH_POINT_ROWS, answer_words, questions
+        from review_words import AF_ROWS, AG_ROWS, AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, WAY_ROWS, WHICH_POINT_ROWS, answer_words, questions
         qs = questions()
         rows = [it for it in answer_words() if it.get("scene") in NEW_SCENES]
         self.assertEqual({it["scene"] for it in rows}, set(NEW_SCENES))
         self.assertEqual(set(self.SHOWN), set(NEW_SCENES))
         # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行・ASK_ROWS＝分身 AB が足した行・AF_ROWS＝分身 AF の (5) が足した行・
-        # AG_ROWS＝分身 AG の (1) が足した行・WHICH_POINT_ROWS＝分身 AL の束2 の P4 が足した行
-        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS, *AF_ROWS, *AG_ROWS, *WHICH_POINT_ROWS)
+        # AG_ROWS＝分身 AG の (1) が足した行・WHICH_POINT_ROWS＝分身 AL の束2 の P4 が足した行・WAY_ROWS＝分身 AR の P5 が足した行
+        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS, *AF_ROWS, *AG_ROWS, *WHICH_POINT_ROWS, *WAY_ROWS)
                                 if it.get("scene") in NEW_SCENES])
         for it in rows:
             with self.subTest(text=it["text"], scene=it["scene"]):
@@ -53041,3 +53044,220 @@ class APEndWordsCallingFlowTest(unittest.TestCase):
             f = got[0]
             for k in ("names", "judge_names", "knowledge", "purpose", "dialed_mobile", "personal", "policies"):
                 self.assertEqual(getattr(f, k), getattr(want, k), (row[1], k))
+
+
+class ATCallingTableOnceTest(unittest.TestCase):
+    """分身 AT（帳面 1 の (6) の (i) の L27・書き置き rv191/AM/notes.md の続き2 の (6-2)）：お呼びする段の正解の表（g59_calling_judge.cases＝1回に約6秒）は、1つの流しの中で
+    1回だけ組んで覚え（_table）、呼ぶたびに写しを渡す。同じ流しで2回目の呼び出しは組み直さない・呼ぶ側が書き換えても、覚えた表と次に呼ぶ側は変わらない・覚えた表と
+    組み直した表が同じ（判定に送る文・お客様に聞こえる言葉・指紋は変わらない）・流しの中で変わりうる試しの言葉（G-73）の行が変われば組み直し、戻れば前の表。
+    ⛔ 直す前は呼ぶたびに組み直し、試験の全部が何十回も組んでいた（試験の全部が約855〜913秒）"""
+
+    @staticmethod
+    def rows(table) -> list:
+        return [(type(c), list(c), c.marks()) for c in table]
+
+    def test_the_second_call_in_a_run_does_not_build_again(self):
+        import g59_calling_judge as g
+        import g59_tally as t
+        first = g.cases("x")
+        with unittest.mock.patch.object(g, "accept_of", side_effect=AssertionError("組み直した")), \
+                unittest.mock.patch.object(g, "successor_before", side_effect=AssertionError("組み直した")), \
+                unittest.mock.patch.object(g, "_candidate_rows", side_effect=AssertionError("組み直した")):
+            self.assertEqual(self.rows(g.cases("x")), self.rows(first))
+            self.assertEqual(self.rows(g.cases()), self.rows(first))
+            self.assertEqual(g.case_of("はい、そうです。", g.ASKED_AFTER)[0], "はい、そうです。")
+            self.assertEqual(len(t.current()), len(first))
+
+    def test_a_caller_changing_its_table_does_not_change_the_next_caller(self):
+        import copy
+        import g59_calling_judge as g
+        want = copy.deepcopy(self.rows(g.cases("x")))
+        a = g.cases("x")
+        c = a[0]
+        try:
+            c[1].append("★")
+            for v in c[5].values():
+                v.add("★")
+            c[5]["★"] = {"★"}
+            c.mobile = "★"
+            a.append(c)
+            del a[1]
+            self.assertEqual(self.rows(g.cases("x")), want)
+            self.assertEqual(self.rows([g.case_of(want[0][1][0], want[0][1][2], asked=want[0][1][3] is not None, successor=want[0][1][4])]), want[:1])
+        finally:   # 直す前の形（表の正解の組が正解の表の定数と同じ物）でも、ほかの試験に書き換えを残さない
+            for v in c[5].values():
+                v.discard("★")
+
+    def test_the_remembered_table_is_the_same_as_a_rebuilt_one(self):
+        import g59_calling_judge as g
+        got = g.cases("x")
+        key = g._hear_key(g.lines_hear())
+        self.assertEqual(self.rows(got), self.rows(g._table.__wrapped__(key)))
+        self.assertIs(g._table(key), g._table(key))   # 覚えた表は1つ
+        self.assertIsNot(g.cases("x")[0], g.cases("x")[0])   # 渡すのは呼ぶたびの写し
+        table = g.cases("x")
+        self.assertIs(g.case_of("はい、そうです。", g.ASKED_AFTER, table=table), g.case_of("はい、そうです。", g.ASKED_AFTER, table=table))   # 渡した表の行は、そのまま引く
+
+    def test_the_table_follows_the_trial_words_file(self):
+        # 試しの言葉（G-73）の結果のファイルの行は、試験が替える（G73WordsTest）・新しい結果が出る＝表の組み立てが読むもののうち流しの中で変わりうるもの。
+        # 行が変われば、その行で組んだ表（覚えた前の表を渡さない）・戻れば前の表（替えた行で組んだ表が、あとに呼ぶ側に残らない）
+        import g59_calling_judge as g
+        import g73_system_words as g73
+        real, hear = g.cases("x"), g.lines_hear()
+        word = {"set": "HEAR_CALL", "text": "★もしもし、聞こえますか★", "asked": False, "truth": next(iter(hear[0][2][g.HEAR]))}
+        with unittest.mock.patch.object(g73, "latest", lambda: {"path": "x", "words": [word], "errors": {}}):
+            got = g.cases("x")
+            self.assertEqual([c[0] for c in got if g.hear_only(g.case_row(c))], [word["text"]])   # 替えた行で組んだ表
+            self.assertEqual(len(got), len(real) - len(hear) + 1)
+        self.assertEqual(self.rows(g.cases("x")), self.rows(real))   # 戻れば前の表
+
+
+class ATEndTruthsOnceTest(unittest.TestCase):
+    """分身 AT（帳面 1 の (6) の (i) の L27・書き置き rv192/AP/notes.md の6章の (5)）：電話を終える言葉の表の答えの段の正解（end_words.answer_truths＝1回に約0.15秒）は、
+    1つの流しの中で1回だけ組んで覚え（_answer_truths）、呼ぶたびに写しを渡す。答えの段の測りの行の組 F（g53_meaning.set_f）と、測りの行の全部（with_new_rows）は、
+    覚えた正解を読む＝同じ流しで2回目の呼び出しは正解を組み直さない・呼ぶ側が書き換えても次に呼ぶ側は変わらない・覚えた正解と組み直した正解が同じ。⛔ 直す前は、
+    set_f が行ごとに正解を組み直し（1回に約4秒）、前からの試験のいくつかが毎回組んでいた"""
+
+    def test_the_second_call_in_a_run_does_not_build_again(self):
+        import json as _json
+        import end_words as E
+        import g53_meaning as G
+        from common import latest_result
+        items = _json.loads(latest_result("G-53d1base_*.json").read_text(encoding="utf-8"))["items"]
+        first, f_rows, rows = E.answer_truths(), G.set_f(), G.with_new_rows(items)
+        with unittest.mock.patch.object(E, "misgiving_fits", side_effect=AssertionError("組み直した")):   # 正解の組み立てが行ごとに読む（end_words の中の名前だけを替える）
+            self.assertEqual(E.answer_truths(), first)
+            self.assertEqual(G.set_f(), f_rows)
+            self.assertEqual(G.with_new_rows(items), rows)
+            f = next(it for it in rows if it["set"] == "F")
+            self.assertEqual(G.accept(f), first[(f["question"], f["text"])]["accept"])
+
+    def test_a_caller_changing_its_truths_does_not_change_the_next_caller(self):
+        import copy
+        import end_words as E
+        import g53_meaning as G
+        want, f_want = copy.deepcopy(E.answer_truths()), copy.deepcopy(G.set_f())
+        a = E.answer_truths()
+        lists = [v for got in a.values() for v in got.values() if isinstance(v, list)]
+        try:
+            for v in lists:
+                v.append("★")
+            for got in a.values():
+                got["★"] = "★"
+            a.pop(next(iter(a)))
+            f = G.set_f()
+            f[0]["truth"] = "★"
+            f.pop()
+            self.assertEqual(E.answer_truths(), want)
+            self.assertEqual(G.set_f(), f_want)
+        finally:   # 直す前の形（行の正解の欄の並びが足しの正解の定数と同じ物）でも、ほかの試験に書き換えを残さない
+            for v in lists:
+                while "★" in v:
+                    v.remove("★")
+
+    def test_the_remembered_truths_are_the_same_as_rebuilt_ones(self):
+        import end_words as E
+        self.assertEqual(E.answer_truths(), E._answer_truths.__wrapped__())
+        self.assertIs(E._answer_truths(), E._answer_truths())   # 覚えた正解は1つ
+        self.assertIsNot(E.answer_truths(), E.answer_truths())   # 渡すのは呼ぶたびの写し
+
+
+class ARWayOfferWishSceneTest(unittest.TestCase):
+    """分身 AR（担当 AK の棚卸しの P15・P5＝帳面 1 の (1) の (v)・(f)。CL-1 が書いてある決まりで決めた＝伺わない）：
+    (1) 測りの W1@E1 の場面（担当者からのお電話のご案内「担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？」に「うーん、お電話はちょっと…。」と言い切らずに
+        断られたあとのほかのご希望）を、本番と同じ申し出の形にする：元の質問はご案内の方法を伺う質問（取込が決める asks_way）で、業務でご案内できる方法（業務設定の
+        offer_ways）を持つ＝W1 は断られたお電話を除いた方法を申し出る「それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！」（✅ 2026-11-05 日本時間
+        23時19分06秒 ユーザー「案でOK　(2)ア」・流れの制御の _wish_text の1か所）。場面は測りの質問の表の1か所（g73_system_words.wish_scenes）で組み、本番の流れの制御と同じ一言
+        （帳面 0-3「試しの言葉を作るとき、本番で判定に渡る場面と同じかを、流れの制御の1か所で確かめる」）。⛔ 直す前は E1 に方法が無く、本番では申し出の形になる W1 を
+        「それではほかにご希望などはございますでしょうか？」の形のまま測っていた。言葉（G-73 の101）は前の質問の文で作ったまま読み（作り直すのはお金のかかる作業）、正解は
+        新しい質問の選べるもの（「方法は言っていない」が増えた）に1行ずつ当て直した（一括で既定を付けない＝帳面 0-3 の頭）。正解は仮（束 ar1）
+    (2) 申し出への「はい、お願いします。」（方法は言っていない）と、申し出た方法を並べて1回伺い直したあと（「それではメールとLINEとZOOMのどちらがよろしいでしょうか？」＝
+        ✅ 2026-11-06 日本時間9時05分17秒）のお返事の行（review_words.WAY_ROWS・場面 WAY_WHICH_SCENE＝g53_meaning._way_which_scene）。並べたあとの「どれでも」は最初に並ぶ方法
+        （✅ 2026-11-07 日本時間3時14分01秒「(2) H3…イ」）"""
+
+    OFFER = "それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！"
+    WHICH = "それではメールとLINEとZOOMのどちらがよろしいでしょうか？"
+    MADE = "それではほかにご希望などはございますでしょうか？"   # 言葉（G-73）を作ったときの W1@E1 の質問の文
+    REPICK = "やはり担当者から詳しいご案内のお電話を差し上げてよろしいということ"
+
+    @staticmethod
+    def heard(r) -> str:
+        s = heard_words(r)
+        return s + r["question"] if r and r.get("question") and r["question"] not in s else s
+
+    def test_1_the_e1_wish_scene_offers_the_business_ways(self):
+        import g53_meaning as G
+        from flowctl import WAY_UNSAID, Flow, Question
+        from g73_system_words import WISH_WAYS, answer_scenes, wish_scenes
+        qm = G.question_map()
+        of, w, said = wish_scenes(qm)["W1@E1"]
+        self.assertEqual((of.asks_way, tuple(of.offer_ways), of.final_goal), (True, WISH_WAYS, True))
+        self.assertEqual((w.text, qm["W1@E1"].text), (self.OFFER, self.OFFER))
+        self.assertIn(WAY_UNSAID, w.conditions)
+        # 本番の流れの制御（業務の質問と次の質問）でも同じ一言で伺う
+        f = Flow([of, Question("Q9", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        r = HedgedSalesTest.hedged(f, of.id, "いいえ", said)
+        self.assertEqual((r["question_id"], f.questions["W1"].text, self.heard(r)), ("W1", self.OFFER, "はい、" + self.OFFER))
+        # 測りの場面で判定に見せる質問（judge_inputs の1か所）も同じ
+        shown, asked, before = G.judge_inputs({"set": "W1", "qid": "W1@E1", "text": "メールで送ってもらえますか？"}, qm["W1@E1"])
+        self.assertEqual((shown.id, shown.text, asked, before), ("W1", self.OFFER, None, None))
+        # G17 の場面（選ぶ質問の「どれも要らない」）は今のまま
+        self.assertEqual(wish_scenes(qm)["W1@G17"][1].text, "それでは電話とメールのほかにご希望はございますでしょうか？")
+        # 言葉（G-73）は前の質問の文で作った＝作り直すまで、その言葉をこの場面の言葉として読む（101）
+        sc = answer_scenes()
+        self.assertEqual((sc[self.OFFER]["qid"], sc[self.MADE]["qid"]), ("W1@E1", "W1@E1"))
+        self.assertEqual(len([it for it in G.set_n() if it["qid"] == "W1@E1"]), 101)
+
+    def test_2_the_101_rows_were_read_against_the_new_choices(self):
+        import json
+        from pathlib import Path
+        import g53_meaning as G
+        from flowctl import WAY_UNSAID, WISH_OTHER
+        from meaning_judge import options
+        labels = json.loads((Path(G.__file__).parent / "g53_labels.json").read_text(encoding="utf-8"))["labels"]
+        rows = {k.split("|")[2]: v for k, v in labels.items() if k.startswith("W1|W1@E1|")}
+        self.assertEqual(len(rows), 101)
+        want = {"やっぱり、そちらから改めて説明してもらえますか。": [self.REPICK, WAY_UNSAID], "とくに希望はないので、お任せします。": [WAY_UNSAID],
+                **{t: [WISH_OTHER, WAY_UNSAID] for t in ("来週の土曜日なら都合がつきます。", "来週の土曜日なら時間を取れますよ。", "夜の八時以降にしてもらえますか。",
+                                                       "家族にも一緒に聞いてほしいので、その時間に合わせてください。", "担当の方は女性の方でお願いできますか。")}}
+        for t, acc in want.items():
+            self.assertEqual(rows[t]["accept"], acc, t)
+            self.assertIn("分身 AR", rows[t]["why"], t)
+        self.assertEqual(sorted(t for t, v in rows.items() if WAY_UNSAID in v["accept"]), sorted(want))
+        self.assertIn(WAY_UNSAID, rows["んー、どっちがいいかな。"]["near"])
+        # どの行の正解も、新しい質問で判定が選べるもの（中の名前）
+        qm = G.question_map()
+        shown = G.judge_inputs({"set": "W1", "qid": "W1@E1", "text": "メールで送ってもらえますか？"}, qm["W1@E1"])[0]
+        names = {c for _, _, c in options(shown)}
+        for t, v in rows.items():
+            self.assertLessEqual(set(v["accept"]), names, t)
+        # 「方法は言っていない」の読みの動き（申し出た方法を並べて伺い直す）に、数えの名前がある（⛔ 直す前は名前が無く「その他：」）
+        wants = G.step_wants({"set": "W1", "qid": "W1@E1", "text": "とくに希望はないので、お任せします。"}, qm["W1@E1"], False)
+        self.assertEqual(wants, {G.WAY_WHICH_ACT})
+
+    def test_3_the_way_rows_and_the_listed_ways_scene(self):
+        import g53_meaning as G
+        import review_words as rw
+        from flowctl import ANY, WAY_UNSAID, wish_label
+        from meaning_judge import options
+        self.assertIn(rw.WAY_WHICH_SCENE, rw.NEW_SCENES)
+        self.assertTrue(4 <= len(rw.WAY_ROWS) <= 6)
+        words, qs = rw.answer_words(), rw.questions()
+        heard = {}
+        for it in rw.WAY_ROWS:
+            self.assertIn(it, words)
+            self.assertEqual((it["set"], it["qid"]), ("W1", "W1@E1"))
+            q = qs[it["qid"]]
+            shown, asked, before = G.judge_inputs(it, q)
+            self.assertEqual((shown.id, shown.text, asked, before), ("W1", self.WHICH if it.get("scene") else self.OFFER, None, None), it["text"])
+            self.assertEqual(it.get("scene"), rw.WAY_WHICH_SCENE if it.get("scene") else None)
+            self.assertLessEqual(set(it["label"]["accept"]), {c for _, _, c in options(shown)}, it["text"])
+            self.assertFalse(any(w.startswith((G.SCENE_MISSING, G.OTHER_ACT)) for w in G.step_wants(it, q, False)), it["text"])
+            heard[it["text"]] = self.heard(G.flow_reply(it, q, G.label_readings(it, q, False)[0])[2])
+        self.assertEqual([it["label"]["accept"] for it in rw.WAY_ROWS if it["text"] == "はい、お願いします。"], [[WAY_UNSAID]])
+        self.assertEqual(heard["はい、お願いします。"], "はい、" + self.WHICH)
+        # 申し出た方法を並べて伺い直す動きに、数えの名前がある（⛔ 直す前は「その他：」）
+        offer = next(it for it in rw.WAY_ROWS if it["text"] == "はい、お願いします。")
+        self.assertEqual(G.step_wants(offer, qs["W1@E1"], False), {G.WAY_WHICH_ACT})
+        self.assertEqual(heard["どれでもいいです。"], "承知しました。それではメールでご案内させていただきますね。恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？")
+        self.assertLessEqual({WAY_UNSAID, ANY, "unknown", wish_label("email")}, {a for it in rw.WAY_ROWS for a in it["label"]["accept"]})

@@ -345,14 +345,16 @@ def end_questions(facts: bool = True) -> list[Question]:
 
 def set_f() -> list[dict]:
     """電話を終える言葉の試しの表（end_words.ANSWER）の答えの段の言葉（同じ質問・同じ言葉は1つ＝業務の最終目的かは判定の読みを変えない）。
-    質問は測りの質問の表から（question_by_text）。正解は表から読む（_label）。"""
+    質問は測りの質問の表から（question_by_text）。正解は表から読む（_label）。表の正解（answer_truths＝1つの流しの中で1回だけ組んで覚えた正解の写し）は1回だけ読む
+    （⛔ 2026-11-23 分身 AT まで、行ごとに正解の表を組み直し、1回に約4秒＝書き置き rv192/AP/notes.md の6章の (5)）"""
     from end_words import ANSWER, answer_truths
+    truths = answer_truths()
     out, seen = [], set()
     for qtext, words, *_ in ANSWER:
         if (qtext, words) not in seen:
             seen.add((qtext, words))
             out.append({"set": "F", "maker": "表", "qid": question_by_text(qtext).id, "question": qtext, "text": words,
-                        "truth": answer_truths()[(qtext, words)]["accept"][0]})
+                        "truth": truths[(qtext, words)]["accept"][0]})
     return out
 
 
@@ -1575,7 +1577,7 @@ def _new_scene(it: dict, q: Question) -> Flow:
                               PAIN_SCENE, THEIRS_PAIR_SCENE, WAIT_SCENE, WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, WRONG_ASK_SCENE,
                               UNTIL_ASK_SCENE, THEIRS_SIDE_AGAIN_SCENE, THEIRS_NEITHER_AGAIN_SCENE, LADDER_REDO_SCENE, UNTIL_LEAN_SCENE, PAYDAY_ASK_SCENE,
                               NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE, PERIOD_SCENE, PERIOD_AGAIN_SCENE,
-                              POINT_WHICH_SCENE)
+                              POINT_WHICH_SCENE, WAY_WHICH_SCENE)
     build = {LADDER_SCENE: _ladder_scene, LADDER_CLOCK_SCENE: _ladder_clock_scene, WRONG_ASK_SCENE: _wrong_ask_scene, WAIT_SCENE: _wait_scene,
              PAIN_SCENE: _pain_scene, CONCERN_SCENE: _concern_scene, CONFIRM_CONCERN_SCENE: _confirm_concern_scene, ANSWERED_SCENE: _answered_scene,
              OFFER_FINAL_SCENE: _offer_final_scene, WITHDRAW_TIME_SCENE: _withdraw_time_scene, WITHDRAW_SEND_SCENE: _withdraw_send_scene,
@@ -1585,7 +1587,9 @@ def _new_scene(it: dict, q: Question) -> Flow:
              LADDER_REDO_SCENE: _ladder_redo_scene, UNTIL_LEAN_SCENE: _until_lean_scene,
              PAYDAY_ASK_SCENE: _payday_ask_scene, NO_ROOM_SCENE: _no_room_scene, RANGE_REDO_SCENE: _range_redo_scene, PAYDAY_SPAN_SCENE: _payday_span_scene,
              PAYDAY_NAMED_SCENE: _payday_named_scene, THEIRS_REDO_SCENE: _theirs_redo_scene,
-             PERIOD_SCENE: _period_scene, PERIOD_AGAIN_SCENE: lambda q: _period_scene(q, again=True), POINT_WHICH_SCENE: _point_which_scene}.get(it["scene"])
+             PERIOD_SCENE: _period_scene, PERIOD_AGAIN_SCENE: lambda q: _period_scene(q, again=True), POINT_WHICH_SCENE: _point_which_scene,
+             # 申し出た方法を並べて伺い直した所：行の質問の鍵（W1@元の質問）が、ほかのご希望の場面の1か所の鍵
+             WAY_WHICH_SCENE: lambda q: _way_which_scene(it.get("qid"))}.get(it["scene"])
     if build is None:
         raise NoScene(f"場面の印の場面を組む作りが無い（{it['scene']}）")
     return build(q)
@@ -1673,9 +1677,41 @@ def flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
     return f, qid
 
 
+def _wish_scene(key: str | None) -> Flow:
+    """ほかのご希望（W1）を伺った所までの本番の流れの制御（唯一の組み立て＝W1 の行の場面 _flow_scene・申し出た方法を並べて伺い直した所 _way_which_scene）：場面の1か所
+    （g73_system_words.wish_scenes の key＝「W1@元の質問の番号」）の元の質問を伺い、きっかけの答えを判定の組が読み、流れの制御が W1 を伺う所まで。"""
+    from g73_system_words import wish_scenes
+    scenes = wish_scenes(question_map())
+    if key not in scenes:
+        raise NoScene(f"ほかのご希望の場面が無い（{key}）")
+    of, w, said = scenes[key]
+    f = asked_flow([of, SCENE_NEXT])
+    f.use_checks("judge")
+    firm = of.id == "G17"   # 組 G17 は「どちらも要らない」と言い切った・組 E1 は言い切らずに断った（試しの場面の作り＝g73_system_words.WISH_SCENES）
+    r = Reading(NONE if of.id == "G17" else "いいえ", firm)
+    setattr(r, QUERY, QUERY_NO)
+    f.on_callee(); f.on_heard(said); f.on_check("judge", r); f.on_decided()
+    f.apply("record_answer", {"question_id": of.id, "condition_id": "unknown"})
+    return f
+
+
+SCENE_WAY_UNSAID = "はい、お願いします。"   # ご案内の方法の申し出に、方法を言わずに受けた言葉（試しの言葉の表の W1@E1 の「方法は言っていない」の行と同じ）
+
+
+def _way_which_scene(key: str | None) -> Flow:
+    """申し出た方法を並べて伺い直した一言のあと（review_words.WAY_WHICH_SCENE＝担当 AK の棚卸しの P5）：ほかのご希望の場面（_wish_scene の key）で、ご案内の方法の申し出に
+    お客様が方法を言わずに受け（W1 の「方法は言っていない」＝flowctl.WAY_UNSAID）、流れの制御が申し出た方法を並べて1回伺った（phrases.OTHER_WAYS_WHICH＝Flow._wish_step）所。
+    お返事は同じ質問 W1 の答えとして読む（本番の流れの制御のまま）。並べて伺わない場面（申し出る方法が1つ以下）は組めない。"""
+    from flowctl import WAY_UNSAID
+    f = _wish_scene(key)
+    _scene_say(f, SCENE_WAY_UNSAID, _scene_read(WAY_UNSAID), "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+    if f.current != "W1" or not f.questions["W1"].lists_ways:
+        raise NoScene(f"申し出た方法を並べて伺わない（{key}）")
+    return f
+
+
 def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
     from flowctl import CALLBACK_IDS, accepted_unheard, in_aside_form, in_alternatives_form
-    from g73_system_words import wish_scenes
     if it.get("scene") and it["scene"] not in CONNECTED_SCENES:
         # 試しの言葉の表の場面の印（review_words.NEW_SCENES＝日時の2択の段・番号違いを伺う一言のあと・待っていただく一言のあと・顧客獲得型の悩みの伺いと本心を伺う一言）：
         # 印の場面を組む1か所（_new_scene）。ほかの組み立ての枝（黙ったあとの一言の場面・言い直しの場面など）には落とさない。場面の質問は番号で当てる（日時の2択の段は
@@ -1689,17 +1725,7 @@ def _flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
         role = {v: k for k, v in CALLBACK_IDS.items()}[s]
         f = _approval_scene(role)
     elif s == "W1" or "@" in str(it.get("qid")):
-        scenes = wish_scenes(question_map())
-        if it.get("qid") not in scenes:
-            raise NoScene(f"ほかのご希望の場面が無い（{it.get('qid')}）")
-        of, w, said = scenes[it["qid"]]
-        f = asked_flow([of, SCENE_NEXT])
-        f.use_checks("judge")
-        firm = of.id == "G17"   # 組 G17 は「どちらも要らない」と言い切った・組 E1 は言い切らずに断った（試しの場面の作り＝g73_system_words.WISH_SCENES）
-        r = Reading(NONE if of.id == "G17" else "いいえ", firm)
-        setattr(r, QUERY, QUERY_NO)
-        f.on_callee(); f.on_heard(said); f.on_check("judge", r); f.on_decided()
-        f.apply("record_answer", {"question_id": of.id, "condition_id": "unknown"})
+        f = _wish_scene(it.get("qid"))
     elif in_aside_form(q) or in_alternatives_form(q):
         f = _form_scene(q)
     elif q.id == CALLBACK_IDS["wait_or_later"]:
@@ -1927,6 +1953,10 @@ CASE_ACT = "事例を伝える"
 # 待つかかけ直すか（H2）を伺っている間に、お客様が待たずにお話を続けた（flowctl.KEEP_ON・Flow._wait_continue）：「はい、」のあと伺う前のお話へ戻り、その言葉を読み直す
 KEEP_ON_ACT = "待たずに伺う前のお話へ戻る（その言葉を読み直す）"
 WISH_ACT = "ほかのご希望を伺う"
+# ご案内の方法の申し出（W1 の申し出の形）を方法を言わずに受けていただいたとき、申し出た方法を並べて1回伺い直す（flowctl.Flow._wish_step・_list_ways_again＝依頼主の単位の録音
+# （番号）_other_which＝flowctl.other_wish_recording_id。✅ 2026-11-06 日本時間9時05分17秒 ユーザー「(3)…OK」）。⛔ 2026-11-23 分身 AR まで、測りの W1 の場面に申し出の形が無く、
+# この動きに名前が無かった（「その他：」）
+WAY_WHICH_ACT = "申し出た方法を並べて伺い直す"
 DASH_ACT = "「-」にして次へ"
 REJECT_ACT = "差し戻す（お客様には何も聞こえない）"
 # 電話を代わった方が話し始めた（答えの読み flowctl.HANDOVER）ときの動き＝お客様に聞こえる言葉で名付ける：名乗りから伺い直す。録音で流す通話はプログラムが名乗りの録音から
@@ -2038,6 +2068,8 @@ def _flow_base(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None)
         return PENDING_ACT
     if any(p.endswith("_other") for p in plays) and item is not None and item.state in ("accepted", "confirmed") and item.condition == NONE:
         return WISH_ACT
+    if any(p.endswith("_other_which") for p in plays):
+        return WAY_WHICH_ACT
     if res == "ask_back":
         return ASK_AGAIN
     if res in ("own_answer", "aside", "talk"):
