@@ -51718,3 +51718,14 @@ class ALHandoverAwayTest(unittest.TestCase):
                     f, qid, rep, asked = G.flow_reply(it, q, rr)
                     got.append((heard_words(rep), f.export(), G.flow_name(f, qid, rep, it, asked)))
                 self.assertEqual(got[0], got[1], it["text"])
+
+
+class ALHoldBorderTest(unittest.TestCase):
+    """分身 AL（担当 AK の棚卸しの束1 の P16 の (b)）：電話を離れて戻るあいだ待つように言われたとき、ご自分で確かめる・調べる・聞いてくるために離れるのは「返事を待つ」
+    （✅ 2026-11-20 日本時間3時55分24秒 伺い71 ア「確かめてくるので待ってほしいは返事を待つ」）＝境目は「取り次ぎを待つ」の説明の1か所に書く（rv176/S の束 d の #87 の読み手2人の声）"""
+
+    def test_the_hold_description_names_the_reply_wait_border_once(self):
+        from flowctl import HOLD, HOLD_BACK
+        from meaning_judge import ANSWER_KINDS
+        self.assertIn("ご自分で確かめる・調べる・聞いてくるために離れるときは、こちらではなく「返事を待つ」", ANSWER_KINDS[HOLD])
+        self.assertNotIn("取り次ぎを待つ", ANSWER_KINDS[HOLD_BACK])   # 境目は1か所（返事を待つの説明には書かない）
