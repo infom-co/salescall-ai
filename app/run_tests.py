@@ -3312,6 +3312,12 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " UPDATE salescall.setting_definitions SET confirm_text = NULL WHERE key = 'decision.undecided_as_decided';"
      " ALTER TABLE salescall.setting_definitions ENABLE TRIGGER USER",
      ("tests.test_help_texts.Explain.test_every_setting_is_in_one_screen_group_and_the_confirm_window_follows_one_rule",)),
+    ("検証モードの確かめの文から、品質の段も無くなることを落とす（2026-11-22 の読み直しの前の文）",
+     "ALTER TABLE salescall.setting_definitions DISABLE TRIGGER USER;"
+     " UPDATE salescall.setting_definitions SET confirm_text = '検証モードを使わない形にすると、承認なしで電話をかけ、判定した結果をそのまま"
+     "確定します（フルオート）。使う形にすると、発信の前と結果の確定の前に承認が要ります。' WHERE key = 'approval.human';"
+     " ALTER TABLE salescall.setting_definitions ENABLE TRIGGER USER",
+     ("tests.test_help_texts.Explain.test_every_setting_is_in_one_screen_group_and_the_confirm_window_follows_one_rule",)),
     ("設定の1つも無い、空のまとまりを作れる",
      "ALTER TYPE salescall.setting_group ADD VALUE 'business'",
      ("tests.test_help_texts.Explain.test_every_setting_is_in_one_screen_group_and_the_confirm_window_follows_one_rule",)),
