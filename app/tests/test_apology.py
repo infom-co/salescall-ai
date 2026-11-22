@@ -15,7 +15,7 @@ from salescall.core import dnc, health, tasks
 from salescall.core.access import Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 from salescall.core.call_report import Cut
-from tests.support import ADMIN, OPERATOR, SYSTEM, owner_access, said
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, owner_access, said
 from tests.test_approval import TAKEN, Helpers
 from tests.test_settle import rep
 
@@ -220,7 +220,7 @@ class Apology(ApologyBase):
         self.assertEqual(self.results(s), before)                      # 業務の結果は変えない
         notices = self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'apology'"
                                                " AND refs ->> 'task_id' = %s", (str(s["task"]),)))
-        self.assertEqual([n["summary"] for n in notices], ["お詫びを伝えました。"])
+        self.assertEqual([n["summary"] for n in notices], [World().said(s["tenant"], s["client"], "お詫びを伝えました。", s["business"])])
         self.assertEqual(self.tx(s, lambda tx: quality_stage.used(tx, s["version"])), 1)    # 段の件数に数えない
         m = self.tx(s, lambda tx: reward.month(tx))
         self.assertEqual(m["breakdown"]["dial"]["count"], 1)           # 報酬にも数えない（こちらの誤りのため）

@@ -411,7 +411,8 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         admin = self.a.in_system(ADMIN, lambda tx: tx.all(
             "SELECT summary FROM salescall.notification_events WHERE event_key LIKE %s",
             (f"admin:error:storage:{s['tenant']}:{s['client']}:%",)))
-        self.assertEqual([a["summary"] for a in admin], ["CL-2 に修正依頼：保存に失敗しました"])   # 注意は短く
+        self.assertEqual([a["summary"] for a in admin],
+                         [World().said(s["tenant"], s["client"], "CL-2 に修正依頼：保存に失敗しました", s["business"])])   # 注意は短く（どの依頼者・業務かは頭に）
         got = [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
                if r["refs"].get("tenant_id") == str(s["tenant"])]
         self.assertEqual([(r["kind"], r["summary"]) for r in got], [("storage", "保存に失敗しました")])
@@ -480,7 +481,7 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         told = self.a.in_system(SYSTEM, lambda tx: tx.all(
             "SELECT summary FROM salescall.notification_events WHERE for_admin AND kind = 'error_notice' AND origin_tenant = %s",
             (s["tenant"],)))
-        self.assertEqual([r["summary"] for r in told], ["エラー：" + errors.LABELS["spend_limit"]])   # 管理者へ知らせる
+        self.assertEqual([r["summary"] for r in told], [World().said(s["tenant"], s["client"], "エラー：" + errors.LABELS["spend_limit"])])   # 管理者へ知らせる
         mine = self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
             "SELECT summary FROM salescall.notification_events WHERE kind = 'error_notice' AND NOT for_admin AND tenant_id = %s",
             (s["tenant"],)))

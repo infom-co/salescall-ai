@@ -129,22 +129,54 @@ class UnknownKind(Exception):
     """一覧に無い種類。"""
 
 
+_POINTS_TO_BUSINESS = ("attempt_id", "task_id", "run_id", "business_id", "version_id")   # 細かい印から（業務設定の版も業務を指す）
+
+
+def about(tx: Tx, refs: dict[str, Any]) -> str:
+    """知らせの文の頭に付ける名指し（1か所。`emit` だけが呼ぶ）：「依頼者「A社」・業務「B」・回線「名前（発信番号）」：」の、知らせが指すものだけ。
+
+    ✅ CL-3 のお願い 71（回線）・CL-2 の 4-470 の (5) への CL-3 の答え（2026-11-22：(イ)＝入口で文に付ける。大事な方が先＝依頼者・業務・回線の順。
+    業務を指さない知らせは依頼者だけ。契約者全体の知らせ（依頼者を持たない取引で、依頼者の印も無い）は付けない。お客様の名前・番号は入れない。
+    名前は縮めない＝似た名前の依頼者を、縮めた形で取り違えるほうが害が大きい）。
+    - 依頼者・業務は、データベースの1か所 `salescall.notice_about` が引く（0283。通話 → お客様の行 → 実施回 → 業務／業務設定の版の順。依頼者は、
+      業務の依頼者・差し込む値の client_id・取引の依頼者の順。契約者の範囲の取引でも引ける＝依頼者ごとの表は行ごとの守りで見えないため。
+      返すのは取引の契約者の中の名前だけ）。
+    - 印があるのに引けない（無い・ほかの契約者）・依頼者が食い違う、は誤りとして止める（黙って名指しの無い文にしない）。
+    - 回線は `line_names` の1か所（差し込む値の line_id は、知らせが指す回線だけ＝門の tried_line_id は名指ししない）。
+    ⛔ それまで：ショートメールとチャットワークの文（種類の言葉と要約だけ）では、どの依頼者・業務の知らせか分からなかった（「今日の費用が
+    上限を超えました」など）。画面の一覧だけが別の欄で依頼者を出していた。"""
+    ids = [None if refs.get(k) is None else str(refs[k]) for k in (*_POINTS_TO_BUSINESS, "client_id")]
+    row = tx.one("SELECT * FROM salescall.notice_about(%s::uuid, %s::uuid, %s::uuid, %s::uuid, %s::uuid, %s::uuid)", ids)
+    if row["pointed"] and row["business_name"] is None:
+        raise LookupError(f"知らせが指す業務を引けません：{ {k: refs.get(k) for k in _POINTS_TO_BUSINESS} }")
+    if row["business_client"] is not None and refs.get("client_id") is not None and str(refs["client_id"]) != str(row["business_client"]):
+        raise ValueError(f"知らせの依頼者が食い違っています：{refs['client_id']} と業務の依頼者 {row['business_client']}")
+    if refs.get("client_id") is not None and row["client_name"] is None:
+        raise LookupError(f"知らせが指す依頼者を引けません：{refs['client_id']}")
+    parts = []
+    if row["client_name"] is not None:
+        parts.append(f"依頼者「{row['client_name']}」")
+    if row["business_name"] is not None:
+        parts.append(f"業務「{row['business_name']}」")
+    if refs.get("line_id") is not None:
+        parts.append(f"回線「{line_names.of(tx, refs['line_id'])}」")
+    return "・".join(parts) + "：" if parts else ""
+
+
 def emit(tx: Tx, kind: str, *, key: str, summary: str, refs: dict[str, Any] | None = None, admin: bool = False,
          contractor: bool = True) -> bool:
     """出来事を台帳に入れる（取引の契約者・依頼者の出来事）。admin＝管理者あての写しも入れる。contractor=False＝契約者の台帳には
     入れない（管理者あてだけ。admin と組で使う）。新しく入れたら True、同じ出来事がもうあれば False。同じ出来事かは、鍵と契約者で
     決まる（管理者あての写しは、鍵と出どころの契約者。データベースの一意の約束の1か所＝0064。鍵に契約者を入れなくてよい）。
     緊急の知らせか（台帳の列 urgent）は、種類で決まる（`URGENT` の1か所。呼ぶ側は渡さない。0219）。
-    回線のことを知らせる文（差し込む値に回線の印 line_id がある）は、頭にどの回線かを必ず付ける（「回線「名前（発信番号）」：」＝名指しは
-    `line_names` の1か所。呼ぶ側は文に回線の名前を書かない。CL-3 のお願い 71）。差し込む値の line_id は、知らせが指す回線だけに使う
-    （ほかのものを指す知らせが回線にも触れるときは別の名前＝門の tried_line_id。知らせはすべてこの入口を通る＝データベースの中から出る知らせは無い）。"""
+    文の頭には、知らせが指す依頼者・業務・回線を必ず付ける（`about` の1か所。呼ぶ側は文に依頼者・業務・回線の名前を書かない。
+    CL-3 のお願い 71・4-470 の (5)）。差し込む値の line_id は、知らせが指す回線だけに使う（ほかのものを指す知らせが回線にも触れるときは
+    別の名前＝門の tried_line_id。知らせはすべてこの入口を通る＝データベースの中から出る知らせは無い）。"""
     if kind not in KINDS:
         raise UnknownKind(kind)
     if not (admin or contractor):
         raise ValueError("あて先がありません（管理者か契約者のどちらか）")
-    line_id = (refs or {}).get("line_id")
-    if line_id is not None:
-        summary = f"回線「{line_names.of(tx, line_id)}」：{summary}"
+    summary = about(tx, refs or {}) + summary
     if admin:
         got = tx.one("SELECT salescall.notify_admin(%s, %s, %s, %s, %s) AS new",
                      (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str), kind in URGENT))["new"]

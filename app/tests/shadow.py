@@ -19,7 +19,7 @@ from uuid import UUID
 
 from salescall.core import gate, health, scheduler
 from salescall.core.health_rules import RESTS, LineStage, NumberStage
-from tests.support import SYSTEM, owner_access
+from tests.support import SYSTEM, app_access, owner_access
 
 
 class Diff(NamedTuple):
@@ -126,9 +126,11 @@ def _observe(tx: Any, labels: Labels) -> list[Diff]:
 
 
 def _candidates(tx: Any, client: UUID, line_id: UUID) -> list[dict[str, Any]]:
-    """その依頼者の、その回線の候補（回線ごとの処理が門に渡す行。依頼者の取引で読む）。"""
+    """その依頼者の、その回線の候補（回線ごとの処理が門に渡す行。依頼者の取引で読む）。本番の回線ごとの処理と同じく、行ごとの守りの効く
+    接続で読む。⛔ 2026-11-22 まで表の持ち主の接続で読み、守りが効かずにほかの契約者の行まで候補に入り、門がその行の知らせを、いまの
+    契約者の台帳へ書いていた（知らせの名指し notify.about が、ほかの契約者の印を引けずに止めて分かった）。"""
     tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
-    return owner_access().in_client(SYSTEM, tenant, client, lambda ctx: scheduler.due_tasks(ctx, 50, line_id=line_id))
+    return app_access().in_client(SYSTEM, tenant, client, lambda ctx: scheduler.due_tasks(ctx, 50, line_id=line_id))
 
 
 def _task_state(task_id: UUID) -> dict[str, Any] | None:

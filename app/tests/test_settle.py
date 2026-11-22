@@ -193,7 +193,7 @@ class Settle(SettleBase):
         self.assertEqual(got["decision"].kind, "end")
         rows = self.tx(c, lambda tx: tx.all("SELECT kind, summary FROM salescall.notification_events WHERE event_key = %s",
                                             (f"complaint:{aid}",)))
-        self.assertEqual(rows, [{"kind": "complaint", "summary": "苦情があった通話がありました。"}])
+        self.assertEqual(rows, [{"kind": "complaint", "summary": support.World().said(c["tenant"], c["client"], "苦情があった通話がありました。", c["business"])}])
 
     def test_unknown_holds_the_row_and_is_rejudged_when_fixed(self):
         """判定できない（切れ方の材料が報告されていない）：行は終えずに判定待ちで残し、知らせの台帳に入れる。
