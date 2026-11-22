@@ -1,5 +1,6 @@
 """結果のファイル（docs/DESIGN.md 7-3-1 の (3)。持ち主 CL-3）。いまは既定の型を CSV と Excel（xlsx）の2つの形で書ける（`FORMATS`。
-Excel を書く部品 openpyxl は、このファイルだけで使う＝CL-2 4-439 の 6）。⏳ 依頼者ごとの出力の型（7-3-5）は、型の表ができてから。
+Excel を書く部品 openpyxl は、このファイルだけで使う＝CL-2 4-439 の 6）。⏳ 業務（依頼者）ごとの出力の型（7-3-5）で書き出す部品と、型の中身の確かめ
+（`output/templates.check`）は、最初に指定の形を持つ依頼者が決まったときに一緒に作る（型の置き場は core の output_templates＝0280）。
 - **依頼者に埋めていただく空欄**（✅ 2026-11-18 管理者「(ア)でOK」）：CSV は「（ご記入ください）」、Excel は淡い赤の地に濃い赤の文字の空欄
   （色は result_rows の TO_FILL_BACKGROUND・TO_FILL_TEXT の1か所＝画面の見本と同じ色）。
 
