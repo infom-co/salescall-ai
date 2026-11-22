@@ -6,7 +6,7 @@ import unittest
 
 from salescall.core import ai_plans, settings
 from salescall.core.access import Rejected
-from tests.support import ADMIN, OPERATOR, World
+from tests.support import ADMIN, OPERATOR, SYSTEM, World
 
 
 class Plans(unittest.TestCase):
@@ -57,6 +57,41 @@ class Plans(unittest.TestCase):
         self.assertEqual([self.plan(a) for a in ("conversation", "import")], ["own", "own"])
         self.choose("ai.plan_conversation", "included")
         self.assertEqual(self.plan("conversation"), "included")
+
+
+class Requests(Plans):
+    def test_a_contractor_asks_the_admin_switches_and_the_request_closes_itself(self):
+        """契約プランの申し込み（0288。CL-3 の連絡帳 79）：契約者は AI ごとに1つだけ申し込める・管理者へ知らせる・管理者がそのプランに切り替えたら
+        データベースが閉じる・見送るときは管理者が理由を書いて閉じる・全部の契約者の申し込みを読めるのは管理者だけ。"""
+        ask = lambda ai, plan, actor=OPERATOR: self.w.a.in_tenant(actor, self.s["tenant"], lambda tx: ai_plans.request(   # noqa: E731
+            tx, ai, plan, note="試験：料金込みにしたい"))
+        opened = lambda ai: self.w.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: ai_plans.open_request(tx, ai))   # noqa: E731
+        listed = lambda: [r["request_id"] for r in self.w.a.in_system(ADMIN, ai_plans.requests)]   # noqa: E731
+        with self.assertRaises(ValueError):                                     # いまと同じプランは申し込まない
+            ask("conversation", "own")
+        rid = ask("conversation", "included")
+        self.assertEqual(opened("conversation")["request_id"], rid)
+        with self.assertRaises(Rejected) as e:                                  # 開いた申し込みは AI ごとに1つ
+            ask("conversation", "included")
+        self.assertEqual(e.exception.constraint, "plan_request_one_open")
+        with self.assertRaises(Rejected) as e:                                  # 申し込めるのは人だけ
+            ask("import", "included", actor=SYSTEM)
+        self.assertEqual(e.exception.constraint, "plan_request_by_person")
+        told = self.w.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT kind FROM salescall.notification_events WHERE for_admin AND event_key = %s", (f"admin:plan_request:{rid}",)))
+        self.assertEqual([r["kind"] for r in told], ["plan_request"])
+        self.assertIn(rid, listed())
+        with self.assertRaises(Rejected):                                       # 全部の契約者の申し込みは管理者だけ
+            self.w.a.in_system(SYSTEM, ai_plans.requests)
+        self.choose("ai.plan_conversation", "included")                         # 管理者が切り替える＝閉じる
+        self.assertIsNone(opened("conversation"))
+        self.assertNotIn(rid, listed())
+        other = ask("import", "included")
+        with self.assertRaises(Rejected):                                       # 見送れるのは管理者だけ
+            self.w.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: ai_plans.decline(tx, other, note="試験"))
+        self.w.a.in_tenant(ADMIN, self.s["tenant"], lambda tx: ai_plans.decline(tx, other, note="試験：いまは切り替えられない"))
+        self.assertIsNone(opened("import"))
+        self.assertEqual(self.plan("import"), "own")
 
 
 class Tiers(Plans):

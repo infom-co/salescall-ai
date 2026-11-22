@@ -243,6 +243,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "client_contract_ends": {"INSERT": frozenset({_CORE + "contract_end.py"})},          # 契約終了（0285）
     "client_contract_end_cancels": {"INSERT": frozenset({_CORE + "contract_end.py"})},   # 契約終了の取り消し（0285）
     "client_drive_removals": {"INSERT": frozenset({_CORE + "contract_end.py"})},         # ハードディスクの控えを消す頼み（0286）
+    "ai_plan_requests": {"INSERT": frozenset({_CORE + "ai_plans.py"})},                  # 契約プランの切り替えの申し込み（0288）
     "client_drive_removal_results": {"INSERT": frozenset({_CORE + "contract_end.py"})},  # その結果（0286）
     "businesses": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
     "runs": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
@@ -372,7 +373,8 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "health_take": frozenset({_CORE + "health.py"}),   # 状態の欄の鍵を取って読む（0145。表を引く入口の1か所）
     "health_save": frozenset({_CORE + "health.py"}),   # 状態の欄の次の状態と移った記録（0145。表を引く入口の1か所）
     "purge_utterances": frozenset({_CORE + "conversation_io.py"}),   # やり取りの文字を、録音と同じ日数で消す（0157。計画書 11-4）
-    "forget_client": frozenset({_CORE + "contract_end.py"}),   # 契約が終わった依頼者をサーバーから外す（0285。計画書 11-4）
+    "forget_client": frozenset({_CORE + "contract_end.py"}),
+    "decline_plan_request": frozenset({_CORE + "ai_plans.py"}),   # 契約プランの申し込みを管理者が見送る（0288）   # 契約が終わった依頼者をサーバーから外す（0285。計画書 11-4）
     "review_name_recordings": frozenset({_CORE + "recordings.py"}),   # 管理者が業務の名前の録音をシステムの共通の録音に入れるか決める（0173）
     "admit_unreviewed_name_recordings": frozenset({_CORE + "recordings.py"}),   # 管理者のチェック不要の契約者の録音を入れる（0173）
     "set_name_review_skip": frozenset({_CORE + "recordings.py"}),     # 管理者のチェックを要らないとするか（0173）

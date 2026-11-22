@@ -12,9 +12,10 @@
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
-from salescall.core import settings
+from salescall.core import notify, settings
 from salescall.core.access import Tx
 
 AI_KINDS = ("conversation", "import", "judge")
@@ -40,3 +41,36 @@ def tier(tx: Tx, ai: str, *, tenant_id: UUID) -> str | None:
     if plan(tx, ai, tenant_id=tenant_id) != "own":
         return None
     return settings.resolve(tx, TIER_SETTINGS[ai], tenant_id=tenant_id, client_id=None, business_id=None)
+
+
+# ═════════ 切り替えの申し込み（0288。CL-3 の連絡帳 79。計画書 1-4「契約者は画面から申し込み、管理者が確かめて切り替える」） ═════════
+def request(tx: Tx, ai: str, new_plan: str, *, note: str | None = None) -> int:
+    """取引の契約者が、その AI のプランの切り替えを申し込む（管理者か契約者だけ・AI ごとに開いた申し込みは1つ＝データベースが守る）。管理者へ
+    知らせる。切り替えるのは管理者（設定の値を足す1か所。足すと、データベースが申し込みを閉じる）。申し込みの番号を返す。"""
+    if ai not in PLAN_SETTINGS or new_plan not in PLANS:
+        raise ValueError(f"選べる AI は {list(PLAN_SETTINGS)}・プランは {list(PLANS)} です（{ai!r}・{new_plan!r}）")
+    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
+    if plan(tx, ai, tenant_id=tenant) == new_plan:
+        raise ValueError("いまのプランと同じです")
+    rid = tx.one("INSERT INTO salescall.ai_plan_requests (tenant_id, ai, plan, note) VALUES (salescall.cur_tenant(), %s, %s, %s)"
+                 " RETURNING request_id", (ai, new_plan, (note or "").strip() or None))["request_id"]
+    notify.emit(tx, "plan_request", key=f"plan_request:{rid}", admin=True, contractor=False,
+                summary="契約プランの切り替えの申し込みがありました。確かめて、切り替えるか見送ってください。",
+                refs={"request_id": rid, "ai": ai, "plan": new_plan})
+    return rid
+
+
+def open_request(tx: Tx, ai: str) -> dict[str, Any] | None:
+    """取引の契約者の、その AI の開いている申し込み（画面の「申し込み中」。無ければ None）。"""
+    return tx.one("SELECT r.request_id, r.plan, r.note, r.requested_at, r.requested_by FROM salescall.ai_plan_requests r"
+                  " WHERE r.request_id = salescall.plan_request_open(salescall.cur_tenant(), %s)", (ai,))
+
+
+def requests(tx: Tx) -> list[dict[str, Any]]:
+    """開いている申し込み（全部の契約者。管理者の全体の取引で＝データベースが守る）。"""
+    return tx.all("SELECT * FROM salescall.plan_requests_open()")
+
+
+def decline(tx: Tx, request_id: int, *, note: str) -> None:
+    """管理者が申し込みを見送る（理由を書く）。"""
+    tx.execute("SELECT salescall.decline_plan_request(%s, %s)", (request_id, note.strip()))

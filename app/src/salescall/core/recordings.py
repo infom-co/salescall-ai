@@ -275,7 +275,7 @@ def _chosen_readings(tx: Tx, parts: list[Part] | list[ListedPart], version_id: U
         want = now[name]["reading"] if name in now else None
         if want != reading:
             raise ValueError(f"録音「{part}」の名前「{name}」の読み「{reading}」は、この版のいまの読み（"
-                             + (f"「{want}」" if want else "まだ決まっていない。先に録音を聞いて選ぶ＝choose_reading") + "）と違います")
+                             + (f"「{want}」" if want else "まだ決まっていません。先に、候補ごとの録音を聞いて読みを選んでください") + "）と違います")
     for p in parts:
         quoted = {readings_mod.normalize(q) for q in re.findall(r"「([^「」]+)」", p.spoken_text)} - {None} - set(p.readings.values())
         for n in stored.values():

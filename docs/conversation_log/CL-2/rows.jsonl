@@ -4712,3 +4712,9 @@
 {"at": "2026-11-23T06:55:12+09:00", "who": "CL-2", "text": "Now the test for the HD-folder removal."}
 {"at": "2026-11-23T06:55:48+09:00", "who": "CL-2", "text": "5つとも通りました。壊し試しを足して流します。"}
 {"at": "2026-11-23T06:56:53+09:00", "who": "CL-2", "text": "壊し試しは6つとも、試験が見つけました。記録を書いてコミットします。"}
+{"at": "2026-11-23T06:58:24+09:00", "who": "CL-2", "text": "Test for the read side: a run marks the job, an old run is late, tenants see only their own jobs, and the all-jobs view is admin-only."}
+{"at": "2026-11-23T06:59:49+09:00", "who": "CL-2", "text": "5つとも試験が見つけました。続けてお願い76 の (2)（断りの文の中の内部の英字の名前）を直します。"}
+{"at": "2026-11-23T07:01:12+09:00", "who": "CL-2", "text": "Add a test class for plan requests."}
+{"at": "2026-11-23T07:04:16+09:00", "who": "CL-2", "text": "My trigger's variable `ai` clashes with the column name. Renaming the variable."}
+{"at": "2026-11-23T07:07:03+09:00", "who": "CL-2", "text": "通りました。契約プランの申し込みの壊し試しを足して流します。"}
+{"at": "2026-11-23T07:07:56+09:00", "who": "CL-2", "text": "6つとも試験が見つけました。記録を書いてコミットし、第17便の全部の試験を流します。"}

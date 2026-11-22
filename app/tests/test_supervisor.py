@@ -30,7 +30,7 @@ from salescall.supervisor import main as main_mod
 from salescall.supervisor.links import Attached, NoLinks
 from salescall.supervisor.main import Supervisor
 from tests import support
-from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw
+from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, owner_access, rules_raw
 from tests.test_gate import HOLDER, Base, FakeDriver
 from tests.test_settle import rep
 
@@ -266,6 +266,31 @@ class Leases(SupervisorBase):
         for step in (lambda tx: leases.take_job(tx, key, "C", 60), lambda tx: leases.return_job(tx, key, "B")):
             with self.assertRaises(Rejected):                                  # 契約者・管理者は、借りる・返すをできない
                 self.w.a.in_tenant(OPERATOR, self.w.tenant(), step)
+
+
+class JobRuns(SupervisorBase):
+    def test_the_screen_sees_when_each_job_last_ran_and_whether_the_supervisor_has_stalled(self):
+        """見守り役が動いているか（CL-3 の連絡帳 78。0287）：仕事を返したときに回し終えた時刻が残り、画面は late_jobs の1か所で読む。遅れは間隔の
+        LATE_TIMES 倍。一度も回っていない（設定で使わない）仕事は遅れに数えない。契約者は自分の仕事だけ・すべての仕事は管理者だけ。"""
+        t, other = self.w.tenant(), self.w.tenant()
+        state = lambda tenant: self.w.a.in_tenant(OPERATOR, tenant, jobs.late_jobs)   # noqa: E731
+        self.assertTrue(state(t)["stalled"])                                   # まだ一度も回っていない
+        key = f"recover:{t}"
+        self.w.a.in_tenant(SYSTEM, t, lambda tx: (leases.take_job(tx, key, "A", 60), leases.return_job(tx, key, "A")))
+        got = state(t)
+        self.assertEqual((got["stalled"], got["jobs"]["recover"]["late"], got["jobs"]["settle"]["last"]), (False, False, None))
+        self.assertIsNotNone(got["last"])
+        self.assertIsNone(state(other)["jobs"]["recover"]["last"])             # ほかの契約者の仕事は見えない
+        self.assertNotIn(key, self.w.a.in_tenant(OPERATOR, other, leases.job_runs))
+        owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+            "UPDATE salescall.job_leases SET done_at = now() - make_interval(secs => %s) WHERE job_key = %s",
+            ((jobs.LATE_TIMES + 1) * 60, key)))
+        got = state(t)
+        self.assertEqual((got["jobs"]["recover"]["late"], got["stalled"]), (True, True))
+        with self.assertRaises(Rejected) as refused:
+            self.w.a.in_system(SYSTEM, leases.job_runs)
+        self.assertEqual(refused.exception.constraint, "job_runs_by_admin")
+        self.assertIn(key, self.w.a.in_system(ADMIN, leases.job_runs))
 
 
 class Recovery(SupervisorBase):

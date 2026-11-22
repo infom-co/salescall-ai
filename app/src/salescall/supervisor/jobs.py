@@ -420,6 +420,28 @@ JOBS: tuple[Job, ...] = (
 )
 
 
+LATE_TIMES = 3   # 仕事が遅れているとみなすのは、間隔のこの倍を過ぎたとき（画面の見張り＝CL-3 の連絡帳 78。決まりはここだけ）
+
+
+def late_jobs(tx: Any) -> dict[str, Any]:
+    """見守り役が動いているか（画面の見張りが読む1か所。CL-3 の連絡帳 78）。取引の範囲の仕事（管理者の全体の取引＝すべての契約者に共通の仕事・
+    契約者の取引＝その契約者の仕事）について、last＝いちばん新しく回し終えた時刻・stalled＝見守り役が止まっているか（一度も回っていない・
+    回ったことのある仕事がどれも遅れている）・jobs＝仕事ごとの {every, last, late}（late＝一度は回ったのに、間隔の LATE_TIMES 倍より前から
+    回っていない。設定で使わない仕事は回らないので、一度も回っていない仕事は遅れに数えない＝止まっているかも、回ったことのある仕事で見る）。"""
+    tenant = tx.one("SELECT salescall.cur_tenant() AS t, now() AS n")
+    runs = leases.job_runs(tx)
+    scope = "system" if tenant["t"] is None else "tenant"
+    jobs = {}
+    for job in JOBS:
+        if job.scope != scope:
+            continue
+        last = runs.get(job.key(tenant["t"]))
+        late = last is not None and (tenant["n"] - last).total_seconds() > LATE_TIMES * job.every
+        jobs[job.name] = {"every": job.every, "last": last, "late": late}
+    ran = [j for j in jobs.values() if j["last"] is not None]
+    return {"last": max((j["last"] for j in ran), default=None), "stalled": not ran or all(j["late"] for j in ran), "jobs": jobs}
+
+
 def _in_scope(ctx: Context, job: Job, work: Callable[[Any], Any]) -> Any:
     """仕事の範囲の取引（契約者ごとの仕事＝その契約者の取引・共通の仕事＝全体の取引）。"""
     if job.scope == "system":

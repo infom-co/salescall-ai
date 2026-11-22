@@ -88,3 +88,9 @@ def take_job(tx: Tx, key: str, holder: str, seconds: int) -> bool:
 def return_job(tx: Tx, key: str, holder: str) -> None:
     """仕事を返す（終わったら）。"""
     tx.one("SELECT salescall.return_job(%s, %s) AS ok", (key, holder))
+
+
+def job_runs(tx: Tx) -> dict[str, Any]:
+    """見守り役の仕事を、いつ回し終えたか（仕事の鍵 → 時刻。まだ回していなければ None。読めるのは、管理者の全体の取引ですべて・契約者の取引で
+    その契約者の仕事＝データベースの salescall.job_runs の1か所。0287）。遅れの決まりは supervisor/jobs の late_jobs。"""
+    return {r["job_key"]: r["done_at"] for r in tx.all("SELECT job_key, done_at FROM salescall.job_runs()")}
