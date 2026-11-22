@@ -283,11 +283,14 @@ _MADE: dict[str, Any] = {}
 def make(line_id: Any) -> RakutenLink:
     """PC の部品が回線ごとに呼ぶ入口（設定 SALESCALL_PHONE＝"salescall.agent.phones.rakuten_link:make"）。本物の画面の口と音の装置で作る。
     ⏳ PC 1台で Rakuten Link を2つ動かせるかは R-8 で確かめる。それまでは1台の PC に回線は1本だけ（2本目は断る＝かけない側）。
-    ⏳ おわびの録音は、サーバーから配ってもらう形ができるまで無い（録音が無ければ、黙って待たせずにすぐ切る＝play_apology_and_hang_up）。"""
+    おわびの録音は、PC の上の置き場（apology_cache の1か所）から読む。⏳ サーバーから配る形ができるまで置き場は空（録音が無ければ、黙って
+    待たせずにすぐ切る＝play_apology_and_hang_up。配る形の案は CL-3 の連絡帳 4-1c の 74）。"""
     if _MADE and str(line_id) not in _MADE:
         raise RuntimeError("この PC の Rakuten Link は1つだけ（回線は1本まで。2本目は R-8 で確かめてから）")
     if str(line_id) not in _MADE:
         from salescall.agent.phones.screen_uia import UiaScreen
         from salescall.agent.phones.sound_vac import VacSound
-        _MADE[str(line_id)] = RakutenLink(UiaScreen(), VacSound(), lambda voice: None)
+        from salescall.agent.phones.apology_cache import ApologyCache
+        sound = VacSound()
+        _MADE[str(line_id)] = RakutenLink(UiaScreen(), sound, ApologyCache().recordings(sound.rate))
     return _MADE[str(line_id)]
