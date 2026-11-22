@@ -53091,3 +53091,30 @@ class AQFirmRequestBorderTest(unittest.TestCase):
                 self.assertNotIn("⏳ 仮", lab.get("hedged_why"))   # 束 ap1x の2人とも言い切っていないと読んだ
             if it["text"] in ("日にちの変更をお願いできますか", "日時を変えてもらえますか"):
                 self.assertIn("決めるのをこちらの返事に預けた", lab.get("why"))
+
+
+class AQThinkingLeanTest(unittest.TestCase):
+    """分身 AQ（束 ap1x の (c)）：望みを言ったうえで語尾をのばした・濁しただけの言葉は「考えている途中」ではない（その答え）。境目は「考えている途中」の説明の1か所
+    （meaning_judge.ANSWER_KINDS の THINKING）。✅ 2026-11-01 日本時間20時56分・23時59分（「うーん、送ってもらおうかな…」＝方向性は決まった＝「それではパンフレットをお送りさせていただきますね？」）。
+    ⛔ 直す前は、答えを伏せた読み手2人が、2人とも「あったほうがいいかな…」「テーブルのほうがいいかな…」を「考えている途中」とも読んだ（束 ap1x の #5・#6）"""
+
+    CLAUSE = "そうしたい・そのほうがよいという望みを言ったうえで、語尾をのばした・濁しただけ（まだ考えている、とは言っていない）も"
+
+    def test_the_border_is_in_the_thinking_description_only(self):
+        from meaning_judge import ANSWER_KINDS, THINKING, RULES
+        self.assertIn(self.CLAUSE, ANSWER_KINDS[THINKING])
+        self.assertEqual(sum(d.count(self.CLAUSE) for d in ANSWER_KINDS.values()), 1)
+        self.assertNotIn(self.CLAUSE, RULES)
+
+    def test_both_sides_of_the_table(self):
+        # 正解の表の両側（rv196/AQ/probe/aq/think_rows_before.txt）：望みを言って語尾をのばした行は「考えている途中」が正解に無い・思い出している途中（〜だったかな…）・
+        # まだ考えていると言った（どうかな…）行は「考えている途中」が正解にある（値は今のまま）
+        import g53_meaning as G
+        lean = {"あったほうがいいかな…", "テーブルのほうがいいかな…", "禁煙がいいんですが、無ければ喫煙でも…", "メールのほうが助かりますが…"}
+        think = {"その時間だったかな…", "火曜日だったかな…", "要らない気もしますが、どうかな…", "どうでしたっけ、取ってあったかな…"}
+        seen = set()
+        for it in ap_items():
+            if it["text"] in lean | think and G._label(it):
+                seen.add(it["text"])
+                self.assertEqual("考えている途中" in G.accept(it), it["text"] in think, it["text"])
+        self.assertEqual(seen, lean | think)
