@@ -52768,3 +52768,36 @@ class APP1ReadersTest(unittest.TestCase):
         self.assertEqual(len(rows), 32)
         for it in rows:
             self.assertNotIn("⏳ 仮", (G._label(it) or {}).get("away_talk_why", ""), it["text"])
+
+
+class APAllResultsToolsTest(unittest.TestCase):
+    """分身 AP（分身 AL の書き置きの6章の (2)）：結果のファイルの全部を読む道具（ear_head_check・form_rule_eval・make_ack_clips・judge_cost・said_timing）も、
+    途中の写し（_partial.json）と数え直し（名前に TALLY）を結果として読まない＝読む所は common.result_files の1か所（同じ決まりを2か所に書かない）。
+    ⛔ 直す前は5つとも results を自分で glob し、写しと数え直しも読んでいた（CL-1 の置き場の結果で form_rule_eval の日時の値の数え 5,632 回のうち 369 回・
+    said_timing の文字のかたまり 21,334 のうち 722 が、写しと数え直しの重なり＝rv192/AP/probe/ap/rf_counts.txt）"""
+
+    TOOLS = ("ear_head_check.py", "form_rule_eval.py", "make_ack_clips.py", "judge_cost.py", "said_timing.py")
+
+    def test_the_tools_read_results_through_the_one_place(self):
+        import re
+        here = Path(__file__).resolve().parent
+        own = re.compile(r"glob\((?:[^()\n]|\([^()\n]*\))*results|[\"']results/")
+        for name in self.TOOLS:
+            src = (here / name).read_text(encoding="utf-8")
+            self.assertIn("result_files(", src, name)
+            self.assertEqual([l for l in src.splitlines() if own.search(l)], [], name)
+
+    def test_judge_cost_skips_partial_and_recount_files(self):
+        import json as _json
+        import unittest.mock as m
+        import judge_cost
+        rec = {"saved_at": "2026-11-01T00:00:00", "items": [{"qid": "G1", "text": "はい", "Claude Sonnet 5.5": "はい", "Claude Sonnet 5.5秒": 1.0}]}
+        other = {"saved_at": "2026-11-02T00:00:00", "items": [{"qid": "G2", "text": "いいえ", "Claude Sonnet 5.5": "いいえ", "Claude Sonnet 5.5秒": 2.0}]}
+        with tempfile.TemporaryDirectory() as d:
+            res = Path(d) / "results"
+            res.mkdir()
+            (res / "G-53x_20261101_000000.json").write_text(_json.dumps(rec), encoding="utf-8")
+            (res / "G-53x_partial.json").write_text(_json.dumps(other), encoding="utf-8")
+            (res / "G-53x-TALLY_20261102_000000.json").write_text(_json.dumps(other), encoding="utf-8")
+            with m.patch("common.HERE", Path(d)):
+                self.assertEqual(judge_cost.paid_calls(), {"2026-11-01": {"Claude Sonnet 5.5": 1}})

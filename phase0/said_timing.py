@@ -10,11 +10,11 @@
 """
 from __future__ import annotations
 
-import glob
 import json
 import statistics
 import sys
 
+from common import result_files
 from jtext import morae
 from turn_check import NORMAL_MORAE_PER_S
 
@@ -54,4 +54,4 @@ def main(paths: list[str]) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:] or sorted(glob.glob("results/G-*.json")))
+    main(sys.argv[1:] or [str(p) for p in result_files("G-*.json")])   # 途中の写し（_partial.json）と数え直し（名前に TALLY）は読まない＝読む所は common.result_files の1か所（2026-11-22 分身 AP＝分身 AL の書き置きの6章の (2)）
