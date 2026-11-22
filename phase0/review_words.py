@@ -20,7 +20,7 @@ import functools
 from flowctl import (POINT_UNSAID, ANY, WAY_UNSAID, wish_label, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_WRONG, AWAY, END_NONE, HEAR,
                      AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, ELSEWHERE, ELSEWHERE_ALL, ELSEWHERE_NO, HESITATING, KEEP_ON,
                      END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
-                     REFUSED_LABEL, REPEAT, HEAR_LOST, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHY_NOT_SAID, WRONG,
+                     REFUSED_LABEL, REPEAT, HEAR_LOST, HEAR_OK, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHY_NOT_SAID, WRONG,
                      WRONG_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question, ladder_side_name, pain_question, since_form,
                      NEAR, NEAR_OFF, MISGIVING, MISGIVING_OFF, MISGIVING_UNSAID, UNTIL_WHY, UNTIL_LABEL, UNTIL_WHY_NOT_SAID, CYCLE, CYCLE_LABEL, CYCLE_NOT_SAID)
 from grounding import TOUCHED, UNTOUCHED, one_touched
@@ -846,13 +846,18 @@ AG_ROWS = [
 # 1人は組み立ててよいかの決まりが説明に無いと書いた＝崩れた言葉から元の言葉を推し量って組み立てない、を答えを選ぶ決まりの1か所（meaning_judge.LEAN）に書いた（✅ 10-19
 # 「『ご時』…表示されてる時点でおかしいと判断しないと」・帳面 0-3「言葉からは言えない答えを正解に入れない」）＝正解は決められないのまま（2026-11-22 分身 AP）
 _GARBLED_WHY = ("崩れた言葉。どの答えの向きも言い切っていない（かけらから「言ったことから必ずその答えになる」とは言えない・元の言葉を推し量って組み立てない＝meaning_judge.LEAN）＝決められない・別のお話ではない＝答えの話（束 b2 の読み手2人の読みの中）")
+# 2026-11-23 分身 AQ（束 ap1x の (g)）：答えを伏せた読み手2人が、2人とも「か……ど……で……」「……ふ……りこ……」の答えの話か・こちらの声が届いていない様子か・こちらへ尋ねた問いがあるかを
+# 「決められない」とも読んだ（rv195/ap1x_AB.txt の #15・#16）。項目ごとに2つの読みで流れの制御に通すと、お客様に聞こえる言葉・記録・動き・すぐあとに切れたときの切れ方が同じ
+# （rv196/AQ/probe/aq/tr_garbled.txt）＝境目にした（帳面 0-3 の 141行・分身 AP の two_reads.py の形）。直す前の値＝答えの話・そういう様子は無い・こちらへ尋ねた問いは無い
+_GARBLED_TWO_READS = ("／2026-11-23 分身 AQ：答えの話か・聞こえ方・こちらへ尋ねた問いがあるかは「決められない」との境目（束 ap1x の #15・#16 の2人とも挙げた・2つの読みで流れの制御の"
+                      "動き・切れ方が同じ＝rv196/AQ/probe/aq/tr_garbled.txt。直す前の値＝答えの話・そういう様子は無い・こちらへ尋ねた問いは無い）／⏳ 仮＝読み手の束 aq1 の読みが届くまで")
 GARBLED_ROWS = [
     _row("R1", "ちょ……と……", [UNDECIDED, THINKING], AWAY_NO, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
          why=_GARBLED_WHY + "。言いかけて続きそう＝考えている途中との境目"),
-    _row("R1", "か……ど……で……", [UNDECIDED], AWAY_NO, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
-         why=_GARBLED_WHY + "（選択肢の言葉のかけらに聞こえても、カードとは言い切っていない）"),
-    _row("R1", "……ふ……りこ……", [UNDECIDED], AWAY_NO, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
-         why=_GARBLED_WHY + "（選択肢の言葉のかけらに聞こえても、振込とは言い切っていない）"),
+    {**_row("R1", "か……ど……で……", [UNDECIDED], [AWAY_NO, UNDECIDED], query=[QUERY_NO, UNDECIDED], reason=WHY_OTHER, misgiving=[MISGIVING_OFF],
+            misgiving_why=MG_OFF_WHY, why=_GARBLED_WHY + "（選択肢の言葉のかけらに聞こえても、カードとは言い切っていない）" + _GARBLED_TWO_READS), "hear_truth": [HEAR_OK, UNDECIDED]},
+    {**_row("R1", "……ふ……りこ……", [UNDECIDED], [AWAY_NO, UNDECIDED], query=[QUERY_NO, UNDECIDED], reason=WHY_OTHER, misgiving=[MISGIVING_OFF],
+            misgiving_why=MG_OFF_WHY, why=_GARBLED_WHY + "（選択肢の言葉のかけらに聞こえても、振込とは言い切っていない）" + _GARBLED_TWO_READS), "hear_truth": [HEAR_OK, UNDECIDED]},
     _row("R1", "え……あ……の……", [UNDECIDED, THINKING], AWAY_NO, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
          why=_GARBLED_WHY + "。言いよどみ＝考えている途中との境目"),
     _row("R1", "そ……で……す……ね……", [UNDECIDED, THINKING], AWAY_NO, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,

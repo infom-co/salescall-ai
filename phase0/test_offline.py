@@ -52199,7 +52199,8 @@ class ALGarbledAndWhichPointRowsTest(unittest.TestCase):
             self.assertEqual(it["qid"], "R1")
             self.assertEqual(it["label"]["accept"][0], UNDECIDED, it["text"])
             self.assertLessEqual(set(it["label"]["accept"]), {UNDECIDED, THINKING}, it["text"])
-            self.assertEqual(it["label"][AWAY], [AWAY_NO], it["text"])
+            # 分身 AQ（束 ap1x の (g)）：「か……ど……で……」「……ふ……りこ……」は答えの話と決められないの境目（2つの読みで動きが同じ＝AQTwoReadsBordersTest）
+            self.assertIn(it["label"][AWAY], ([AWAY_NO], [AWAY_NO, UNDECIDED]), it["text"])
             self.assertIn("…", it["text"])
 
     def test_the_which_point_scene_is_the_production_line(self):
@@ -52818,15 +52819,16 @@ class APFirmAgreementTest(unittest.TestCase):
     お送りさせていただきますね？で正解です」・本書 9-5 の「言い切っているか」）。そのまま記録する側の「お願いや問いかけの言い方で言っただけ」は答えが決まっているときだけ。
     境目は確かめる側の条件の括弧の1か所だけ。⛔ 11-01 朝の書き直しで、この条件が抜けていた（前の文の旧＝FIRM_NOT にはあった）"""
 
-    BORDER = "答えはもう決めていて、言い方だけが柔らかい・お願いや問いかけの形なら、これに当たらない"
+    BORDER = "こちらの申し出や、こちらが伺ったご希望・選んでいただくものについて、そうしてほしいと頼んだのは、お願いや問いかけの言い方でも、これに当たらない"   # 分身 AQ が書き直した境目
 
     def test_the_agreement_condition_is_back_and_the_border_is_written_once(self):
         from meaning_judge import FIRM_NOT, FIRM_YES, RULES, JEV_FIRM
-        self.assertIn("望みや考えを、こちらに同意を求める言い方や、自分に言い聞かせる言い方で言い、決めるのをこちらの同意に預けた", FIRM_NOT)
+        # 分身 AQ（束 ap1x）：条件の名前を「決めるのをこちらの返事に預けた」にし、こちらが申し出ていないことの頼みも同じ条件に書いた＝AQFirmRequestBorderTest
+        self.assertIn("決めるのをこちらの返事に預けた（そうしたい・そのほうがよいという望みや考えを、こちらに同意を求める言い方や、自分に言い聞かせる言い方で言っただけ", FIRM_NOT)
         self.assertEqual(RULES.count(self.BORDER), 1)   # 判定の決まりの文に1回だけ
         self.assertNotIn(self.BORDER, FIRM_YES)
         self.assertIn(self.BORDER, JEV_FIRM["false"])   # 判断のモデルの言い切りの問いにも同じ1か所から
-        self.assertIn("お客様の答え（選んだもの、または選ぶのをこちらに任せること）が決まっていて、それをお願いや問いかけの言い方で言っただけ", FIRM_YES)
+        self.assertIn("お客様の答え（選んだもの、または選ぶのをこちらに任せること）を、お願いや問いかけの言い方で言っただけ", FIRM_YES)
 
     def test_rows_of_the_same_form_were_read_one_by_one(self):
         # 正解の表の同じ形の行（「〜のほうがいいですかね」「〜のほうがいいかな」「〜かしら」「〜てもいいかな」など）は、1行ずつ当て直した理由（hedged_why）を持つ
@@ -52870,7 +52872,8 @@ class APGarbledWordsTest(unittest.TestCase):
             self.assertEqual(it["label"]["accept"], [UNDECIDED], text)   # 組み立てた読み（カード・振込）は正解に入れない
             self.assertIn("組み立てない", it["label"]["why"], text)
         for it in rw.GARBLED_ROWS + rw.WHICH_POINT_ROWS:
-            self.assertNotIn("仮", it["label"]["why"], it["text"])
+            # 分身 AQ が書き足した所（答えの話か・聞こえ方・問いの境目＝仮）のほかに仮は無い（答えの正解は仮ではない）
+            self.assertNotIn("仮", it["label"]["why"].split("／2026-11-23 分身 AQ")[0], it["text"])
         point = next(r for r in rw.WHICH_POINT_ROWS if r["text"] == "いや、いろいろとですね。")
         self.assertEqual(point["label"]["accept"], ["点は言っていない"])   # 2人の境目が違う＝作った側のまま
 
@@ -52911,11 +52914,12 @@ class APP1ReadersTest(unittest.TestCase):
         import g53_meaning as G
         from flowctl import HEAR, HEAR_LOST, HEAR_OK, hear_choices
         from review_words import questions
-        line = "聞こえなかった・聞き取れなかったとは言わずに、こちらの名前・会社名・用件を尋ねたのは、もう一度と言っても、こちら"
-        self.assertIn(line, hear_choices(False)[HEAR_OK])
-        self.assertNotIn(line, hear_choices(True)[HEAR_OK])   # お呼びする段の文は変えない
+        # 分身 AQ（束 ap1x の #19）：境目は「届いていない様子」の説明の1か所に、聞き返しと一緒に書いた（AQHearRepeatTest）
+        line = "聞こえなかった・聞き取れなかったとは言わずに、こちらの名前・会社名・用件を尋ねたのと、こちらが話したことのある点を挙げて、もう一度説明してほしいと頼んだのは、もう一度と言っても、こちらではなく「そういう様子は無い」"
+        self.assertIn(line, hear_choices(False)[HEAR_LOST])
+        self.assertIn(line, hear_choices(True)[HEAR_LOST])   # 分身 AQ：お呼びする段にも同じ文（AQCallingHearSameTest）
         it = next(i for i in self.items() if i["text"] == "すみません、会社名をもう一度教えてもらえますか？")
-        self.assertEqual(G.hear_truth(it), HEAR_OK)
+        self.assertEqual(G.hear_truths(it), (HEAR_OK,))   # 分身 AQ：正解の並び（hear_truths）にした
         q = (G.question_map() | questions())[it["qid"]]
         r = copy.deepcopy(G.label_readings(it, q, True)[0])
         cuts = []
@@ -53261,3 +53265,193 @@ class ARWayOfferWishSceneTest(unittest.TestCase):
         self.assertEqual(G.step_wants(offer, qs["W1@E1"], False), {G.WAY_WHICH_ACT})
         self.assertEqual(heard["どれでもいいです。"], "承知しました。それではメールでご案内させていただきますね。恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？")
         self.assertLessEqual({WAY_UNSAID, ANY, "unknown", wish_label("email")}, {a for it in rw.WAY_ROWS for a in it["label"]["accept"]})
+
+
+class AQFirmRequestBorderTest(unittest.TestCase):
+    """分身 AQ（束 ap1x の (a)(b)）：言い切りの説明の、こちらへの頼みと望み・考えの言い方の境目（meaning_judge.FIRM_NOT の「決めるのをこちらの返事に預けた」の1か所）。
+    こちらが申し出ておらず、ご希望としても伺っていないことを、してもらえるかを尋ねる形で頼み、答えがこちらの返事で決まる言葉（✅ 2026-11-01 日本時間3時45分「「別の日にならないでしょうか」
+    …あいては確認しているので、こちらが「大丈夫ですよ」などの一言がないと、別の日が確定にならないため。」）と、望み・考えを同意を求める言い方・言い聞かせる言い方で言っただけで
+    頼んでいない言葉（✅ 11-01 の (b)・11-06 日本時間4時11分28秒）は確かめる側。こちらの申し出・伺ったご希望・選択肢への頼み（「週末にお願いできますか」「ええ、送っていただけますか。」）は
+    そのまま記録する側。⛔ 直す前は、答えを伏せた読み手2人が、2人とも「日にちの変更をお願いできますか」「日時を変えてもらえますか」を言い切りだけに読み、「〜のほうがいいですかね」
+    「〜かしら」を言い切りにも読んだ（束 ap1x の #13・#14・#1〜#4・#7）"""
+
+    BORDER = "決めるのをこちらの返事に預けた（"
+
+    def test_the_border_is_written_once_and_named_from_the_other_side(self):
+        from meaning_judge import FIRM_NOT, FIRM_YES, RULES, JEV_FIRM
+        for part in ("そうしてほしいとは頼んでいない", "こちらが申し出ておらず、ご希望としても伺っていないことを、こちらにしてもらえるかを尋ねる形で頼み、"
+                     "答えが、こちらがその頼みをお受けするかどうかで決まる"):
+            self.assertIn(part, FIRM_NOT)
+            self.assertEqual(RULES.count(part), 1)
+            self.assertNotIn(part, FIRM_YES)
+        self.assertEqual(RULES.count(self.BORDER), 1)
+        self.assertIn(self.BORDER, JEV_FIRM["false"])
+        self.assertNotIn("が決まっていて、それをお願いや問いかけの言い方で言っただけ", FIRM_YES)   # 境目を2か所に書かない
+        self.assertIn("確かめる側の「決めるのをこちらの返事に預けた」に書いたとおり", FIRM_YES)   # そのまま記録する側からは名前で指す
+        self.assertNotIn("答えはもう決めていて、言い方だけが柔らかい", RULES)
+
+    def test_both_sides_of_the_table_keep_their_values(self):
+        # 正解の表の両側（rv196/AQ/probe/aq/firm_sides_before.txt）：申し出ていないことを、できるかを尋ねる形で頼んだ7行は言い切っていない・伺った選択肢・申し出・ご希望への頼みと
+        # 任せた答えは言い切り（値は今のまま）
+        import g53_meaning as G
+        hedged = {"別の日にならないでしょうか", "変更をお願いできないでしょうか", "別の日時に変えてもらえますか", "日にちの変更をお願いできますか",
+                  "いいえ、別の日にしてもらえませんか", "時間の変更をお願いできますか", "日時を変えてもらえますか"}
+        firm = {"週末にお願いできますか", "ええ、送っていただけますか。", "明日の十時頃でお願いできますか", "LINEで送ってもらえますか？", "はい、変更をお願いしたいです。",
+                "いえ、日程をずらしてほしいです。"}
+        seen = set()
+        for it in ap_items():
+            if it["text"] in hedged | firm and G._label(it):
+                seen.add(it["text"])
+                self.assertEqual(G.hedged(it), it["text"] in hedged, it["text"])
+        self.assertEqual(seen, hedged | firm)
+
+    def test_the_readers_rows(self):
+        import g53_meaning as G
+        for it in ap_items():
+            lab = G._label(it) or {}
+            if it["text"] == "費用が発生するなら、やっぱり必要ないかな。":
+                self.assertTrue(G.hedged(it))
+                self.assertNotIn("⏳ 仮", lab.get("hedged_why"))   # 束 ap1x の2人とも言い切っていないと読んだ
+            if it["text"] in ("日にちの変更をお願いできますか", "日時を変えてもらえますか"):
+                self.assertIn("決めるのをこちらの返事に預けた", lab.get("why"))
+
+
+class AQThinkingLeanTest(unittest.TestCase):
+    """分身 AQ（束 ap1x の (c)）：望みを言ったうえで語尾をのばした・濁しただけの言葉は「考えている途中」ではない（その答え）。境目は「考えている途中」の説明の1か所
+    （meaning_judge.ANSWER_KINDS の THINKING）。✅ 2026-11-01 日本時間20時56分・23時59分（「うーん、送ってもらおうかな…」＝方向性は決まった＝「それではパンフレットをお送りさせていただきますね？」）。
+    ⛔ 直す前は、答えを伏せた読み手2人が、2人とも「あったほうがいいかな…」「テーブルのほうがいいかな…」を「考えている途中」とも読んだ（束 ap1x の #5・#6）"""
+
+    CLAUSE = "そうしたい・そのほうがよいという望みを言ったうえで、語尾をのばした・濁しただけ（まだ考えている、とは言っていない）も"
+
+    def test_the_border_is_in_the_thinking_description_only(self):
+        from meaning_judge import ANSWER_KINDS, THINKING, RULES
+        self.assertIn(self.CLAUSE, ANSWER_KINDS[THINKING])
+        self.assertEqual(sum(d.count(self.CLAUSE) for d in ANSWER_KINDS.values()), 1)
+        self.assertNotIn(self.CLAUSE, RULES)
+
+    def test_both_sides_of_the_table(self):
+        # 正解の表の両側（rv196/AQ/probe/aq/think_rows_before.txt）：望みを言って語尾をのばした行は「考えている途中」が正解に無い・思い出している途中（〜だったかな…）・
+        # まだ考えていると言った（どうかな…）行は「考えている途中」が正解にある（値は今のまま）
+        import g53_meaning as G
+        lean = {"あったほうがいいかな…", "テーブルのほうがいいかな…", "禁煙がいいんですが、無ければ喫煙でも…", "メールのほうが助かりますが…"}
+        think = {"その時間だったかな…", "火曜日だったかな…", "要らない気もしますが、どうかな…", "どうでしたっけ、取ってあったかな…"}
+        seen = set()
+        for it in ap_items():
+            if it["text"] in lean | think and G._label(it):
+                seen.add(it["text"])
+                self.assertEqual("考えている途中" in G.accept(it), it["text"] in think, it["text"])
+        self.assertEqual(seen, lean | think)
+
+
+class AQReadersAp1xRowsTest(unittest.TestCase):
+    """分身 AQ（束 ap1x の (d)(e)）：(d)「振込のほうがいいかしら」の答えは、言い聞かせ（振込・言い切っていない）とこちらへ尋ねた（決められない）の境目（「〜かしら」は言葉だけでは
+    決まらない＝✅ 2026-11-06 日本時間4時11分28秒の「〜ですかね」と同じ理由・10-19）。(e) N1・N2 の「断ろうとしている」の意味の言葉に、条件を付けて要らないと言ったのも入る、を
+    1か所（flowctl.REFUSING_MEANING）に書いた（✅ 2026-11-02 日本時間6時21分・23時15分58秒＝G-73 の N2「費用が発生するなら、やっぱり必要ないかな。」の種類は断ろうとしている）。
+    ⛔ 直す前は、答えを伏せた読み手2人が、2人ともこの言葉を「分からない点・確かめたい点を言った」とも読んだ（束 ap1x の #8）"""
+
+    def test_furikomi_is_a_border(self):
+        import g53_meaning as G
+        rows = [it for it in ap_items() if it["text"] == "振込のほうがいいかしら" and G._label(it)]
+        self.assertTrue(rows)
+        for it in rows:
+            self.assertEqual(G.accept(it), ["振込", "決められない"])
+            self.assertTrue(G.hedged(it))
+            self.assertIn("分身 AQ", (G._label(it) or {}).get("why"))
+
+    def test_refusing_meaning_is_one_place(self):
+        import flowctl as F
+        clause = "場合によっては、と条件を付けて、要らないと言ったのも"
+        self.assertIn(clause, F.REFUSING_MEANING)
+        self.assertIs(F._ROLE_MEANINGS["not_agreed"]["断ろうとしている"], F.REFUSING_MEANING)
+        self.assertIs(F._ROLE_MEANINGS["other_point"]["断ろうとしている"], F.REFUSING_MEANING)
+        self.assertEqual(sum(v.count(clause) for m in F._ROLE_MEANINGS.values() for v in m.values() if isinstance(v, str)), 2)   # 同じ1つの言葉を2つの質問が使う
+        import g53_meaning as G
+        for it in ap_items():
+            if it["text"] == "費用が発生するなら、やっぱり必要ないかな。" and G._label(it):
+                self.assertEqual(G.accept(it), ["断ろうとしている"])   # 正解は今のまま
+
+
+class AQHearRepeatTest(unittest.TestCase):
+    """分身 AQ（束 ap1x の (f)）：こちらが直前に言ったことのもう一度を頼んだ（聞き返した）言葉は、聞こえなかったとは言わなくても「届いていない様子」・こちらの名前・会社名・用件を
+    尋ねた・ある点の説明をもう一度頼んだ言葉は、もう一度と言っても「そういう様子は無い」。境目は「届いていない様子」の説明の1か所（flowctl.hear_choices）。✅ 2026-11-06 日本時間15時20分30秒の (1)・
+    11-02 日本時間23時15分58秒（G-73 の「え、ごめんなさい、もう一回お願いできますか」＝届いていない様子）。⛔ 直す前は、答えを伏せた読み手2人が、2人ともこの言葉を「そういう様子は無い」とも
+    読んだ（束 ap1x の #19）。2つの読みで切れ方の callee_cannot_hear が違う（rv196/AQ/probe/aq/tr_hear19.txt）"""
+
+    AGAIN = "直前にこちらが言ったことを、もう一度言ってほしいと頼んだ（聞こえなかったとは言わなくても）"
+
+    def test_the_border_is_one_sentence_in_one_place(self):
+        from flowctl import HEAR_LOST, HEAR_OK, hear_choices
+        d = hear_choices(False)
+        self.assertIn(self.AGAIN, d[HEAR_LOST])
+        self.assertEqual(sum(v.count("会社名") for v in d.values()), 1)
+        self.assertNotIn("会社名", d[HEAR_OK])
+
+    def test_both_sides_of_the_table(self):
+        # 正解の表の両側：聞き返し（届いていない様子）と、名前・会社名を尋ねた・ある点の説明をもう一度頼んだ言葉（そういう様子は無い）＝値は今のまま
+        import g53_meaning as G
+        from flowctl import HEAR_LOST, HEAR_OK
+        want = {"え、ごめんなさい、もう一回お願いできますか": HEAR_LOST, "すみません、今なんて言いました？": HEAR_LOST, "え、何ておっしゃいました？": HEAR_LOST,
+                "すみません、会社名をもう一度教えてもらえますか？": HEAR_OK, "もう一度お名前をよろしいですか？": HEAR_OK, "ええと、さっきの料金のところをもう一度。": HEAR_OK}
+        got = {}
+        for it in ap_items():
+            if it["text"] in want:
+                got[it["text"]] = G.hear_truths(it)[0] if len(G.hear_truths(it)) == 1 else G.hear_truths(it)
+        self.assertEqual(got, want)
+
+
+class AQTwoReadsBordersTest(unittest.TestCase):
+    """分身 AQ（束 ap1x の (g)）：答えを伏せた読み手2人がそろって挙げた2つの読みのうち、流れの制御に通して、お客様に聞こえる言葉・記録・動き・すぐあとに切れたときの切れ方が同じものは
+    境目（両方を正解）にした（帳面 0-3 の 141行・rv196/AQ/probe/aq/tr_w1.txt・tr_garbled.txt）：W1 の「じゃあ、やっぱり電話してもらってもいいかな。」の言い切り・崩れた言葉
+    「か……ど……で……」「……ふ……りこ……」の答えの話か・聞こえ方・こちらへ尋ねた問いがあるか。聞こえ方の正解は並びで持てる形にした（g53_meaning.hear_truths）"""
+
+    def test_rows(self):
+        import g53_meaning as G
+        from flowctl import AWAY, AWAY_NO, HEAR_OK, QUERY, QUERY_NO, UNDECIDED
+        from review_words import questions
+        seen = set()
+        qmap = G.question_map() | questions()
+        for it in ap_items():
+            if it["text"] == "じゃあ、やっぱり電話してもらってもいいかな。" and G._label(it):
+                seen.add(it["text"])
+                self.assertTrue(G.either(it))
+                self.assertEqual({r.firm for r in G.label_readings(it, qmap[it["qid"]], True)}, {True, False})
+            if it["text"] in ("か……ど……で……", "……ふ……りこ……"):
+                seen.add(it["text"])
+                self.assertEqual(G.hear_truths(it), (HEAR_OK, UNDECIDED))
+                self.assertEqual(set(G.away_truths(it)), {AWAY_NO, UNDECIDED})
+                self.assertEqual(set(G.query_truths(it)), {QUERY_NO, UNDECIDED})
+                rs = G.label_readings(it, qmap[it["qid"]], True)
+                self.assertEqual({getattr(r, "hear") for r in rs}, {HEAR_OK, UNDECIDED})
+        self.assertEqual(len(seen), 3)
+
+    def test_hear_tally_counts_any_listed_name(self):
+        import g53_meaning as G
+        from flowctl import HEAR_OK, UNDECIDED
+        it = {"set": "R", "qid": "R1", "text": "x", "hear_truth": [HEAR_OK, UNDECIDED], "J": UNDECIDED, "J聞こえ": UNDECIDED}
+        with unittest.mock.patch.object(G, "_label", return_value=None), unittest.mock.patch.object(G, "accept", return_value=[UNDECIDED]), \
+                unittest.mock.patch.object(G, "truth", return_value=UNDECIDED):
+            t = G.tally([it], ["J"])
+        h = t["J"]["数え"]["こちらの声が届いていない様子か"]
+        self.assertTrue(any("正しい" in k for k in h), h)
+        self.assertFalse(any("⛔" in k for k in h))
+
+
+class AQCallingHearSameTest(unittest.TestCase):
+    """分身 AQ（頼みの (3)＝分身 AP の書き置きの6章の (1)）：聞こえ方の境目の一文（聞き返しは届いていない様子・こちらの名前・会社名・用件を尋ねたのは、もう一度と言っても
+    そういう様子は無い）を、お呼びする段（目的のお客様の判定＝G-59）にも当てた（同じ理由＝10-19。文は1か所のまま）。G-59 の表の両側の正解は今のまま"""
+
+    def test_same_text_on_both_stages(self):
+        from flowctl import hear_choices
+        self.assertEqual(hear_choices(True), hear_choices(False))
+
+    def test_g59_rows_both_sides(self):
+        import g59_calling_judge as G
+        from flowctl import HEAR, HEAR_LOST, HEAR_OK
+        want = {"失礼ですが、どちら様でしょうか？": HEAR_OK, "失礼ですが、どういったご用件でしょうか？": HEAR_OK,
+                "すみません、もう一度大きな声でお願いできますか": HEAR_LOST, "あの、途中で切れちゃったみたいで、もう一度言ってもらえますか。": HEAR_LOST,
+                "電話が遠いみたいで、会社名のあたりが聞こえなかったんですが。": HEAR_LOST}
+        got = {}
+        for c in G.cases():
+            if c[0] in want:
+                got.setdefault(c[0], set()).update(c[5].get(HEAR) or ())
+        self.assertEqual(got, {k: {v} for k, v in want.items()})
