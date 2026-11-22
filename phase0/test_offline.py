@@ -53041,3 +53041,69 @@ class APEndWordsCallingFlowTest(unittest.TestCase):
             f = got[0]
             for k in ("names", "judge_names", "knowledge", "purpose", "dialed_mobile", "personal", "policies"):
                 self.assertEqual(getattr(f, k), getattr(want, k), (row[1], k))
+
+
+class ATCallingTableOnceTest(unittest.TestCase):
+    """分身 AT（帳面 1 の (6) の (i) の L27・書き置き rv191/AM/notes.md の続き2 の (6-2)）：お呼びする段の正解の表（g59_calling_judge.cases＝1回に約6秒）は、1つの流しの中で
+    1回だけ組んで覚え（_table）、呼ぶたびに写しを渡す。同じ流しで2回目の呼び出しは組み直さない・呼ぶ側が書き換えても、覚えた表と次に呼ぶ側は変わらない・覚えた表と
+    組み直した表が同じ（判定に送る文・お客様に聞こえる言葉・指紋は変わらない）・流しの中で変わりうる試しの言葉（G-73）の行が変われば組み直し、戻れば前の表。
+    ⛔ 直す前は呼ぶたびに組み直し、試験の全部が何十回も組んでいた（試験の全部が約855〜913秒）"""
+
+    @staticmethod
+    def rows(table) -> list:
+        return [(type(c), list(c), c.marks()) for c in table]
+
+    def test_the_second_call_in_a_run_does_not_build_again(self):
+        import g59_calling_judge as g
+        import g59_tally as t
+        first = g.cases("x")
+        with unittest.mock.patch.object(g, "accept_of", side_effect=AssertionError("組み直した")), \
+                unittest.mock.patch.object(g, "successor_before", side_effect=AssertionError("組み直した")), \
+                unittest.mock.patch.object(g, "_candidate_rows", side_effect=AssertionError("組み直した")):
+            self.assertEqual(self.rows(g.cases("x")), self.rows(first))
+            self.assertEqual(self.rows(g.cases()), self.rows(first))
+            self.assertEqual(g.case_of("はい、そうです。", g.ASKED_AFTER)[0], "はい、そうです。")
+            self.assertEqual(len(t.current()), len(first))
+
+    def test_a_caller_changing_its_table_does_not_change_the_next_caller(self):
+        import copy
+        import g59_calling_judge as g
+        want = copy.deepcopy(self.rows(g.cases("x")))
+        a = g.cases("x")
+        c = a[0]
+        try:
+            c[1].append("★")
+            for v in c[5].values():
+                v.add("★")
+            c[5]["★"] = {"★"}
+            c.mobile = "★"
+            a.append(c)
+            del a[1]
+            self.assertEqual(self.rows(g.cases("x")), want)
+            self.assertEqual(self.rows([g.case_of(want[0][1][0], want[0][1][2], asked=want[0][1][3] is not None, successor=want[0][1][4])]), want[:1])
+        finally:   # 直す前の形（表の正解の組が正解の表の定数と同じ物）でも、ほかの試験に書き換えを残さない
+            for v in c[5].values():
+                v.discard("★")
+
+    def test_the_remembered_table_is_the_same_as_a_rebuilt_one(self):
+        import g59_calling_judge as g
+        got = g.cases("x")
+        key = g._hear_key(g.lines_hear())
+        self.assertEqual(self.rows(got), self.rows(g._table.__wrapped__(key)))
+        self.assertIs(g._table(key), g._table(key))   # 覚えた表は1つ
+        self.assertIsNot(g.cases("x")[0], g.cases("x")[0])   # 渡すのは呼ぶたびの写し
+        table = g.cases("x")
+        self.assertIs(g.case_of("はい、そうです。", g.ASKED_AFTER, table=table), g.case_of("はい、そうです。", g.ASKED_AFTER, table=table))   # 渡した表の行は、そのまま引く
+
+    def test_the_table_follows_the_trial_words_file(self):
+        # 試しの言葉（G-73）の結果のファイルの行は、試験が替える（G73WordsTest）・新しい結果が出る＝表の組み立てが読むもののうち流しの中で変わりうるもの。
+        # 行が変われば、その行で組んだ表（覚えた前の表を渡さない）・戻れば前の表（替えた行で組んだ表が、あとに呼ぶ側に残らない）
+        import g59_calling_judge as g
+        import g73_system_words as g73
+        real, hear = g.cases("x"), g.lines_hear()
+        word = {"set": "HEAR_CALL", "text": "★もしもし、聞こえますか★", "asked": False, "truth": next(iter(hear[0][2][g.HEAR]))}
+        with unittest.mock.patch.object(g73, "latest", lambda: {"path": "x", "words": [word], "errors": {}}):
+            got = g.cases("x")
+            self.assertEqual([c[0] for c in got if g.hear_only(g.case_row(c))], [word["text"]])   # 替えた行で組んだ表
+            self.assertEqual(len(got), len(real) - len(hear) + 1)
+        self.assertEqual(self.rows(g.cases("x")), self.rows(real))   # 戻れば前の表
