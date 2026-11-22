@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import functools
 import json
 import time
@@ -551,12 +552,28 @@ def cases(confirm: str | None = None) -> list[Case]:
     印のある行（LINES_OWN）は、印の無い行のあとに並べる（印の無い行の並びと送る文は前のまま）。
     確かめた言い方（4つ目）は、確かめたあとの行で、行の場面でお客様が最後に聞いた、お返事を待つ一言（heard_line＝判定に見せる質問と同じ1か所）。confirm は使わない
     （前からの呼び出しの形のまま受ける。⛔ 2026-11-22 分身 AM の続き (3) まで、呼び出し側が渡した文をそのまま入れ、携帯電話の番号の2回目の聞き返しへのお返事の行も
-    「「おかだ」様でいらっしゃいますでしょうか？」だった＝書き置き rv191/AM/notes.md の (6-6)）"""
+    「「おかだ」様でいらっしゃいますでしょうか？」だった＝書き置き rv191/AM/notes.md の (6-6)）
+    表は1つの流しの中で1回だけ組んで覚え（_table）、呼ぶたびに写し（copy.deepcopy）を渡す＝呼ぶ側が並び・行の欄・受け取ってよい読み・項目ごとの正解の組・印を書き換えても、
+    覚えた表と次に呼ぶ側は変わらない（書き換えられない形＝tuple・frozenset にすると、呼ぶ側が見る型が前と変わる＝前と同じ型の写しにした）。⛔ 2026-11-23 分身 AT まで、
+    呼ぶたびに組み直していた（1回に約6秒・試験の全部で何十回＝試験の全部が命令の上限に近づいた＝書き置き rv191/AM/notes.md の続き2 の (6-2)）。
+    表の組み立てが読むもののうち、流しの中で変わりうるのは試しの言葉（G-73）の結果のファイルの行（lines_hear＝いちばん新しい結果・試験が latest を替える）だけ
+    （ほかは表の定数・流れの制御の決まり）＝その行を覚えの鍵にする（行が変われば組み直す・前の行に戻れば前に組んだ表）。"""
+    return copy.deepcopy(list(_table(_hear_key(lines_hear()))))
+
+
+def _hear_key(rows: list[tuple[str, bool, dict[str, set]]]) -> tuple:
+    """試しの言葉（G-73）の行（lines_hear の形）を、覚えの鍵になる形に（項目の並びはそのまま・正解の組は並べた tuple）。_table が lines_hear の形に戻す。"""
+    return tuple((t, a, tuple((k, tuple(sorted(v))) for k, v in f.items())) for t, a, f in rows)
+
+
+@functools.cache
+def _table(hear: tuple) -> tuple[Case, ...]:
+    """正解の表を組む1か所（cases が1つの流しの中で、試しの言葉の行 hear＝_hear_key(lines_hear()) ごとに1回だけ呼ぶ＝覚えた表。呼ぶ側には cases の写しだけを渡す）。"""
     rows = ([(t, None, False, False, f) for t, f in LINES] + [(t, b, False, False, f) for t, b, f in LINES_AFTER]
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
             + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED]
             + [(t, successor_before(t, b, c), c, True, f) for t, b, c, f in LINES_SUCCESSOR]
-            + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, hear_before(a), a, False, f) for t, a, f in lines_hear()])
+            + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, hear_before(a), a, False, {k: set(v) for k, v in f}) for t, a, f in hear])
     full = {(t, b, c) for t, b, c, _ in LINES_FULL}
     rows += [(t, b, c, False, f) for t, b, c, f in LINES_FULL]
     asked = {c["id"]: c for c in _candidate_rows()}
@@ -576,10 +593,10 @@ def cases(confirm: str | None = None) -> list[Case]:
     marks = [{"full": True} if (t, b, c) in full and not s else {} for t, b, c, s, f in rows]
     rows += [(t, b, c, False, f) for t, b, c, _, f in LINES_OWN]
     marks += [m for *_, m, _ in LINES_OWN]
-    return [_case((t, sorted(set(accept_of(f, s)) | set(extra_of(t, b, m))), b, heard_line(t, b, s, row_marks(m)) if c else None, s,
-                   f | {END: f.get(END, {END_NONE}), HEAR: f.get(HEAR, {HEAR_OK}), OFFER: f.get(OFFER, {OFFER_NOT_SAID}),
-                        ABSENT_WHY: f.get(ABSENT_WHY, {ABSENT_WHY_NOT_SAID})}), **m)
-            for (t, b, c, s, f), m in zip(rows, marks)]
+    return tuple(_case((t, sorted(set(accept_of(f, s)) | set(extra_of(t, b, m))), b, heard_line(t, b, s, row_marks(m)) if c else None, s,
+                        f | {END: f.get(END, {END_NONE}), HEAR: f.get(HEAR, {HEAR_OK}), OFFER: f.get(OFFER, {OFFER_NOT_SAID}),
+                             ABSENT_WHY: f.get(ABSENT_WHY, {ABSENT_WHY_NOT_SAID})}), **m)
+                 for (t, b, c, s, f), m in zip(rows, marks))
 
 
 def case_of(text: str, before: str | None = None, asked: bool | None = None, successor: bool | None = None, table: list | None = None, **marks) -> Case:

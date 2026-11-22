@@ -21,6 +21,9 @@
 """
 from __future__ import annotations
 
+import copy
+import functools
+
 from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, END_ANGRY, END_BRIEF, END_HURRY, END_NONE, END_PRESSED, END_REASONED, END_REFUSED, END_UNCLEAR, END_UPSET, END_WHO,
                      HESITATING, LATER, MISGIVING, MISGIVING_OFF, QUERY, QUERY_NO, QUERY_YES, REFUSED_LABEL, THINKING, UNDECIDED, WHY_NOT_SAID, misgiving_fits)
 
@@ -222,7 +225,16 @@ CALLING = [
 
 
 def answer_truths() -> dict:
-    """答えの段の行の正解（唯一の場所。答えの段の測り G-53 の組 F が読む＝g53_meaning._label）：(質問の文, お客様の言葉) ⇒ {accept：受け取ってよい
+    """答えの段の行の正解（唯一の場所。中身は _answer_truths）。1つの流しの中で1回だけ組んで覚え、呼ぶたびに写し（copy.deepcopy）を渡す＝呼ぶ側が行の正解の
+    並び・欄を書き換えても、覚えた正解と次に呼ぶ側は変わらない（書き換えられない形にすると、呼ぶ側が見る型が前と変わる＝前と同じ型の写しにした）。⛔ 2026-11-23
+    分身 AT まで、呼ぶたびに組み直していた（1回に約0.15秒。答えの段の測りの行の組 F＝g53_meaning.set_f は行ごとに呼び、1回に約4秒＝試験の全部が命令の上限に
+    近づいた＝書き置き rv192/AP/notes.md の6章の (5)）"""
+    return copy.deepcopy(_answer_truths())
+
+
+@functools.cache
+def _answer_truths() -> dict:
+    """答えの段の行の正解（組み立ての1か所＝answer_truths が1つの流しの中で1回だけ呼ぶ。答えの段の測り G-53 の組 F が読む＝g53_meaning._label）：(質問の文, お客様の言葉) ⇒ {accept：受け取ってよい
     答え・hedged：寄っているが言い切っていないか・end：電話を終える言葉かの正解・why・こちらへ尋ねた問いか・別のお話か・わからない理由＝SIDE}。
     答えは書いたとおり（⛔ 2026-11-15 F4 の (c) まで「決められない」に「わからない」を足していた＝お客様に聞こえる次の一言が違う2つを同じに数え、
     外れを見落とした。11 行は 2 人の読み手が読み直し、どれも「わからない」とは言っていない）。同じ質問・同じ言葉の行（業務の最終目的かだけが違う）は、正解も同じで
