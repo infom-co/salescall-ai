@@ -51952,8 +51952,9 @@ class ANDigitsReadTest(unittest.TestCase):
     def test_digits_are_read_before_comparing(self):
         from jtext import spoken_digits
         from listen import differences
-        # 分身 AO（✅ 2026-11-22 CL-1）：0で始まる並び（電話番号の形）は数字のまま・5桁からも万・億で読む＝AONumberReadingTest
-        for text, want in (("10", "十"), ("15日の午後2時", "十五日の午後二時"), ("1234", "千二百三十四"), ("090", "090"), ("0", "0"), ("10000", "一万"),
+        # 分身 AO（✅ 2026-11-22 CL-1）：番号の形（「-」でつながる並び・0で始まる3字以上の並びと、それにつながる並び）は数字のまま・5桁からも万・億で読む・
+        # 何にもつながらない2字までの0始まりの並びと単独の「0」は数として読む（「0」＝〇。39f62813 では「0」のままにしていた）＝AONumberReadingTest・AONumberShapeTest
+        for text, want in (("10", "十"), ("15日の午後2時", "十五日の午後二時"), ("1234", "千二百三十四"), ("090", "090"), ("0", "〇"), ("10000", "一万"),
                            ("１０", "十"), ("じゅう", "じゅう")):
             self.assertEqual(spoken_digits(text), want, text)
         self.assertEqual(differences("えっと、じゅう、の", "えっと、 10 の"), [])
@@ -52015,7 +52016,7 @@ class AONumberReadingTest(unittest.TestCase):
         for text, want in (("1万円", "一万円"), ("10000円", "一万円"), ("10,000円", "一万円"), ("5万3000円", "五万三千円"), ("53000円", "五万三千円"),
                            ("1000000円", "百万円"), ("120000000円", "一億二千万円"), ("10000000", "千万"), ("15日の午後2時", "十五日の午後二時"),
                            ("090-1234-5678", "09012345678"), ("090 1234 の 5678", "09012345678"), ("09012345678", "09012345678"),
-                           ("０９０－１２３４－５６７８", "09012345678"), ("0", "0"), ("１０", "十"), ("じゅう", "じゅう")):
+                           ("０９０－１２３４－５６７８", "09012345678"), ("0", "〇"), ("１０", "十"), ("じゅう", "じゅう")):
             self.assertEqual(spoken_digits(text), want, text)
 
     def test_cl1_examples(self):
@@ -52057,3 +52058,29 @@ class AONumberReadingTest(unittest.TestCase):
         from offscript import SpeechGate
         g = SpeechGate(lambda: "ありがとうございます。15日の14時、午後2時でよろしいでしょうか？")
         self.assertEqual(g.on_text("ありがとうございます。15日の14時、"), "ok")   # ⛔ 前は「15かの14じ」の7字で決めなかった
+
+
+class AONumberShapeTest(unittest.TestCase):
+    """分身 AO の続き2（書き置き rv192/AO/notes.md の続き2）：数字のまま比べるのは「番号の形」だけ＝「-」でつながる数字の並び（頭が0でなくても＝郵便番号「100-0001」）と、
+    0で始まる3字以上の並び、およびそれらに空白・「の」でつながる並び（「090 1234 の 5678」）。2字までで何にもつながらない0始まりの並び（「3時05分」の「05」・「09:30」の「09」）
+    と単独の「0」は数として読む（番号は字の並び・時刻や数は数＝同じ理由が当たる所すべてに＝10-19）。見分けは jtext.spoken_digits の1か所。✅ 2026-11-22 CL-1 が書いてある
+    決まりで決めた。⛔ 39f62813 では、0で始まる並びをすべて数字のままにし、「3時05分」と「3時5分」・「100-0001」と「100 0001」を違う読みと見た。"""
+
+    def test_number_shapes(self):
+        from jtext import spoken_digits, spoken_reading
+        for text, want in (("3時05分", "三時五分"), ("09:30", "九:三十"), ("0時", "〇時"), ("05", "五"), ("100-0001", "1000001"), ("100 の 0001", "1000001"),
+                           ("0120-123-456", "0120123456"), ("090", "090"), ("090 1234 の 5678", "09012345678"), ("15日の14時", "十五日の十四時"),
+                           ("1000001", "百万一")):   # 区切りの無い7字の並びは、5桁からも万・億で読む決まりのとおり数（番号とは字だけでは分けられない）
+            self.assertEqual(spoken_digits(text), want, text)
+        for a, b in (("3時05分でお願いします。", "3時5分でお願いします。"), ("09:30に伺います。", "9:30に伺います。"), ("100-0001です。", "100 0001です。"),
+                     ("100-0001です。", "100の0001です。"), ("090-1234-5678です。", "09012345678です。"), ("090-1234-5678です。", "090 1234 の 5678です。")):
+            self.assertEqual(spoken_reading(a), spoken_reading(b), (a, b))
+        self.assertNotEqual(spoken_reading("3時05分です。"), spoken_reading("3時50分です。"))
+        self.assertNotEqual(spoken_reading("100-0001です。"), spoken_reading("100-0002です。"))
+
+    def test_watch_and_measure_follow(self):
+        import offscript
+        from listen import differences
+        self.assertEqual(offscript.verdict("ありがとうございます。3時05分でよろしいでしょうか？", "ありがとうございます。3時5分でよろしいでしょうか？"), "ok")
+        self.assertEqual(differences("3時05分でお願いします。", "3時5分でお願いします。"), [])
+        self.assertEqual(differences("郵便番号は100-0001です。", "郵便番号は100 0001です。"), [])

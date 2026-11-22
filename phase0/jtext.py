@@ -8,7 +8,7 @@
   「代わりました」と「変わりました」のような、同じ音で漢字だけ違う書き方を、食い違いとして数えないため。
   ⛔ 2026-10-13：pykakasi の読みで比べていたため、「代わりました」と「変わりました」が食い違いに見えた
   ⇒ 比べるところ（listen.differences など）は、すべてこれを使う
-- spoken_reading：数の書き方（数字・漢数字・桁区切り・電話番号の区切り）をそろえてから compare_reading にする唯一の入口（spoken_digits）。
+- spoken_reading：数の書き方（数字・漢数字・桁区切り・番号の区切り）をそろえてから compare_reading にする唯一の入口（spoken_digits）。
   測りの比べ方（listen.differences）と、本番の言い間違いの見張り（offscript）が呼ぶ
 - morae：読みの長さ（おおよその音の数）。話す長さの見込みに使う（漢字の多い文と、かなの多い文を同じ物差しで測るため）
 - words／word_edges：日本語を単語に分ける（fugashi＋unidic-lite。AIを使わない）。名前の洗い出しと、「」でくくる位置の判断で使う
@@ -49,8 +49,9 @@ def compare_reading(text: str) -> str:
 
 _DIGITS = re.compile(r"\d+")
 _KANJI_DIGIT = "〇一二三四五六七八九"
-# 電話番号の形：0で始まる数字の並びと、それに「-」・空白・「の」でつながる数字の並び（数字のまま比べる＝区切りを外す）
-_PHONE = re.compile(r"(?<![\d.,])0\d*(?:(?:\s*[-‐‑–—−ー]\s*|\s+|\s*の\s*)\d+)*")
+# 「-」・空白・「の」でつながる数字の並び（番号の形かどうかは spoken_digits が決める）
+_HYPHEN = re.compile(r"[-‐‑–—−ー]")
+_CHAIN = re.compile(r"\d+(?:(?:\s*[-‐‑–—−ー]\s*|\s+|\s*の\s*)\d+)*")
 _THOUSANDS = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d,])")   # 桁区切りの「,」（「10,000」）
 _BIG_UNITS = ("", "万", "億", "兆")
 
@@ -80,23 +81,27 @@ def spoken_digits(text: str) -> str:
     4つの声とも「えっと、 10 の」と聞かれ、確かめに通らなかった）。
     - 頭が0でない数は位取りの漢数字（「15」＝十五）。5桁からも万・億で読む（「10000」「10,000」＝一万。桁区切りの「,」は外す）＝伺い12 のイ「言い直す金額は万・千で言う」
       （`flowctl.spoken_amount` の「1万円」と、AIの文字の「10000円」がそろう）。
-    - 0で始まる数字の並びと、それに「-」・空白・「の」でつながる数字の並び（電話番号の形「090-1234-5678」「090 1234 の 5678」）は、区切りを外して数字のまま（「09012345678」）。
-      ✅ 2026-11-22 CL-1 が決めた（帳面 4-30「明らかに違う中身だけで止める」＝正しく言った電話番号を止めない）。⛔ それまでは「1234」を千二百三十四・「09012345678」を
-      1字ずつ（〇九〇一…）にし、同じ番号でも区切りの有る無しで読みが別になった（記録の組で、本番の見張りが4組を外れと読む形だった＝分身 AO の書き置き rv192/AO/notes.md）。
-      漢数字で書いた番号（「〇九〇の一二三四」）は数字に戻さない。"""
+    - 番号の形は、区切りを外して数字のまま（「090-1234-5678」「090 1234 の 5678」＝09012345678・「100-0001」＝1000001）：「-」でつながる数字の並び（頭が0でなくても）と、
+      0で始まる3字以上の並び、およびそれらに空白・「の」でつながる並び。✅ 2026-11-22 CL-1 が決めた（帳面 4-30「明らかに違う中身だけで止める」＝正しく言った電話番号を止めない）。
+      ⛔ それまでは「1234」を千二百三十四・「09012345678」を1字ずつ（〇九〇一…）にし、同じ番号でも区切りの有る無しで読みが別になった（記録の組で、本番の見張りが4組を外れと
+      読む形だった＝分身 AO の書き置き rv192/AO/notes.md）。
+    - 何にもつながらない2字までの0始まりの並び（「3時05分」の「05」・「09:30」の「09」）と単独の「0」は数として読む（「05」＝五・「0」＝〇）＝番号は字の並び・時刻や数は数
+      （同じ理由が当たる所すべてに＝10-19。✅ 2026-11-22 CL-1。⛔ 39f62813 では0で始まる並びをすべて数字のままにし、「3時05分」と「3時5分」を違う読みと見た）。
+    - 区切りの無い5字からの並び（「1000001」）は数（百万一）＝番号とは字だけでは分けられない。漢数字で書いた番号（「〇九〇の一二三四」）は数字に戻さない。"""
     import unicodedata
 
     t = _THOUSANDS.sub(lambda m: m.group().replace(",", ""), unicodedata.normalize("NFKC", text))
 
-    def kanji(m: re.Match) -> str:
-        d = m.group()
-        return d if d[0] == "0" else _positional(d)
-    out, pos = [], 0
-    for m in _PHONE.finditer(t):
-        out += [_DIGITS.sub(kanji, t[pos:m.start()]), re.sub(r"\D", "", m.group())]
-        pos = m.end()
-    out.append(_DIGITS.sub(kanji, t[pos:]))
-    return "".join(out)
+    def number(d: str) -> str:
+        n = d.lstrip("0")
+        return _positional(n) if n else "〇"
+
+    def chain(m: re.Match) -> str:
+        part, runs = m.group(), _DIGITS.findall(m.group())
+        if _HYPHEN.search(part) or any(r[0] == "0" and len(r) >= 3 for r in runs):
+            return "".join(runs)   # 番号の形
+        return _DIGITS.sub(lambda r: number(r.group()), part)
+    return _CHAIN.sub(chain, t)
 
 
 def spoken_reading(text: str) -> str:
