@@ -26,12 +26,12 @@
   <span class="muted">{{ time(client.ended.forget_at) }}を過ぎたら、サーバーからこの依頼者のデータを外します（それまでは取り消せます）{% if client.grace_over and client.ended.blocked %}・まだ外していない理由：{{ client.ended.blocked }}{% endif %}</span>
   <span class="go">取り消す</span>
 </a>
-{#- 無効の依頼者（しばらく休む など）：門が新しい電話を通さない。どこで戻すかを添える（戻すのは、この依頼者の設定の1か所） -#}
+{#- 休ませている依頼者（しばらく休む など）：門が新しい電話を通さない。どこで戻すかを添える（戻すのは、この依頼者の設定の1か所） -#}
 {% elif not client.active %}
 <a class="card attention-stop notice-link stopped" href="/c/{{ client.client_id }}/settings#client-active">
-  <b>この依頼者は無効です。新しい電話をかけません</b>
+  <b>この依頼者は休んでいます。新しい電話をかけません</b>
   <span class="muted">理由：{{ client.state_reason }}・{{ time(client.state_at) }}から</span>
-  <span class="go">有効に戻す</span>
+  <span class="go">再開する</span>
 </a>
 {% endif %}
 {% if deficit %}{{ deficit_card(client, deficit, token, "/c/" ~ client.client_id ~ ("/b/" ~ business.business_id if business else "")) }}{% endif %}
@@ -54,7 +54,7 @@
 {% endfor %}
 {#- 依頼者を作った直後（業務がまだ1つも無い）：次にすることは業務を作ること。その場で作れるようにする（前は「上の『＋ 業務』から」の
     文だけで、流れがそこで途切れた＝2026-11-22 に、依頼者を作る流れを通して見つけた）。作る受け口はタブの「＋ 業務」と同じ1か所 -#}
-{% if not business and not businesses %}
+{% if not business and not businesses and not client.ended %}
 <section class="card setup" style="margin-top:16px">
   <h2>はじめかた</h2>
   <ol class="steps-check">
@@ -244,7 +244,7 @@
   {% set mode = words.MODE_WORDS["verification" if verification else "full"] %}
   <div class="title-row"><h2 style="margin:0">{{ mode[0] }}</h2>
     {% set bb = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id %}
-    <nav class="go-links" aria-label="この業務の画面">{% if versions %}{{ go(bb ~ "/versions/" ~ versions[0].version_id, "電話の台本（版 " ~ versions[0].version_no ~ "）") }}{% endif %}
+    <nav class="go-links" aria-label="この業務の画面">{% if versions %}{{ go(bb ~ "/versions/" ~ versions[0].version_id, "いちばん新しい電話の台本（版 " ~ versions[0].version_no ~ "）") }}{% endif %}
     {{ go(bb ~ "/reward", words.BUSINESS_NAV["/reward"]) }}
     {{ go(bb ~ "/samples", words.BUSINESS_NAV["/samples"]) }}
     {#- 前は「切り替える（業務の設定）」＝押すと切り替わるように読めた。移るだけなので、どこで変えるかを言う -#}

@@ -43,8 +43,8 @@
             <button class="btn main small" type="submit" data-submit disabled>この結果に直す</button></form></details>
         {% endif %}</dd>
       {%- if promise %}
-      {#- お客様とのお約束（いちばん新しい結果の判定の中身 callback。理由と「〇時まで」の理由の言葉は output/words の1か所） -#}
-      <dt>お客様とのお約束</dt><dd>{{ words.CALLBACK_REASON_WORDS.get(promise.reason, words.NO_WORD) }}{% if promise.theirs %}（お客様のほうから折り返すとおっしゃった）{% endif %}
+      {#- かけ直しのご都合（いちばん新しい結果の判定の中身 callback。理由と「〇時まで」の理由の言葉は output/words の1か所） -#}
+      <dt>かけ直しのご都合（お客様のお話から）</dt><dd>{{ words.CALLBACK_REASON_WORDS.get(promise.reason, words.NO_WORD) }}{% if promise.theirs %}（お客様のほうから折り返すとおっしゃった）{% endif %}
         {%- if promise.at %}<div class="muted">{{ time(promise.at) }}{% if promise.until %} 〜 {{ time(promise.until) }}{% endif %}</div>{% endif %}
         {%- if promise.until_why %}<div class="muted">「〇時まで」の理由：{{ words.UNTIL_WHY_WORDS.get(promise.until_why, words.NO_WORD) }}</div>{% endif %}</dd>
       {%- endif %}

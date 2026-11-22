@@ -7,9 +7,10 @@
 <div class="title-row"><div class="titles"><h1>電話の台本：版 {{ version.version_no }}</h1>
 <p class="lead">お客様との電話で話す中身（名乗り・用件・質問・想定問答）と、結果ごとのかけ直しです。かける時間帯や回数などは「この業務の設定」で決めます。{{ time(version.created_at) }}に作った版です。版は変えられません（直すときは新しい版を作ります。前の版も残ります）。お客様リストで使う版を替えるときは、業務のタブの「お客様リスト」の表から替えます。</p></div>
 {% if s %}
-  {#- 業務の複製（計画書 4章 C。作るのは core の registry.copy_business＝台本の中身・名前の読み・承認した録音を写す） -#}
+  {#- 業務の複製（計画書 4章 C。作るのは core の registry.copy_business＝版の中身・質問・業務の決まりを写す） -#}
   <span class="btn-row"><details class="adder"><summary class="btn small">この版から業務を複製する</summary>
-    <form class="panel" method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/versions/{{ version.version_id }}/copy">{{ csrf(token) }}
+    <form class="panel" method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/versions/{{ version.version_id }}/copy" data-confirm-ok="複製する"
+          data-confirm="依頼者「{{ client.name }}」の業務「{{ business.name }}」の版 {{ version.version_no }} を写して、新しい業務「{text:name}」を作ります。写すのは台本の中身（名乗り・用件・質問・想定問答）と、結果ごとのかけ直しです（お客様リストと結果は写しません）。作った業務は、画面からは消せません。">{{ csrf(token) }}
       <label class="field" for="copy-name">新しい業務の名前</label>
       <input id="copy-name" type="text" name="name" required placeholder="例：{{ business.name }}（2）">
       <p class="muted">依頼者「{{ client.name }}」に、この版の電話の台本（中身・名前の読み・承認した録音）を写した業務を作ります。業務ごとの設定・報酬の決まり・送り先は写しません。もとの業務は変わりません。</p>
@@ -81,13 +82,14 @@
   <tbody>{% for a in answers %}<tr{% if a.source == "off" %} class="muted"{% endif %}><td>{{ a.name }}</td>
     <td>{% if a.source == "off" %}（答えません）{% else %}{{ a.text }}{% endif %}{% if a.source == "overridden" %}<span class="muted small-block">標準の答え：{{ a.standard_text }}</span>{% endif %}</td>
     <td>{{ tag(words.ANSWER_SOURCE_WORDS[a.source], words.tone("info") if a.source in ("overridden", "business") else "") }}</td></tr>{% endfor %}</tbody></table></div>
-{% else %}{{ empty_line("想定問答はありません", "この版は、標準の想定問答も、この業務だけの想定問答も持っていません。") }}{% endif %}
+{% else %}{{ empty_line("想定問答はありません", "この版は、標準の想定問答も、この業務だけの想定問答も持っていません。標準の想定問答は管理者が作り、この業務だけの答えは、次に台本を取り込むときに入れます（新しい版になります）。") }}{% endif %}
 <h2>「わからない」「答えたくない」の扱い{{ info("business.handling", "「わからない」「答えたくない」の扱い") }}</h2>
 {% if handling %}
 <div class="table-scroll"><table class="list"><thead><tr><th>質問</th><th>お答え</th><th>理由</th><th class="wide">扱い</th></tr></thead>
   <tbody>{% set seen = namespace(q=none) %}{% for (qid, state, reason), h in handling %}{% set q = s.questions|selectattr("id", "equalto", qid)|first %}
-    {#- 同じ質問の行が続くときは、質問の文を最初の行にだけ出す（くり返さない） -#}
-    <tr><td>{% if qid != seen.q %}{{ q.text if q else qid }}{% endif %}{% set seen.q = qid %}</td><td class="nowrap">{{ words.sheet_word("state", state) }}</td><td>{{ words.sheet_word("reason", reason) }}</td>
+    {#- 同じ質問の行が続くときは、広い画面の表では質問の文を最初の行にだけ見せる（くり返さない）。狭い画面の札の形では、どの札にも出す
+        （2026-11-23 の見直し：2行目から空にしていて、札がどの質問のものか分からなかった。見せ分けは CSS の repeat-cell の1か所） -#}
+    <tr><td{% if qid == seen.q %} class="repeat-cell"{% endif %}><span>{{ q.text if q else qid }}</span>{% set seen.q = qid %}</td><td class="nowrap">{{ words.sheet_word("state", state) }}</td><td>{{ words.sheet_word("reason", reason) }}</td>
       <td class="wide">{{ words.sheet_word("kind", h.kind) }}{% if h.conclusion %}<span class="muted">（結論：{{ h.conclusion }}）</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
 {% else %}{{ empty_line("この版に、扱いの決まりはありません", "業務の決まりが入ると、ここに質問ごとの扱いが出ます。") }}{% endif %}
 <h2>言ってはいけないこと{{ info("business.forbidden", "言ってはいけないこと") }}</h2>

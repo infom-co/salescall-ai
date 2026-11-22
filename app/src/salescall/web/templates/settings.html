@@ -162,21 +162,23 @@
 <div class="card">{{ empty("ここで決められる設定はありません", "ほかの場所（契約者・依頼者・業務）の設定の画面で決めます。") }}</div>
 {% endif %}
 {#- 依頼者との取引（計画書 4章 A「登録・編集・無効化」の無効化・11-4 の契約終了）。いちばん下に1つ。2つの操作を分ける：
-    (1) しばらく休む＝無効（core の registry.set_client_active。記録・結果・設定は消さず、いつでも戻せる）
+    (1) しばらく休む（休ませる・再開する。core の registry.set_client_active。記録・結果・設定は消さず、いつでも戻せる）
     (2) 契約を終える（core の contract_end。新しい電話を止め、猶予のあと最後の控えをハードディスクに取って確かめてから、サーバーからデータを外す。
-        猶予のあいだは取り消せる。外したあとは戻せない）。契約終了のあいだは「有効に戻す」を出さない（データベースも断る＝取り消しを通す） -#}
+        猶予のあいだは取り消せる。外したあとは戻せない）。契約終了のあいだは「再開する」を出さない（データベースも断る＝取り消しを通す） -#}
 {% if level == "client" and client %}
 <section class="card client-active" id="client-active">
   <h2>依頼者との取引</h2>
   {#- 何が起きるかは、ここの1つの文（欄の説明と確かめの窓が同じ文を使う。2026-11-21 の見直し：欄の説明に「予約を取り消す」が無く、
       確かめの窓でだけ言っていた）。開くのはその場で広がる形（画面の下の方で小窓が切れて、ボタンが見えなかった） -#}
-  {% set off_effect = "すべての業務で新しい電話をかけず、まだかけていない予約は取り消します（記録・結果・設定は消えず、あとで有効に戻せます）。" %}
+  {% set off_effect = "すべての業務で新しい電話をかけず、まだかけていない予約は取り消します（記録・結果・設定は消えず、あとで再開できます）。" %}
   {% set on_effect = "この依頼者に、また電話をかけます（ほかに止めているものがあれば、そちらが先です）。" %}
   {% set end_effect = "この依頼者への新しい電話を止めます。" ~ grace ~ "のあいだは取り消せます。" ~ grace ~ "が過ぎ、最後の控えをハードディスクに取って確かめたら、この依頼者のデータ（お客様・結果・設定）をサーバーから外します。ハードディスクの控えは残ります。外したあとは元に戻せません。" %}
   {% if client.ended %}
   {#- 契約終了の猶予のあいだ（core の contract_end.state の答えのまま：いつ押したか・いつ外せるか・まだ外せない理由） -#}
-  <p>依頼者「{{ client.name }}」は{{ tag("契約終了", words.tone("stopped")) }}です（{{ time(client.ended.ended_at) }}。{{ client.state_reason }}）。新しい電話をかけていません。</p>
+  <p>依頼者「{{ client.name }}」は{{ tag("契約終了", words.tone("stopped")) }}です。新しい電話をかけていません。</p>
   <dl class="facts">
+    <dt>押したとき</dt><dd>{{ time(client.ended.ended_at) }}</dd>
+    <dt>記録に残った理由</dt><dd>{{ client.state_reason }}</dd>
     <dt>サーバーから外す</dt><dd>{{ time(client.ended.forget_at) }}を過ぎたら（それまでは取り消せます）</dd>
     {% if client.grace_over and client.ended.blocked %}<dt>まだ外していない理由</dt><dd>{{ client.ended.blocked }}</dd>{% endif %}
   </dl>
@@ -189,21 +191,21 @@
   <div class="deal-part">
   <h3>しばらく休む</h3>
   {% if client.active %}
-  <p>依頼者「{{ client.name }}」は<b>有効</b>です。しばらく電話を休むときは、無効にします。無効にすると、{{ off_effect }}</p>
-  <details class="adder-block"><summary class="btn small danger-text">この依頼者を無効にする</summary>
-    <form class="panel-inline" method="post" action="/c/{{ client.client_id }}/active" data-needs-reason data-confirm-ok="無効にする" data-confirm-tone="danger"
-          data-confirm="依頼者「{{ client.name }}」を無効にします。{{ off_effect }}">{{ csrf(token) }}
+  <p>依頼者「{{ client.name }}」に、電話をかけています。しばらく電話を休むときは、休ませます。休ませると、{{ off_effect }}</p>
+  <details class="adder-block"><summary class="btn small danger-text">この依頼者を休ませる</summary>
+    <form class="panel-inline" method="post" action="/c/{{ client.client_id }}/active" data-needs-reason data-confirm-ok="休ませる" data-confirm-tone="danger"
+          data-confirm="依頼者「{{ client.name }}」を休ませます。{{ off_effect }}">{{ csrf(token) }}
       <input type="hidden" name="active" value="0">
       <label class="field" for="client-off-reason">理由（記録に残ります）</label><input id="client-off-reason" type="text" name="reason" placeholder="例：依頼者の都合で、今月は休む">
-      <div class="actions"><button class="btn danger small" type="submit" data-submit disabled>無効にする</button></div></form></details>
+      <div class="actions"><button class="btn danger small" type="submit" data-submit disabled>休ませる</button></div></form></details>
   {% else %}
-  <p>依頼者「{{ client.name }}」は{{ tag("無効", words.tone("stopped")) }}です（理由：{{ client.state_reason }}・{{ time(client.state_at) }}から）。新しい電話をかけていません。有効に戻すと、{{ on_effect }}</p>
-  <details class="adder-block"><summary class="btn small">有効に戻す</summary>
-    <form class="panel-inline" method="post" action="/c/{{ client.client_id }}/active" data-needs-reason data-confirm-ok="有効に戻す"
-          data-confirm="依頼者「{{ client.name }}」を有効に戻します。{{ on_effect }}">{{ csrf(token) }}
+  <p>依頼者「{{ client.name }}」は{{ tag("休み", words.tone("stopped")) }}です（理由：{{ client.state_reason }}・{{ time(client.state_at) }}から）。新しい電話をかけていません。再開すると、{{ on_effect }}</p>
+  <details class="adder-block"><summary class="btn small">再開する</summary>
+    <form class="panel-inline" method="post" action="/c/{{ client.client_id }}/active" data-needs-reason data-confirm-ok="再開する"
+          data-confirm="依頼者「{{ client.name }}」を再開します。{{ on_effect }}">{{ csrf(token) }}
       <input type="hidden" name="active" value="1">
       <label class="field" for="client-on-reason">理由（記録に残ります）</label><input id="client-on-reason" type="text" name="reason" placeholder="例：取引を再開した">
-      <div class="actions"><button class="btn main small" type="submit" data-submit disabled>有効に戻す</button></div></form></details>
+      <div class="actions"><button class="btn main small" type="submit" data-submit disabled>再開する</button></div></form></details>
   {% endif %}
   </div>
   <div class="deal-part">
@@ -216,12 +218,12 @@
       <div class="actions"><button class="btn danger small" type="submit" data-submit disabled>契約を終える</button></div></form></details>
   </div>
   {% endif %}
-  {#- 名前を直した記録（直す前と後・だれが・いつ。読むのは web/counts.name_changes の1か所） -#}
+</section>
+{#- 名前を直した記録（直す前と後・だれが・いつ。読むのは web/counts.name_changes の1か所） -#}
   {% if renames %}
   <details class="more name-history"><summary>名前を直した記録（{{ renames|length }}件）</summary>
     <ul class="history-list">{% for n in renames %}<li><span class="when">{{ time(n.changed_at) }}</span>・{{ words.NAME_CHANGE_KIND_WORDS.get(n.kind, words.NO_WORD) }}「{{ n.old_name }}」→「{{ n.new_name }}」・{{ n.changed_by }}</li>{% endfor %}</ul>
   </details>
   {% endif %}
-</section>
 {% endif %}
 {% endblock %}

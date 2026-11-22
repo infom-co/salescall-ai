@@ -34,11 +34,12 @@
     <label class="field" for="rw-gap">時給のとき：電話と電話の間（秒）</label>
     <div class="unit-input"><input id="rw-gap" type="number" inputmode="numeric" name="hourly_gap_seconds" min="{{ gap_step }}" step="{{ gap_step }}"
       value="{{ current.hourly_gap_seconds if current and current.hourly_gap_seconds else gap_initial }}"><span>秒</span></div>
-    <p class="muted small-block">時給を使うときだけ効きます（上下のボタンで {{ gap_step }} 秒ずつ変わります）。</p>
+    <p class="muted small-block">時給の時間は、人がかけるのと同じ速さで数えます：電話1本ごとに、かけ始めから終わりまでの時間に、この「電話と電話の間」（人なら報告を書き、リストを確かめ、次にかけるまでの時間）を足します。時給を使うときだけ効きます（上下のボタンで {{ gap_step }} 秒ずつ変わります）。</p>
     {#- 選び肢ごとに説明を添える（2026-11-22 の見直し：3つの説明が1つの段落にまとめて書かれ、どれがどれか読み取りにくかった。言葉は core の
         reward.CAUTIONS の1か所） -#}
     <fieldset class="plain">
       <legend class="field">赤字の知らせの早さ</legend>
+      <p class="muted small-block">かっこの本数は、{{ caution_example }}の目安です（実際の本数は、報酬と費用で変わります）。</p>
       {% for k, c in cautions.items() %}
       <label class="choice"><input type="radio" name="deficit_caution" value="{{ k }}" {% if (current and current.deficit_caution == k) or (not current and k == "normal") %}checked{% endif %}>
         <span><b>{{ c[0] }}</b><span class="muted small-block">{{ c[1] }}</span></span></label>

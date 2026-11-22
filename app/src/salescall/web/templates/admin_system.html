@@ -3,7 +3,7 @@
 {% block title %}システムの様子{% endblock %}
 {% block main %}
 <h1>システムの様子</h1>
-<p class="lead">すべての契約者に効く、システムの持ち物です（管理者だけ）。祝日の暦は毎日、決まった間隔の仕事が確かめて取り込み、取り込めないときは管理者にお知らせします。</p>
+<p class="lead">すべての契約者に効く、システムの持ち物です（管理者だけ）。祝日の暦は毎日、システムが自動で確かめて取り込み、取り込めないときは管理者にお知らせします。</p>
 {{ flash(done, ok) }}
 
 <section class="card" id="calendar">
@@ -14,14 +14,15 @@
     <dt>入っている年</dt><dd>{{ cal.covered_until }}年まで {% if next_year_missing %}{{ tag("翌年の分がまだ", words.tone("waiting")) }}{% endif %}</dd>
     <dt>最後に取り込んだ時</dt><dd>{{ time(cal.last_loaded_at) }}</dd>
   </dl>
-  {% if next_year_missing %}<p class="muted">翌年の祝日が、まだ公式の一覧に載っていません。載ると、決まった間隔の仕事が取り込みます（年が替わる前にお知らせします。入らないまま年が替わると、その年は電話をかけません）。</p>{% endif %}
-  {% else %}{{ empty_line("祝日の暦はまだ入っていません", "決まった間隔の仕事が動き始めると、公式の一覧から取り込みます。入るまでは、その日が祝日か分からないので、電話をかけません（門が通しません）。") }}{% endif %}
+  {% if next_year_missing %}<p class="muted">翌年の祝日が、まだ公式の一覧に載っていません。載ると、システムが自動で取り込みます（年が替わる前にお知らせします。入らないまま年が替わると、その年は電話をかけません）。</p>{% endif %}
+  {% else %}{{ empty_line("祝日の暦はまだ入っていません", "システムが動き始めると、公式の一覧から取り込みます。入るまでは、その日が祝日か分からないので、電話をかけません。") }}{% endif %}
 </section>
 
 <section class="card" id="line-methods">
   <div class="title-row"><h2 style="margin:0">回線の方式</h2>
     <details class="adder"><summary class="btn small">＋ 方式を足す</summary>
-      <form class="panel stack" method="post" action="/admin/system/line-methods">{{ csrf(token) }}
+      <form class="panel stack" method="post" action="/admin/system/line-methods" data-confirm-ok="足す"
+            data-confirm="回線の方式「{text:label}」（中の名前「{text:method}」）を足します。すべての契約者が、回線を足すときに選べるようになります（画面からは外せません）。">{{ csrf(token) }}
         <p class="muted">新しい回線の方式は、電話をつなぐ部品を作って確かめてから足します（足すと、回線を足すときに選べるようになります）。</p>
         <label class="field" for="lm-method">中の名前（英字。電話の部品の名前と同じ）</label><input id="lm-method" type="text" name="method" required>
         <label class="field" for="lm-label">画面の名前</label><input id="lm-label" type="text" name="label" required placeholder="例：Rakuten Link">
@@ -34,8 +35,9 @@
 <section class="card" id="voices">
   <div class="title-row"><h2 style="margin:0">声の一覧</h2>
     <details class="adder"><summary class="btn small">＋ 声を足す</summary>
-      <form class="panel stack" method="post" action="/admin/system/voices">{{ csrf(token) }}
-        <p class="muted">会話 AI のモデルが進んで声が増えたときに足します。話し方（声の型）は会話の担当が足し、録音がそろうまで、その声では話しません。</p>
+      <form class="panel stack" method="post" action="/admin/system/voices" data-confirm-ok="足す"
+            data-confirm="声「{text:voice_name}」を足します。すべての契約者の声の一覧に入ります（話し方と録音がそろうまで、その声では話しません。やめるときは「使わないにする」）。">{{ csrf(token) }}
+        <p class="muted">会話 AI のモデルが進んで声が増えたときに足します。話し方（声の型）と録音がそろうまで、その声では話しません。</p>
         <label class="field" for="v-name">声の名前（会話 AI の声の名前のまま。英字）</label><input id="v-name" type="text" name="voice_name" required>
         <label class="field" for="v-note">覚え書き</label><input id="v-note" type="text" name="note" required placeholder="例：落ち着いた男性の声">
         <fieldset class="plain"><legend class="field">画面に出す性別</legend>

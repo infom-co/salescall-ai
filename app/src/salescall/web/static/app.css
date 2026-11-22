@@ -771,3 +771,6 @@ label.enc-choice > input { margin-top: 4px; }
 /* 依頼者との取引：「しばらく休む」と「契約を終える」は別の操作なので、区切り線で2つのまとまりに分ける（2026-11-23。前は見出しが上のボタンに付いて見えた） */
 .client-active .deal-part h3 { margin: 0 0 6px; font-size: 15px; }
 .client-active .deal-part + .deal-part { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
+
+/* 同じ値が続く表の欄（版の画面の「扱い」の質問 など）：広い画面の表では2行目から見せず、狭い画面の札の形ではどの札にも見せる（2026-11-23） */
+@media (min-width: 601px) { td.repeat-cell > span { visibility: hidden; } }

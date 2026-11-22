@@ -1023,7 +1023,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 except business_settings.SettingsInvalid as e:
                     raise actions.Refused(str(e)) from None
             out = actions.act(secret, person.login_id, dict(form), lambda: ctx.system(do),
-                              done=f"標準の想定問答の新しい版を作りました（{len(answers)}問）。前の版は残ります。使っている業務の台本は、決まった間隔の仕事が"
+                              done=f"標準の想定問答の新しい版を作りました（{len(answers)}問）。前の版は残ります。使っている業務の台本は、システムが自動で"
                                    "新しい標準に合わせた版を作り、標準の録音がそろってから替わります。")
             return _back("/admin/standard", out)
         return handle(request, render)
@@ -1111,7 +1111,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 return name
             out = actions.act(secret, person.login_id, form, lambda: ctx.system(do), done="")
             if out.ok:   # 結果の1行は、どの契約者に効いたかを名前で言う
-                out = actions.Outcome(True, f"契約者「{out.value}」の名前の録音は、" + ("これから管理者のチェックなしで入ります（決まった間隔の仕事が入れます）。"
+                out = actions.Outcome(True, f"契約者「{out.value}」の名前の録音は、" + ("これから管理者のチェックなしで入ります（システムが自動で入れます）。"
                                                                                       if skip else "これから管理者が聞いて決めます。"))
             return _back("/admin/name-reviews", out)
         return handle(request, render)
@@ -1517,7 +1517,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     async def tenant_dnc_revoke(request: Request) -> HTMLResponse:
         form = dict(await request.form())
         return _dnc_act(request, form, None, lambda tx: dnc.revoke_contractor(tx, _entry(form), str(form.get("reason") or "").strip()),
-                        "取り消しました。この登録で終えたお客様は、決まった間隔の仕事が予定に戻します。")
+                        "取り消しました。この登録で終えたお客様は、システムが自動で予定に戻します。")
 
     @app.get("/c/{client_id}/dnc")
     def client_dnc(request: Request, client_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
@@ -1662,15 +1662,15 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
 
     @app.post("/c/{client_id}/active")
     async def client_active(request: Request, client_id: UUID) -> HTMLResponse:
-        """依頼者を無効にする（取引を終えた など）・有効に戻す。無効にすると、まだ発信していない予約を取り消し、門が新しい電話を通さない
+        """依頼者を休ませる（しばらく休む）・再開する。休ませると、まだ発信していない予約を取り消し、門が新しい電話を通さない
         （core の registry.set_client_active の1か所。理由は記録に残る）。"""
         form = dict(await request.form())
         active = form.get("active") == "1"
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             out = actions.act(secret, person.login_id, form,
                               lambda: ctx.client(client_id, lambda tx: registry.set_client_active(tx, active, reason=str(form.get("reason") or ""))),
-                              done=("有効に戻しました。この依頼者に、また電話をかけます（ほかに止めているものがあれば、そちらが先です）。" if active
-                                    else "無効にしました。この依頼者には、新しい電話をかけません（まだかけていない予約は取り消しました）。"),
+                              done=("再開しました。この依頼者に、また電話をかけます（ほかに止めているものがあれば、そちらが先です）。" if active
+                                    else "休ませました。この依頼者には、新しい電話をかけません（まだかけていない予約は取り消しました）。"),
                               reason_field="reason")
             return _back(f"/c/{client_id}/settings", out)
         return handle(request, render)
@@ -1737,7 +1737,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         "deficit": usage.deficit_notice(tx),   # 赤字か＝core の1か所の答え（依頼者全体のもの。業務のタブにも出す）
                         "figures": counts.business_figures(tx, business_id),   # 業務の成果（数えるのは counts の1か所）
                         "required": [] if business_id is None else counts.required_answers(tx, business_id),
-                        "steps": [] if business_id is None else counts.setup_steps(tx, client_id, business_id, needs)}
+                        # 契約終了の依頼者には、はじめかた（これから用意すること）を出さない（新しい電話をかけない依頼者に用意をさせない）
+                        "steps": [] if business_id is None or c["ended"] else counts.setup_steps(tx, client_id, business_id, needs)}
             values = ctx.client(client_id, read, read_only=True)
             return page(request, "client.html", person, ctx, waiting=_waiting(ctx, client_id, business_id), done=done, ok=bool(ok),
                         stopped=counts.stops_for(counts.open_stops(ctx), client_id, business_id), **values)
@@ -1848,7 +1849,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 current = next((r for r in rows if r["valid_from"] <= now), None)
                 return {"client": context.client(tx, client_id),
                         "business": b, "businesses": context.businesses(tx), "rows": rows, "current": current, "now": now}
-            return page(request, "reward.html", person, ctx, fields=REWARD_FIELDS, cautions=reward.CAUTIONS, gap_initial=reward.HOURLY_GAP_INITIAL_SECONDS, gap_step=reward.HOURLY_GAP_STEP_SECONDS, done=done, ok=bool(ok),
+            return page(request, "reward.html", person, ctx, fields=REWARD_FIELDS, cautions=reward.CAUTIONS, caution_example=reward.CAUTION_EXAMPLE, gap_initial=reward.HOURLY_GAP_INITIAL_SECONDS, gap_step=reward.HOURLY_GAP_STEP_SECONDS, done=done, ok=bool(ok),
                         **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 
@@ -2455,7 +2456,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 latest = results.latest(tx, task_id)
                 # いまかける番号の、そのお客様の声が聞き取れなかった回線の数（番号の欄 audio_lines＝core の health.number_of の1か所。CL-2 4-170）
                 dial_voice = len(health.number_of(tx, tasks_core.dial_number(tx, task_id)["contact_id"]).audio_lines)
-                # お客様とのお約束（いちばん新しい結果の判定の中身 callback を読むだけ＝core の judge._callback の1か所。「〇時まで」の理由＝
+                # かけ直しのご都合（いちばん新しい結果の判定の中身 callback を読むだけ＝core の judge._callback の1か所。「〇時まで」の理由＝
                 # until_why も見せる＝CL-2 4-149 (2)。⛔ 2026-11-22 深夜まで、判定の中身を画面に出していなかった）
                 cb = ((latest or {}).get("detail") or {}).get("callback")
                 promise = None if not isinstance(cb, dict) else {

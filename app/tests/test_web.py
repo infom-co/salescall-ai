@@ -481,7 +481,7 @@ class Web(_World):
                                           "at": "2026-11-24T06:00:00+00:00", "until": "2026-11-24T06:30:00+00:00"}}}
         with unittest.mock.patch.object(results, "latest", lambda tx, task_id: latest):
             page = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/rows/{self.a['task']}").text
-        part = page[page.index("お客様とのお約束"):]
+        part = page[page.index("かけ直しのご都合"):]
         self.assertIn("あとでかけ直す", part[:800])
         self.assertIn("「〇時まで」の理由：「〇時までに確認します」", part[:800])
 
@@ -539,7 +539,7 @@ class Web(_World):
         self.assertIn("ok=1", r.headers["location"])
         self.assertEqual(self.post("B", f"/c/{cid}/businesses", {"form_token": self.token("B"), "name": "乗っ取り"}).status_code, 404)
 
-    # ── 名前を直す・依頼者を無効にする（計画書 4章 A「登録・編集・無効化」。3回目の見直し「高」の3） ──
+    # ── 名前を直す・依頼者を休ませる（計画書 4章 A「登録・編集・無効化」。3回目の見直し「高」の3） ──
     def test_names_are_fixed_in_one_way_for_clients_businesses_runs_and_lines(self):
         tok = self.token("A")
         cid = self.post("A", "/t/clients", {"form_token": tok, "name": "架空の名前を直す依頼者"}).headers["location"].split("/")[2].split("?")[0]
@@ -576,30 +576,31 @@ class Web(_World):
 
     def test_a_client_is_made_inactive_and_back_with_a_reason(self):
         tok = self.token("A")
-        cid = self.post("A", "/t/clients", {"form_token": tok, "name": "架空の無効にする依頼者"}).headers["location"].split("/")[2].split("?")[0]
+        cid = self.post("A", "/t/clients", {"form_token": tok, "name": "架空の休ませる依頼者"}).headers["location"].split("/")[2].split("?")[0]
         home = self.get("A", "/t").text                                                   # まだ何も無い依頼者は、ホームの表に並べず名前だけの1行に
         quiet = home[home.index('class="quiet-clients'):]
         self.assertIn(f'<a href="/c/{cid}">', quiet[:quiet.index("</p>")])
         self.assertNotIn(f'<td><a href="/c/{cid}">', home)
         settings_page = self.get("A", f"/c/{cid}/settings").text
-        self.assertIn("この依頼者を無効にする", settings_page)
-        self.assertRegex(settings_page, r'data-confirm-ok="無効にする" data-confirm-tone="danger"')   # 最後の一押しは赤（app.js の1か所）
+        self.assertIn("この依頼者を休ませる", settings_page)
+        self.assertRegex(settings_page, r'data-confirm-ok="休ませる" data-confirm-tone="danger"')   # 最後の一押しは赤（app.js の1か所）
         self.assertIn("ok=0", self.post("A", f"/c/{cid}/active", {"form_token": tok, "active": "0", "reason": ""}).headers["location"])   # 理由が要る
-        r = self.post("A", f"/c/{cid}/active", {"form_token": tok, "active": "0", "reason": "架空の取引を終えた"})
+        r = self.post("A", f"/c/{cid}/active", {"form_token": tok, "active": "0", "reason": "架空：今月は休む"})
         self.assertIn("ok=1", r.headers["location"])
         self.assertEqual(r.headers["location"].split("?")[0], f"/c/{cid}/settings")
         active = app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: tx.one("SELECT salescall.client_active(%s) AS a", (cid,))["a"])
         self.assertFalse(active)                                                            # 門が見るのと同じ1か所
         page = self.get("A", f"/c/{cid}").text
-        self.assertIn("この依頼者は無効です", page)
-        self.assertIn("架空の取引を終えた", page)
-        self.assertIn("（無効）", page)                                                     # タブにも
+        self.assertNotIn("無効", page.split("<main", 1)[-1])                     # 呼び方は1つ（休み・再開）
+        self.assertIn("この依頼者は休んでいます", page)
+        self.assertIn("架空：今月は休む", page)
+        self.assertIn("（休み）", page)                                                     # タブにも
         home = self.get("A", "/t").text
-        self.assertIn("無効</span>", home[home.index(f'<td><a href="/c/{cid}">'):].split("</tr>")[0])   # ホームの依頼者ごとの表にも
-        self.assertIn("有効に戻す", self.get("A", f"/c/{cid}/settings").text)
+        self.assertIn("休み</span>", home[home.index(f'<td><a href="/c/{cid}">'):].split("</tr>")[0])   # ホームの依頼者ごとの表にも
+        self.assertIn("再開する", self.get("A", f"/c/{cid}/settings").text)
         self.assertEqual(self.post("B", f"/c/{cid}/active", {"form_token": self.token("B"), "active": "1", "reason": "乗っ取り"}).status_code, 404)
         self.assertIn("ok=1", self.post("A", f"/c/{cid}/active", {"form_token": tok, "active": "1", "reason": "架空の取引を再開"}).headers["location"])
-        self.assertNotIn("この依頼者は無効です", self.get("A", f"/c/{cid}").text)
+        self.assertNotIn("この依頼者は休んでいます", self.get("A", f"/c/{cid}").text)
 
     def test_a_run_takes_only_a_version_of_its_own_business(self):
         url = f"/c/{self.a['client']}/b/{self.a['business']}/runs"
@@ -1244,7 +1245,7 @@ class Web(_World):
 
 # 確かめの窓を必ず通す送り先（取り消せない操作と、電話を再開させる操作）：結果を直す・かけるかを変える・発信禁止を外す・PC のログインを外す・
 # 止めたもの／回線の再開・緊急の道での再開・依頼者を無効にする／戻す・回線の使用停止・依頼者へ渡すファイルの書き出し・赤字を確かめた
-CONFIRMED_ACTIONS = r"/result$|/exclude$|/revoke$|/resume$|/stops/[^/]+/emergency$|/active$|/contract-end(/cancel)?$|/retire$|/results\.(xlsx|csv)$|/inbox/deficit/confirm$"
+CONFIRMED_ACTIONS = r"/result$|/exclude$|/revoke$|/resume$|/stops/[^/]+/emergency$|/active$|/contract-end(/cancel)?$|/versions/[^/]+/copy$|/admin/system/(line-methods|voices)$|/retire$|/results\.(xlsx|csv)$|/inbox/deficit/confirm$"
 
 
 # 確かめの窓の最後の一押しを赤にする送り先（取り消せない・電話を止める側。app.js の1か所が data-confirm-tone で切り替える）：

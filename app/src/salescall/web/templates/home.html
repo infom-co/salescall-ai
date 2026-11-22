@@ -61,9 +61,9 @@
   <tbody>
   {% for c in busy %}
     <tr>
-      {#- 新しい電話をかけていない依頼者は、名前の横に赤い札（無効＝取引を終えた など／止まっています＝依頼者の範囲の停止。答えは context.client と
+      {#- 新しい電話をかけていない依頼者は、名前の横に赤い札（休み＝しばらく休ませている／契約終了／止まっています＝依頼者の範囲の停止。答えは context.client と
           counts.stopped_clients の1か所＝タブの印と同じ） -#}
-      <td><a href="/c/{{ c.client_id }}">{{ c.name }}</a>{% if c.ended %} {{ tag("契約終了", words.tone("stopped")) }}{% elif not c.active %} {{ tag("無効", words.tone("stopped")) }}{% elif c.stopped %} {{ tag(words.STOP_STATE, words.tone("stopped")) }}{% endif %}</td>
+      <td><a href="/c/{{ c.client_id }}">{{ c.name }}</a>{% if c.ended %} {{ tag("契約終了", words.tone("stopped")) }}{% elif not c.active %} {{ tag("休み", words.tone("stopped")) }}{% elif c.stopped %} {{ tag(words.STOP_STATE, words.tone("stopped")) }}{% endif %}</td>
       <td class="num">{{ c.dialed }}</td>
       <td class="num">{{ c.talked }}</td>
       <td class="num">{{ c.call }}</td>

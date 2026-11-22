@@ -135,12 +135,18 @@
     var out = [];
     if (form.classList.contains("bulk-form") && form.querySelectorAll("input[name=task_id]:checked").length === 0) out.push("お客様を選ぶ");
     Array.prototype.forEach.call(form.querySelectorAll("select[required]"), function (sel) { if (!sel.value) out.push("どうするかを選ぶ"); });
+    // 選ぶ欄（必須の丸い選び肢）：名前ごとに、どれも選んでいなければ足りない（版を替える など。2026-11-23 の見直し：数えていなかった）
+    var groups = {};
+    Array.prototype.forEach.call(form.querySelectorAll("input[type=radio][required]"), function (r) { groups[r.name] = groups[r.name] || r.checked; });
+    Object.keys(groups).forEach(function (n) { if (!groups[n]) out.push("どれかを選ぶ"); });
     var box = form.querySelector("[name=reason]");
     if (box && !box.value.trim()) out.push("理由を書く");
     return out;
   }
   function submitState(form) {
-    var btn = form.querySelector("[data-submit]");
+    // 送るボタンは、印（data-submit）が無くても、その欄の送るボタンを見つける（2026-11-23 の見直し：ひな形の2か所に印を付ける作りで、
+    // 新しい欄が印を付け忘れ、理由が空でも押せた。欄の印 data-needs-reason の1つだけで決まるようにした）
+    var btn = form.querySelector("[data-submit]") || form.querySelector("button[type=submit], button:not([type])");
     if (!btn) return;
     var picked = form.querySelectorAll("input[type=checkbox][name=task_id]:checked").length;
     var c = form.querySelector("[data-checked-count]"); if (c) c.textContent = picked;
@@ -200,7 +206,7 @@
   // ボタンを止めるのは、ブラウザが送る中身を作り終えたあと（次の順番）にする。
   // 先に止めると、押したボタンの名前と値（例：許可する／断る）が送る中身から落ちてしまう。
   // 取り消せない操作の確かめ（data-confirm の付いた送信は、すべてこの1か所で確かめの窓を通す。計画書 5-1「名前つきで見せてから」）。
-  // 文の {n} は選んだお客様の数、{select:名前} はその選ぶ欄でいま選んでいる言葉（送る直前の値で書く）
+  // 文の {n} は選んだお客様の数、{select:名前} はその選ぶ欄でいま選んでいる言葉、{text:名前} は入れた文字（送る直前の値で書く）
   var pendingConfirm = null;
   function confirmText(form) {
     function count(name, on) {
@@ -214,6 +220,8 @@
       })
       .replace(/\{(un)?checked:([a-z_]+)\}/g, function (_, un, name) { return count(name, !un); })
       .replace(/\{n\}/g, String(form.querySelectorAll("input[name=task_id]:checked").length))
+      // 入れた文字 {text:名前}（業務の複製の新しい名前 など。送る直前の値で書く）
+      .replace(/\{text:([a-z_]+)\}/g, function (_, name) { var t = form.querySelector("[name=" + name + "]"); return t ? t.value.trim() : ""; })
       .replace(/\{select:([a-z_]+)\}/g, function (_, name) {
         var sel = form.querySelector("select[name=" + name + "]");
         // 選ぶ欄の言葉に「（いま）」などの印を添えた項目は、印のない言葉を data-word に持つ（文には言葉だけを書く）
