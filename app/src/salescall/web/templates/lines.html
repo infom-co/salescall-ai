@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, flash, csrf, empty, readiness, rename, info %}
+{% from "parts.html" import tag, flash, csrf, empty, readiness, rename, info, empty_line %}
 {% block title %}{{ words.page("lines") }}{% endblock %}
 {% block main %}
 <div class="title-row"><div class="titles"><h1>{{ words.page("lines") }}</h1>
@@ -83,6 +83,6 @@
   {% endfor %}
   </tbody>
 </table></div>
-{% else %}<div class="card">{{ empty("PC はまだありません", "電話をつなぐ PC で SalesCall のプログラムを起動すると、ブラウザでログインのページが開きます。ログインして、PC の画面と同じ確かめのコードかを確かめると、ここに出ます。") }}</div>{% endif %}
+{% else %}{{ empty_line("PC はまだありません", "電話をつなぐ PC で SalesCall のプログラムを起動すると、ブラウザでログインのページが開きます。ログインして、PC の画面と同じ確かめのコードかを確かめると、ここに出ます。") }}{% endif %}
 <p class="muted" style="margin-top:8px">PC のブラウザが開かないときは、<a href="/pc-login">PC のログインのページ</a>を開き、PC の画面のコードを入れてください。</p>
 {% endblock %}

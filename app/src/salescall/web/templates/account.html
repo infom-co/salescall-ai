@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import flash, csrf, empty %}
+{% from "parts.html" import flash, csrf, empty, empty_line %}
 {% block title %}ログインと安全{% endblock %}
 {% block main %}
 {# ログインと安全（ログインした方ご本人のもの）。パスキー・予備の合言葉は core の passkeys、Google のアカウントは core の google_login の1か所
@@ -39,7 +39,7 @@
           <p><b>パスキー「{{ k.label }}」</b>を外します。{% if sec.passkeys|length == 1 %}最後の1つなので、外すと2段階の確かめが無くなり、予備の合言葉も使えなくなります。{% endif %}</p>
           <button class="btn danger small" type="submit">「{{ k.label }}」を外す</button></form></details></td></tr>{% endfor %}</tbody>
   </table></div>
-  {% else %}{{ empty("パスキーはまだありません", "下で名前を付けて登録すると、次のログインから2段階の確かめになります。") }}{% endif %}
+  {% else %}{{ empty_line("パスキーはまだありません", "下で名前を付けて登録すると、次のログインから2段階の確かめになります。") }}{% endif %}
   <div class="gap passkey-add" style="margin-top:12px">
     <label class="field" for="passkey-label">新しいパスキーの名前</label>
     <input id="passkey-label" type="text" name="passkey_label" placeholder="例：仕事の PC・自分のスマホ" style="max-width:320px">

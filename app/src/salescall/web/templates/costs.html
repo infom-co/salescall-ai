@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import go, tag, flash, csrf, empty, deficit_card, quiet_clients %}
+{% from "parts.html" import go, tag, flash, csrf, empty, deficit_card, quiet_clients, empty_line %}
 {% block title %}{{ words.page("costs") }}{% endblock %}
 {% block main %}
 <h1>{{ words.page("costs") }}</h1>
@@ -68,5 +68,5 @@
   {% endfor %}
   </tbody>
 </table></div>
-{% else %}<div class="card">{{ empty("単価がまだありません", "管理者が初めの値を入れると、ここに出ます。") }}</div>{% endif %}
+{% else %}{{ empty_line("単価がまだありません", "管理者が初めの値を入れると、ここに出ます。") }}{% endif %}
 {% endblock %}

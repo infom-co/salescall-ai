@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import go, tag, next_tag, empty, flash, csrf, inbox_item, info %}
+{% from "parts.html" import go, tag, next_tag, empty, flash, csrf, inbox_item, info, empty_line %}
 {% set active = "client" %}
 {% block title %}{{ row.source_name or "お客様" }}{% endblock %}
 {% block crumb %}{{ row.source_name or "お客様" }}{% endblock %}
@@ -157,6 +157,6 @@
   </tbody>
 </table></div>
 {% else %}
-<div class="card">{{ empty("まだ電話をかけていません", ("かける時刻になると、自動でおかけします（次の予定は上の「いまの状態」にあります）。" if row.next_kind else "かける予定が決まると、上の「いまの状態」に時刻が出ます。決まった時刻になると、自動でおかけします。")) }}</div>
+{{ empty_line("まだ電話をかけていません", ("かける時刻になると、自動でおかけします（次の予定は上の「いまの状態」にあります）。" if row.next_kind else "かける予定が決まると、上の「いまの状態」に時刻が出ます。決まった時刻になると、自動でおかけします。")) }}
 {% endif %}
 {% endblock %}

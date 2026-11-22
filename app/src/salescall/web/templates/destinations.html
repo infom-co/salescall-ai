@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, empty, flash, csrf %}
+{% from "parts.html" import tag, empty, flash, csrf, empty_line %}
 {% set active = "client" %}
 {% block title %}結果の送り先{% endblock %}
 {% block crumb %}結果の送り先{% endblock %}
@@ -69,6 +69,6 @@
     <div><button class="btn small" type="submit">この業務の渡し方を決める</button></div>
   </form>
 </section>
-{% else %}<div class="card" style="margin-top:12px">{{ empty("業務はまだありません", "上の業務のタブの「＋ 業務」から作ると、業務ごとに渡し方を決められます。") }}</div>{% endfor %}
+{% else %}{{ empty_line("業務はまだありません", "上の業務のタブの「＋ 業務」から作ると、業務ごとに渡し方を決められます。") }}{% endfor %}
 {% endif %}
 {% endblock %}
