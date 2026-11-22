@@ -53843,3 +53843,17 @@ class AUTestPlaceTest(unittest.TestCase):
     def test_3_ap_items_builds_the_rows_as_the_measure_does(self):
         import inspect
         self.assertNotIn("set_f", inspect.getsource(ap_items))
+
+
+class HyphenHeadEnglishTest(unittest.TestCase):
+    """頭の英語の言葉が「-」でつながっていても外国語の頭（⛔ 2026-11-23 日本時間8時10分15秒の315回目「Re-check: 道具は --dry-run で閉じた形でした。次に、…」を、
+    見張りも数える道具も見なかった＝`_FOREIGN_HEAD` が頭の語のすぐあとを「:」「,」「(」などだけで見ていた）。名前で始まる日本語の一言は数えない（`EnglishLineTest` と同じ）。"""
+
+    def test_hyphenated_head_is_english(self):
+        from read_user_messages import english
+        for said in ("Re-check: 道具は --dry-run で閉じた形でした。次に、4つの指紋の道具を裏で流します。", "Re: 合わせのコミットができました（095d3473）。次に、試験を流します。",
+                     "Follow-up: 次に、読み手の答えを並べます。", "Cross-check, 次に、指紋を比べます。", "Non-zero (3) でした。次に、直します。"):
+            self.assertTrue(english(said), said)
+        for said in ("CL-2 の連絡帳を読みます。", "cl1-open-au の枝を作ります。", "d1-ultra の線を見ます。", "flock -w で鍵を待ちます。",
+                     "G-59 の外れを見ます。", "Re-check の結果を記録します。", "`Re-check:` と書いた一言を記録します。", "「Re-check: 道具は」と書いた一言を記録します。"):
+            self.assertFalse(english(said), said)

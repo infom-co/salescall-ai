@@ -158,7 +158,9 @@ _EN_WORDS = re.compile(r"\b(?:the|a|an|to|of|and|for|is|are|now|next|with|so|it|
 _EN_HEAD = re.compile(r"^\s*(?:the|an|to|of|and|for|is|are|now|next|with|so|it|that|this|on|in|then|i'll|we|from|by)(?=[\s,.:;—–!?])", re.I)
 # 頭の語が英字だけで、続きが小文字の英字の語・半角のかっこ・カンマ・コロン・セミコロンなら外国語の頭（つなぎの言葉の一覧に無い語も＝「Ahora sigo」
 # 「Fix (14270)」「Three new」）。名前で始まる日本語の一言（「Jev の」「Gemini Decision 1 の」「Drex Max（」）は、続きが日本語・大文字・数字・全角なので数えない
-_FOREIGN_HEAD = re.compile(r"^\s*[A-Za-z]{2,}(?=[\s,.:;(!?]|$)\s*(?:[a-z]{2,}(?=[\s,.:;!?]|$)|[(,:;])")
+# 頭の語は「-」でつながった英語の言葉も1つの語として見る（⛔ 2026-11-23 日本時間8時10分15秒の315回目「Re-check: 道具は…」を見なかった。「CL-2」「d1-ultra」の
+# ように「-」のあとが数字・頭が1字のものは今までどおり名前＝数えない）
+_FOREIGN_HEAD = re.compile(r"^\s*[A-Za-z]{2,}(?:-[A-Za-z]+)*(?=[\s,.:;(!?]|$)\s*(?:[a-z]{2,}(?=[\s,.:;!?]|$)|[(,:;])")
 
 
 def english(text: str) -> bool:
