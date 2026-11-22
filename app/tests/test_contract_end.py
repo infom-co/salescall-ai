@@ -126,6 +126,10 @@ class ContractEnd(SettleBase):
                                              tx.execute("DELETE FROM salescall.attempt_state_history WHERE attempt_id = %s", (a,))))
         own.in_system(ADMIN, lambda tx: (tx.execute(f"SET LOCAL salescall.forgetting_client = '{s['client']}'"),   # 印の依頼者の行なら消せる
                                          tx.execute(delete, (s["client"],))))
+        with self.assertRaises(Rejected) as refused:                              # ほかの契約者の依頼者のことは読めない
+            self.w.a.in_tenant(SYSTEM, other["tenant"], lambda tx: tx.one("SELECT salescall.forget_blocked(%s, interval '0') AS b",
+                                                                          (s["client"],)))
+        self.assertEqual(refused.exception.constraint, "forget_blocked_in_tenant")
         with self.assertRaises(Rejected):                                         # 契約終了でない依頼者は外せない・システムの処理だけ
             self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one("SELECT salescall.forget_client(%s, interval '0') AS r", (s["client"],)))
         with self.assertRaises(Rejected):

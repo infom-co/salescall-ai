@@ -4,7 +4,7 @@
 しておく。」・サーバーは「(ア) HDに写してサーバーから外す」。
 
 - 押す（`end`）・取り消す（`cancel`）は、管理者か契約者が依頼者の取引で（データベースが守る）。押すと新しい発信が止まる（依頼者を使わない形に
-  する＝registry.set_client_active の1か所）。猶予（仮の設定 contract_end.forget_after）のあいだは取り消せる。
+  する＝registry.set_client_active の1か所）。猶予（設定 contract_end.forget_after。7日＝✅ 2026-11-23 管理者）のあいだは取り消せる。
 - 外せるかは、データベースの salescall.forget_blocked の1か所（`state` が理由の文を返す＝画面と見守り役が同じ答えを読む）：猶予が過ぎた・使わない形・
   かけている電話が無い・提出用のファイルをすべてハードディスクへ写した・契約終了のあとの AI用の控えを戻せることまで確かめた。
 - 外すのは salescall.forget_client の1か所（`forget`。見守り役の仕事 contract_ends が、契約者の取引のシステムの処理で呼ぶ）。残す表・外す表・
@@ -35,7 +35,7 @@ class State:
 
 
 def forget_after(tx: Tx) -> timedelta:
-    """契約終了を押してから外すまでの猶予（仮の設定 contract_end.forget_after）。"""
+    """契約終了を押してから外すまでの猶予（設定 contract_end.forget_after。7日＝✅ 2026-11-23 管理者）。"""
     return timedelta(seconds=int(settings.system_value(tx, "contract_end.forget_after")))
 
 

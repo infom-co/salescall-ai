@@ -3,7 +3,7 @@
 -- ✅ 2026-11-22 管理者：「ハードディスクに残す。消すのはハードディスクで消すだけ。ただし、絶対に不要なデータは、イ（画面で消す）もできるように
 --    しておく。」・サーバーは「(ア) HDに写してサーバーから外す」。
 -- 流れ：(1) 管理者か契約者が「契約終了」を押す（salescall.client_contract_ends。新しい発信は client_states の使わない印で止まる＝core/contract_end）。
---   (2) 猶予（仮の設定 contract_end.forget_after。初め7日）のあいだは取り消せる（client_contract_end_cancels）。(3) 猶予が過ぎ、契約終了のあとに取った
+--   (2) 猶予（設定 contract_end.forget_after。7日＝✅ 2026-11-23 管理者）のあいだは取り消せる（client_contract_end_cancels）。(3) 猶予が過ぎ、契約終了のあとに取った
 --   AI用の控えが戻せることまで確かめてあり、提出用のファイルがすべてハードディスクへ写してあれば、サーバーから外す（salescall.forget_client の1か所。
 --   見守り役の仕事 contract_ends）。外したことは client_forgets に残る。外した依頼者は「使う」に戻せない。ハードディスクの控えは日数で消さない
 --   （backup.prune_rules）。
@@ -26,9 +26,9 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
  '契約終了を押してから、サーバーからその依頼者のデータを外すまでの長さです。このあいだは契約終了を取り消せます。外す前に、ハードディスクへ'
  '最後の控えを取り、戻せることを確かめます。外したあとも、ハードディスクの控えは残ります。');
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
-('contract_end.forget_after', 'system', '604800', 'provisional',
- 'CL-2 の仮の値（7日）：誤って契約終了を押したとき、外す前に気づいて取り消せる長さ。2026-11-22 管理者「HDに写してサーバーから外す」',
- '管理者に伺う（猶予の長さ）', 'CL-2');
+('contract_end.forget_after', 'system', '604800', 'decided',
+ '✅ 2026-11-23 管理者（CL-2 の伺い「猶予は何日にしますか？」）：「7日（おすすめ）」＝誤って契約終了を押したとき、外す前に気づいて取り消せる長さ',
+ '依頼者が戻ってくることが多いと分かったとき', 'ユーザー');
 
 CREATE TABLE salescall.client_contract_ends (       -- 契約終了（押したとき。追記だけ）
   end_id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -99,6 +99,7 @@ SET search_path = salescall, pg_temp AS $$
      AND NOT EXISTS (SELECT 1 FROM salescall.client_contract_end_cancels c WHERE c.end_id = e.end_id)
    ORDER BY e.end_id DESC LIMIT 1
 $$;
+REVOKE ALL ON FUNCTION salescall.contract_ended(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION salescall.contract_ended(uuid) TO salescall_app;
 CREATE TRIGGER client_contract_end_guard BEFORE INSERT ON salescall.client_contract_ends
   FOR EACH ROW EXECUTE FUNCTION salescall.contract_end_guard();
@@ -260,6 +261,12 @@ CREATE FUNCTION salescall.forget_blocked(p_client uuid, p_after interval) RETURN
 SET search_path = salescall, pg_temp AS $$
 DECLARE e salescall.client_contract_ends;
 BEGIN
+  -- 読めるのは取引の契約者の依頼者だけ（行ごとの守りを越えて、ほかの契約者の依頼者のことを答えない）
+  IF salescall.cur_tenant() IS NULL OR salescall.cur_tenant() IS DISTINCT FROM
+     (SELECT c.tenant_id FROM salescall.clients c WHERE c.client_id = p_client) THEN
+    RAISE EXCEPTION '外せるかを読めるのは、その依頼者の契約者の取引だけです' USING ERRCODE = 'insufficient_privilege',
+      CONSTRAINT = 'forget_blocked_in_tenant';
+  END IF;
   SELECT * INTO e FROM salescall.client_contract_ends WHERE end_id = salescall.contract_ended(p_client);
   IF e.end_id IS NULL THEN
     RETURN '契約終了になっていません';
@@ -285,6 +292,7 @@ BEGIN
   END IF;
   RETURN NULL;
 END $$;
+REVOKE ALL ON FUNCTION salescall.forget_blocked(uuid, interval) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION salescall.forget_blocked(uuid, interval) TO salescall_app;
 
 -- サーバーから外す（1か所。見守り役の仕事 contract_ends が、契約者の取引のシステムの処理で呼ぶ）。外した表ごとの行の数を返す
@@ -365,4 +373,5 @@ BEGIN
   VALUES (p_client, salescall.cur_tenant(), salescall.contract_ended(p_client), run, removed);
   RETURN removed;
 END $$;
+REVOKE ALL ON FUNCTION salescall.forget_client(uuid, interval) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION salescall.forget_client(uuid, interval) TO salescall_app;
