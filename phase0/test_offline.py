@@ -52512,3 +52512,24 @@ class AMGroundTermsBoundaryTest(unittest.TestCase):
             self.assertNotIn(draft, words)
             self.assertNotIn(draft[:2], words, draft)   # 「月曜」「無料」「明日」「オン」
         self.assertIn(NO_FACT, CHOICES[UNGROUNDED])   # 境目の向こう側の名前（事実を言っていない）を、同じ1か所で指す
+
+
+class AMReadersAsksTailTest(unittest.TestCase):
+    """分身 AM の続き2 (4)（束 m の読み手 B の書き置き。CL-1 が書いてある決まりで決めた）：読み手の束（目的のお客様の判定の全部の項目と尋ねているか＝束 a・m）は、どの行にも、
+    尋ねているかの判定が見る文の続きを書く（目的のお客様の判定の続きと同じ文でも）。本番の流れの制御は、お呼びする段のどの言葉でも尋ねているかの問い合わせを出し
+    （convo.check_handler が Flow.asks_context を、目的のお客様の判定と同時に出す）、測り（run・--count）も出す＝束だけが、同じ文のときに書かずにいた。⛔ 直す前は、束 m の
+    #9〜#14・#17（その前の言葉のある行＝続きが同じ文）に尋ねているかの続きが無く、読み手2人が「無いので、お客様の言葉だけを見るものとして読んだ」と書いた"""
+
+    def test_every_row_shows_what_the_asks_judge_sees(self):
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        import g59_readers as gr
+        from meaning_judge import prompt_parts
+        rows = gr._rows("m")
+        p = gr.packet("m")
+        self.assertEqual(len(p["rows"]), len(rows))
+        for row, r in zip(p["rows"], rows):
+            self.assertIsNotNone(fc.row_scene(r).asks_context(), row["no"])   # 本番の流れの制御は、この場面で尋ねているかの問い合わせを出す
+            _, aq = g.judge_questions(r)
+            self.assertEqual(row.get("asks_tail"), prompt_parts(aq, r["text"], None, r["before"])[1].rstrip(), row["no"])
+        self.assertEqual(gr.packet_text("m").count("尋ねているかの判定が見る文の続き："), len(rows))
