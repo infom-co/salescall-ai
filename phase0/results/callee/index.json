@@ -67,9 +67,9 @@
     "diffs": [
       {
         "kind": "delete",
-        "script": "15か[の2じです]",
+        "script": "うごにち[のにじです]",
         "heard": "",
-        "at": 3
+        "at": 6
       }
     ],
     "question_needed": false,
@@ -99,17 +99,10 @@
     "seconds": 2.87,
     "wav": "Puck_unclear.wav",
     "heard": "えっと、 10 の",
-    "diffs": [
-      {
-        "kind": "replace",
-        "script": "[じゅう]の",
-        "heard": "10",
-        "at": 0
-      }
-    ],
+    "diffs": [],
     "question_needed": false,
     "question_ok": true,
-    "ok": false
+    "ok": true
   },
   {
     "voice": "Kore",
@@ -204,17 +197,10 @@
     "seconds": 2.36,
     "wav": "Kore_unclear.wav",
     "heard": "えっと、 10 の",
-    "diffs": [
-      {
-        "kind": "replace",
-        "script": "[じゅう]の",
-        "heard": "10",
-        "at": 0
-      }
-    ],
+    "diffs": [],
     "question_needed": false,
     "question_ok": true,
-    "ok": false
+    "ok": true
   },
   {
     "voice": "Puck",
@@ -791,17 +777,10 @@
     "how": null,
     "said": "えっと、じゅう、の……",
     "heard": "えっと、 10 の",
-    "diffs": [
-      {
-        "kind": "replace",
-        "script": "[じゅう]の",
-        "heard": "10",
-        "at": 0
-      }
-    ],
+    "diffs": [],
     "question_needed": false,
     "question_ok": true,
-    "ok": false,
+    "ok": true,
     "tries": 3,
     "seconds": 2.95,
     "wav": "Leda_unclear.wav"
@@ -1128,17 +1107,10 @@
     "how": null,
     "said": "えっと、じゅう、の……",
     "heard": "えっと、 10 の",
-    "diffs": [
-      {
-        "kind": "replace",
-        "script": "[じゅう]の",
-        "heard": "10",
-        "at": 0
-      }
-    ],
+    "diffs": [],
     "question_needed": false,
     "question_ok": true,
-    "ok": false,
+    "ok": true,
     "tries": 3,
     "seconds": 2.37,
     "wav": "Sadachbia_unclear.wav"

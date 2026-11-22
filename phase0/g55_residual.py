@@ -11,12 +11,11 @@
 from __future__ import annotations
 
 import asyncio
-import glob
 import json
 import random
 from collections import Counter
 
-from common import HERE, base_parser, describe_error, drop_partial, make_client, pick_key, require_python, save_partial, save_result, say
+from common import base_parser, describe_error, drop_partial, latest_result, make_client, pick_key, require_python, save_partial, save_result, say
 from convo import run_call
 from flowctl import ANY, TAKEN
 from g22_opening import BUSINESS as BASE
@@ -87,7 +86,7 @@ def summarize(rows: list[dict]) -> dict:
 
 
 async def run(args) -> dict:
-    src = json.loads(open(args.items or sorted(glob.glob(str(HERE / "results" / "G-53_2*.json")))[-1], encoding="utf-8").read())["items"]
+    src = json.loads(open(args.items or latest_result("G-53_2*.json"), encoding="utf-8").read())["items"]
     qmap = {q.id: q for q in g48_questions()}
     pool = [it for it in src if it["set"] in ("B", "C") and it["qid"] in qmap]
     rnd = random.Random(55)

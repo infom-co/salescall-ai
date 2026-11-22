@@ -13,11 +13,10 @@
 from __future__ import annotations
 
 import asyncio
-import glob
 import json
 from collections import defaultdict
 
-from common import KeyRing, base_parser, drop_partial, read_wav_pcm16_mono, require_python, save_partial, save_result, say
+from common import KeyRing, base_parser, drop_partial, read_wav_pcm16_mono, require_python, result_files, save_partial, save_result, say
 from ears import EAR_KINDS, GEMINI_EAR_MODEL, open_ear
 from jtext import compare_reading
 from listen import differences
@@ -28,9 +27,7 @@ from stitch_gap import callee_speech
 def live_calls() -> list[dict]:
     """G-14 の記録の、1回の通話ごとの、最初の答えの声・会話AIの聞き取りの文字・AIの最初の報告（op・condition）・正解（want。無い記録は None）・質問。"""
     out = []
-    for p in sorted(glob.glob(str(OUT.parent.parent / "G-14*.json"))):
-        if "TALLY" in p or "partial" in p:
-            continue
+    for p in result_files("G-14*.json"):   # 途中の写しと数え直しを除く＝common.result_files の1か所
         try:
             d = json.load(open(p, encoding="utf-8"))
         except Exception:
