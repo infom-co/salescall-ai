@@ -142,7 +142,7 @@
 <h2 class="home-band" style="margin-top:28px">今日の動きと成果</h2>
 {#- 今日の電話（計画書 5-2「発信状況」。数えるのは core の metrics.day の1か所＝web/counts.client_today） -#}
 <div class="grid cols-4 stats">
-  <div class="card">{{ stat("今日かけた電話", today.dialed) }}<div class="muted hint" style="margin-top:6px">うち電話に出た {{ today.answered }}（留守番電話・自動音声も入ります）</div></div>
+  <div class="card">{{ stat("今日かけた電話", today.dialed) }}<div class="muted hint" style="margin-top:6px">うち電話に出た {{ today.answered }}（留守番電話・音声ガイダンスも入ります）</div></div>
   <div class="card">{{ stat("お客様と話した", today.talked) }}<div class="muted hint" style="margin-top:6px">今日。受付の方との電話も入ります</div></div>
   <div class="card">{{ stat("目的のお客様と話せた", today.reached) }}<div class="muted hint" style="margin-top:6px">今日。お呼びする方ご本人と話せた電話</div></div>
   <div class="card">{{ stat("かけ直し待ち", today.call) }}<div class="muted hint" style="margin-top:6px">次の電話の予定があるお客様{% if today.hold %}。ほかに{{ words.NEXT_KINDS["hold"].screen }} {{ today.hold }}（することはありません）{% endif %}</div></div>
