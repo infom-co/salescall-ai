@@ -17,7 +17,7 @@ import functools
 
 # お呼びする段の案の3行（CALLING_WORDS）を消したとき、そこだけで使っていた取り込み（目的のお客様の判定の項目・申し出・出られない理由・電話を終える言葉か・聞こえ方の名前）も
 # 外した（同じ3行は g59_calling_judge.LINES_OWN＝2026-11-22 分身 AP）
-from flowctl import (POINT_UNSAID, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_WRONG, AWAY, END_NONE, HEAR,
+from flowctl import (POINT_UNSAID, ANY, WAY_UNSAID, wish_label, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_WRONG, AWAY, END_NONE, HEAR,
                      AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, ELSEWHERE, ELSEWHERE_ALL, ELSEWHERE_NO, HESITATING, KEEP_ON,
                      END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
                      REFUSED_LABEL, REPEAT, HEAR_LOST, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHY_NOT_SAID, WRONG,
@@ -87,10 +87,15 @@ THEIRS_REDO_SCENE = "お客様から折り返していただく日の言い直�
 PERIOD_SCENE = "時期の2択（平日と土日の2択に「どちらもちょっと難しいですね。」のあとの「来週と再来週」）"
 POINT_WHICH_SCENE = "どの点かを伺う一言のあと（ご承認の手順の「ほかに…」に、分からない点があるとだけ言われた＝N2 の「点は言っていない」の次）"
 PERIOD_AGAIN_SCENE = "時期の2択の2回目（時期の2択にも「どちらもちょっと難しいですね。」のあとの「12月7日からの週と12月14日からの週」）"
+# 申し出た方法を並べて伺い直した一言のあと（担当 AK の棚卸しの P5＝分身 AR）：ほかのご希望の場面 W1@E1（担当者からのお電話のご案内に言い切らずに断られたあとの、ご案内の方法の
+# 申し出「それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！」）に「はい、お願いします。」と方法を言わずに受けていただき、流れの制御が申し出た方法を並べて
+# 1回伺った所（「それではメールとLINEとZOOMのどちらがよろしいでしょうか？」＝✅ 2026-11-06 日本時間9時05分17秒 ユーザー「(3)…OK」）。場面は g53_meaning._way_which_scene
+WAY_WHICH_SCENE = "申し出た方法を並べて伺い直した一言のあと（ご案内の方法の申し出に「はい、お願いします。」と方法を言わずに受けていただいた＝W1 の「方法は言っていない」の次）"
 NEW_SCENES = (LADDER_SCENE, WRONG_ASK_SCENE, WAIT_SCENE, PAIN_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, ANSWERED_SCENE, OFFER_FINAL_SCENE,
               WITHDRAW_TIME_SCENE, WITHDRAW_SEND_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, UNTIL_ASK_SCENE, THEIRS_PAIR_SCENE, ACCEPT_PAIR_SCENE,
               MEETING_PAIR_SCENE, THEIRS_SIDE_AGAIN_SCENE, THEIRS_NEITHER_AGAIN_SCENE, LADDER_REDO_SCENE, UNTIL_LEAN_SCENE, PAYDAY_ASK_SCENE,
-              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE, PERIOD_SCENE, PERIOD_AGAIN_SCENE, POINT_WHICH_SCENE)
+              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE, PERIOD_SCENE, PERIOD_AGAIN_SCENE, POINT_WHICH_SCENE,
+              WAY_WHICH_SCENE)
 # 申し出の手順で選んでいただく方法（業務設定 handoff_ways。試験 EndJudgedTest.test_an_unlinked_reply_to_an_offer_is_answered_then_the_offer_is_put_again の to_offer と同じ）
 HANDOFF_WAYS = ("訪問", "お電話")
 
@@ -137,8 +142,9 @@ def questions() -> dict[str, Question]:
                             intro="こちらのプランは月額3,000円で初月は無料となっております。", final_goal=True, declines=("いいえ",)),
             # システムの質問（本番の1か所 callback_question＝測りの質問の表 g53_meaning.question_map と同じもの）：N5＝申し出の方法・E5＝決め手・N2＝ほかにご納得いただけない点
             "N5": callback_question("handoff_way"), "E5": callback_question("elsewhere_point"), "N2": callback_question("other_point"),
-            # ほかのご希望 W1（「どちらも要らない」の G17 のあと＝測りの質問の表の W1@G17 の1か所）
-            "W1@G17": _wish_question("W1@G17"),
+            # ほかのご希望 W1（「どちらも要らない」の G17 のあと＝測りの質問の表の W1@G17 の1か所）・W1@E1（担当者からのお電話のご案内に言い切らずに断られたあとの、
+            # ご案内の方法の申し出＝同じ1か所。分身 AR）
+            "W1@G17": _wish_question("W1@G17"), "W1@E1": _wish_question("W1@E1"),
             # R14＝お客様に日時を選んでいただく業務の質問（伺い62。試験 ChooseWhenLadderTest の質問と同じ文と聞くこと＝ACCEPT_PAIR_SCENE）・R15＝顧客獲得型のアポの日時（測りの顧客獲得型の
             # 業務の最初の質問 g53_meaning.ACQUIRE_SCENE_BUSINESS の番号だけ替えたもの＝MEETING_PAIR_SCENE。番号は測りの質問の表 g53_meaning.question_map の Q1・Q2 と重ねない）。分身 U の (3)
             # C1T＝お客様から折り返していただく時刻の質問（お言葉に甘えたあとの theirs_later＝本番の1か所 callback_question。番号は C1 のまま＝表の鍵だけ C1T。THEIRS_PAIR_SCENE）
@@ -345,6 +351,7 @@ def answer_words() -> list[dict]:
         *AG_ROWS,
         *GARBLED_ROWS,
         *WHICH_POINT_ROWS,
+        *WAY_ROWS,
     ]
 
 
@@ -874,6 +881,32 @@ WHICH_POINT_ROWS = [
          why="分かった＝ご納得いただけない点は無い。束 b2 の読み手2人とも同じ"),
     _row(_WP, "正直、今の業者で十分なんですよね。", ["断ろうとしている"], scene=POINT_WHICH_SCENE, near=[NEAR_OFF],
          why="今の業者で十分という理由を挙げて、お断りしようとしている＝「断ろうとしている」。束 b2 の読み手2人とも同じ"),
+]
+
+
+# 担当 AK の棚卸しの P5（分身 AR・帳面 1 の (1) の (v)・CL-1_OPEN の (A)(18)）：ご案内の方法の申し出（ほかのご希望の場面 W1@E1＝測りの質問の表の1か所 g73_system_words.wish_scenes。
+# 担当者からのお電話のご案内に言い切らずに断られたあとの「それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！」＝✅ 2026-11-05 日本時間23時19分06秒「案でOK　(2)ア」）
+# への、方法を言わない受け（「方法は言っていない」＝flowctl.WAY_UNSAID）と、申し出た方法を並べて1回伺い直したあと（WAY_WHICH_SCENE＝g53_meaning._way_which_scene の
+# 「それではメールとLINEとZOOMのどちらがよろしいでしょうか？」＝✅ 2026-11-06 日本時間9時05分17秒 ユーザー「(3)…OK」）のお返事。並べたあとの「どれでも」は答え＝最初に並ぶ方法で
+# ご案内する・方法を言っていただけない（わからないも）は「ご案内の方法の件は担当の者に申し伝えさせていただきますね。」（✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」）。
+# お返事は同じ質問 W1 の答えとして読む（本番の流れの制御のまま）。正解は言葉と、W1 の選べるものの説明（flowctl._wish_choices・並べた形だけの「どちらでも」＝all_conditions）だけから
+# 決めた。いちばん近い答えは、どの行も答えの読みが決められないではない（B1 の決め方）。正解はどれも仮（答えを伏せた読み手の束 ar1）
+_WE = "W1@E1"
+_WAY_TAIL = "。⏳ 仮（束 ar1）"
+WAY_ROWS = [
+    {**_row(_WE, "はい、お願いします。", [WAY_UNSAID], near=[NEAR_OFF], misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+            why="申し出を受けると言っただけで、どの方法でかは言っていない＝方法は言っていない（説明の「申し出を受けると言っただけのときも」）" + _WAY_TAIL), "set": "W1"},
+    {**_row(_WE, "じゃあ、それでお願いします。", [WAY_UNSAID], near=[NEAR_OFF], misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+            why="「それで」＝申し出たご案内を受けると言ったが、並べた方法のどれかは言っていない＝方法は言っていない" + _WAY_TAIL), "set": "W1"},
+    {**_row(_WE, "どれでもいいです。", [ANY], scene=WAY_WHICH_SCENE, near=[NEAR_OFF], misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+            why="並べた方法のどれでもよいと言った＝どちらでも（説明の「どれでもよい」）" + _WAY_TAIL), "set": "W1"},
+    {**_row(_WE, "メールで。", [wish_label("email")], scene=WAY_WHICH_SCENE, near=[NEAR_OFF], misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+            why="並べた方法のうちメールを選んだ＝メールでの連絡" + _WAY_TAIL), "set": "W1"},
+    {**_row(_WE, "ZOOMでお願いします。", [wish_label("online")], scene=WAY_WHICH_SCENE, near=[NEAR_OFF], misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+            why="並べた方法のうちZOOM（オンライン）を選んだ＝オンラインでの連絡" + _WAY_TAIL), "set": "W1"},
+    {**_row(_WE, "うーん、分からないです。", ["unknown"], scene=WAY_WHICH_SCENE, reason=(DONT_KNOW_LABEL["unspecified"],), near=[NEAR_OFF],
+            misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+            why="どの方法がよいか分からないとだけ言った＝わからない（わけは言っていない）。言い終えている＝考えている途中ではない" + _WAY_TAIL), "set": "W1"},
 ]
 
 
