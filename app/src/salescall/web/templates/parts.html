@@ -106,8 +106,9 @@
    押したあとは「確かめました」の印のボタンにして残す（もう知らせない＝core の usage.confirm_deficit）。赤字かは core の usage.deficit_notice の答えだけ #}
 {% macro deficit_card(client, d, token, back) -%}
   {#- 赤字は電話を止めない（決めること＝橙）。赤は止まっているときだけ（色の役割） -#}
+  {#- 見出しで「今月」と言い切らない（月が替わって次に確かめるまで、先月の赤字の札が残りうる。いつの数かは下の「お知らせした時点」の1か所） -#}
   <div class="card attention-wait deficit">
-    <b>「{{ client.name }}」は今月、報酬より費用が多くなっています（赤字）</b>
+    <b>「{{ client.name }}」は、報酬より費用が多くなっています（赤字）</b>
     <span class="muted">お知らせした時点（{{ time(d.warned_at) }}）：{{ d.figures }}。電話は止めていません。</span>
     {% if d.confirmed %}
       <button class="btn small" type="button" disabled>確かめました（{{ time(d.confirmed_at) }}）</button>
