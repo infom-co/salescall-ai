@@ -2623,7 +2623,7 @@ class NameLedger(Content):
                 ADMIN, s["tenant"], w)), ("システムの処理", lambda w: self.w.a.in_system(SYSTEM, w))):
             for work in (recordings.name_reviews,
                          lambda tx: recordings.review_names(tx, [first.set_id], [first.set_id], marks="admit"),
-                         lambda tx: recordings.set_name_review_skip(tx, s["tenant"], True)):
+                         lambda tx: recordings.set_name_review_skip(tx, s["tenant"], True), recordings.review_skips):
                 with self.subTest(why=why), self.assertRaises(Rejected) as e:   # 聞いて決めるのは管理者だけ
                     run(work)
                 self.assertEqual(e.exception.constraint, "name_review_by_admin")
@@ -2674,7 +2674,10 @@ class NameLedger(Content):
         K = recordings.NameKey
         label = f"own{uuid.uuid4().hex[:8]}"
         r1, r2, r3 = unique_role(), unique_role(), unique_role()
+        skips = lambda: self.w.a.in_system(ADMIN, recordings.review_skips)   # noqa: E731  全部の契約者のいまの値（CL-3 の 72・0281）
+        self.assertEqual((skips()[trusted["tenant"]], skips()[other["tenant"]]), (False, False))   # 行の無い契約者はチェックが要る
         self.w.a.in_system(ADMIN, lambda tx: recordings.set_name_review_skip(tx, trusted["tenant"], True))
+        self.assertEqual((skips()[trusted["tenant"]], skips()[other["tenant"]]), (True, False))    # 審査を待つ録音が無くても読める
         self.w.approve_names(trusted, [K(role=r1)], ("Leda",), tails=(), audio=label)
         self.w.approve_names(other, [K(role=r2)], ("Leda",), tails=(), audio=label)
         waiting = {r.key: r for r in self.w.a.in_system(ADMIN, recordings.name_reviews) if r.part.audio_ref.startswith(label)}
@@ -2695,6 +2698,7 @@ class NameLedger(Content):
         self.assertEqual(self.w.a.in_tenant(OPERATOR, trusted["tenant"], lambda tx: tx.one(
             "SELECT decided_by FROM salescall.name_recording_reviews"))["decided_by"], "管理者のチェック不要の契約者（システム）")
         self.w.a.in_system(ADMIN, lambda tx: recordings.set_name_review_skip(tx, trusted["tenant"], False))   # 戻せる
+        self.assertFalse(skips()[trusted["tenant"]])
         self.w.approve_names(trusted, [K(role=r3)], ("Leda",), tails=(), audio=label)
         self.w.a.in_system(SYSTEM, recordings.admit_unreviewed_names)
         left = {r.key for r in self.w.a.in_system(ADMIN, recordings.name_reviews) if r.part.audio_ref.startswith(label)}

@@ -279,6 +279,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "deficit_warnings": {"INSERT": frozenset({_CORE + "usage.py"}), "UPDATE": frozenset({_CORE + "usage.py"})},   # 赤字の警告（12-1-2）
     "destinations": {"INSERT": frozenset({"src/salescall/output/"}), "UPDATE": frozenset({"src/salescall/output/"})},   # 送り先（4-5。CL-3 の出力の部品＝CL-3 の 5）
     "business_destinations": {"INSERT": frozenset({_CORE + "destinations.py"})},   # 業務ごとの送り先の選び（0254。CL-3 の 19）
+    "output_templates": {"INSERT": frozenset({_CORE + "output_templates.py"})},   # 出力の型の版（0280。CL-3 の 66。足すのは1か所）
     "client_groups": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},   # 依頼者のグループ（0255。CL-3 の 15）
     "client_group_changes": {"INSERT": frozenset({_CORE + "registry.py"})},   # グループの出入り（足していく記録。0255）
     "tenants": {"INSERT": frozenset({_CORE + "people.py"})},   # 契約者を作るのは、最初の管理者と一緒に（people.first_admin。0251）。⏳ サブスクの契約の入口
