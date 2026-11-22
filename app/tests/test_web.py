@@ -1020,6 +1020,14 @@ class Web(_World):
         self.assertEqual(visible_primary_buttons(page), ["確かめた"])
         self.assertEqual(page.count("確かめた"), 3)                              # ほかの札のボタンも出ている（白い枠で）
 
+    def test_every_field_in_every_template_has_a_name(self):
+        """どのひな形の入力欄・選ぶ欄にも、何を入れる欄かの名前を結び付ける（全画面をたどる試験が届かない画面の分も、ひな形を直接読んで見る。
+        2026-11-22 の見直し：見出しの文と欄が結び付いていない欄が11あった）。"""
+        import pathlib
+        root = pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/templates")
+        got = {f.name: _unnamed_fields(f.read_text(encoding="utf-8")) for f in sorted(root.glob("*.html"))}
+        self.assertEqual({k: v for k, v in got.items() if v}, {})
+
     def test_the_script_reads_form_attributes_not_shadowable_properties(self):
         """画面の動き（app.js）は、form の method・action などを属性で読む（form.method は、名前が method の欄があるとその欄を指す。
         2026-11-21：回線を足す欄で画面の動きが止まり、二度押しの守りが働いていなかった）。"""
