@@ -41,6 +41,12 @@
 <div class="empty"><div class="big">{{ big }}</div><div>{{ then }}</div></div>
 {%- endmacro %}
 
+{#- 画面の主でない欄が0件のときの形（1行。2026-11-22 の決まり：大きな空の札は、画面の主な中身が0件のときだけ＝設計書 108）。
+    2つ目（次にすること・これから何が起きるか）は empty と同じく必ず書く -#}
+{% macro empty_line(big, then) -%}
+<p class="muted empty-line">{{ big }}。{{ then }}</p>
+{%- endmacro %}
+
 {# waiting＝その行で契約者が決めることの名前（例：さらにかける承認）。あれば、終えた行でも「済み」の緑にせず、待ちの色でそれを先に書く
    （色は、契約者がすることがあるときだけ＝設計書 7-9） #}
 {% macro next_tag(kind, call_at=None, end_reason=None, waiting="") -%}

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, empty, flash, csrf, info %}
+{% from "parts.html" import tag, empty, flash, csrf, info, empty_line %}
 {% set active = "client" %}
 {% block title %}電話の台本 版 {{ version.version_no }}{% endblock %}
 {% block crumb %}電話の台本{% endblock %}
@@ -21,7 +21,7 @@
       <dt>「忙しい」のときの一言{{ info("business.busy_line", "「忙しい」のときの一言") }}</dt><dd>{{ s.busy_line or "（引き止めない）" }}</dd>
     </dl></section>
   <section class="card"><h2>業務の情報{{ info("business.info", "業務の情報") }}</h2>
-    {% if s.info %}<ul class="need-list">{% for i in s.info %}<li>{{ i }}</li>{% endfor %}</ul>{% else %}{{ empty("業務の情報はありません", "お客様に質問されたとき、AI が答える材料になる情報です。業務の資料を取り込み直すと入ります。") }}{% endif %}
+    {% if s.info %}<ul class="need-list">{% for i in s.info %}<li>{{ i }}</li>{% endfor %}</ul>{% else %}{{ empty_line("業務の情報はありません", "お客様に質問されたとき、AI が答える材料になる情報です。業務の資料を取り込み直すと入ります。") }}{% endif %}
   </section>
 </div>
 {#- 電話の中での応じ方（計画書 6-2 の項目のうち、上の札に無いもの。値の言葉は契約者がシートに書く言葉のまま＝words.sheet_word の1か所。
@@ -63,7 +63,7 @@
 {% if s.answers %}
 <div class="table-scroll"><table class="list"><thead><tr><th>お客様の問い</th><th>答え</th></tr></thead>
   <tbody>{% for name, text in s.answers %}<tr><td>{{ name }}</td><td>{{ text }}</td></tr>{% endfor %}</tbody></table></div>
-{% else %}<div class="card">{{ empty("この版で書いた想定問答はありません", "システムの標準の想定問答を使います。") }}</div>{% endif %}
+{% else %}{{ empty_line("この版で書いた想定問答はありません", "システムの標準の想定問答を使います。") }}{% endif %}
 <h2>「わからない」「答えたくない」の扱い{{ info("business.handling", "「わからない」「答えたくない」の扱い") }}</h2>
 {% if handling %}
 <div class="table-scroll"><table class="list"><thead><tr><th>質問</th><th>お答え</th><th>理由</th><th class="wide">扱い</th></tr></thead>
@@ -71,12 +71,12 @@
     {#- 同じ質問の行が続くときは、質問の文を最初の行にだけ出す（くり返さない） -#}
     <tr><td>{% if qid != seen.q %}{{ q.text if q else qid }}{% endif %}{% set seen.q = qid %}</td><td class="nowrap">{{ words.sheet_word("state", state) }}</td><td>{{ words.sheet_word("reason", reason) }}</td>
       <td class="wide">{{ words.sheet_word("kind", h.kind) }}{% if h.conclusion %}<span class="muted">（結論：{{ h.conclusion }}）</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
-{% else %}<div class="card">{{ empty("この版に、扱いの決まりはありません", "業務の決まりが入ると、ここに質問ごとの扱いが出ます。") }}</div>{% endif %}
+{% else %}{{ empty_line("この版に、扱いの決まりはありません", "業務の決まりが入ると、ここに質問ごとの扱いが出ます。") }}{% endif %}
 <h2>言ってはいけないこと{{ info("business.forbidden", "言ってはいけないこと") }}</h2>
 {% if forbidden %}
 <div class="table-scroll"><table class="list"><thead><tr><th>言ってはいけないこと</th><th class="wide">誤って言ったときの正しい案内</th></tr></thead>
   <tbody>{% for f in forbidden %}<tr><td>{{ f.say_not }}</td><td class="wide">{{ f.correct or "（正しい案内なし＝別の文面でお詫びします）" }}</td></tr>{% endfor %}</tbody></table></div>
-{% else %}<div class="card">{{ empty("この版で書いた言ってはいけないことはありません", "業務の資料に書かれていれば、取り込みで入ります。") }}</div>{% endif %}
+{% else %}{{ empty_line("この版で書いた言ってはいけないことはありません", "業務の資料に書かれていれば、取り込みで入ります。") }}{% endif %}
 {% endif %}
 {% if policies %}
 <h2 id="retry">結果ごとのかけ直し{{ info("business.retry", "結果ごとのかけ直し") }}</h2>
