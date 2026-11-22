@@ -23,6 +23,35 @@ SECRET = b"test-only-secret"
 from tests.test_output_words import DEV_NOTE  # noqa: E402  画面に出してはいけない開発の覚え書きのしるし（1か所）
 
 
+
+def _unnamed_fields(page: str) -> list[str]:
+    """名前（label で包む・label の for・aria-label・aria-labelledby・title）の無い入力欄・選ぶ欄・文の欄（隠した欄とボタンは除く）。
+    2026-11-22 の見直し：見出しの文と欄が結び付いていない欄が7つあった（読み上げで、どの欄か分からない）。"""
+    from html.parser import HTMLParser
+
+    class P(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.depth, self.fors, self.fields = 0, set(), []
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if tag == "label":
+                self.depth += 1
+                if a.get("for"):
+                    self.fors.add(a["for"])
+            elif tag in ("input", "select", "textarea") and a.get("type") not in ("hidden", "submit", "button"):
+                named = self.depth > 0 or any(a.get(k) for k in ("aria-label", "aria-labelledby", "title"))
+                self.fields.append((a.get("id"), named, f'{tag} name={a.get("name", "")}'))
+
+        def handle_endtag(self, tag):
+            if tag == "label" and self.depth:
+                self.depth -= 1
+
+    p = P()
+    p.feed(page)
+    return [d for i, named, d in p.fields if not named and not (i and i in p.fors)]
+
 class _World(unittest.TestCase):
     """架空の契約者A（依頼者X・Y）と契約者B（依頼者Z）。試験の組が共通に使う準備（試験そのものは持たない）。"""
 
@@ -707,6 +736,7 @@ class Web(_World):
                 problems.append((path, "言葉の抜け"))
             problems += [(path, m) for m in internal.findall(visible)]
             problems += [(path, "開発の覚え書き：" + m.group(0)) for m in re.finditer(DEV_NOTE, visible)]   # 画面に開発の根拠を出さない
+            problems += [(path, "名前の無い欄：" + d) for d in _unnamed_fields(r.text)]   # どの欄にも、何を入れる欄かの名前を結び付ける
             # 道しるべの最後（いまいる所）が依頼者・業務・お客様リストの名前なら、その画面そのものにいるときだけ（中の画面が名前を渡し
             # 忘れると、依頼者の画面にいるように見える＝3回目の見直し「中」の9）
             here = re.search(r'<span class="here" aria-current="page">(.*?)</span>', r.text)
