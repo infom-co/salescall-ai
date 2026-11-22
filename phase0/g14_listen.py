@@ -18,7 +18,7 @@ import asyncio
 import json
 from collections import Counter
 
-from common import HERE, KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
+from common import HERE, KeyRing, base_parser, describe_error, drop_partial, latest_result, require_python, result_files, save_partial, save_result, say
 from convo import run_call
 from ears import EAR_KINDS, PREFERRED_EARS
 from flowctl import Question
@@ -55,8 +55,8 @@ _ROWS: dict = {}
 def _decide_one(name: str, decide, q) -> dict:
     """1つの質問に、取込で決めるもの（_decided の中身。測りの質問の表＝g53_meaning.question_map も、どの質問もここを通す）。"""
     if name not in _ROWS:
-        files = sorted((HERE / "results").glob(f"{name}_*.json"))
-        d = json.loads(files[-1].read_text(encoding="utf-8")) if files else {"questions": [], "rows": {}}
+        path = latest_result(f"{name}_*.json")   # 途中の写しは読まない＝common.result_files の1か所
+        d = json.loads(path.read_text(encoding="utf-8")) if path else {"questions": [], "rows": {}}
         # 質問の文と選択肢の組で引く（同じ文で選択肢の違う質問がある＝Q1 と Q5）
         _ROWS[name] = {k: {(t, tuple(c)): w for (t, c), w in zip(d["questions"], v)} for k, v in d["rows"].items()}
     rows = _ROWS[name]
@@ -273,7 +273,7 @@ def main() -> None:
     p.add_argument("--tally", help="結果のファイル名の頭（例 G-14-base-）で、同時に流した回を合わせて数える（問い合わせはしない）")
     args = p.parse_args()
     if args.tally:
-        rows = [r for f in sorted((HERE / "results").glob(f"{args.tally}*.json")) if "_partial" not in f.name and "TALLY" not in f.name
+        rows = [r for f in result_files(f"{args.tally}*.json")   # 途中の写しと数え直しを除く＝common.result_files の1か所
                 for r in json.loads(f.read_text(encoding="utf-8"))["rows"]]
         for r in rows:  # いまの数え方で数え直す（保存した通話の記録から）
             if "items" in r:

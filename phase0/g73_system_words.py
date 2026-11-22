@@ -353,12 +353,12 @@ def run(args) -> dict:
 def latest() -> dict:
     """測りの道具（G-53・G-59）が試しの言葉を読む唯一の口：いちばん新しい結果の {"path", "words", "errors"}（無ければ空）。errors があれば、
     そろっていない（作れなかったモデル・場面がある）＝測りの道具は、ユーザーがその形で測ると選んだときだけ使う（g53/g59 の --g73-partial）。"""
-    from common import HERE
-    files = sorted((HERE / "results").glob("G-73_2*.json"))
-    if not files:
+    from common import latest_result
+    path = latest_result("G-73_2*.json")   # 途中の写しは読まない＝common.result_files の1か所
+    if path is None:
         return {"path": None, "words": [], "errors": {}}
-    d = json.loads(files[-1].read_text(encoding="utf-8"))
-    return {"path": files[-1].name, "words": d["words"], "errors": d.get("errors") or {}}
+    d = json.loads(path.read_text(encoding="utf-8"))
+    return {"path": path.name, "words": d["words"], "errors": d.get("errors") or {}}
 
 
 def require_complete(args, what: str, stop: bool = True) -> None:

@@ -21,14 +21,17 @@ from flowctl import GOT, Question, normalize_value, reading_question
 from g22_opening import BUSINESS as BASE, W
 from g30_latency import keep_call
 from g34_ack import FAST, FOLLOWUP_WAIT_S
+from g46_reading_more import FIRST
 from instruction import Business
 
 BUSINESS = Business(company=BASE.company, caller=BASE.caller, purpose=BASE.purpose, purpose_line=BASE.purpose_line,
                     questions=[BASE.questions[0], reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"]),
                                Question("Q2", BASE.questions[1].text, "datetime", conditions=("答えた",), topic=BASE.questions[1].topic)])
-SCENES = {"そのまま": ([W("yes_reserved"), W("affirm"), W("datetime_pm"), W("affirm")], "なかじま"),
-          "読みを直す": ([W("yes_reserved"), W("correct_nakashima"), W("affirm"), W("datetime_pm"), W("affirm")], "なかしま"),
-          "名前だけ言い直す": ([W("yes_reserved"), W("name_only_nakashima"), W("affirm"), W("datetime_pm"), W("affirm")], "なかしま")}
+# 台詞の1つ目は電話に出た方の第一声（G-46 と同じ1か所＝g46_reading_more.FIRST）。⛔ 2026-11-22 分身 AN の続きの (2)：10-24 の第一声を待つ形から、台詞の1つ目
+# 「はい、予約しています。」を第一声として聞き、そのあとの台詞が1つずつずれていた
+SCENES = {"そのまま": ([FIRST, W("yes_reserved"), W("affirm"), W("datetime_pm"), W("affirm")], "なかじま"),
+          "読みを直す": ([FIRST, W("yes_reserved"), W("correct_nakashima"), W("affirm"), W("datetime_pm"), W("affirm")], "なかしま"),
+          "名前だけ言い直す": ([FIRST, W("yes_reserved"), W("name_only_nakashima"), W("affirm"), W("datetime_pm"), W("affirm")], "なかしま")}
 
 
 def measures(call: dict, want: str) -> dict:
