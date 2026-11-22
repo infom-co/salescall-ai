@@ -51899,3 +51899,17 @@ class ANSameWordsOneLineTest(unittest.TestCase):
         lines, _ = scenes.SCENES[f"{scenes.FOLLOW_SCENE}_1"].call()
         self.assertEqual([x["wav"] for x in lines][2], "Puck_i_see.wav")
         self.assertEqual(m.text_and_how(m.UTTERANCES["i_see"])[0], "そうなんですね。")   # 手の台詞の文と読み方は、表の言葉で上書きしない
+
+
+class AN45FirstWordsTest(unittest.TestCase):
+    """分身 AN の続きの (2)（書き置き rv191/AN/notes.md の (6-2)）：G-45（g45_reading_confirm.SCENES）の場面の台詞の1つ目も、電話に出た方の第一声（G-46 と同じ1か所
+    g46_reading_more.FIRST）。⛔ それまでは「はい、予約しています。」を第一声として聞き、そのあとの台詞が1つずつずれていた（読みの確かめへの直しが予約の質問への答えになる）"""
+
+    def test_every_scene_starts_with_the_first_words(self):
+        import g45_reading_confirm as g45
+        import g46_reading_more as g46
+        from scenes import FIRST_WORDS
+        for name, (lines, _) in g45.SCENES.items():
+            self.assertIs(lines[0], g46.FIRST, name)
+            self.assertIn(lines[0]["wav"].removeprefix("Puck_").removesuffix(".wav"), FIRST_WORDS, name)
+            self.assertEqual(lines[1], g46.W("yes_reserved"), name)   # 第一声のあと、名乗りの最初の質問（予約）への答え
