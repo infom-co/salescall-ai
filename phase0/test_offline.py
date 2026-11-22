@@ -51820,3 +51820,37 @@ class AMCaseLookupTest(unittest.TestCase):
         self.assertTrue(g.both_row(row))
         for m in ({"full": True}, {"mobile": True}, {"personal": True}, {"named_first": g.NAMED_FIRST}):
             self.assertFalse(g.both_row({**row, **m}), m)
+
+
+class AMHeardLineTest(unittest.TestCase):
+    """分身 AM の続きの (3)（書き置きの (6-6)。CL-1 が書いてある決まりで決めた）：G-59 の正解の表の行の欄「確かめた言い方」（Case の4つ目）は、行の場面でお客様が最後に聞いた、
+    お返事を待つ一言（判定に見せる質問と同じ1か所＝Flow.judge_context の _calling_asked）。携帯電話の番号の2回目の聞き返しへのお返事の行は「「おかだ」様で大丈夫でしょうか？」
+    （その前のお詫び「申し訳ございません、」は相づちの録音＝読み手の束の会話に出る）。cases の引数 confirm は使わない（前からの呼び出しの形のまま受ける）。⛔ 直す前は、呼び出し側が
+    渡した文（「x」「確かめる一言」・確かめる一言）をそのまま入れ、携帯電話の番号の6行も「「おかだ」様でいらっしゃいますでしょうか？」だった"""
+
+    def test_the_confirm_line_is_what_the_customer_heard(self):
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        from phrases import SUCCESSOR
+        table = g.cases()
+        self.assertEqual([c[3] for c in table], [c[3] for c in g.cases("x")])
+        sure = fc.business_of({"mobile": True}).replay_parts()["mobile_confirm"]
+        self.assertEqual(sure, "「おかだ」様で大丈夫でしょうか？")
+        for c in table:
+            if c[3] is not None:   # 判定に見せる質問と同じ1か所（お客様が最後に聞いた、お返事を待つ一言）
+                self.assertEqual(c[3], fc.row_scene(g.case_row(c))._calling_asked().text, (c[0], c[2]))
+        self.assertEqual({c[3] for c in table if c.mobile and c[2] == g.UNHEARD_TWICE}, {sure})
+        self.assertEqual(g.case_of("はい、そうです。", g.ASKED_AFTER, table=table)[3], fc.b.target.confirm())
+        self.assertEqual(g.case_of("はい、そうです。", f"{g.DEPARTED_SAID}／{g.ASKED_AFTER}", table=table)[3], SUCCESSOR["target_confirm"])
+        # 確かめたあとに聞かれて答え、お呼びし直した一言へのお返事（候補 S5 から表へ移した行）：お客様が最後に聞いたのは呼ぶ一言
+        self.assertEqual(g.case_of("はい。", f"{g.ASKED_AFTER}／{g.WHOIS_AFTER}", table=table)[3], fc.b.replay_parts()["target"])
+
+    def test_the_readers_hear_the_line(self):
+        import g59_calling_judge as g
+        import g59_readers as rd
+        from phrases import ACK
+        rows = {(r["key"]["text"], r["key"]["before"]): r for r in rd.packet("m")["rows"] if r["key"]["mobile"]}
+        for c in g.cases():
+            if c.mobile and c[2] == g.UNHEARD_TWICE:
+                said = [w for who, w in rows[(c[0], c[2])]["talk"] if who == "こちら"]
+                self.assertEqual(said[-1], ACK["moushiwake_heavy"] + c[3], c[0])   # お客様が聞いた一言（お詫びの録音＋確かめた言い方）

@@ -490,10 +490,12 @@ def case_row(c: Case) -> dict:
     return {"text": c[0], "before": c[2], "asked": c[3] is not None, "successor": c[4], **c.marks()}
 
 
-def cases(confirm: str) -> list[Case]:
+def cases(confirm: str | None = None) -> list[Case]:
     """測る言葉の全部：(相手の言葉, 受け取ってよい読み, その前に相手が言ったこと, 確かめた言い方, 後任の方をお呼びしたあとか, 正解) と場面の業務の印（Case）。
-    印のある行（LINES_OWN）は、印の無い行のあとに並べる（印の無い行の並びと送る文は前のまま）。"""
-    from phrases import SUCCESSOR
+    印のある行（LINES_OWN）は、印の無い行のあとに並べる（印の無い行の並びと送る文は前のまま）。
+    確かめた言い方（4つ目）は、確かめたあとの行で、行の場面でお客様が最後に聞いた、お返事を待つ一言（heard_line＝判定に見せる質問と同じ1か所）。confirm は使わない
+    （前からの呼び出しの形のまま受ける。⛔ 2026-11-22 分身 AM の続き (3) まで、呼び出し側が渡した文をそのまま入れ、携帯電話の番号の2回目の聞き返しへのお返事の行も
+    「「おかだ」様でいらっしゃいますでしょうか？」だった＝書き置き rv191/AM/notes.md の (6-6)）"""
     rows = ([(t, None, False, False, f) for t, f in LINES] + [(t, b, False, False, f) for t, b, f in LINES_AFTER]
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
             + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED]
@@ -518,7 +520,7 @@ def cases(confirm: str) -> list[Case]:
     marks = [{"full": True} if (t, b, c) in full and not s else {} for t, b, c, s, f in rows]
     rows += [(t, b, c, False, f) for t, b, c, _, f in LINES_OWN]
     marks += [m for *_, m, _ in LINES_OWN]
-    return [_case((t, sorted(set(accept_of(f, s)) | set(extra_of(t, b, m))), b, (SUCCESSOR["target_confirm"] if s else confirm) if c else None, s,
+    return [_case((t, sorted(set(accept_of(f, s)) | set(extra_of(t, b, m))), b, heard_line(t, b, s, row_marks(m)) if c else None, s,
                    f | {END: f.get(END, {END_NONE}), HEAR: f.get(HEAR, {HEAR_OK}), OFFER: f.get(OFFER, {OFFER_NOT_SAID}),
                         ABSENT_WHY: f.get(ABSENT_WHY, {ABSENT_WHY_NOT_SAID})}), **m)
             for (t, b, c, s, f), m in zip(rows, marks)]
@@ -552,10 +554,19 @@ def flows(sees_target: bool | None = None):
 
 
 @functools.cache
-def _judge_questions(text: str, before: str | None, asked: bool, successor: bool, marks: tuple, sees_target: bool | None):
+def _scene_of(text: str, before: str | None, asked: bool, successor: bool, marks: tuple, sees_target: bool | None):
+    """行の場面（本番の流れの制御＝g59_flow_check.row_scene）で、行の言葉を聞いたところの (目的のお客様の判定の質問, 尋ねているかの質問, お客様が最後に聞いた、お返事を待つ一言)
+    （唯一の作り＝判定に見せる質問 judge_questions・表の欄の確かめた言い方 heard_line。3つとも本番の1か所 Flow._calling_asked＝judge_context・asks_context から）。"""
     from g59_flow_check import row_scene
     f = row_scene({"text": text, "before": before, "asked": asked, "successor": successor, **dict(zip(MARKS, marks))}, sees_target)
-    return f.judge_context()[0], f.asks_context()[0]
+    return f.judge_context()[0], f.asks_context()[0], f._calling_asked().text
+
+
+def heard_line(text: str, before: str | None, successor: bool, marks: tuple) -> str:
+    """確かめたあとの行の、お客様が最後に聞いた、お返事を待つ一言（声で流した文。表の欄の確かめた言い方＝cases の1か所。判定に見せる質問と同じ1か所 _scene_of）。
+    携帯電話の番号の2回目の聞き返しへのお返事なら「「おかだ」様で大丈夫でしょうか？」（頭のお詫びは相づちの録音）・確かめたあとに聞かれて答えてお呼びし直した一言への
+    お返事なら呼ぶ一言。"""
+    return _scene_of(text, before, True, successor, marks, None)[2]
 
 
 def judge_questions(r: dict, sees_target: bool | None = None) -> tuple["Question", "Question"]:
@@ -565,7 +576,7 @@ def judge_questions(r: dict, sees_target: bool | None = None) -> tuple["Question
     お客様が最後に聞いた、お返事を待つ一言の文。ご事情を伺った一言なら印 inquiry）。組めない行は g59_flow_check.NoScene。sees_target＝--hide-names。
     ⛔ e055c397 まで、ここは道具が自分で組んでいた（question_of＝確かめたあとなら確かめる一言・ほかは呼ぶ一言＝ご事情を伺った一言・詳しい呼ぶ一言のあとの
        言葉を本番と違う質問で測る形。分身 M の穴 (c)・分身 K の穴 (d)・頼み rv123/Y3 の (1)）"""
-    return _judge_questions(r["text"], r["before"] or None, bool(r["asked"]), bool(r["successor"]), row_marks(r), sees_target)
+    return _scene_of(r["text"], r["before"] or None, bool(r["asked"]), bool(r["successor"]), row_marks(r), sees_target)[:2]
 
 
 def hear_scene(asked: bool, text: str = "はい。") -> dict:
