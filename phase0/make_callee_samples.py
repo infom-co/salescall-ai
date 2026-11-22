@@ -276,18 +276,22 @@ def matches_script(m: dict) -> bool:
     return m.get("text") == text_and_how(UTTERANCES[m["id"]])[0]
 
 
-def verified(wav: str) -> bool:
-    """その声が、確かめ（sample_ok）に通っているか。試験は、通っていない声を使わない。"""
-    if any(wav.endswith(f"_{uid}.wav") for uid in TONES):
-        return (OUT / wav).exists()  # 作った音（声ではない）：別の耳の確かめは無い。ファイルがあればよい
+def _paused_source(wav: str) -> tuple[str, float] | None:
+    """間を長くした台詞の声（PAUSED）なら (もとの声のファイル, 間の秒)。ほかは None。"""
     for uid, (base, pause_s) in PAUSED.items():
         if wav.endswith(f"_{uid}.wav"):
-            source = wav[: -len(f"{uid}.wav")] + f"{base}.wav"
-            if not verified(source):
-                return False
-            from stitch_gap import widen_pause
-            widen_pause(source, pause_s, wav)  # もとの声から作り直す（間の秒を変えたら、すぐ効く）
-            return True
+            return wav[: -len(f"{uid}.wav")] + f"{base}.wav", pause_s
+    return None
+
+
+def verified(wav: str) -> bool:
+    """その声が、確かめ（sample_ok）に通っているか（見るだけ＝ファイルを書かない）。試験は、通っていない声を使わない。間を長くした台詞の声は、もとの声が通っていれば
+    通っている（作るのは流す前の1か所＝make_paused）。2026-11-22 分身 AN の続きの (4)：⛔ それまでは見るたびに間を長くした声を書いていた＝数えるだけの道具でも results/callee/ に
+    ファイルができた・書き直された"""
+    if any(wav.endswith(f"_{uid}.wav") for uid in TONES):
+        return (OUT / wav).exists()  # 作った音（声ではない）：別の耳の確かめは無い。ファイルがあればよい
+    if (paused := _paused_source(wav)) is not None:
+        return verified(paused[0])
     index = OUT / "index.json"
     made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
     return any(m.get("wav") == wav and m.get("ok") is True and matches_script(m) for m in made)
@@ -299,6 +303,19 @@ def missing_voices(lines: list, voice: str) -> list[str]:
     from convo import callee_wav
     wavs = [x[k] for x in lines if isinstance(x, dict) for k in ("wav", "if_asked_target", "yes", "no") if k in x]
     return list(dict.fromkeys(w for w in wavs if not verified(callee_wav(w, voice))))
+
+
+def make_paused(lines: list, voice: str) -> list[str]:
+    """通話を流す前に、台詞の並び lines のうち、間を長くした台詞の声（PAUSED）を、声 voice のもとの声から作り直す（唯一の作る所＝G-57 scenes.run。間の秒を変えたら、すぐ効く）。
+    もとの声が確かめに通っていないものは作らない（その場面は missing_voices で動かさない）。作ったファイルの名前を返す。"""
+    from convo import callee_wav
+    from stitch_gap import widen_pause
+    out = []
+    for x in lines:
+        if isinstance(x, dict) and "wav" in x and (paused := _paused_source(w := callee_wav(x["wav"], voice))) is not None and verified(paused[0]):
+            widen_pause(paused[0], paused[1], w)
+            out.append(w)
+    return out
 
 
 # 日本語の言葉の種類として範囲が決まっている一覧（業務や場面ごとの一覧ではない）

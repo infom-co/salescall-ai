@@ -21,7 +21,7 @@ from g22_opening import BUSINESS, W
 from g30_latency import keep_call
 from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import VOICE_TYPES, Target
-from make_callee_samples import UTTERANCES, missing_voices, talk_name, text_and_how
+from make_callee_samples import UTTERANCES, make_paused, missing_voices, talk_name, text_and_how
 from meaning_judge import STANDIN, add_judge_args, make_judges
 from flowctl import OWN_PARTS, PROMISE, refusal_in
 from review_words import TALK_WORDS, questions as review_questions
@@ -832,6 +832,7 @@ async def run(args) -> dict:
                     rows.append({**head, "skipped": f"相手役の声が確かめに通っていない：{missing}"})
                     say(f"[{rep}] {name} {vt}：動かさない（相手役の声が確かめに通っていない {missing}）")
                     continue
+                make_paused(lines, callee_voice_for(vt))   # 間を長くした台詞の声は、流す前に作る（見分けの verified は書かない）
                 try:
                     call, _ = await ring.acall(args.model, lambda client: run_call(
                         client, args.model, sc.business, vt, lines, opening_mode="recorded", use_ear=True, save_audio="bad",

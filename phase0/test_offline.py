@@ -16507,13 +16507,14 @@ class ScenesTest(unittest.TestCase):
     def test_widened_pause_keeps_the_voice(self):
         # 間を長くした台詞：文と文の間だけが変わり、声の長さ（間を除く）は同じ
         from barge import voice_runs, voiced
-        from make_callee_samples import PAUSED, verified
+        from make_callee_samples import PAUSED, make_paused, verified
         from stitch_gap import callee_speech
         for uid, (base, pause_s) in PAUSED.items():
             src, out = f"Sadachbia_{base}.wav", f"Sadachbia_{uid}.wav"
             if not verified(src):
                 continue
             self.assertTrue(verified(out))
+            self.assertEqual(make_paused([{"wav": f"Puck_{uid}.wav"}], "Sadachbia"), [out])   # 作るのは流す前の1か所（make_paused）
             (a, ra, _), (b, rb, _) = callee_speech(src), callee_speech(out)
             ra_runs, rb_runs = voice_runs(voiced(a, ra), 0.15), voice_runs(voiced(b, rb), 0.15)
             self.assertEqual(len(ra_runs), len(rb_runs))
@@ -51940,3 +51941,23 @@ class ANDigitsReadTest(unittest.TestCase):
                 self.assertEqual(m.sample_ok(x["text"], x["heard"])["ok"], x.get("ok"), (x["voice"], x["id"]))
         self.assertEqual({x["voice"] for x in made if x["id"] == "unclear" and x.get("ok") is True}, {"Puck", "Kore", "Leda", "Sadachbia"})
         self.assertTrue(m.verified("Leda_unclear.wav") and m.verified("Sadachbia_unclear.wav"))
+
+
+class ANVerifiedOnlyLooksTest(unittest.TestCase):
+    """分身 AN の続きの (4)（書き置き rv191/AN/notes.md の (6-7)）：確かめに通っているかの見分け（make_callee_samples.verified・missing_voices）は見るだけで、声のファイルを書かない。
+    間を長くした台詞の声（PAUSED）を作るのは、流す前の1か所（make_paused＝G-57 の scenes.run）。⛔ それまでは見るたびに作り直して書いていた＝数えるだけの道具でも
+    results/callee/ にファイルができた（15:16 に Leda_okada_whois_pause.wav）"""
+
+    def test_looking_does_not_write_and_making_does(self):
+        import make_callee_samples as m
+        lines = [{"wav": "Puck_hold_target_pause.wav"}, {"wav": "Puck_okada_whois_pause.wav"}, {"wav": "Puck_hello.wav"}]
+        with unittest.mock.patch("stitch_gap.widen_pause") as widen, unittest.mock.patch.object(m, "verified", wraps=m.verified):
+            for voice in ("Leda", "Sadachbia"):
+                self.assertEqual(m.verified(f"{voice}_hold_target_pause.wav"), m.verified(f"{voice}_hold_target.wav"))
+                m.missing_voices(lines, voice)
+            widen.assert_not_called()
+            made = m.make_paused(lines, "Sadachbia")
+        want = [f"Sadachbia_{u}.wav" for u, (b, _) in m.PAUSED.items() if m.verified(f"Sadachbia_{b}.wav")]
+        self.assertEqual(made, want)
+        self.assertEqual([c.args for c in widen.call_args_list], [(f"Sadachbia_{m.PAUSED[w.removeprefix('Sadachbia_').removesuffix('.wav')][0]}.wav",
+                                                                   m.PAUSED[w.removeprefix("Sadachbia_").removesuffix(".wav")][1], w) for w in want])
