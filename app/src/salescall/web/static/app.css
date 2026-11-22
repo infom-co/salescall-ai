@@ -287,6 +287,9 @@ label.choice:has(input:checked) { border-color: var(--primary); background: var(
   .tabrow.clients .scroller { order: 10; flex-basis: 100%; border-top: 1px solid var(--line); }
   .tabrow.clients > .adder:not(.group-pick) { margin-left: auto; }
   .tab { padding: 0 11px; }
+  /* 狭い幅で上に留めるのは上の帯（緊急停止・止まっている・承認待ち）だけ。タブは本文と一緒に流れる（2026-11-22：上の帯とタブで
+     画面の高さの約3割を使い、表を見る所が狭かった）。上に留まるほかのもの（--chrome）は app.js の1か所が、留まっているものだけを測る */
+  .tabs { position: static; }
   .tabrow.businesses { padding-left: 6px; }
   .finder .panel { position: fixed; top: 100px; left: 8px; right: 8px; width: auto; }
   .brand { font-size: 13px; }
@@ -519,6 +522,12 @@ table.list .tag { white-space: normal; text-align: left; }
   table.list td:empty { display: none; }
   table.list td.zero { display: none; }   /* 見出しに minor の付いた欄の 0 だけ（app.js の1か所が印を付ける） */
   .bulk .check-all-bar { display: inline-flex; }   /* 表の見出しが隠れるので、帯の「すべて選ぶ」を出す */
+  /* 札の形では、レ点は札の右上に置く（レ点だけで1行を使っていた＝お客様リストの札が1件ごとに長かった。2026-11-22） */
+  table.list tr:has(> td.check) { position: relative; padding-right: 48px; }
+  table.list td.check { position: absolute; top: 8px; right: 8px; width: 40px; height: 40px; padding: 0; display: grid; place-items: center; }
+  table.list td.check input { width: 22px; height: 22px; }
+  table.list td.check::before { display: none; }   /* 右上のレ点には見出しを付けない（見出しが欄の外へ伸び、横にはみ出した。名前は欄の aria-label が持つ） */
+  table.list td.check[data-label] { padding-left: 0; }
   table.list td { word-break: normal; line-break: strict; }   /* 札の形では、長い日本語を枠の中で折る（keep-all のままだと札が枠からはみ出した） */
   .tag { max-width: 100%; white-space: normal; }   /* 札の形では「0」の数の段を出さない（11の依頼者がほぼ「0」の7段ずつになり、ホームがとても長かった）。PC の表は出す */
 }
@@ -657,7 +666,7 @@ details.info .info-body { position: absolute; left: 12px; right: 12px; z-index: 
 tr[data-heard] .heard-mark { visibility: hidden; }
 tr[data-heard="1"] .heard-mark { visibility: visible; }
 tr.playing { background: var(--primary-soft); }
-tr[data-heard] audio { height: 32px; max-width: 240px; }
+tr[data-heard] audio { height: 32px; width: 100%; max-width: 240px; }
 .review-head .actions { margin-top: 12px; align-items: center; }
 .review-group { margin-top: 12px; }
 
@@ -671,3 +680,6 @@ details.setting.just-changed { border-color: var(--ok); box-shadow: 0 0 0 2px va
 
 /* 直す途中の手順の上に出す「何をどう直すか」（row.html） */
 dl.facts.so-far { background: var(--bg); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; }
+
+/* 録音を聞く部品は、どの画面でも入れ物の幅を超えない（2026-11-22：320px の幅で、審査の画面が横にはみ出した） */
+audio { max-width: 100%; }
