@@ -169,6 +169,18 @@ class MoreWords(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(read(text, NOW).kind, CONFIRM)                 # 幅が1つに決まらない（月初＝今月は過ぎた）
 
+    def test_every_condition_word_reads_the_same_as_without_it(self):
+        """お客様の条件の言い方（会話の側が値の終わりから外す言い方＝なら・ならば・でしたら・であれば・だったら。CL-1 の連絡帳 4-246）は、
+        どれも、付いていても無くても同じに読む（値の終わりにあっても、受け入れの言葉が続いても）。並びの1か所は spoken_time._IF_WORDS。
+        ⛔ 2026-11-22 まで「ならば」が無く、「明日ならば」「3時ならば大丈夫です」を読めないにしていた。"""
+        for base in ("明日", "3時", "来月の頭", "火曜日の午後3時まで", "平日の午後4時まで", "15日"):
+            want = read(base, NOW)
+            self.assertNotEqual(want.kind, UNREADABLE, base)
+            for word in ("なら", "ならば", "でしたら", "であれば", "だったら"):
+                for text in (base + word, base + word + "大丈夫です"):
+                    with self.subTest(text=text):
+                        self.assertEqual(read(text, NOW), want)
+
     def test_words_added_in_the_review(self):
         """2026-10-19 の見直しで足した言い方（前は読めず、判定待ちになっていた）と、年の付いた日・過ぎた日・遠い日。"""
         cases = {

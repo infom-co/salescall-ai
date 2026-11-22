@@ -331,7 +331,8 @@ class SameNumberOtherRows(SettleBase):
         for _ in range(2):
             self.assertEqual(self.reason(y, line=s["line"]), "line_used_by_other_client")
             self.assertEqual(offered(s["line"]), [])
-        self.assertEqual(self.notices(s, "line_none_to_switch"), [gate.LINE_NONE_TO_SWITCH])   # 1回だけ
+        # 1回だけ。知らせが指すのは依頼者なので、頭に回線の名指しを付けない（かけようとした回線は tried_line_id。line_id は知らせが指す回線だけ）
+        self.assertEqual(self.notices(s, "line_none_to_switch"), [gate.LINE_NONE_TO_SWITCH])
         self.assertNotIn(gate.OWN_LINE_MISSING, self.notices(s, "setting_missing"))   # 専用の回線はある（専用の発信番号が無い、ではない）
         new = self.w.line(s["tenant"])
         self.tx(s, lambda tx: registry.assign_line(tx, new, s["client"]), OPERATOR)   # 契約者が回線を足した

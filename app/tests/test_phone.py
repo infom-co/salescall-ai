@@ -149,6 +149,13 @@ class KindsAndSpecials(unittest.TestCase):
         self.assertIsNone(normalize("110").display)        # そろえられない番号は、見せる番号が無い
         self.assertIsNone(normalize("あいう").display)
 
+    def test_a_line_is_named_with_its_caller_number(self):
+        """回線の名指し（`line_names.label` の1か所。CL-3 のお願い 71）：「名前（発信番号）」。番号は見せる形（区切りの決まる番号だけ区切る）。"""
+        from salescall.core import line_names
+        self.assertEqual(line_names.label("営業1", "+819000000001"), "営業1（090-0000-0001）")
+        self.assertEqual(line_names.label("営業1", "+81300000001"), "営業1（0300000001）")   # 固定電話は区切らない
+        self.assertEqual(line_names.label("営業1", None), "営業1")
+
     def test_system_forbidden_kinds(self):
         for raw, kind in [("110", "special"), ("119", "special"), ("１１９", "special"), ("104", "special"),
                           ("#7119", "special"), ("＃７１１９", "special"),

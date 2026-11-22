@@ -17,7 +17,7 @@ from pathlib import Path
 from dataclasses import replace
 
 from salescall.core import (ai_versions, attempts, backup, business_rules, call_report, calling_hours, conversation_io, fix_requests, gate,
-                            health, help_texts, leases, migrate, next_action, notify, quality_stage, registry, ring_test, scheduler,
+                            health, help_texts, leases, line_names, migrate, next_action, notify, quality_stage, registry, ring_test, scheduler,
                             settings, stops)
 from salescall.core import health_rules as hr
 from salescall.core.health_rules import LineStage, Wait
@@ -1536,6 +1536,8 @@ class Blame(SupervisorBase):
         summary = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
             "SELECT summary FROM salescall.notification_events WHERE kind = 'line_undecided'"))["summary"]
         self.assertIn("テスト番号を入れてください", summary)
+        named = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: line_names.of(tx, s["line"]))   # どの回線か（名前と発信番号。CL-3 のお願い 71）
+        self.assertTrue(summary.startswith(f"回線「{named}」："), summary)
         self.assertTrue(self.tx(t, lambda tx: health.waiting_decision(tx, aid)))
         self.assertEqual(self.tx(t, lambda tx: next_action.current(tx, t["task"]))["seq"], planned["seq"])   # 予定は書き直さない
         phone = self.numbered(s)                                               # テスト番号が入った（E14）：鳴らない＝回線のせい
@@ -1916,9 +1918,10 @@ class Blame(SupervisorBase):
             tx.execute("INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
                        " VALUES ('line.test_ring_hours', 'tenant', %s, '[\"21:00\", \"03:00\"]', 'decided', '前の形', '試験', '試験')",
                        (s["tenant"],))
-            tx.execute("INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope, help)"   # help＝0268
-                       " VALUES ('line.test_ring_gap', 'override', 'seconds', '前の形', '試験', 'tenant', '前の形'),"
-                       "        ('line.test_ring_gap_max', 'override', 'seconds', '前の形', '試験', 'tenant', '前の形')")
+            tx.execute("INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope, help,"   # help＝0268
+                       " screen_group)"   # まとまり＝0279
+                       " VALUES ('line.test_ring_gap', 'override', 'seconds', '前の形', '試験', 'tenant', '前の形', 'line'),"
+                       "        ('line.test_ring_gap_max', 'override', 'seconds', '前の形', '試験', 'tenant', '前の形', 'line')")
             tx.execute("INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
                        " VALUES ('line.test_ring_gap', 'tenant', %s, '600', 'decided', '前の形', '試験', '試験'),"
                        "        ('line.test_ring_gap_max', 'tenant', %s, '3000', 'decided', '前の形', '試験', '試験')",
