@@ -8,9 +8,10 @@
   かけない）。やり取りの形を変えたら番号を上げる。
 
 PC → サーバー：
-  hello {v, token, updater, lines, drive, key, emergency}  つないだとき（通行証・つないでいる回線・控えのハードディスクと鍵があるか・
-                                                   緊急停止の印 {reason, at, event}。at＝押した時刻＝1回の押しの印）
-  beat {lines, drive, key, emergency}              動いている合図（BEAT_EVERY 秒ごと。印が変わったら、すぐ）
+  hello {v, token, updater, lines, drive, key, emergency, apologies}  つないだとき（通行証・つないでいる回線・控えのハードディスクと鍵が
+                                                   あるか・緊急停止の印 {reason, at, event}。at＝押した時刻＝1回の押しの印・持っているおわびの録音の
+                                                   指紋 {声の型: {部分: sha256}}＝`apologies_of` の形。部分は `APOLOGY_PARTS`）
+  beat {lines, drive, key, emergency, apologies}   動いている合図（BEAT_EVERY 秒ごと。印が変わったら、すぐ）
   reply {id, ok, value?, error?}                   頼まれたことの答え（error：かけていないと確かに言える＝not_placed（かけようとして、
                                                    かけられなかった。だれのせいかはサーバーが証拠で決める）・withheld（かけようとしなかった：
                                                    PC の緊急停止・答えの期限を過ぎた）／failed＝かけたか分からない。形は link/phone.py）
@@ -41,6 +42,11 @@ PC → サーバー：
                                                    話している回線・PC の緊急停止の印がある・答えの期限を過ぎたら試さない＝error withheld
                                                    ＝サーバーは記録しない。0134・0141・0143）
   backup_begin {id, folder, file_name, sha256}     控えを書く（中身は CHUNK ずつのバイト。sha256＝暗号化する前の中身）
+  apology_begin {id, voice, part, sha256}          おわびの録音を前もって配る（つながりが切れたときに、サーバーから声を送れなくても PC がおわびを
+                                                   流して切れるように。CL-3 の連絡帳 74）。voice＝声の型・part＝`APOLOGY_PARTS` の1つ・sha256＝WAV の
+                                                   指紋。中身・書けた印・終わりの合図・答えは控えと同じ（BACKUP の枠で CHUNK ずつ・backup_ack・
+                                                   backup_end・backup_done {id, ok, error?}。error rejected＝指紋が合わない・WAV でない）。配るのは、
+                                                   PC の指紋と違うものだけ（中央の見守り役の仕事 apologies＝配るべき録音は core の recordings.apology_audio）
   backup_end {id}
   prune {id, folders}                              古い控えを消す（folders＝フォルダごとに、種類・残す日数・消さないもの）
   stop_playing {line}                              その回線で流している声と、まだ流していない声を捨てて止める（答えを待たない頼み。止めた
@@ -62,13 +68,15 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-VERSION = 9                  # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected。
+VERSION = 10                 # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected。
                              # 4＝number_rejected をやめ not_placed の1つに（だれのせいかは証拠で決める＝0129）・期限切れは withheld。
                              # 5＝テスト番号に鳴るか試す test_ring＝0134。6＝test_ring の答えの意味：true＝回線から発信できた（話し中・
                              # 電源オフ・圏外のお知らせも）・null＝見分けられない・試さなかったときは error withheld＝0141・0143）。
                              # 7＝start_call・test_ring に番号の国内の形 national（無ければ PC はかけない＝withheld。CL-3 の連絡帳 60）。
                              # 8＝ショートメール send_sms・合図の lines は電話の部品が「使える」と答えた回線だけ（CL-3 の連絡帳 62）。
                              # 9＝AI の声は枠 VOICE で印 ref つき・止める stop_playing・声の出来事 played・stopped（CL-3 の連絡帳 69）
+                             # 10＝おわびの録音を前もって配る apology_begin・合図の apologies（CL-3 の連絡帳 74）。その声の型のおわびの録音を
+                             # 持たない PC は、その声の型の start_call をかけない（error withheld。つながりが切れたとき、お客様を無言で切るため）
 BEAT_EVERY = 15              # 動いている合図の間隔（秒）
 REPLY_WAIT = 20              # 頼んだことの答えを待つ長さ（秒。過ぎたら「分からない」＝かけない側）
 APOLOGY_WAIT = 60            # 「おわびして切って」の答えを待つ長さ（秒）。おわびは2つの録音とお客様の返事の待ちで REPLY_WAIT を超えうる。
@@ -89,7 +97,12 @@ PLAYED, STOPPED = "played", "stopped"   # 声の出来事の種類（phone_event
 REF = re.compile(r"[A-Za-z0-9_-]{1,64}")   # 声のひと続きの印（サーバーが決める短い文字）
 
 PC_TO_SERVER = frozenset({"hello", "beat", "reply", "phone_event", "backup_ack", "backup_done", "emergency"})
-SERVER_TO_PC = frozenset({"welcome", "refuse", "request", "backup_begin", "backup_end", "prune", "emergency_state", "stop_playing"})
+SERVER_TO_PC = frozenset({"welcome", "refuse", "request", "backup_begin", "apology_begin", "backup_end", "prune", "emergency_state",
+                          "stop_playing"})
+# おわびの録音の部分（つながりが切れたときに PC が流す2つ＝共通の一言の名前。正本の名前は CL-1 の phrases.RECORDED・core の common_phrases）。
+# 配る（core の recordings.apology_audio）・持っているかを見る（PC の部品の `apologies_ready`）の1か所
+APOLOGY_PARTS: tuple[str, ...] = ("line_trouble_ask", "line_trouble_bye")
+_SHA = re.compile(r"[0-9a-f]{64}")
 OPS = frozenset({"in_call", "start_call", "hang_up", "apologize", "test_ring", "send_sms"})
 
 
@@ -193,3 +206,23 @@ def uuids(values: Any) -> list[UUID]:
         except ValueError:
             continue
     return out
+
+
+def apologies_of(value: Any) -> dict[str, dict[str, str]]:
+    """合図の apologies を読む（声の型 → 部分 → 指紋。形の合わないもの＝声の型の名前でない・知らない部分・指紋でない、は落とす。
+    サーバーと PC の両方がこの1か所で読む）。"""
+    out: dict[str, dict[str, str]] = {}
+    if not isinstance(value, dict):
+        return out
+    for voice, parts in value.items():
+        if not isinstance(voice, str) or not REF.fullmatch(voice) or not isinstance(parts, dict):
+            continue
+        got = {part: sha for part, sha in parts.items() if part in APOLOGY_PARTS and isinstance(sha, str) and _SHA.fullmatch(sha)}
+        if got:
+            out[voice] = got
+    return out
+
+
+def apologies_ready(held: dict[str, dict[str, str]], voice: str | None) -> bool:
+    """その声の型のおわびの録音（`APOLOGY_PARTS` のすべて）を持っているか（PC の部品が、かける前に見る1か所）。"""
+    return voice is not None and all(part in held.get(voice, {}) for part in APOLOGY_PARTS)

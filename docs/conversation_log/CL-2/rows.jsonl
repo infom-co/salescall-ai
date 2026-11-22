@@ -4663,3 +4663,16 @@
 {"at": "2026-11-23T03:17:18+09:00", "who": "CL-2", "text": "お願い75 は合格しました。続けてお願い74（お詫びの録音を PC に配るやり取り）のために、やり取りの形の1か所（`link/protocol.py`）を読みます。"}
 {"at": "2026-11-23T03:18:28+09:00", "who": "CL-2", "text": "main がまた進んでいたので、取り込みます。CL-1 の比べの試験が app のどのファイルを読むかも確かめます。"}
 {"at": "2026-11-23T03:18:53+09:00", "who": "CL-2", "text": "第14便を main に上げました（7d77bf3c）。知らせを連絡帳に書きます。"}
+{"at": "2026-11-23T03:21:10+09:00", "who": "CL-2", "text": "作りの形を決めました。手を入れる所を確かめるため、共通の一言の組の見方（`_COMMON`）と、声の型の表を読みます。"}
+{"at": "2026-11-23T03:21:20+09:00", "who": "CL-2", "text": "材料がそろったので、お願い74 を作ります。まず、やり取りの形（`link/protocol.py`）からです。"}
+{"at": "2026-11-23T03:21:38+09:00", "who": "CL-2", "text": "Next, the core: which apology recordings every PC should hold."}
+{"at": "2026-11-23T03:21:51+09:00", "who": "CL-2", "text": "Next, the server side: keep each PC's held fingerprints, and an object the job can use to send one recording."}
+{"at": "2026-11-23T03:21:55+09:00", "who": "CL-2", "text": "Writing the server-side pieces (session fingerprints, the sender object, Links method) now."}
+{"at": "2026-11-23T03:22:20+09:00", "who": "CL-2", "text": "Now the supervisor job that distributes them."}
+{"at": "2026-11-23T03:22:31+09:00", "who": "CL-2", "text": "Now the PC side (`agent/main.py`): report held fingerprints, receive `apology_begin`, and refuse to call a voice whose apology recordings are missing."}
+{"at": "2026-11-23T03:22:52+09:00", "who": "CL-2", "text": "The acknowledgement must count pieces (the server compares pieces sent vs acked), not bytes. Also reject unknown voice/part names."}
+{"at": "2026-11-23T03:23:01+09:00", "who": "CL-2", "text": "Now running the link tests to see what the new start_call guard affects."}
+{"at": "2026-11-23T03:27:06+09:00", "who": "CL-2", "text": "Next, a dedicated end-to-end test. First check whether the test world's common recordings carry real audio."}
+{"at": "2026-11-23T03:27:55+09:00", "who": "CL-2", "text": "通りました。全部の電話の試験の組と、見守り役の試験を流しながら、壊し試しを足します。"}
+{"at": "2026-11-23T03:28:50+09:00", "who": "CL-2", "text": "The five mutations were all caught. While the affected modules run, I'll write the records (change log, design, notebook)."}
+{"at": "2026-11-23T03:39:22+09:00", "who": "CL-2", "text": "Commit batch 15 now so a restart cannot lose it; the test result will arrive in the background."}

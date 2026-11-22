@@ -32,12 +32,21 @@ from salescall.supervisor import channel, config
 from salescall.supervisor import line as line_mod
 from salescall.supervisor.links import Attached
 from salescall.supervisor.main import Supervisor
-from tests.support import OPERATOR, SYSTEM
+from tests.support import ADMIN, OPERATOR, SYSTEM, owner_access
 from tests.test_backup import drive_at
 from tests.test_gate import HOLDER, Base
 
 KEY = "架空の控えの鍵の元-0123456789-abcdefghij"
 
+
+
+class ReadyApologies(agent_main.MemoryApologies):
+    """おわびの録音を、どの声の型の分もすでに持っている PC の置き場（電話の試験の場面。配る試験は空の置き場から＝`Apologies`）。"""
+
+    def held(self):
+        got = super().held()
+        codes = [r["code"] for r in owner_access().in_system(SYSTEM, lambda tx: tx.all("SELECT code FROM salescall.voice_types"))]
+        return {code: got.get(code) or {part: "0" * 64 for part in protocol.APOLOGY_PARTS} for code in codes}
 
 
 class LiveCall:
@@ -182,13 +191,14 @@ class LinkBase(Base):
     def pc(self, s, label="架空の PC"):
         return agents.issue(self.w.a, SYSTEM, s["tenant"], label=label)
 
-    def agent(self, got, lines, phones=None, drive=None, hub=None, **env):
+    def agent(self, got, lines, phones=None, drive=None, hub=None, apologies=None, **env):
         hub = hub or self.hub
         values = {"SALESCALL_HUB_URL": f"ws://127.0.0.1:{hub.port}/link", "SALESCALL_LINES": ",".join(map(str, lines)), **env}
         if drive is not None:
             values.update(SALESCALL_BACKUP_DRIVE=str(drive), SALESCALL_BACKUP_KEY=KEY)
         a = agent_main.Agent(agent_config.load(values), PcPass(got.tenant_id, got.pc_id, got.token),
-                             phones if phones is not None else {line: FakePhone() for line in lines})
+                             phones if phones is not None else {line: FakePhone() for line in lines},
+                             apologies=apologies if apologies is not None else ReadyApologies())
         r = Running(a)
         self.addCleanup(r.close)
         return r
@@ -213,6 +223,56 @@ class LinkBase(Base):
         return self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: [
             r["event_id"] for r in stops.open_stops(tx, tenant_id=s["tenant"], client_id=None, business_id=None)
             if r["cause"] == "manual"])
+
+
+class Apologies(LinkBase):
+    def test_a_pc_without_the_apology_recordings_does_not_call_and_the_server_hands_them_out(self):
+        """おわびの録音を PC に前もって配る（CL-3 の連絡帳 74。protocol の版 10）：その声の型のおわびの録音を持たない PC は、その声の型の電話を
+        かけない（withheld＝つながりが切れたとき、お客様を無言で切ることになる）。中央の見守り役の仕事 apologies が、配るべき録音（core の
+        recordings.apology_audio＝その声の共通の一言のいまの組の2つの部分・音の置き場に音があるもの）のうち、PC の指紋と違うものだけを送る。
+        配ったあとは、その声の型でかけられる。2回目は何も送らない。"""
+        from salescall.core import common_phrases, recording_audio, recordings
+        from salescall.supervisor import jobs
+        s = self.ready()
+        voice, code = f"Apology{uuid.uuid4().hex[:8]}", f"A{uuid.uuid4().hex[:6]}"
+        def wav(n):
+            data = n.encode() * 50
+            return (b"RIFF" + (36 + len(data)).to_bytes(4, "little") + b"WAVEfmt " + (16).to_bytes(4, "little")
+                    + bytes([1, 0, 1, 0]) + (16000).to_bytes(4, "little") + (32000).to_bytes(4, "little") + bytes([2, 0, 16, 0])
+                    + b"data" + len(data).to_bytes(4, "little") + data)
+        def make(tx):
+            recordings.add_voice(tx, voice, note="試験の声", display_gender=None)
+            recordings.add_voice_type(tx, code, voice, default_for_voice=True, note="試験の声の型")
+            parts = []
+            for name in recordings.COMMON_PARTS:
+                stored = recording_audio.put(tx, wav(f"{voice}:{name}"))
+                parts.append(recordings.Part(name, common_phrases.TEXTS[name], stored.audio_ref, stored.audio_sha256))
+            recordings.approve(tx, recordings.create_set(tx, unit="contractor", voice_name=voice, parts=parts))
+        owner_access().in_system(ADMIN, make)
+        wanted = self.w.a.in_tenant(SYSTEM, s["tenant"], recordings.apology_audio)
+        self.assertEqual(set(wanted[code]), set(protocol.APOLOGY_PARTS))
+        self.assertNotIn("S2", wanted)                                     # 音の置き場に音の無い録音（架空の録音）は配らない
+        got, phone, store = self.pc(s), FakePhone(), agent_main.MemoryApologies()
+        self.agent(got, [s["line"]], {s["line"]: phone}, apologies=store)
+        self.attached(s, got)
+        session = self.hub.sessions[got.pc_id]
+        call = lambda: self.hub.ask(session, "request", op="start_call", line=s["line"], phone="+81300000001",   # noqa: E731
+                                    national="0300000001", voice=code)
+        self.assertEqual((call().get("ok"), call().get("error")), (False, "withheld"))   # 持っていない：かけない
+        self.assertEqual(phone.calls, [])
+        ctx = jobs.Context(self.w.a, None, HOLDER, self.hub, s["tenant"])
+        jobs.apologies(ctx)
+        self.assertEqual(store.held()[code], wanted[code])
+        for part in protocol.APOLOGY_PARTS:
+            self.assertEqual(store.audio(code, part), wav(f"{voice}:{part}"))
+        self.assertEqual(session.apologies[code], wanted[code])           # サーバーも、配った分を知っている
+        sent = []
+        with mock.patch.object(channel.ApologySender, "put", lambda *a: sent.append(a)):
+            jobs.apologies(ctx)
+        self.assertEqual(sent, [])                                         # 同じ指紋は送らない
+        self.assertTrue(call().get("ok"))                                  # 配ったあとは、その声の型でかけられる
+        self.assertEqual(phone.calls, ["+81300000001"])
+        self.assertTrue(agent_main.MemoryApologies().held() == {} and not protocol.apologies_ready({}, code))
 
 
 class Connect(LinkBase):
@@ -570,7 +630,7 @@ class LostConnection(LinkBase):
         """画面の知らせを受け取る PC の部品（つながらない所へつなぐ。時刻は試験が渡す＝時計に頼らない）。"""
         told = []
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link"}
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, tell=told.append)
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, tell=told.append, apologies=ReadyApologies())
         # 途切れの始まりも試験が決める（⛔ 2026-11-02：本物の時計の値＝小数のついた大きな数のままだと、「(始まり + 600) − 始まり」が
         # 小数の丸めで 599.9999… になり、「10分たったか」の比べがその回だけ通らなかった＝流すたびに落ちたり通ったりした）
         a.offline_since = 1000.0
@@ -663,7 +723,7 @@ class LostConnection(LinkBase):
             def drop(self):
                 order.append("控えをやめる")
                 super().drop()
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {uuid.uuid4(): Mute()})
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {uuid.uuid4(): Mute()}, apologies=ReadyApologies())
 
         async def go():
             a._incoming[uuid.uuid4()] = Receiving()
@@ -684,7 +744,7 @@ class LostConnection(LinkBase):
                 time.sleep(1.0)
                 super().play_apology_and_hang_up()
         phones = {uuid.uuid4(): Talking(busy=True) for _ in range(3)}
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), phones)
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), phones, apologies=ReadyApologies())
 
         async def go():
             a._lost()
@@ -1136,7 +1196,7 @@ class Backups(LinkBase):
         記録し、あとでやり直す）。"""
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d2")),
                   "SALESCALL_BACKUP_KEY": KEY}
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {})
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, apologies=ReadyApologies())
         place = Path(values["SALESCALL_BACKUP_DRIVE"]) / pc_backup.BASE / "架空の依頼者" / "AI"
 
         async def go():
@@ -1155,7 +1215,7 @@ class Backups(LinkBase):
         2026-10-22 の見直し）。"""
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d4")),
                   "SALESCALL_BACKUP_KEY": KEY}
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {})
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, apologies=ReadyApologies())
         place = Path(values["SALESCALL_BACKUP_DRIVE"]) / pc_backup.BASE / "架空の依頼者" / "AI"
 
         async def go():
@@ -1173,7 +1233,7 @@ class Backups(LinkBase):
         """中身を書けなかったら（ディスクの誤り など）、終わりを待たずに書くのをやめ、書きかけを消す。"""
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d3")),
                   "SALESCALL_BACKUP_KEY": KEY}
-        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {})
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, apologies=ReadyApologies())
         place = Path(values["SALESCALL_BACKUP_DRIVE"]) / pc_backup.BASE / "架空の依頼者" / "AI"
 
         async def go():
