@@ -144,8 +144,10 @@ class EnvAndRedactionTest(unittest.TestCase):
         err = RuntimeError(f"failed with key={self.secret}")
         info = common.describe_error(err)
         self.assertNotIn(self.secret, json.dumps(info))
-        common.RESULTS_DIR = self.tmp / "results"
-        path = common.save_result("TEST", {"leak": self.secret, "nested": {"also": f"x{self.secret}x"}})
+        # 結果の置き場は、この試験の間だけ一時の置き場に替え、終わったら戻す（⛔ 2026-11-22 まで替えたまま戻さず、試験の全部の中で、あとの試験の
+        # common.RESULTS_DIR が一時の置き場を指したままだった＝分身 AL の書き置きの6章の (3)）
+        with unittest.mock.patch.object(common, "RESULTS_DIR", self.tmp / "results"):
+            path = common.save_result("TEST", {"leak": self.secret, "nested": {"also": f"x{self.secret}x"}})
         self.assertNotIn(self.secret, path.read_text(encoding="utf-8"))
 
     def test_falls_back_to_environ_when_no_file(self):
@@ -52801,3 +52803,15 @@ class APAllResultsToolsTest(unittest.TestCase):
             (res / "G-53x-TALLY_20261102_000000.json").write_text(_json.dumps(other), encoding="utf-8")
             with m.patch("common.HERE", Path(d)):
                 self.assertEqual(judge_cost.paid_calls(), {"2026-11-01": {"Claude Sonnet 5.5": 1}})
+
+
+class APResultsDirRestoredTest(unittest.TestCase):
+    """分身 AP（分身 AL の書き置きの6章の (3)）：試験 test_redact_in_errors_and_results は、結果の置き場（common.RESULTS_DIR）を一時の置き場に替えたら、終わったあとに戻す
+    （試験の置き場を汚さない＝あとの試験が、替わったままの置き場を読み書きしない）"""
+
+    def test_the_redact_test_puts_the_results_dir_back(self):
+        before = common.RESULTS_DIR
+        result = unittest.TestResult()
+        EnvAndRedactionTest("test_redact_in_errors_and_results").run(result)
+        self.assertTrue(result.wasSuccessful(), result.failures + result.errors)
+        self.assertEqual(common.RESULTS_DIR, before)
