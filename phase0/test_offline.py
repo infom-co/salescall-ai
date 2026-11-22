@@ -51973,7 +51973,9 @@ class ANDigitsReadTest(unittest.TestCase):
     def test_digits_are_read_before_comparing(self):
         from jtext import spoken_digits
         from listen import differences
-        for text, want in (("10", "十"), ("15日の午後2時", "十五日の午後二時"), ("1234", "千二百三十四"), ("090", "〇九〇"), ("0", "〇"), ("10000", "一〇〇〇〇"),
+        # 分身 AO（✅ 2026-11-22 CL-1）：番号の形（「-」でつながる並び・0で始まる3字以上の並びと、それにつながる並び）は数字のまま・5桁からも万・億で読む・
+        # 何にもつながらない2字までの0始まりの並びと単独の「0」は数として読む（「0」＝〇。39f62813 では「0」のままにしていた）＝AONumberReadingTest・AONumberShapeTest
+        for text, want in (("10", "十"), ("15日の午後2時", "十五日の午後二時"), ("1234", "千二百三十四"), ("090", "090"), ("0", "〇"), ("10000", "一万"),
                            ("１０", "十"), ("じゅう", "じゅう")):
             self.assertEqual(spoken_digits(text), want, text)
         self.assertEqual(differences("えっと、じゅう、の", "えっと、 10 の"), [])
@@ -52512,3 +52514,117 @@ class AMGroundTermsBoundaryTest(unittest.TestCase):
             self.assertNotIn(draft, words)
             self.assertNotIn(draft[:2], words, draft)   # 「月曜」「無料」「明日」「オン」
         self.assertIn(NO_FACT, CHOICES[UNGROUNDED])   # 境目の向こう側の名前（事実を言っていない）を、同じ1か所で指す
+
+
+class AONumberReadingTest(unittest.TestCase):
+    """分身 AO（帳面 1 の (6) の (i) の L24・書き置き rv192/AO/notes.md）：数の書き方をそろえて読みで比べる所は1か所（jtext.spoken_reading）。本番の言い間違いの見張り
+    （offscript._reading）と測りの比べ方（listen.differences）が同じ入口を呼ぶ。0で始まらない数は位取りで読み（5桁からも万・億＝伺い12 のイ「言い直す金額は万・千で言う」・
+    桁区切りの「,」は外す）、0で始まる数字の並びと、それに「-」・空白・「の」でつながる並び（電話番号の形）は数字のまま比べる。✅ 2026-11-22 CL-1 が決めた：帳面 4-30
+    「明らかに違う中身だけで止める」（正しく言った電話番号を止めない）・10-18「同じ問いに答える所は1つ」。線（CHECK_KANA・MIN_MATCH）は今の値のまま（CHECK_KANA は
+    受けの言葉を除いた読みの字の数＝「15日」は「じゅうごにち」。⛔ それまでは漢数字を数字に直してから読み、「15日」を「15か」と読んでいた）。"""
+
+    def test_one_entry(self):
+        import inspect
+
+        import listen
+        import offscript
+        self.assertIn("spoken_reading(", inspect.getsource(listen.differences))
+        self.assertIn("spoken_reading(", inspect.getsource(offscript._reading))
+        src = inspect.getsource(offscript)
+        self.assertFalse("import _kanji_to_digits" in src or "_kanji_to_digits(" in src)   # 値の書き方をそろえる flowctl._kanji_to_digits は値の所だけ
+        self.assertNotIn("spoken_digits(", inspect.getsource(listen))
+
+    def test_numbers_are_written_one_way(self):
+        from jtext import spoken_digits
+        for text, want in (("1万円", "一万円"), ("10000円", "一万円"), ("10,000円", "一万円"), ("5万3000円", "五万三千円"), ("53000円", "五万三千円"),
+                           ("1000000円", "百万円"), ("120000000円", "一億二千万円"), ("10000000", "千万"), ("15日の午後2時", "十五日の午後二時"),
+                           ("090-1234-5678", "09012345678"), ("090 1234 の 5678", "09012345678"), ("09012345678", "09012345678"),
+                           ("０９０－１２３４－５６７８", "09012345678"), ("0", "〇"), ("１０", "十"), ("じゅう", "じゅう")):
+            self.assertEqual(spoken_digits(text), want, text)
+
+    def test_cl1_examples(self):
+        # CL-1 の5つの例：読みの2つの側が同じか・見張りの答え（左が渡した言い方）
+        import offscript
+        from jtext import spoken_reading
+        for say, spoken, same, verdict in (
+                ("15日の14時でよろしいでしょうか？", "十五日の十四時でよろしいでしょうか？", True, "ok"),
+                ("15日の14時でよろしいでしょうか？", "じゅうご日の十四時でよろしいでしょうか？", True, "ok"),   # ⛔ 前は読みが違い、外れと読んだ
+                ("一度お聞かせいただいても", "1度お聞かせいただいても", True, "ok"),
+                ("10名ということで", "10めいということで", True, "ok"),
+                ("090-1234-5678でよろしいでしょうか？", "〇九〇の一二三四の五六七八でよろしいでしょうか？", False, "off")):  # 漢数字で書いた番号は今の形と同じく外れのまま
+            self.assertEqual(spoken_reading(say) == spoken_reading(spoken), same, spoken)
+            self.assertEqual(offscript.verdict(say, spoken), verdict, spoken)
+
+    def test_phone_and_amount_restates_are_not_off(self):
+        # 記録の組（G-57-TALLY・final-S2・J12b・J7 の「別の番号」）：数字のまま比べる＝区切りの違いだけでは外れにしない。金額は万・千でそろう
+        from listen import differences
+        from offscript import SpeechGate
+        say = "ありがとうございます。090-1234-5678でよろしいでしょうか？"
+        for chunks in (["ありがとうございます。090", " 1234", " の", " 5678", "でよろしいでしょうか?"], ["ありがとうございます。09012345678でよろしいでしょうか？"]):
+            g = SpeechGate(lambda: say)
+            got = [g.on_text(c) for c in chunks]
+            self.assertEqual(got[-1], "ok", chunks)
+            self.assertNotIn("off", got, chunks)
+        for say, spoken in (("ありがとうございます。1万円でよろしいでしょうか？", "ありがとうございます。10000円でよろしいでしょうか？"),
+                            ("ありがとうございます。1万円でよろしいでしょうか？", "ありがとうございます。10,000円でよろしいでしょうか？"),
+                            ("ありがとうございます。5万3000円でよろしいでしょうか？", "ありがとうございます。53000円でよろしいでしょうか？")):
+            g = SpeechGate(lambda s=say: s)
+            self.assertEqual(g.on_text(spoken), "ok", spoken)
+            self.assertEqual(differences(say, spoken), [], spoken)
+        self.assertEqual(differences("090-1234-5678でお願いします。", "09012345678でお願いします。"), [])
+        self.assertEqual(differences("090の1234の5678です。", "090 の 1234 の 5678 です。"), [])
+        self.assertNotEqual(differences("090-1234-5678でお願いします。", "090-1234-5679でお願いします。"), [])   # 違う番号は違う
+        self.assertNotEqual(differences("1万円です。", "2万円です。"), [])
+
+    def test_numbers_count_by_reading(self):
+        # 決める時機：数を読みのかなで数える（「15日」＝じゅうごにち）＝話し始めの CHECK_KANA 字に、日時で始まる言い直しは早く届く（記録の 664組・中央0.189秒早い。答えは変わらない）
+        from offscript import SpeechGate
+        g = SpeechGate(lambda: "ありがとうございます。15日の14時、午後2時でよろしいでしょうか？")
+        self.assertEqual(g.on_text("ありがとうございます。15日の14時、"), "ok")   # ⛔ 前は「15かの14じ」の7字で決めなかった
+
+
+class AONumberShapeTest(unittest.TestCase):
+    """分身 AO の続き2（書き置き rv192/AO/notes.md の続き2）：数字のまま比べるのは「番号の形」だけ＝「-」でつながる数字の並び（頭が0でなくても＝郵便番号「100-0001」）と、
+    0で始まる3字以上の並び、およびそれらに空白・「の」でつながる並び（「090 1234 の 5678」）。2字までで何にもつながらない0始まりの並び（「3時05分」の「05」・「09:30」の「09」）
+    と単独の「0」は数として読む（番号は字の並び・時刻や数は数＝同じ理由が当たる所すべてに＝10-19）。見分けは jtext.spoken_digits の1か所。✅ 2026-11-22 CL-1 が書いてある
+    決まりで決めた。⛔ 39f62813 では、0で始まる並びをすべて数字のままにし、「3時05分」と「3時5分」・「100-0001」と「100 0001」を違う読みと見た。"""
+
+    def test_number_shapes(self):
+        from jtext import spoken_digits, spoken_reading
+        for text, want in (("3時05分", "三時五分"), ("09:30", "九:三十"), ("0時", "〇時"), ("05", "五"), ("100-0001", "1000001"), ("100 の 0001", "1000001"),
+                           ("0120-123-456", "0120123456"), ("090", "090"), ("090 1234 の 5678", "09012345678"), ("15日の14時", "十五日の十四時"),
+                           ("1000001", "百万一")):   # 区切りの無い7字の並びは、5桁からも万・億で読む決まりのとおり数（番号とは字だけでは分けられない）
+            self.assertEqual(spoken_digits(text), want, text)
+        for a, b in (("3時05分でお願いします。", "3時5分でお願いします。"), ("09:30に伺います。", "9:30に伺います。"), ("100-0001です。", "100 0001です。"),
+                     ("100-0001です。", "100の0001です。"), ("090-1234-5678です。", "09012345678です。"), ("090-1234-5678です。", "090 1234 の 5678です。")):
+            self.assertEqual(spoken_reading(a), spoken_reading(b), (a, b))
+        self.assertNotEqual(spoken_reading("3時05分です。"), spoken_reading("3時50分です。"))
+        self.assertNotEqual(spoken_reading("100-0001です。"), spoken_reading("100-0002です。"))
+
+    def test_watch_and_measure_follow(self):
+        import offscript
+        from listen import differences
+        self.assertEqual(offscript.verdict("ありがとうございます。3時05分でよろしいでしょうか？", "ありがとうございます。3時5分でよろしいでしょうか？"), "ok")
+        self.assertEqual(differences("3時05分でお願いします。", "3時5分でお願いします。"), [])
+        self.assertEqual(differences("郵便番号は100-0001です。", "郵便番号は100 0001です。"), [])
+
+
+class AOHeardAlikeTest(unittest.TestCase):
+    """分身 AO の続き2 の (2)：2つの耳の比べ（flowctl.heard_alike＝会話AIの聞き取りと別の耳の文字）も、数の書き方をそろえてから読みで比べる（jtext.spoken_reading の1か所＝
+    測りの比べ方・本番の言い間違いの見張りと同じ）。✅ 2026-11-22 CL-1（10-18「同じ問いに答える所は1つ」・10-29「確かめが1回増えるのは安全でなく、相手からの不信」）。
+    ⛔ それまでは数の書き方をそろえずに比べ、「15日」と「十五日」を食い違いと見て、要らない確かめになりうる形だった。記録の2つの耳の組 46,675（G-14 の通話の中 1,613・G-15 45,062）
+    では、どちらの形でも答えは1つも変わらない（記録の答えに数を言う声が無い＝書き置き rv192/AO/notes.md の続き2）。"""
+
+    def test_numbers_written_differently_are_alike(self):
+        import inspect
+
+        import flowctl
+        from flowctl import heard_alike
+        self.assertIn("spoken_reading(", inspect.getsource(flowctl.heard_alike))
+        for a, b in (("15日の午後2時でお願いします。", "十五日の午後二時でお願いします。"), ("15日の午後2時でお願いします。", "15 日の午後 2 時でお願いします。"),
+                     ("3人です。", "三人です。"), ("1万円くらいです。", "10000円くらいです。"), ("090-1234-5678です。", "09012345678です。"),
+                     ("えっと、3時05分です。", "3時5分です。")):
+            self.assertTrue(heard_alike(a, b), (a, b))
+        for a, b in (("15日の午後2時でお願いします。", "50日の午後2時でお願いします。"), ("3人です。", "4人です。"), ("090-1234-5678です。", "090-1234-5679です。"),
+                     ("捨てないです。", "してないです。")):
+            self.assertFalse(heard_alike(a, b), (a, b))

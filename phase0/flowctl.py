@@ -2842,11 +2842,14 @@ def heard_alike(a: str, b: str) -> bool:
     ⛔ 通話の中で測ると（G-15 の続き。Gemini の書き起こしのモデルを別の耳にした）、食い違いで確かめた14回のうち13回は正しい答えへの要らない確かめ
     （152本の8.5%）で、拾えた誤りは0（残った誤り「してないです」は、2つの耳が両方とも「捨てないです」と聞いた）⇒ 既定では使わない
     （convo.run_call の ear_check は既定で切る。別の耳の文字が届かなければ比べない＝この決まりは働かない）。会話AIと独立した別の耳が
-    見つかったら、耳を入れ替えて測り直す。"""
-    from jtext import compare_reading
+    見つかったら、耳を入れ替えて測り直す。
+    【2026-11-22 分身 AO】数の書き方は、そろえてから読みで比べる（jtext.spoken_reading の1か所＝測りの比べ方 listen.differences・本番の言い間違いの見張り offscript と同じ）。
+    ✅ CL-1（10-18「同じ問いに答える所は1つ」・10-29「確かめが1回増えるのは安全でなく、相手からの不信」）。⛔ それまでは「15日」と「十五日」・「3時05分」と「3時5分」を
+    食い違いと見て、要らない確かめになりうる形だった（記録の2つの耳の組 46,675 には数を言う答えが無く、答えは1つも変わらない）。"""
+    from jtext import spoken_reading
 
     def norm(s: str) -> str:
-        t = _HEAD_FILLER.sub("", compare_reading(s))
+        t = _HEAD_FILLER.sub("", spoken_reading(s))
         for pat, w in _LEAD_READING:
             t = pat.sub(w, t)
         return t
