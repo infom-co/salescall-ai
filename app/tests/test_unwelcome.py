@@ -284,7 +284,7 @@ class SameNumberOtherRows(SettleBase):
             waiting = self.claim(s)
         self.assertEqual(getattr(waiting, "reason", None), "business_voice_not_ready")
         told = self.tx(s, lambda tx: [r["summary"] for r in tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'")])
-        self.assertIn(gate.SAME_VOICE_NOT_READY.format(types[heard]), told)
+        self.assertIn(self.w.said(s["tenant"], s["client"], gate.SAME_VOICE_NOT_READY.format(types[heard]), s["business"]), told)
         # 行ごとの理由：候補に出さない（実施回のほかの行は飛ばさない。⛔ 2026-11-18 の7回目の見直しまで：実施回の理由で、実施回全体がかからなかった）
         self.assertIn("business_voice_not_ready", gate.UNOFFERED_REASONS)
         with mock.patch.object(recordings, "ready_voices", return_value=others):
@@ -332,8 +332,9 @@ class SameNumberOtherRows(SettleBase):
             self.assertEqual(self.reason(y, line=s["line"]), "line_used_by_other_client")
             self.assertEqual(offered(s["line"]), [])
         # 1回だけ。知らせが指すのは依頼者なので、頭に回線の名指しを付けない（かけようとした回線は tried_line_id。line_id は知らせが指す回線だけ）
-        self.assertEqual(self.notices(s, "line_none_to_switch"), [gate.LINE_NONE_TO_SWITCH])
-        self.assertNotIn(gate.OWN_LINE_MISSING, self.notices(s, "setting_missing"))   # 専用の回線はある（専用の発信番号が無い、ではない）
+        self.assertEqual(self.notices(s, "line_none_to_switch"),
+                         [self.w.said(y["tenant"], y["client"], gate.LINE_NONE_TO_SWITCH, y["business"])])   # どの依頼者・業務の行か（お客様の行の業務）
+        self.assertFalse([n for n in self.notices(s, "setting_missing") if n.endswith(gate.OWN_LINE_MISSING)])   # 専用の回線はある（専用の発信番号が無い、ではない）
         new = self.w.line(s["tenant"])
         self.tx(s, lambda tx: registry.assign_line(tx, new, s["client"]), OPERATOR)   # 契約者が回線を足した
         self.lease(y, line=new)
