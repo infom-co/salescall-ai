@@ -52626,3 +52626,21 @@ class AMAsksHoldHandoverTest(unittest.TestCase):
         truths = [n for n in calls if n.func.id == "asks_truths"]
         self.assertEqual(len(truths), 1)
         self.assertEqual(ast.unparse(truths[0].args[0]), "case_row(case)")   # 行を渡す（言葉だけでは、代わった方の行の正しい読みが決まらない）
+
+
+class AMNamedFirstWhoTest(unittest.TestCase):
+    """分身 AM の続き2 (2)（束 m の #8。CL-1 が書いてある決まりで決めた）：第一声でご本人が名乗った電話の、確かめる一言への「どちらの岡田でしょうか？」の「誰か」を、読み手2人が
+    そろって「受付・取次ぎの方」と「決められない」の両方に読んだ（ほかの人のこととして尋ねた／自分も岡田の一人で聞き返しただけ）。尋ねているかが「どの方をお呼びかを尋ねている」と
+    読むときの流れの制御に2つの読みで通すと、会話AIのどの報告でも動きが同じ＝境目として両方を正解（説明は変えない）"""
+
+    def test_the_two_readings_move_the_flow_alike_and_both_are_right(self):
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        import g59_tally as t
+        from flowctl import ASKS_WHO, WHO
+        c = g.case_of("どちらの岡田でしょうか？", named_first=g.NAMED_FIRST)
+        self.assertEqual(c[5][WHO], {"受付・取次ぎの方", "決められない"})
+        self.assertEqual(g.asks_truths(g.case_row(c)), (ASKS_WHO,))
+        r = g.case_row(c)
+        acts = {who: {fc.calling_acts(r, rd | {WHO: who}, ASKS_WHO) for rd in t.right_readings(c[5], c[5])} for who in c[5][WHO]}
+        self.assertEqual(acts["受付・取次ぎの方"], acts["決められない"])
