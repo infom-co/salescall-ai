@@ -32,7 +32,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
-from salescall.core import (agents, ai_plans, calendar, calling_hours, help_texts, conversation_io, customer_contacts, customer_rows, destinations, dnc, dnc_import, exclusions,
+from salescall.core import (agents, ai_plans, calendar, calling_hours, contract_end, help_texts, conversation_io, customer_contacts, customer_rows, destinations, dnc, dnc_import, exclusions,
                             gate, health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
@@ -44,7 +44,7 @@ from salescall.output import files as result_files
 from salescall.output import notices, record_book, result_rows, words
 from salescall.web import actions, context, counts, importing, inbox, links, names, rowfix, setting_forms, uploads, watch
 from salescall.web import login as web_login
-from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
+from salescall.web.context import AdminOnly, ClientForgotten, Ctx, Identify, NotFound, Person, acting
 
 HERE = Path(__file__).resolve().parent
 ACTING_COOKIE = "acting_tenant"   # 管理者が見ている契約者（署名つき）
@@ -233,6 +233,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             return render(person, ctx)
         except (NotFound, AdminOnly):
             return problem(request, 404, "見つかりません", "住所を確かめてください。")
+        except ClientForgotten as gone:   # 外した依頼者の住所は、どの画面でもこの1枚（決めるのは context.client の1か所）
+            return page(request, "client_forgotten.html", person, ctx, gone=gone)
         except access_layer.TimedOut:
             return problem(request, 503, "読めませんでした", "データベースの返事が遅れています。少し待ってから開き直してください。")
         except access_layer.RetryExhausted:
@@ -500,7 +502,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                            "waiting": sum(1 for wc, _ in waiting if wc["client_id"] == c["client_id"])} for c in ctx.clients()]
             found = watch.collect(ctx)
             noticed = [(w, got) for _, w, got in found if w.attention and got]
-            return page(request, "home.html", person, ctx, ready=ctx.tenant(counts.readiness), stops=stops_now, per_client=per_client, done=done, ok=bool(ok),
+            return page(request, "home.html", person, ctx, ready=ctx.tenant(counts.readiness), stops=stops_now, per_client=per_client, forgotten=ctx.forgotten_clients(), done=done, ok=bool(ok),
                         waiting_total=len(waiting), first=waiting[:3], watch_total=watch.attention_count(found), watch_first=noticed[:1],
                         system=ctx.tenant(counts.tenant_system))
         return handle(request, render)
@@ -785,6 +787,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     out.update(client=context.client(tx, client_id),
                                businesses=context.businesses(tx),
                                renames=counts.name_changes(tx, ("client", "business", "run")) if business_id is None else [],
+                               # 契約終了から外すまでの猶予（core の contract_end.forget_after の1か所。確かめの窓の文に入れる）
+                               grace=setting_forms.span_words(contract_end.forget_after(tx).total_seconds()) if business_id is None else "",
                                business=None if business_id is None else context.business(tx, business_id))
                 return out
             if level == "system":   # 管理者だけ（ctx.system が断る）。仮の値は、見直す時と一緒に見せる（settings.provisional の1か所）
@@ -1667,6 +1671,35 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                               lambda: ctx.client(client_id, lambda tx: registry.set_client_active(tx, active, reason=str(form.get("reason") or ""))),
                               done=("有効に戻しました。この依頼者に、また電話をかけます（ほかに止めているものがあれば、そちらが先です）。" if active
                                     else "無効にしました。この依頼者には、新しい電話をかけません（まだかけていない予約は取り消しました）。"),
+                              reason_field="reason")
+            return _back(f"/c/{client_id}/settings", out)
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/contract-end")
+    async def client_contract_end(request: Request, client_id: UUID) -> HTMLResponse:
+        """依頼者との契約を終える（計画書 11-4・設計書 3-10。CL-2 の 4-480）。新しい電話を止め、猶予のあとサーバーからデータを外す
+        （core の contract_end.end の1か所。押せるのは管理者か契約者＝データベースが守る。理由は記録に残る）。"""
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            out = actions.act(secret, person.login_id, form,
+                              lambda: ctx.client(client_id, lambda tx: (context.client(tx, client_id),
+                                                                         contract_end.end(tx, reason=str(form.get("reason") or "")))),
+                              done="契約終了にしました。この依頼者には、新しい電話をかけません。猶予のあいだは取り消せます。",
+                              reason_field="reason")
+            return _back(f"/c/{client_id}/settings", out)
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/contract-end/cancel")
+    async def client_contract_end_cancel(request: Request, client_id: UUID) -> HTMLResponse:
+        """契約終了を取り消す（サーバーから外す前だけ。core の contract_end.cancel の1か所。使う形に戻る）。"""
+        form = dict(await request.form())
+        def cancel(tx: Any) -> None:
+            if context.client(tx, client_id)["ended"] is None:   # 押したあと・取り消したあとの二度押し（core の state の答えを読む）
+                raise access_layer.Refused("契約終了になっていません（もう取り消したか、まだ押していません）")
+            contract_end.cancel(tx, reason=str(form.get("reason") or ""))
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, cancel),
+                              done="契約終了を取り消しました。この依頼者に、また電話をかけます（ほかに止めているものがあれば、そちらが先です）。",
                               reason_field="reason")
             return _back(f"/c/{client_id}/settings", out)
         return handle(request, render)

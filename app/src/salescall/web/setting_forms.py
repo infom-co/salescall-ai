@@ -212,17 +212,21 @@ def _percent(s: Any) -> float:
     return round(float(t) / 100, 6)
 
 
-def human_seconds(v: Any) -> str:
-    """秒を人の時間で見せる1か所（例：300 → 「5分（300秒）」・20 → 「20秒」）。1分より短ければ秒だけ。入れる欄は秒なので、秒も添える。"""
+def span_words(v: Any) -> str:
+    """秒を人の時間の言葉にする1か所（例：604800 → 「7日」・5400 → 「1時間30分」・20 → 「20秒」）。文の中で長さを言うときに使う。"""
     n = int(v)
-    if n < 60:
-        return f"{n}秒"
     parts, rest = [], n
     for size, name in ((86400, "日"), (3600, "時間"), (60, "分"), (1, "秒")):
         if rest >= size:
             parts.append(f"{rest // size}{name}")
             rest %= size
-    return f"{''.join(parts)}（{n}秒）"
+    return "".join(parts) or "0秒"
+
+
+def human_seconds(v: Any) -> str:
+    """秒を設定の値として見せる（例：300 → 「5分（300秒）」・20 → 「20秒」）。1分より短ければ秒だけ。入れる欄は秒なので、秒も添える。"""
+    n = int(v)
+    return span_words(n) if n < 60 else f"{span_words(n)}（{n}秒）"
 
 
 def show(value_type: str, value: Any, unit: str = "") -> str:

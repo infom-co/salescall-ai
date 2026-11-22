@@ -132,7 +132,7 @@ TIMING: dict[str, str] = {
     # (5) お金
     "budget": DAYTIME, "deficit_warning": DAYTIME,
     # (6) そのほかの報告
-    "quality_stage": MORNING, "answer_rate_drop": MORNING, "sample_ready": MORNING, "ai_newer_version": MORNING, "apology": MORNING,
+    "quality_stage": MORNING, "answer_rate_drop": MORNING, "client_forgotten": MORNING, "sample_ready": MORNING, "ai_newer_version": MORNING, "apology": MORNING,
 }
 SEND_HOURS = "notify.send_hours"   # 知らせを送ってよい時間（契約者ごと。値の形は calling.hours と同じ weekly_hours。全体の値は毎日 8〜22時）
 

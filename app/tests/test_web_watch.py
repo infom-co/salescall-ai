@@ -108,6 +108,28 @@ class WatchOnScreen(OurTroubles):
             page = _http(s["tenant"]).get("/t/watch").text
         self.assertNotIn("今日 40本中", page)                                    # 落ちていなければ出ない
 
+    def test_a_backup_not_taken_for_a_day_shows_for_the_client_and_the_whole_one_only_for_the_admin(self):   # 計画書 5-2「控えの遅れ」
+        import unittest.mock
+        from salescall.core import backup
+        s = self.ready()
+        page = _http(s["tenant"]).get("/t/watch").text
+        self.assertNotIn("この依頼者のデータの控え", page)                       # 作ったばかりの依頼者は、まだ遅れていない（core の答えのまま）
+        asked = []
+
+        def overdue(tx, part):
+            asked.append(part)
+            return True
+        admin = TestClient(create_app(app_access(), lambda r: Person("試験の管理者", True, s["tenant"], "架空の契約者"), SECRET))
+        with unittest.mock.patch.object(backup, "overdue", overdue):
+            page = _http(s["tenant"]).get("/t/watch").text
+            whole = admin.get("/t/watch").text
+        part = page[page.index('id="backups"'):]
+        self.assertIn("この依頼者のデータの控え", part[:3000])
+        self.assertIn("1日以上取れていません", part[:3000])
+        self.assertNotIn('id="backup_whole"', page)                              # データベース全体の控えは管理者にだけ
+        self.assertIn("データベース全体の控え", whole[whole.index('id="backup_whole"'):][:3000])
+        self.assertEqual(set(asked), {"client_ai", "system"})
+
     def test_every_watch_says_where_it_is_read_and_what_it_means(self):
         for key, w in watch.WATCHES.items():
             with self.subTest(key=key):

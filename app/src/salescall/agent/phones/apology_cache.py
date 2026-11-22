@@ -58,16 +58,16 @@ class ApologyCache:
             raise Rejected(f"おわびの録音の部分が分かりません：{part!r}")
         return self.root / voice / f"{part}.wav"
 
-    def put(self, voice: str, part: str, sha256: str, data: bytes) -> None:
+    def put(self, voice: str, part: str, sha256: str, audio: bytes) -> None:
         """届いた録音をしまう（指紋が合い、WAV として読めるときだけ。前の録音は置き換える）。引数の並びは PC の部品の土台の置き場の形
         （CL-2 の `agent.main.ApologyStore.put(voice, part, sha256, audio)`＝4-479）。合わなければ Rejected（ValueError）。"""
         path = self._path(voice, part)
-        if hashlib.sha256(data).hexdigest() != (sha256 or "").lower():
+        if hashlib.sha256(audio).hexdigest() != (sha256 or "").lower():
             raise Rejected("届いた録音の指紋が合いません（しまいません）")
-        _pcm_of(data)
+        _pcm_of(audio)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_bytes(data)
+        tmp.write_bytes(audio)
         os.replace(tmp, path)
 
     def held(self) -> dict[str, dict[str, str]]:

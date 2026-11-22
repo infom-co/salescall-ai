@@ -767,3 +767,7 @@ label.enc-choice > input { margin-top: 4px; }
 /* お客様リストの表の「電話の台本」の欄：版の記録は、版の番号と「版を替える」の下に小さく（2026-11-22 深夜） */
 .version-history { margin-top: 6px; }
 .version-history .history-list { margin-top: 4px; }
+
+/* 依頼者との取引：「しばらく休む」と「契約を終える」は別の操作なので、区切り線で2つのまとまりに分ける（2026-11-23。前は見出しが上のボタンに付いて見えた） */
+.client-active .deal-part h3 { margin: 0 0 6px; font-size: 15px; }
+.client-active .deal-part + .deal-part { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }

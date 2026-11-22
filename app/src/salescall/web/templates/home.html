@@ -63,7 +63,7 @@
     <tr>
       {#- 新しい電話をかけていない依頼者は、名前の横に赤い札（無効＝取引を終えた など／止まっています＝依頼者の範囲の停止。答えは context.client と
           counts.stopped_clients の1か所＝タブの印と同じ） -#}
-      <td><a href="/c/{{ c.client_id }}">{{ c.name }}</a>{% if not c.active %} {{ tag("無効", words.tone("stopped")) }}{% elif c.stopped %} {{ tag(words.STOP_STATE, words.tone("stopped")) }}{% endif %}</td>
+      <td><a href="/c/{{ c.client_id }}">{{ c.name }}</a>{% if c.ended %} {{ tag("契約終了", words.tone("stopped")) }}{% elif not c.active %} {{ tag("無効", words.tone("stopped")) }}{% elif c.stopped %} {{ tag(words.STOP_STATE, words.tone("stopped")) }}{% endif %}</td>
       <td class="num">{{ c.dialed }}</td>
       <td class="num">{{ c.talked }}</td>
       <td class="num">{{ c.call }}</td>
@@ -80,4 +80,6 @@
 {% else %}
 <div class="card">{{ empty("依頼者はまだいません", "依頼者を作ると、ここに今日の数が出ます。") }}</div>
 {% endif %}
+{#- 契約が終わり、サーバーから外した依頼者（タブには出さない。名前だけ残し、住所を開くと1枚の説明＝web/context.client の1か所） -#}
+{{ quiet_clients("契約が終わった依頼者（サーバーからデータを外しました）", forgotten) }}
 {% endblock %}

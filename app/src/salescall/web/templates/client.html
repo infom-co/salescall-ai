@@ -19,8 +19,15 @@
   {{ go("/c/" ~ client.client_id ~ ("/b/" ~ business.business_id if business else "") ~ "/settings", words.BUSINESS_NAV["/settings"] if business else words.CLIENT_NAV["/settings"]) }}
   </nav></div>
 {{ flash(done, ok) }}
-{#- 無効の依頼者（取引を終えた など）：門が新しい電話を通さない。どこで戻すかを添える（戻すのは、この依頼者の設定の1か所） -#}
-{% if not client.active %}
+{#- 契約終了の猶予のあいだ（core の contract_end.state）：新しい電話をかけない。いつサーバーから外すか・どこで取り消すかを添える -#}
+{% if client.ended %}
+<a class="card attention-stop notice-link stopped" href="/c/{{ client.client_id }}/settings#client-active">
+  <b>契約終了にしました。新しい電話をかけません</b>
+  <span class="muted">{{ time(client.ended.forget_at) }}を過ぎたら、サーバーからこの依頼者のデータを外します（それまでは取り消せます）{% if client.grace_over and client.ended.blocked %}・まだ外していない理由：{{ client.ended.blocked }}{% endif %}</span>
+  <span class="go">取り消す</span>
+</a>
+{#- 無効の依頼者（しばらく休む など）：門が新しい電話を通さない。どこで戻すかを添える（戻すのは、この依頼者の設定の1か所） -#}
+{% elif not client.active %}
 <a class="card attention-stop notice-link stopped" href="/c/{{ client.client_id }}/settings#client-active">
   <b>この依頼者は無効です。新しい電話をかけません</b>
   <span class="muted">理由：{{ client.state_reason }}・{{ time(client.state_at) }}から</span>

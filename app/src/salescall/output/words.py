@@ -693,7 +693,7 @@ NOTICE_KIND_WORDS: dict[str, str] = {
     "calendar_sync_failed": "祝日の暦を取りに行けませんでした", "calendar_next_year_missing": "来年の祝日の暦がまだありません",
     "budget": "費用が上限を超えました", "forbidden_speech": "言ってはいけないことを言った電話があります",
     "complaint": "苦情のあった電話があります", "apology": "お詫びの電話の結果", "deficit_warning": "赤字になっています",
-    "program_update": "PC のプログラムの更新が要ります", "backup_failed": "控えを取れませんでした",
+    "program_update": "PC のプログラムの更新が要ります", "backup_failed": "控えを取れませんでした", "client_forgotten": "契約が終わった依頼者のデータをサーバーから外しました",
     "answer_rate_drop": "電話に出てもらえる割合が下がりました", "sample_ready": "正解を付ける電話を抜き取りました",
     "old_promise_choice": "前の担当の方との約束を選んでください", "correction_call": "直した結果でおかけしてよいか確かめてください",
     "more_calls": "お約束・お詫びの電話で話せなかったお客様がいます（さらにかけるか選んでください）",

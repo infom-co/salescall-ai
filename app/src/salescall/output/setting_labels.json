@@ -94,6 +94,7 @@
  "recording.keep_days_cloud": "録音をクラウドに残す日数",
  "recording.keep_days_drive": "録音をハードディスクに残す日数",
  "recording.save": "通話の録音とやり取りを残すか",
+ "contract_end.forget_after": "契約終了からサーバーのデータを外すまでの猶予",
  "retry.apology_max": "お詫びの電話の回数の上限",
  "retry.ask_number_again_max": "番号の聞き直しの回数の上限",
  "retry.max_attempts_per_task": "1人のお客様にかける回数の上限",

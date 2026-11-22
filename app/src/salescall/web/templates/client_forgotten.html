@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag %}
+{% block title %}{{ gone.name }}（契約終了）{% endblock %}
+{% block main %}
+{#- サーバーから外した依頼者（計画書 11-4・設計書 3-10。core の contract_end）。お客様・設定・結果はサーバーに無いので、ほかの画面は出さず、
+    この1枚だけを出す（外したかを決めるのは web/context.client の1か所＝ClientForgotten）。ハードディスクの控えは残っている -#}
+<h1>{{ gone.name }} {{ tag("契約終了", "") }}</h1>
+<div class="card">
+  <p><b>この依頼者は契約が終わり、サーバーからデータを外しました。</b></p>
+  <p class="muted">契約終了：{{ time(gone.ended_at) }}。お客様・結果・設定はサーバーにはありません。最後の控えは、管理者か契約者の PC のハードディスクに残っています（日数で消えません）。外したあとは、元に戻せません。</p>
+</div>
+{% endblock %}

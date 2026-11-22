@@ -28,7 +28,7 @@
       <td><b>{{ l.name }}</b><div class="muted">{{ (methods|selectattr("method", "equalto", l.method)|map(attribute="label")|first) or l.method }}</div></td>
       <td class="tel">{{ phone(l.caller_e164) }}</td>
       <td>{% if l.retired_at %}—{% else %}
-        <b>{{ (client_names[l.client_id] ~ " の専用") if l.client_id else "共有" }}</b>
+        <b>{{ (client_names.get(l.client_id, "契約が終わった依頼者") ~ " の専用") if l.client_id else "共有" }}</b>
         <details class="adder"><summary class="btn small">使い先を変える</summary>
           <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/assign">{{ csrf(token) }}
             <label class="field">「{{ l.name }}」の新しい使い先</label>
@@ -55,7 +55,7 @@
           <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/retire" data-needs-reason data-confirm-tone="danger" data-confirm-ok="使用停止にする"
                 data-confirm="回線「{{ line_label(l.name, l.caller_e164) }}」を使用停止にします。この回線ではもうかけません（元に戻せません）。まだ発信していない予約は取り消します。">{{ csrf(token) }}
             {#- 取り消せない操作は、どれに効くかを名前つきで見せてから（計画書 5-1） -#}
-            <p><b>回線「{{ l.name }}」</b>（発信番号 <span class="tel">{{ phone(l.caller_e164) }}</span>・{{ (client_names[l.client_id] ~ " の専用") if l.client_id else "共有" }}）</p>
+            <p><b>回線「{{ l.name }}」</b>（発信番号 <span class="tel">{{ phone(l.caller_e164) }}</span>・{{ (client_names.get(l.client_id, "契約が終わった依頼者") ~ " の専用") if l.client_id else "共有" }}）</p>
             <p class="muted">この回線ではもうかけません（元に戻せません）。まだ発信していない予約は取り消します。</p>
             <input type="text" name="reason" aria-label="理由（記録に残ります）" placeholder="理由（例：端末を返した）"><button class="btn danger small" type="submit" data-submit disabled>「{{ l.name }}」を使用停止にする</button></form></details>
       {% endif %}</td>

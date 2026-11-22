@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from salescall.core import answer_rate, attempts, errors, gate, health, health_rules
+from salescall.core import answer_rate, attempts, backup, errors, gate, health, health_rules
 from salescall.core.access import Tx
 from salescall.output import notices, words
 from salescall.web import links, names
@@ -43,6 +43,14 @@ class Watch:
     where: str                                # tenant＝契約者の取引で読む／client＝依頼者ごとの取引で読む／system＝管理者の取引で読む（管理者にだけ見せる）
     collect: Callable[[Tx], list[Entry]]
     attention: bool = True                    # ホームの「気をつけること」に数えるか（終えた電話の記録などは数えない）
+
+
+def _backup(part: str, what: str) -> Callable[[Tx], list[Entry]]:
+    """控えが1日以上取れていないか（core の backup.overdue の1か所を読むだけ。知らせを出す見張りも同じものを読む＝画面と知らせがずれない）。
+    控えを書くのは PC なので、PC がつながっているかを見る「回線と PC」へ。"""
+    def collect(tx: Tx) -> list[Entry]:
+        return [Entry(what, "1日以上取れていません", None, "/t/lines")] if backup.overdue(tx, part) else []
+    return collect
 
 
 def _lines(tx: Tx) -> list[Entry]:
@@ -152,6 +160,12 @@ WATCHES: dict[str, Watch] = {
                          "中身を「知らせ」で確かめ、送り先の設定を見直してください。", "tenant", _undelivered(False)),
     "undelivered_admin": Watch("送れていない管理者あての知らせ（直近7日）", "管理者あての知らせが、決めた回数送っても届かなかったものです。"
                                "管理者にだけ見えます。中身を「知らせ」の「管理者あて」で確かめてください。", "system", _undelivered(True)),
+    "backups": Watch("控えが1日以上取れていない依頼者", "依頼者ごとのデータの控え（ハードディスクに取るもの）が、1日以上取れていません。控えは PC が"
+                     "書くので、PC がつながっているかを「回線と PC」で確かめてください。1日に1回お知らせもしています。発信は止めていません。",
+                     "client", _backup("client_ai", "この依頼者のデータの控え")),
+    "backup_whole": Watch("データベース全体の控えが1日以上取れていない", "すべての契約者のデータをまとめた控え（管理者の PC のハードディスクに取るもの）が、"
+                          "1日以上取れていません。管理者の PC がつながっているかを確かめてください。1日に1回お知らせもしています。管理者にだけ見えます。",
+                          "system", _backup("system", "データベース全体の控え")),
     "lines": Watch("確かめ中・休みの回線", "回線のせいか番号のせいかを確かめている回線と、休ませている回線です。直ったと確かめられると自動で戻ります"
                    "（休みから再開するときは「回線と PC」から）。", "tenant", _lines),
     "answer_drops": Watch("出てもらえた割合が大きく下がっている回線（今日）", "今日お客様に出てもらえた割合が、その回線のいつもの同じ時間帯より"

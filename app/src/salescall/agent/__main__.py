@@ -76,7 +76,9 @@ def _serve(cfg: config.Config) -> int:
             if got is None:
                 return 1
         try:
-            asyncio.run(main.Agent(cfg, got).run(asyncio.Event()))
+            # おわびの録音の置き場は、電話の部品と同じ1か所（CL-3 の agent/phones/apology_cache。CL-2 の 4-479・4-481 の頼みで CL-3 が渡した）
+            from salescall.agent.phones.apology_cache import ApologyCache
+            asyncio.run(main.Agent(cfg, got, apologies=ApologyCache()).run(asyncio.Event()))
             return 0
         except main.NeedLogin:
             if pc_login.load() == got:   # 止められた通行証を消して、ログインし直す（管理者が新しく入れた通行証は消さない）

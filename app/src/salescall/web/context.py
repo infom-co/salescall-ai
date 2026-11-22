@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, TypeVar
 from uuid import UUID
 
@@ -50,6 +51,16 @@ class NotFound(Exception):
 
 class AdminOnly(Exception):
     """管理者だけの場所に、管理者でない人が来た。"""
+
+
+class ClientForgotten(Exception):
+    """契約が終わり、サーバーからデータを外した依頼者の住所を開いた（core の contract_end。計画書 11-4）。お客様・設定・結果はサーバーに
+    無いので、どの画面もこの1枚だけを出す（app.py の handle の1か所）。"""
+
+    def __init__(self, name: str, ended_at: Any) -> None:
+        super().__init__(name)
+        self.name = name
+        self.ended_at = ended_at
 
 
 @dataclass(frozen=True)
@@ -92,7 +103,7 @@ class Ctx:
         """その契約者の依頼者の一覧（依頼者のタブと探す欄に出す。名前の順）。選んだグループ（`group`）があれば、そのグループの依頼者だけ
         （✅ 2026-11-18 管理者「依頼者が増えた場合は『グループ』を作れるといいね」。グループは core の registry.groups の1か所＝CL-2 4-436）。
         グループはタブの並べ方だけに使う（データの分離・権限には使わない）。無くなったグループを選んでいたら、すべてを並べる。"""
-        rows = self.tenant(lambda tx: tx.all(f"SELECT {CLIENT_COLUMNS} FROM salescall.clients c ORDER BY c.name, c.client_id"), read_only=True)
+        rows = [r for r in self._all_clients() if not (r["ended"] and r["ended"].forgotten)]   # 外した依頼者はタブに出さない
         if self.group is None:
             return rows
         groups = self.groups()
@@ -101,6 +112,18 @@ class Ctx:
             return [r for r in rows if r["client_id"] not in inside]
         chosen = next((g for g in groups if str(g["group_id"]) == self.group), None)
         return rows if chosen is None else [r for r in rows if r["client_id"] in set(chosen["clients"])]
+
+    def _all_clients(self) -> list[dict[str, Any]]:
+        """その契約者の依頼者すべて（名前の順）。契約終了の依頼者には、core の contract_end.state の答え（ended）を添える。"""
+        def read(tx: Tx) -> list[dict[str, Any]]:
+            ended = _contract_ends(tx)
+            return [{**r, "ended": ended.get(r["client_id"])}
+                    for r in tx.all(f"SELECT {CLIENT_COLUMNS} FROM salescall.clients c ORDER BY c.name, c.client_id")]
+        return self.tenant(read, read_only=True)
+
+    def forgotten_clients(self) -> list[dict[str, Any]]:
+        """契約が終わり、サーバーから外した依頼者（名前と住所だけ。タブには出さず、ホームに名前の1行で残す）。"""
+        return [r for r in self._all_clients() if r["ended"] and r["ended"].forgotten]
 
     def groups(self) -> list[dict[str, Any]]:
         """その契約者の依頼者のグループ（並び順。core の registry.groups の1か所）。"""
@@ -121,7 +144,21 @@ def client(tx: Tx, client_id: UUID) -> dict[str, Any]:
                "                    ORDER BY x.seq DESC LIMIT 1) s ON true WHERE c.client_id = %s", (client_id,))
     if c is None:
         raise NotFound()
+    st = _contract_ends(tx, client_id).get(client_id)
+    if st is not None and st.forgotten:
+        raise ClientForgotten(c["name"], st.ended_at)
+    c["ended"] = st                     # 契約終了の猶予のあいだ（取り消せる）。外したかの判断は core の contract_end.state の1か所
+    # 猶予が過ぎたか（過ぎたのにまだ外していないときだけ、画面に「まだ外していない理由」＝state の blocked を出す。猶予のあいだの blocked は
+    # 「猶予のあいだです」で、すぐ前の「それまでは取り消せます」と同じことなので出さない）
+    c["grace_over"] = st is not None and st.forget_at is not None and st.forget_at <= datetime.now(st.forget_at.tzinfo)
     return c
+
+
+def _contract_ends(tx: Tx, client_id: UUID | None = None) -> dict[UUID, Any]:
+    """契約終了の依頼者（外したものも）と、その状態（core の contract_end の1か所を読むだけ。決め直さない）。client_id を渡せば、その依頼者だけ。"""
+    from salescall.core import contract_end
+    ids = contract_end.ended_clients(tx)
+    return {c: contract_end.state(tx, c) for c in ids if client_id is None or c == client_id}
 
 
 def businesses(tx: Tx) -> list[dict[str, Any]]:
