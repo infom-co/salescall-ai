@@ -51705,3 +51705,39 @@ class AMCallingSceneMarksTest(unittest.TestCase):
         self.assertNotIn("★正解の印★", text)
         self.assertNotIn("正解は", rd.packet_text("m"))
 
+
+class AMConditionWordsTest(unittest.TestCase):
+    """分身 AM（担当 AK の棚卸しの P7・束4）：申し出の伺い直しに入れる条件の文字（会話AIが書く terms）を、中身の判定の測り（G-63 の CASES）に入れる。条件は、会話AIが自分の
+    言葉で言う文と同じ中身の判定の1か所（Flow._grounded・grounding_jobs の (知っていること, お客様の言葉, 文)）に送られ、同じ決め方（own_answer_problem）で声に出すかが決まる
+    （本書 9-5 の 11-09 日本時間7時57分50秒の段：「月曜日を避けて」＝お客様のご都合だけ＝事実を言っていない側・「無料で」「明日までに」「オンラインで」＝こちらについての事実・
+    約束・業務の方法に無い方法の側）。⛔ 直す前は、測りの文の一覧に条件の文字の行が無かった（触れたかの試しの言葉 review_words.GROUND_WORDS も、条件の行は無い）"""
+
+    ROWS = (("月曜日を避けて", "通す"), ("無料で", "止める"), ("明日までに", "止める"), ("オンラインで", "止める"))
+
+    def test_1_the_condition_rows_are_measured(self):
+        import g63_grounding as G
+        got = {d: (s, w) for s, d, w in G.CASES}
+        for terms, want in self.ROWS:
+            self.assertIn(terms, got, terms)
+            self.assertEqual(got[terms][1], want, terms)
+
+    def test_2_the_rows_go_to_the_same_content_judge_as_production(self):
+        # 本番：条件の形の確かめ（offer_terms_problem）を通り、中身の判定に (知っていること, お客様の言葉, 条件) で送られ、読みで声に出すかが決まる（_proposal_problem）。
+        # 測り（G-63 の decide）の決め方は、どの読みでも本番と同じ
+        import g63_grounding as G
+        from flowctl import Flow, Question, offer_terms_problem
+        from grounding import DEFERRED, GROUNDED, NO_FACT, REFUSED, UNGROUNDED, Verdict
+        from scenes import TARGET_INFO
+        got = {d: s for s, d, _ in G.CASES}
+        for terms, _ in self.ROWS:
+            said = got[terms]
+            self.assertIsNone(offer_terms_problem(terms, TARGET_INFO.spoken_names(), TARGET_INFO.name_readings(), "terms"), terms)
+            f = Flow([Question("P1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))],
+                     knowledge=TARGET_INFO.knowledge(), names=TARGET_INFO.spoken_names(), name_readings=TARGET_INFO.name_readings())
+            f.on_callee(); f.on_heard(said)
+            self.assertEqual(f.grounding_jobs("record_answer", {"question_id": "P1", "condition_id": "はい", "terms": terms}),
+                             [(f.knowledge, said, terms)], terms)
+            for v in (GROUNDED, NO_FACT, UNGROUNDED, REFUSED, DEFERRED):
+                f.on_grounded(terms, Verdict(v))
+                voiced = f._proposal_problem({"terms": terms}, "P1") is None
+                self.assertEqual(voiced, G.decide(TARGET_INFO, said, terms, v) == G.OK, (terms, v))
