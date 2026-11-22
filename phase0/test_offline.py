@@ -53541,3 +53541,60 @@ class AUWayOfferAnyNoneTest(unittest.TestCase):
         r = next(r for r in G.label_readings(it, qm["W1@E1"], False) if r == UNDECIDED and getattr(r, "near", None) == WISH_NONE)
         rep = G.flow_reply(it, qm["W1@E1"], r)[2]
         self.assertNotIn("意味合い", ARWayOfferWishSceneTest.heard(rep))
+
+
+class AUOfferBordersTest(unittest.TestCase):
+    """分身 AU（束 ar1 の読み手2人がそろって正解の外を読んだ所＝rv195/ar1_AB.txt・CL-1 の読み rv195/rr_ar1.txt。CL-1 が書いてある決まりで決めた＝伺わない）：
+    (a) 申し出に条件（ご都合の日時・一緒に聞く方・担当の方など）を付けて受けた言葉（#3〜#7）を、2人とも「決められない」とも読んだ＝「方法は言っていない」の説明の1か所に、受けた側か
+        ほかの希望の側で「決められない」ではない、を書いた（✅ 2026-11-12 日本時間13時40分05秒の (2)・11-03 日本時間20時48分）
+    (b) ご案内・ご説明を頼んだ言葉（#1）と、自分に問うた言葉（#8）を、2人とも「こちらへ尋ねた問いがある」とも読んだ（2つの読みで流れの制御の動きが違う）＝決まりで決まる側
+        （「無い」）を「ある」の説明の1か所に書いた（✅ 2026-11-06 日本時間4時11分28秒・11-08 日本時間8時55分08秒「(イ)」）。正解の表の両側の値は今のまま
+    (c) お電話のご案内を断った方の「夜の七時以降に、もう一度かけてもらえますか。」（#16）を、2人とも「やはりお電話」とも読んだ＝2つの読みの一言がどちらも会話として繋がる＝境目（仮）
+    仮を外した：分身 AR の6行（review_words.WAY_ROWS）＝2人とも作った側の正解の中"""
+
+    def test_1_conditions_on_accepting_are_not_undecided(self):
+        from flowctl import UNDECIDED, WAY_UNSAID, WISH_OTHER, WISH_OTHER_MEANING, callback_question
+        of = AUWayOfferAnyNoneTest().of()
+        for q in (callback_question("other_wish", of=of), callback_question("other_wish", of=of, which=True)):
+            d = q.meanings[WAY_UNSAID]
+            self.assertIn("条件を付けて受けると言ったのも", d)
+            self.assertIn(f"「{WISH_OTHER_MEANING}」", d)          # 判定に見せる名前で指す
+            self.assertIn(f"「{UNDECIDED}」にはしない", d)
+            self.assertEqual(q.meanings[WISH_OTHER], WISH_OTHER_MEANING)
+            self.assertNotIn("条件", q.meanings[WISH_OTHER])     # 境目は1か所
+        self.assertEqual(WISH_OTHER_MEANING, "上のどれでもない、ほかのご希望を言ったということ")
+
+    def test_2_the_query_border_on_both_sides(self):
+        import json
+        from pathlib import Path
+        import g53_meaning as G
+        from flowctl import QUERY_NO, QUERY_YES, query_choices
+        yes, no = query_choices(False)[QUERY_YES], query_choices(False)[QUERY_NO]
+        self.assertIn("知りたいことを言わずに、ご案内やご説明をしてほしい", yes)
+        self.assertIn("自分に問いかけた", yes)
+        self.assertNotIn("ご説明", no)   # 境目は「ある」の1か所（「無い」は「ある」を名前で指す）
+        labels = json.loads((Path(G.__file__).parent / "g53_labels.json").read_text(encoding="utf-8"))["labels"]
+        q = {k.split("|")[2]: v.get("query") for k, v in labels.items()}
+        for t in ("資料、どんな内容か先に教えてもらえますか", "初期設定はどうすればいいのか教えてもらえますか？", "他社と比べて何が違うのか教えてください",
+                  "オプションの内容をもう少し聞かせてもらえますか", "どちらがいいでしょうか"):
+            self.assertEqual(q[t], [QUERY_YES], t)
+        for t in ("やっぱり、そちらから改めて説明してもらえますか。", "んー、どっちがいいかな。", "画面越しで説明してもらえますか。", "オンラインで説明してもらえますか？",
+                  "電話でも構いませんので、詳しく教えてください。", "うーん、どうしようかな。"):
+            self.assertEqual(q[t], [QUERY_NO], t)
+
+    def test_3_call_again_at_seven_is_a_border(self):
+        import json
+        from pathlib import Path
+        import g53_meaning as G
+        labels = json.loads((Path(G.__file__).parent / "g53_labels.json").read_text(encoding="utf-8"))["labels"]
+        row = labels["W1|W1@E1|夜の七時以降に、もう一度かけてもらえますか。|"]
+        self.assertEqual(row["accept"], ["ほかの希望を言った", "あとでかけ直す", ARWayOfferWishSceneTest.REPICK])
+        self.assertIn("分身 AU", row["why"])
+        qm = G.question_map()
+        it = {"set": "W1", "qid": "W1@E1", "text": "夜の七時以降に、もう一度かけてもらえますか。"}
+        self.assertFalse(any(w.startswith((G.SCENE_MISSING, G.OTHER_ACT)) for w in G.step_wants(it, qm["W1@E1"], False)))
+
+    def test_4_the_way_rows_are_no_longer_provisional(self):
+        import review_words as rw
+        for it in rw.WAY_ROWS:
+            self.assertNotIn("⏳", it["label"]["why"], it["text"])
