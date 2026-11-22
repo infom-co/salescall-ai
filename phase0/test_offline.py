@@ -51670,3 +51670,18 @@ class ALLatestResultTest(unittest.TestCase):
                 if last.search(line) or rule.search(line):
                     found.append(f"{f.name}:{n}: {line.strip()}")
         self.assertEqual(found, [])
+
+
+class ALReadersDoneNotesTest(unittest.TestCase):
+    """分身 AL（担当 AK の棚卸しの F5）：読み手が読み終えた束の行に「⏳ 読み直し待ち」の説明を残さない（どの束・何行・結果で書く）。読み手へ回す行は TO_READERS の1か所"""
+
+    def test_no_reader_waits_are_left_in_the_test_word_tables(self):
+        import re
+        from pathlib import Path
+        import review_words
+        here = Path(__file__).resolve().parent
+        waits = re.compile(r"読み直し待ち|読み手2人で見る|⏳ どの行も、答えを伏せた|⏳ 「考えている途中」")
+        found = [f"{name}:{n}" for name in ("review_words.py", "end_words.py")
+                 for n, line in enumerate((here / name).read_text(encoding="utf-8").splitlines(), 1) if waits.search(line)]
+        self.assertEqual(found, [])
+        self.assertEqual(review_words.TO_READERS, [])   # 読み手を待っている行は無い
