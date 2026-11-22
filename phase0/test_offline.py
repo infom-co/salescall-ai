@@ -3097,12 +3097,14 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         import g59_calling_judge as g
         from flowctl import ABOUT, ABOUT_NONE, PHONE, PHONE_NONE, WHO, target_facets
         cases = g.cases("「おかだ」様でいらっしゃいますでしょうか？")
-        self.assertEqual(len(cases), len({(t, b, bool(a), succ) for t, _, b, a, succ, _ in cases}))   # 同じ場面の言葉を2回数えない
-        for text, accept, before, asked, successor, facts in cases:
+        # 同じ場面の言葉を2回数えない（場面は、場面の業務の印も＝同じ言葉の会社の電話とご本人の電話は別の場面＝2026-11-22 分身 AM）
+        self.assertEqual(len(cases), len({(t, b, bool(a), succ, *g.row_marks(g.case_row(c))) for c in cases for t, _, b, a, succ, _ in (c,)}))
+        for c in cases:
+            text, accept, before, asked, successor, facts = c
             self.assertLessEqual(set(g.accept_of(facts, successor)), set(accept), text)
             self.assertLessEqual(set(accept) - set(g.accept_of(facts, successor)), set(g.EXTRA.get((text, before), ())), text)   # 足した読みはご決定の分だけ
-            # 正解の項目と中の名前は、その場面で判定に見せる項目と選べるものの中（Flow._calling_questions と同じ選び分け）
-            shown = {fc.key: fc.choices for fc in target_facets(bool(asked), successor)}
+            # 正解の項目と中の名前は、その場面で判定に見せる項目と選べるものの中（Flow._calling_questions と同じ選び分け。ご本人の電話の行は、ご本人の電話の説明＝own_phone）
+            shown = {fc.key: fc.choices for fc in target_facets(bool(asked), successor, own_phone=c.mobile or c.personal)}
             self.assertEqual(set(facts), set(shown), text)   # どの行も、判定に見せる項目のすべてに正解がある（相手の申し出・理由も＝2026-11-19 日本時間21時台）
             for k, got in facts.items():
                 self.assertTrue(got and got <= set(shown[k]), (text, k))
@@ -40863,6 +40865,8 @@ class MeasureCallingShownQuestionTest(unittest.TestCase):
                 self.assertEqual((q, aq), (built.judge_context()[0], built.asks_context()[0]), text)
                 if (text, before) in {(x["text"], x["before"]) for x in g._candidate_rows() if x["id"] in g.LINES_ASKED}:
                     continue   # 候補から移した行は、お客様が最後に聞いた一言（ご事情を伺った一言など）を見せる＝候補の試しと同じ（分身 S3 の続き (3)：候補の48行は答えを伏せた読み手2人の読みで正解の表へ移した＝g59_calling_judge.LINES_ASKED・候補 candidates() は0行）
+                if c.mobile or c.personal or c.named_first:
+                    continue   # ご本人の電話・第一声でご本人が名乗った電話の行（2026-11-22 分身 AM）は、印の業務と始まりの場面の質問＝AMCallingSceneMarksTest が確かめる
                 if c.full and before and not asked:
                     # 詳しい呼ぶ一言のきっかけ（どちらの岡田か・お名前だけでは分からない）のあとの行（2026-11-20 rv176/S に候補 S3-5・S4-5 から表へ移した）：
                     # 判定に見せる質問は、部署・フルネームでお呼びし直した一言（候補の試し test_the_inquiry_and_detailed_call_candidates_are_built_in_production_scenes と同じ。
@@ -41032,7 +41036,7 @@ class CallingReadersPacketTest(unittest.TestCase):
         import g59_calling_judge as g
         import g59_readers as rd
         real = g.cases("x")
-        marked = [g._case((t, acc, b, a, s, {k: {"★正解の印★"} for k in f}), c.full) for c in real for t, acc, b, a, s, f in (c,)]
+        marked = [g._case((t, acc, b, a, s, {k: {"★正解の印★"} for k in f}), **c.marks()) for c in real for t, acc, b, a, s, f in (c,)]   # 場面の業務の印も（2026-11-22 分身 AM）
         with unittest.mock.patch.object(g, "cases", lambda confirm: marked):
             for name in ("a", "b"):
                 text = rd.packet_text(name) + rd.request_text(name, "/x")
@@ -51562,3 +51566,142 @@ class AJNameSamaTailTest(unittest.TestCase):
                 AJNameSamaTest.told(f, "はい。")
                 f.apply("confirm_field", {"question_id": "R1", "result": "affirmed"})
                 self.assertEqual(f.items["R1"].value, want)
+
+
+class AMCallingSceneMarksTest(unittest.TestCase):
+    """分身 AM（担当 AK の棚卸しの F8・束3＝P2・P8・P11。CL-1 が決めた＝伺わない）：お呼びする段の測りの表（G-59 の正解の表 g59_calling_judge.cases）の行が、場面の業務の印
+    （かけた番号が携帯電話の番号か＝mobile・個人のお客様か＝personal・第一声でお呼びする方ご本人が名乗ったか＝named_first。前からの full と同じ形）を持ち、測りの場面は本番と
+    同じ1か所で組む：業務の流れの制御は業務設定の入口 instruction.Business.flow（携帯電話の番号かは flowctl.is_mobile・個人のお客様かは Target.kind＝Flow の dialed_mobile・
+    personal）・判定に見せる質問とその前の言葉は Flow.judge_context（第一声は渡さない＝Flow._called_words）。測りの側に写しを作らない。印の無い今の行は今の場面のまま。
+    ⛔ 直す前は、場面を組む1か所（g59_flow_check.scene）が流れの制御を業務設定の入口を通さずに作り、かけた番号も個人のお客様も渡さなかった＝表の場面は会社の電話の業務だけで、
+    本書 9-4 のご本人の電話（携帯電話の番号の2回目の聞き返し「申し訳ございません、「おかだ」様で大丈夫でしょうか？」・番号違いの説明）と、第一声でご本人が名乗った電話の
+    確かめる一言へのお返事が、測りに無かった（review_words.CALLING_WORDS の案の3行は「組めない」として表の外）"""
+
+    MOBILE_ASK = "岡田（おかだ）様で大丈夫でしょうか？"
+    CONFIRM = "岡田（おかだ）様でいらっしゃいますでしょうか？"
+    CALL = "営業部部長の岡田（おかだ）様はいらっしゃいますでしょうか？"
+    PERSONAL_CALL = "岡田（おかだ）様のお電話でお間違えないでしょうか？"
+
+    @staticmethod
+    def marked():
+        import g59_calling_judge as g
+        return [c for c in g.cases("x") if getattr(c, "mobile", False) or getattr(c, "personal", False) or getattr(c, "named_first", None)]
+
+    def test_1_the_scene_is_built_by_the_business_entry(self):
+        # 場面を組む1か所（g59_flow_check.scene）は、業務設定の入口（Business.flow）で流れの制御を作る＝かけた番号・個人のお客様も本番と同じ1か所で読む
+        import dataclasses
+        import g59_flow_check as fc
+        from instruction import Target
+        mobile = dataclasses.replace(fc.b, phone_e164="+819012345678")
+        personal = dataclasses.replace(fc.b, target=Target(kind="個人", name="岡田", reading="おかだ"))
+        for bz, want in ((fc.b, (False, False, False)), (mobile, (True, False, True)), (personal, (False, True, True)),
+                         (dataclasses.replace(fc.b, phone_e164="03-1234-5678"), (False, False, False))):
+            f, _, _ = fc.scene([], business=bz)
+            self.assertEqual((f.dialed_mobile, f.personal, f._own_phone()), want, bz.phone_e164)
+        # 業務ごとの行の業務は1か所（business_of）：印の業務
+        self.assertIs(fc.business_of({}), fc.b)
+        self.assertIs(fc.business_of({"full": True}), fc.b_full)
+        self.assertEqual(fc.business_of({"mobile": True}).phone_e164, fc.MOBILE)
+        self.assertEqual(fc.business_of({"personal": True}).target.kind, "個人")
+
+    def test_2_the_marked_rows_are_built_in_production_scenes(self):
+        # 印のある行は、本番の流れの制御で行の場面（確かめたあとか・判定に渡す前の言葉）に組め、判定に見せる質問は、お客様が最後に聞いた一言
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        from flowctl import ABOUT, ABOUT_NO_SUCH
+        rows = self.marked()
+        named = [c for c in rows if c.named_first]
+        mobile_ask = [c for c in rows if c.mobile and c[2] == g.UNHEARD_TWICE]
+        self.assertTrue(6 <= len(named) <= 10, len(named))        # P2：第一声でご本人が名乗った電話の、確かめる一言へのお返事
+        self.assertTrue(4 <= len(mobile_ask) <= 6, len(mobile_ask))   # P8：携帯電話の番号の2回目の聞き返しへのお返事
+        for c in rows:
+            r = g.case_row(c)
+            f = fc.row_scene(r)
+            q, aq = g.judge_questions(r)
+            self.assertEqual((q, aq), (f.judge_context()[0], f.asks_context()[0]), c[0])
+            want = (self.CONFIRM if c.named_first or (c.personal and c[3]) else self.MOBILE_ASK if c in mobile_ask
+                    else self.PERSONAL_CALL if c.personal else self.CALL)
+            self.assertEqual(q.text, want, (c[0], c[2]))
+            self.assertEqual(f.dialed_mobile, bool(c.mobile), c[0])
+            self.assertEqual(f.personal, bool(c.personal), c[0])
+            # ご本人の電話（携帯電話の番号・個人のお客様）の番号違いの説明には「そういう方はいない」が無い（flowctl.wrong_number_choice の1か所）
+            choices = next(fc_.choices for fc_ in q.facets if fc_.key == ABOUT)
+            self.assertEqual(ABOUT_NO_SUCH in choices, not (c.mobile or c.personal), c[0])
+        for c in named:
+            r = g.case_row(c)
+            self.assertIsNone(fc.row_scene(r).judge_context()[2], c[0])   # 第一声は判定に渡らない＝その前の言葉は無い
+            self.assertEqual(c.named_first, g.NAMED_FIRST)
+        for c in mobile_ask:
+            f = fc.row_scene(g.case_row(c))
+            self.assertEqual(f.confirm_part, "mobile_confirm", c[0])   # 2回目の聞き返しで流した確かめる一言へのお返事
+
+    # 試しの言葉の表の案 review_words.CALLING_WORDS の3行（ご本人の電話の候補）：(相手の言葉, 確かめたあとか, 印)。案の行は答えの段の担当の枝で消す（消したあとも、この試験は
+    # この3行で見張る）
+    DRAFT = (("うちには岡田という者はおりませんが。", False, "mobile"), ("いえ、そういう方はいませんけど。", False, "personal"), ("いいえ、違いますけど。", True, "personal"))
+
+    def test_3_the_calling_words_draft_rows_are_in_the_table_with_the_own_phone_marks(self):
+        # 案の3行は、ご本人の電話の印で表にある（正解は案の正解・場面はご本人の電話）
+        import review_words
+        from flowctl import ABOUT, ABOUT_NONE, ABOUT_WRONG
+        rows = self.marked()
+        for text, asked, mark in self.DRAFT:
+            got = [c for c in rows if c[0] == text and (c[3] is not None) == asked and getattr(c, mark)]
+            self.assertEqual(len(got), 1, text)
+            self.assertEqual(got[0][5][ABOUT], {ABOUT_NONE} if asked else {ABOUT_WRONG}, text)
+        for text, scene, truth, _ in getattr(review_words, "CALLING_WORDS", ()):   # 案の行が残っている間は、案の正解とも同じ
+            got = next(c for c in rows if c[0] == text and (c[3] is not None) == scene["asked"] and (c.mobile or c.personal))
+            for k, v in truth.items():
+                self.assertEqual(got[5][k], v, (text, k))
+
+    def test_4_the_marks_are_in_the_keys_and_unmarked_rows_keep_their_scene(self):
+        # 印は測りの鍵（g59_tally.key・数えの覚え calling_acts）に入る：同じ言葉の印の無い行とは別の行。聞こえ方だけを数える行にはならない
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        import g59_tally as t
+        from flowctl import ABOUT, ABOUT_DEPARTED, ABOUT_WRONG
+        table = t.current()
+        for c in self.marked():
+            r = g.case_row(c)
+            self.assertIn(t.key(r), table, c[0])
+            self.assertNotIn(t.key({**r, "mobile": False, "personal": False, "named_first": None}),
+                             {t.key(g.case_row(x)) for x in self.marked()}, c[0])
+            self.assertFalse(t.hear_only(r), c[0])   # 正しい読みが外れと数えられないことは、表の全部の行で test_every_row_is_built_in_the_production_flow_and_right_readings_never_miss
+        # ご本人の電話の「そういう方はいない」は番号違い：在籍していないと読む外れ（後任のご担当者様を伺う）は動きを変える
+        c = next(c for c in self.marked() if c.mobile and c[5][ABOUT] == {ABOUT_WRONG} and c[3] is None)
+        r = g.case_row(c)
+        right = {k: sorted(v)[0] for k, v in c[5].items()}
+        self.assertTrue(t.moves(t.flow_miss(right | {ABOUT: ABOUT_DEPARTED}, c[5], r)))
+        # 数えの覚え（calling_acts）の鍵も印を読む：携帯電話の番号の2回目の聞き返しへのお返事は、印の無い業務（会社の電話＝2回目は「もう一回よろしいでしょうか？」）では
+        # 組めない＝覚えた動きを印の無い行に使わない
+        c = next(c for c in self.marked() if c.mobile and c[2] == g.UNHEARD_TWICE)
+        r = g.case_row(c)
+        right = {k: sorted(v)[0] for k, v in c[5].items()}
+        fc._ACTS.clear()
+        self.assertTrue(fc.calling_acts(r, right))
+        with self.assertRaises(fc.NoScene):
+            fc.calling_acts({**r, "mobile": False}, right)
+
+    def test_5_the_readers_packet_has_the_marked_rows_without_answers(self):
+        # 答えを伏せた読み手の束 m（印のある行）：会話は本番の流れの制御から（第一声でご本人が名乗った電話は第一声から・携帯電話の番号の2回目の聞き返しは聞き返しも）
+        import g59_calling_judge as g
+        import g59_readers as rd
+        p = rd.packet("m")
+        self.assertEqual(len(p["rows"]), len(self.marked()))
+        self.assertIn("asks", p["items"])
+        by = {(r["key"]["text"], r["key"]["before"], r["key"]["named_first"], r["key"]["mobile"], r["key"]["personal"]): r for r in p["rows"]}
+        named = next(r for k, r in by.items() if k[2])
+        self.assertEqual(named["talk"][0], ("お客様", g.NAMED_FIRST))
+        self.assertEqual(named["talk"][1][0], "こちら")
+        self.assertTrue(named["talk"][1][1].endswith("「おかだ」様でいらっしゃいますでしょうか？"), named["talk"][1])
+        ask = next(r for k, r in by.items() if k[1] == g.UNHEARD_TWICE)
+        self.assertIn("「おかだ」様で大丈夫でしょうか？", "".join(w for who, w in ask["talk"] if who == "こちら"))
+        personal = next(r for k, r in by.items() if k[4] and not k[1])
+        self.assertTrue(personal["talk"][0][1].endswith("「おかだ」様のお電話でお間違えないでしょうか？"), personal["talk"][0])
+        # 正解は束に入らない（正解の表の全部の行の正解を印に替えても、束と頼みの文に印が出ない）
+        real = g.cases("x")
+        hidden = [g._case((t, acc, b, a, s, {k: {"★正解の印★"} for k in f}), **c.marks()) for c in real for t, acc, b, a, s, f in (c,)]
+        with unittest.mock.patch.object(g, "cases", lambda confirm: hidden):
+            text = rd.packet_text("m") + rd.request_text("m", "/x")
+        self.assertNotIn("★正解の印★", text)
+        self.assertNotIn("正解は", rd.packet_text("m"))
+
