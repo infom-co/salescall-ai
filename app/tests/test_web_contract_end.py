@@ -82,6 +82,23 @@ class ContractEndScreen(_World):
         self.assertEqual(self.get("B", f"/c/{c}").status_code, 404)              # ほかの契約者には「見つかりません」のまま
         self.assertIn(f'data-client="{self.a["client"]}"', home)                  # ほかの依頼者はそのまま
 
+    def test_a_paused_client_can_be_ended_and_cancelling_says_calls_start_again(self):
+        c = self.b["client"]
+        off = self.post("B", f"/c/{c}/active", {"form_token": self.token("B"), "active": "0", "reason": "架空：今月は休む"})
+        self.assertIn("ok=1", off.headers["location"])
+        page = self.get("B", f"/c/{c}/settings").text
+        self.assertIn(f'action="/c/{c}/contract-end"', page)                      # 休んでいても契約を終えられる
+        r = self.post("B", f"/c/{c}/contract-end", {"form_token": self.token("B"), "reason": "架空：取引が終わった"})
+        self.assertIn("ok=1", r.headers["location"])
+        page = self.get("B", f"/c/{c}/settings").text
+        cancel = page[page.index(f'action="/c/{c}/contract-end/cancel"') - 300:][:900]
+        self.assertIn("また電話をかけます", cancel)                                # 取り消すと有効に戻ることを、窓の文で言う
+        back = self.post("B", f"/c/{c}/contract-end/cancel", {"form_token": self.token("B"), "reason": "架空：押し間違い"})
+        self.assertIn("ok=1", back.headers["location"])
+        again = self.post("B", f"/c/{c}/contract-end/cancel", {"form_token": self.token("B"), "reason": "架空：二度押し"})
+        self.assertIn("ok=0", again.headers["location"])                         # 二度押しは断りの文（画面が止まらない）
+        self.assertIn("契約終了になっていません", unquote(again.headers["location"]))
+
     def test_the_removal_notice_has_words(self):
         from salescall.output import notices, words
         self.assertEqual(words.notice_kind("client_forgotten"), "契約が終わった依頼者のデータをサーバーから外しました")
