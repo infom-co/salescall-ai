@@ -52628,3 +52628,38 @@ class AOHeardAlikeTest(unittest.TestCase):
         for a, b in (("15日の午後2時でお願いします。", "50日の午後2時でお願いします。"), ("3人です。", "4人です。"), ("090-1234-5678です。", "090-1234-5679です。"),
                      ("捨てないです。", "してないです。")):
             self.assertFalse(heard_alike(a, b), (a, b))
+
+
+class APFirmAgreementTest(unittest.TestCase):
+    """分身 AP（帳面 1 の (6) の (i) の L25）：言い切りの説明（meaning_judge.FIRM_NOT・FIRM_YES）。望み・考えを、こちらに同意を求める言い方や自分に言い聞かせる言い方で言い、
+    決めるのをこちらの同意に預けた言葉は、記録する前に確かめる側（✅ 2026-11-01 の (b)・11-06 日本時間4時11分28秒「…言い聞かせの意味合い…はい、それではパンフレットを
+    お送りさせていただきますね？で正解です」・本書 9-5 の「言い切っているか」）。そのまま記録する側の「お願いや問いかけの言い方で言っただけ」は答えが決まっているときだけ。
+    境目は確かめる側の条件の括弧の1か所だけ。⛔ 11-01 朝の書き直しで、この条件が抜けていた（前の文の旧＝FIRM_NOT にはあった）"""
+
+    BORDER = "答えはもう決めていて、言い方だけが柔らかい・お願いや問いかけの形なら、これに当たらない"
+
+    def test_the_agreement_condition_is_back_and_the_border_is_written_once(self):
+        from meaning_judge import FIRM_NOT, FIRM_YES, RULES, JEV_FIRM
+        self.assertIn("望みや考えを、こちらに同意を求める言い方や、自分に言い聞かせる言い方で言い、決めるのをこちらの同意に預けた", FIRM_NOT)
+        self.assertEqual(RULES.count(self.BORDER), 1)   # 判定の決まりの文に1回だけ
+        self.assertNotIn(self.BORDER, FIRM_YES)
+        self.assertIn(self.BORDER, JEV_FIRM["false"])   # 判断のモデルの言い切りの問いにも同じ1か所から
+        self.assertIn("お客様の答え（選んだもの、または選ぶのをこちらに任せること）が決まっていて、それをお願いや問いかけの言い方で言っただけ", FIRM_YES)
+
+    def test_rows_of_the_same_form_were_read_one_by_one(self):
+        # 正解の表の同じ形の行（「〜のほうがいいですかね」「〜のほうがいいかな」「〜かしら」「〜てもいいかな」など）は、1行ずつ当て直した理由（hedged_why）を持つ
+        import json as _json
+        import g53_meaning as G
+        from common import latest_result
+        items = G.with_new_rows(_json.loads(latest_result("G-53d1base_*.json").read_text(encoding="utf-8"))["items"])
+        want = {"折り返しのほうがいいですかね": True, "送ってもらったほうがいいですかね": True, "電話のほうがいいですかね": True, "訪問のほうがいいですかね": True,
+                "あったほうがいいかな…": True, "テーブルのほうがいいかな…": True, "振込のほうがいいかしら": True,
+                "費用が発生するなら、やっぱり必要ないかな。": True,   # 直す前は言い切り（印が無かった）
+                "じゃあ、やっぱり電話してもらってもいいかな。": False, "電話でお願いします。やっぱり電話のほうがいいかな。": False}
+        got = {}
+        for it in items:
+            if it["text"] in want:
+                lab = G._label(it) or {}
+                got[it["text"]] = G.hedged(it)
+                self.assertIn("L25", lab.get("hedged_why") or "", it["text"])
+        self.assertEqual(got, want)
