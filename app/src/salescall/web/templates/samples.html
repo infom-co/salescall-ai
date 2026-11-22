@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, empty %}
+{% from "parts.html" import tag, empty, empty_line %}
 {% set active = "client" %}
 {% block title %}誤判定率と抜き取り{% endblock %}
 {% block crumb %}誤判定率と抜き取り{% endblock %}
@@ -22,7 +22,7 @@
     <dt>誤りの割合は、多くてもこのくらい（95%の確かさ）</dt><dd>{{ "{:.1f}".format(r.upper * 100) }}%</dd>
   </dl>
   <p class="muted">本数が少ないうちは、誤りが0本でも、この「多くても」の値は大きく出ます（少ない本数で「誤りなし」とは言えないため）。</p>
-  {% else %}{{ empty("まだ正解が付いていません", note) }}{% endif %}
+  {% else %}{{ empty_line("まだ正解が付いていません", note) }}{% endif %}
 </section>
 {% endfor %}
 </div>
@@ -42,6 +42,6 @@
   {% else %}<p class="muted">その週は、お客様と話せたフルオートの電話がありませんでした。</p>{% endif %}
 </section>
 {% else %}
-<div class="card" style="margin-top:12px">{{ empty("まだ抜き取っていません", "フルオートの電話がある週の翌週に、自動で選びます（検証モードの電話は選びません）。") }}</div>
+{{ empty_line("まだ抜き取っていません", "フルオートの電話がある週の翌週に、自動で選びます（検証モードの電話は選びません）。") }}
 {% endfor %}
 {% endblock %}
