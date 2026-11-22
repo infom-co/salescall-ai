@@ -42083,7 +42083,10 @@ class RereadRowsTest(unittest.TestCase):
              # 分身 AG の (1)：時期の2択（伺い102 イ＝review_words.AG_ROWS）
              "時期の2択（平日と土日の2択に「どちらもちょっと難しいですね。」のあとの「来週と再来週」）": ("C1", "それでは来週と再来週ではどちらがよろしいでしょうか？", ""),
              "時期の2択の2回目（時期の2択にも「どちらもちょっと難しいですね。」のあとの「12月7日からの週と12月14日からの週」）": (
-                 "C1", "それでは12月7日からの週と12月14日からの週ではどちらがよろしいでしょうか？", "")}
+                 "C1", "それでは12月7日からの週と12月14日からの週ではどちらがよろしいでしょうか？", ""),
+             # 分身 AL（担当 AK の棚卸しの束2 の P4）：どの点かを伺う一言のあと（N2 に「点は言っていない」と答えたあと、流れの制御がどの点かを1回伺った所）
+             "どの点かを伺う一言のあと（ご承認の手順の「ほかに…」に、分からない点があるとだけ言われた＝N2 の「点は言っていない」の次）": (
+                 "N2", "ほかにご不明な点はどのようなことになりますでしょうか？", "")}
 
     def reading(self, it, **change):
         """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
@@ -42100,14 +42103,15 @@ class RereadRowsTest(unittest.TestCase):
     def test_1_new_scenes_are_built_by_the_one_count(self):
         import g53_meaning as g
         from flowctl import AWAY, AWAY_NO, PROMPT_REPLY, PROMPT_REPLY_YES, VALUE_CHOICE, WRONG, WRONG_NOT_SAID
-        from review_words import AF_ROWS, AG_ROWS, AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, answer_words, questions
+        from review_words import AF_ROWS, AG_ROWS, AGAIN_ROWS, ASK_ROWS, NEW_SCENE_ROWS, NEW_SCENES, PAIR_ROWS, PREP3_ROWS, WHICH_POINT_ROWS, answer_words, questions
         qs = questions()
         rows = [it for it in answer_words() if it.get("scene") in NEW_SCENES]
         self.assertEqual({it["scene"] for it in rows}, set(NEW_SCENES))
         self.assertEqual(set(self.SHOWN), set(NEW_SCENES))
         # PREP3_ROWS＝分身 S3 が足した行・PAIR_ROWS＝分身 U の (3) が足した行・AGAIN_ROWS＝分身 W の (5) が足した行・ASK_ROWS＝分身 AB が足した行・AF_ROWS＝分身 AF の (5) が足した行・
-        # AG_ROWS＝分身 AG の (1) が足した行
-        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS, *AF_ROWS, *AG_ROWS) if it.get("scene") in NEW_SCENES])
+        # AG_ROWS＝分身 AG の (1) が足した行・WHICH_POINT_ROWS＝分身 AL の束2 の P4 が足した行
+        self.assertEqual(rows, [it for it in (*NEW_SCENE_ROWS, *PREP3_ROWS, *PAIR_ROWS, *AGAIN_ROWS, *ASK_ROWS, *AF_ROWS, *AG_ROWS, *WHICH_POINT_ROWS)
+                                if it.get("scene") in NEW_SCENES])
         for it in rows:
             with self.subTest(text=it["text"], scene=it["scene"]):
                 q = qs[it["qid"]]
@@ -51729,3 +51733,43 @@ class ALHoldBorderTest(unittest.TestCase):
         from meaning_judge import ANSWER_KINDS
         self.assertIn("ご自分で確かめる・調べる・聞いてくるために離れるときは、こちらではなく「返事を待つ」", ANSWER_KINDS[HOLD])
         self.assertNotIn("取り次ぎを待つ", ANSWER_KINDS[HOLD_BACK])   # 境目は1か所（返事を待つの説明には書かない）
+
+
+class ALGarbledAndWhichPointRowsTest(unittest.TestCase):
+    """分身 AL（担当 AK の棚卸しの束2 の P3・P4）：(1) 崩れた言葉（「ちょ……と……」など）の試しの言葉（答えの段・支払いの質問）＝答えの読みは「決められない」（考えている途中との
+    境目の行もある）・別のお話ではない (2) どの点かを伺う一言（phrases.CALLBACK_ASK_WHICH の other_point「ほかにご不明な点はどのようなことになりますでしょうか？」）へのお返事の
+    試しの言葉と場面（review_words.POINT_WHICH_SCENE＝g53_meaning._point_which_scene：N2 に「点は言っていない」と答えたあと、流れの制御がこの一言で伺った所）。正解は仮
+    （答えを伏せた読み手の束 b2）"""
+
+    def test_garbled_rows_are_undecided_answer_talk(self):
+        import review_words as rw
+        from flowctl import AWAY, AWAY_NO, THINKING
+        from meaning_judge import UNDECIDED
+        self.assertTrue(4 <= len(rw.GARBLED_ROWS) <= 6)
+        words = rw.answer_words()
+        for it in rw.GARBLED_ROWS:
+            self.assertIn(it, words)
+            self.assertEqual(it["qid"], "R1")
+            self.assertEqual(it["label"]["accept"][0], UNDECIDED, it["text"])
+            self.assertLessEqual(set(it["label"]["accept"]), {UNDECIDED, THINKING}, it["text"])
+            self.assertEqual(it["label"][AWAY], [AWAY_NO], it["text"])
+            self.assertIn("…", it["text"])
+
+    def test_the_which_point_scene_is_the_production_line(self):
+        import g53_meaning as G
+        import review_words as rw
+        from flowctl import CALLBACK_IDS, POINT_UNSAID
+        from phrases import CALLBACK_ASK_WHICH
+        self.assertIn(rw.POINT_WHICH_SCENE, rw.NEW_SCENES)
+        self.assertTrue(5 <= len(rw.WHICH_POINT_ROWS) <= 8)
+        qmap = G.question_map() | rw.questions()
+        n2 = CALLBACK_IDS["other_point"]
+        for it in rw.WHICH_POINT_ROWS:
+            self.assertIn(it, rw.answer_words())
+            self.assertEqual((it["qid"], it["scene"]), (n2, rw.POINT_WHICH_SCENE))
+            shown, asked, before = G.judge_inputs(it, qmap[n2])
+            self.assertEqual(shown.text, CALLBACK_ASK_WHICH["other_point"], it["text"])   # 判定に見せる質問は、どの点かを伺う一言
+            self.assertIsNone(asked)
+        accepts = [a for it in rw.WHICH_POINT_ROWS for a in it["label"]["accept"]]
+        for want in ("分からない点がある", POINT_UNSAID, "分かった", "断ろうとしている"):
+            self.assertIn(want, accepts)

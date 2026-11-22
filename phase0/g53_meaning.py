@@ -911,6 +911,19 @@ def _approval_scene(step: str) -> Flow:
     return f
 
 
+SCENE_POINT_UNSAID = "はい、まだあります。"   # N2 に点を言わずにあるとだけ言った言葉（試しの言葉の表の N2 の「点は言っていない」の行と同じ）
+
+
+def _point_which_scene(q: Question) -> Flow:
+    """どの点かを伺う一言のあと（review_words.POINT_WHICH_SCENE＝束2 の P4）：ご承認の手順（_approval_scene の other_point＝N2 を伺った所）で、お客様が点を言わずに
+    あるとだけ答え（N2 の「点は言っていない」＝flowctl.POINT_UNSAID）、流れの制御がどの点かを1回伺った（phrases.CALLBACK_ASK_WHICH の other_point＝Flow._point_step）所。
+    お返事は同じ質問 N2 の答えとして読む（本番の流れの制御のまま）。"""
+    from flowctl import CALLBACK_IDS, POINT_UNSAID
+    f = _approval_scene("other_point")
+    _say(f, SCENE_POINT_UNSAID, "record_answer", question_id=CALLBACK_IDS["other_point"], condition_id=POINT_UNSAID)
+    return f
+
+
 # 見直し (12) の形の質問（「ところで」の形・選択肢を並べた形）の場面の台本（本番で、その形で伺い直す所までのお客様の言葉と会話AIのひとこと）。お客様の言葉は試しの
 # 言葉の表（review_words）の別のお話の言葉・会話AIのひとことは中身の判定の試しの表（review_words.GROUND_WORDS）の言葉（どれも本番の流れの制御の操作で流す）
 SCENE_AWAY = "うちは月曜が定休日なんですよ。"
@@ -1561,7 +1574,8 @@ def _new_scene(it: dict, q: Question) -> Flow:
     from review_words import (ACCEPT_PAIR_SCENE, ANSWERED_SCENE, CONCERN_SCENE, CONFIRM_CONCERN_SCENE, LADDER_CLOCK_SCENE, LADDER_SCENE, MEETING_PAIR_SCENE, OFFER_FINAL_SCENE,
                               PAIN_SCENE, THEIRS_PAIR_SCENE, WAIT_SCENE, WITHDRAW_SEND_SCENE, WITHDRAW_TIME_SCENE, WITHDRAW_WAY_SCENE, ELSEWHERE_POINT_SCENE, WRONG_ASK_SCENE,
                               UNTIL_ASK_SCENE, THEIRS_SIDE_AGAIN_SCENE, THEIRS_NEITHER_AGAIN_SCENE, LADDER_REDO_SCENE, UNTIL_LEAN_SCENE, PAYDAY_ASK_SCENE,
-                              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE, PERIOD_SCENE, PERIOD_AGAIN_SCENE)
+                              NO_ROOM_SCENE, RANGE_REDO_SCENE, PAYDAY_SPAN_SCENE, PAYDAY_NAMED_SCENE, THEIRS_REDO_SCENE, PERIOD_SCENE, PERIOD_AGAIN_SCENE,
+                              POINT_WHICH_SCENE)
     build = {LADDER_SCENE: _ladder_scene, LADDER_CLOCK_SCENE: _ladder_clock_scene, WRONG_ASK_SCENE: _wrong_ask_scene, WAIT_SCENE: _wait_scene,
              PAIN_SCENE: _pain_scene, CONCERN_SCENE: _concern_scene, CONFIRM_CONCERN_SCENE: _confirm_concern_scene, ANSWERED_SCENE: _answered_scene,
              OFFER_FINAL_SCENE: _offer_final_scene, WITHDRAW_TIME_SCENE: _withdraw_time_scene, WITHDRAW_SEND_SCENE: _withdraw_send_scene,
@@ -1571,7 +1585,7 @@ def _new_scene(it: dict, q: Question) -> Flow:
              LADDER_REDO_SCENE: _ladder_redo_scene, UNTIL_LEAN_SCENE: _until_lean_scene,
              PAYDAY_ASK_SCENE: _payday_ask_scene, NO_ROOM_SCENE: _no_room_scene, RANGE_REDO_SCENE: _range_redo_scene, PAYDAY_SPAN_SCENE: _payday_span_scene,
              PAYDAY_NAMED_SCENE: _payday_named_scene, THEIRS_REDO_SCENE: _theirs_redo_scene,
-             PERIOD_SCENE: _period_scene, PERIOD_AGAIN_SCENE: lambda q: _period_scene(q, again=True)}.get(it["scene"])
+             PERIOD_SCENE: _period_scene, PERIOD_AGAIN_SCENE: lambda q: _period_scene(q, again=True), POINT_WHICH_SCENE: _point_which_scene}.get(it["scene"])
     if build is None:
         raise NoScene(f"場面の印の場面を組む作りが無い（{it['scene']}）")
     return build(q)
