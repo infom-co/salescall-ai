@@ -47,11 +47,17 @@
         {#- その場で変える操作は、どれも「押すと開く小窓」の1つの形（結果を直す・休みから再開と同じ） -#}
         <details class="adder"><summary class="btn small">かけるかを変える</summary>
           <form class="panel" method="post" action="{{ base }}/exclude" data-needs-reason
-                data-confirm="お客様「{{ row.source_name or '（会社名なし）' }}」を「{select:level}」にします。" data-confirm-ok="変える">{{ csrf(token) }}
+                data-confirm="お客様「{{ row.source_name or '（会社名なし）' }}」を「{radio:level}」にします。" data-confirm-ok="変える">{{ csrf(token) }}
             <input type="hidden" name="task_id" value="{{ row.task_id }}"><input type="hidden" name="back" value="row">
-            <label class="field" for="row-level">このお客様に、かけるか</label>
-            <select id="row-level" name="level" required><option value="" selected disabled>どうするかを選ぶ</option>{% for k, label in level_names.items() %}<option value="{{ k }}" data-word="{{ label }}">{{ label }}{% if k == level %}（いま）{% endif %}</option>{% endfor %}</select>
-            <p class="muted">{{ words.EXCLUSION_HELP }}</p>
+            {#- 選び肢ごとに説明を添えた丸の選び（2026-11-22 の見直し：違いの説明が1つの段落にまとめて書かれていた）。初めはどれも選ばない
+                （押し間違えで止めない。いまの印は「（いま）」で示す） -#}
+            <fieldset class="plain">
+              <legend class="field">このお客様に、かけるか</legend>
+              {% for k, label in level_names.items() %}
+              <label class="choice"><input type="radio" name="level" value="{{ k }}" data-word="{{ label }}" required>
+                <span><b>{{ label }}{% if k == level %}（いま）{% endif %}</b><span class="muted small-block">{{ words.EXCLUSION_CHOICE_HELP[k] }}</span></span></label>
+              {% endfor %}
+            </fieldset>
             <label class="field" for="row-level-reason">理由（記録に残ります）</label><input id="row-level-reason" type="text" name="reason" placeholder="例：依頼者から、この会社にはかけないでと連絡があった">
             <button class="btn main small" type="submit" data-submit disabled>「かけるか」を変える</button></form></details></dd>
     </dl>

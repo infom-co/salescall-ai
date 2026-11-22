@@ -208,6 +208,7 @@ class ExclusionWords(unittest.TestCase):
         """行の「かけない」の印の画面の名前は、core の段のすべてにあり、発信禁止と取り違えない言葉（「かけない」だけの名前を使わない）。"""
         from salescall.core import exclusions
         self.assertEqual(set(words.EXCLUSION_WORDS), set(exclusions.LEVEL_NAMES))
+        self.assertEqual(set(words.EXCLUSION_CHOICE_HELP), set(exclusions.LEVEL_NAMES))   # 選び肢ごとの説明も、どの印にも1つずつ
         self.assertNotIn("かけない", words.EXCLUSION_WORDS.values())
         self.assertNotIn("強制かけない", words.EXCLUSION_WORDS.values())
 
