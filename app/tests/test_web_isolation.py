@@ -72,5 +72,53 @@ class Isolation(_World):
         self.assertEqual(r.status_code, 404)
 
 
+    def test_s1_lists_of_client_y_are_not_returned_on_client_x(self):
+        """S-1：依頼者Xの住所で、依頼者Yのお客様リスト（一覧・結果の見本・結果のファイル・手元の控え・取り込み）を求めても返さない（「見つかりません」）。"""
+        x, y = self.a, self.y
+        for tail in ("", "/results", "/results.csv", "/records.xlsx", "/import"):
+            for path in (f"/c/{x['client']}/b/{x['business']}/runs/{y['run']}{tail}", f"/c/{x['client']}/b/{y['business']}/runs/{y['run']}{tail}"):
+                with self.subTest(path=path):
+                    r = self.get("A", path)
+                    self.assertEqual(r.status_code, 404)
+                    self.assertNotIn(str(y["task"]), r.text)
+
+    def test_s10_costs_do_not_mix_another_contractor(self):
+        """S-10：費用と報酬の画面に、ほかの契約者の依頼者が名前も数も出ない（同じ契約者の依頼者は出る）。"""
+        a, b = self.get("A", "/t/costs").text, self.get("B", "/t/costs").text
+        self.assertIn("依頼者X", a)
+        self.assertIn("依頼者Y", a)
+        self.assertNotIn("依頼者Z", a)
+        self.assertNotIn("依頼者X", b)
+        self.assertNotIn("依頼者Y", b)
+
+    def test_s11_a_reason_for_holding_a_call_shows_only_the_reason(self):
+        """S-11：かける直前に見送った理由は、core の言葉の表（gate.REASONS）の文をそのまま出すだけで、ほかの依頼者・契約者の結果・答え・名前を
+        差し込む所が無い（同じ番号へほかの依頼者がかけたばかり、の理由も、だれがかけたかを言わない。ほかの契約者のときは中身も言わない）。"""
+        from salescall.core import gate
+        from salescall.output import words
+        for name, reason in gate.REASONS.items():
+            with self.subTest(reason=name):
+                self.assertEqual(words.gate_reason(name), reason.message)          # 画面で言葉を足さない
+                self.assertNotIn("{", reason.message)                             # 差し込む所が無い
+        self.assertNotIn("依頼者", gate.REASONS["cross_client_interval_other_tenant"].message)
+        self.assertNotIn("契約者", gate.REASONS["cross_client_interval_other_tenant"].message)
+
+    def test_s16_results_of_client_y_are_not_handed_over_through_client_x(self):
+        """S-16：依頼者Xの住所で、依頼者Yの業務・お客様リストの結果を依頼者へ渡すファイルとして出させても、断られ、提出用の控えは1つも増えない
+        （出力の型の持ち主は core の output_templates.current の1か所＝ほかの依頼者の業務は LookupError）。"""
+        def kept() -> int:
+            return app_access().in_client(OPERATOR, self.y["tenant"], self.y["client"], lambda tx: tx.one(
+                "SELECT count(*) AS n FROM salescall.submission_files")["n"])
+        before = kept()
+        x, y = self.a, self.y
+        for path in (f"/c/{x['client']}/b/{y['business']}/runs/{y['run']}/results.csv",
+                     f"/c/{x['client']}/b/{x['business']}/runs/{y['run']}/results.xlsx"):
+            with self.subTest(path=path):
+                self.assertEqual(self.post("A", path, {"form_token": self.token("A")}).status_code, 404)
+        self.assertEqual(kept(), before)
+        from salescall.core import output_templates
+        with self.assertRaises(LookupError):                                       # 依頼者Xの取引から依頼者Yの業務の型は読めない
+            app_access().in_client(OPERATOR, x["tenant"], x["client"], lambda tx: output_templates.current(tx, y["business"]))
+
 if __name__ == "__main__":
     unittest.main()

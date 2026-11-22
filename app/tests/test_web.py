@@ -445,6 +445,25 @@ class Web(_World):
         self.assertEqual(self._count_rows(), before + 1)
         self.assertEqual(self.post("A", key_url + "/register", {"form_token": tok}).status_code, 404)   # 置き場から消えた（二度登録しない）
 
+    def test_s22_a_preview_that_became_old_is_not_registered(self):
+        """S-22（docs/DASHBOARD.md 8-3）：プレビューのあとで中身が変わったら（ここでは、ファイルの番号が発信禁止に入った）、登録を送っても
+        何も登録せず、もう一度プレビューを確かめるよう言う（決めるのは core の importer の1か所＝PlanChanged。画面はその文を出すだけ）。"""
+        from salescall.core import dnc
+        from urllib.parse import unquote
+        ensure_rules(World(), self.a)
+        phone = fictional_jp_fixed()
+        body = ("会社名,電話番号,管理番号\n架空の古い画面商事,%s,S22-%s\n" % (phone, uuid4().hex[:6])).encode()
+        key_url = self._upload(body=body).headers["location"]
+        tok = self.token("A")
+        prev = self.post("A", key_url + "/preview", {"form_token": tok, "map_name": "会社名", "map_phone": "電話番号", "map_client_ref": "管理番号"})
+        self.assertEqual(prev.status_code, 200, prev.text[:300])
+        before = self._count_rows()
+        app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: dnc.register(tx, phone, "manual", note="試験：プレビューのあとで依頼者から連絡"))   # プレビューのあとで変わった
+        reg = self.post("A", key_url + "/register", {"form_token": tok})
+        self.assertIn("ok=0", reg.headers["location"])
+        self.assertIn("プレビューのあとで結果が変わりました", unquote(reg.headers["location"]))
+        self.assertEqual(self._count_rows(), before)                            # 1行も登録しない
+
     def test_an_upload_is_only_for_the_person_and_the_run_that_put_it(self):
         key_url = self._upload().headers["location"]
         self.assertEqual(self.get("ADMIN", key_url).status_code, 404)           # 置いた人でない
