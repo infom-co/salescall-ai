@@ -53118,3 +53118,31 @@ class AQThinkingLeanTest(unittest.TestCase):
                 seen.add(it["text"])
                 self.assertEqual("考えている途中" in G.accept(it), it["text"] in think, it["text"])
         self.assertEqual(seen, lean | think)
+
+
+class AQReadersAp1xRowsTest(unittest.TestCase):
+    """分身 AQ（束 ap1x の (d)(e)）：(d)「振込のほうがいいかしら」の答えは、言い聞かせ（振込・言い切っていない）とこちらへ尋ねた（決められない）の境目（「〜かしら」は言葉だけでは
+    決まらない＝✅ 2026-11-06 日本時間4時11分28秒の「〜ですかね」と同じ理由・10-19）。(e) N1・N2 の「断ろうとしている」の意味の言葉に、条件を付けて要らないと言ったのも入る、を
+    1か所（flowctl.REFUSING_MEANING）に書いた（✅ 2026-11-02 日本時間6時21分・23時15分58秒＝G-73 の N2「費用が発生するなら、やっぱり必要ないかな。」の種類は断ろうとしている）。
+    ⛔ 直す前は、答えを伏せた読み手2人が、2人ともこの言葉を「分からない点・確かめたい点を言った」とも読んだ（束 ap1x の #8）"""
+
+    def test_furikomi_is_a_border(self):
+        import g53_meaning as G
+        rows = [it for it in ap_items() if it["text"] == "振込のほうがいいかしら" and G._label(it)]
+        self.assertTrue(rows)
+        for it in rows:
+            self.assertEqual(G.accept(it), ["振込", "決められない"])
+            self.assertTrue(G.hedged(it))
+            self.assertIn("分身 AQ", (G._label(it) or {}).get("why"))
+
+    def test_refusing_meaning_is_one_place(self):
+        import flowctl as F
+        clause = "場合によっては、と条件を付けて、要らないと言ったのも"
+        self.assertIn(clause, F.REFUSING_MEANING)
+        self.assertIs(F._ROLE_MEANINGS["not_agreed"]["断ろうとしている"], F.REFUSING_MEANING)
+        self.assertIs(F._ROLE_MEANINGS["other_point"]["断ろうとしている"], F.REFUSING_MEANING)
+        self.assertEqual(sum(v.count(clause) for m in F._ROLE_MEANINGS.values() for v in m.values() if isinstance(v, str)), 2)   # 同じ1つの言葉を2つの質問が使う
+        import g53_meaning as G
+        for it in ap_items():
+            if it["text"] == "費用が発生するなら、やっぱり必要ないかな。" and G._label(it):
+                self.assertEqual(G.accept(it), ["断ろうとしている"])   # 正解は今のまま
