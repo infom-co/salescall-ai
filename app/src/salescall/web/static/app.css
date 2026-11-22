@@ -262,9 +262,7 @@ label.choice:has(input:checked) { border-color: var(--primary); background: var(
 @media (max-width: 900px) {
   .shell { grid-template-columns: minmax(0, 1fr); }
   .bulk { position: static; }
-  .bulk select, .bulk input[type=text], .bulk button { flex: 1 1 100%; max-width: none; }
   .title-row .btn-row, .title-row .adder.inline { width: 100%; }
-  .adder .panel { position: fixed; left: 8px; right: 8px; top: 110px; width: auto; }
   .nav { display: none; position: fixed; inset: 56px 0 0 0; z-index: 11; overflow: auto; }
   body.nav-open .nav { display: block; }
   .menu-toggle { display: inline-flex; }
@@ -291,7 +289,6 @@ label.choice:has(input:checked) { border-color: var(--primary); background: var(
      画面の高さの約3割を使い、表を見る所が狭かった）。上に留まるほかのもの（--chrome）は app.js の1か所が、留まっているものだけを測る */
   .tabs { position: static; }
   .tabrow.businesses { padding-left: 6px; }
-  .finder .panel { position: fixed; top: 100px; left: 8px; right: 8px; width: auto; }
   .brand { font-size: 13px; }
   /* 狭い幅の上の帯：「緊急停止」がいつも見えて、横にはみ出さない（2026-11-21：中身の幅の合計が画面より広く、ページ全体が横にはみ出していた）。
      札は同じ呼び方のまま点を外して詰め、さらに狭い幅ではメニューのボタンを「≡」だけにする（読み上げの名前は残る） */
@@ -308,15 +305,19 @@ label.choice:has(input:checked) { border-color: var(--primary); background: var(
   background: var(--surface); color: var(--text); font: inherit; padding: 0 8px; }
 .bulk input[type=text] { flex: 1; min-width: 180px; }
 .bulk-hint { flex-basis: 100%; font-size: 12px; }
-/* 狭い幅では、まとめて変える帯は上に留めない（高さがあり、表を見る所を狭くする）。ふだんの決まり（上の sticky）のあとに置く
-   （⛔ 2026-11-22 まで：狭い幅の決まりを先に書いていて、あとの sticky に負け、効いていなかった） */
-@media (max-width: 900px) { .bulk { position: static; } }
+
 th.check, td.check { width: 36px; text-align: center; }
 td.check input, th.check input { width: 16px; height: 16px; }
 tr.excluded td { color: var(--muted); }
 .inline-mark { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .inline-mark input[type=text] { flex: 1; min-width: 140px; }
 .bulk select { width: auto; flex: 0 0 auto; }
+/* 狭い幅のまとめて変える帯：上に留めない（高さがあり、表を見る所を狭くする）・欄とボタンは全幅。帯のふつうの決まりの全部のあとに置く
+   （⛔ 2026-11-22 まで：狭い幅の決まりを先に書いていて、あとの決まりに負け、効いていなかった。試験が見張る） */
+@media (max-width: 900px) {
+  .bulk { position: static; }
+  .bulk select, .bulk input[type=text], .bulk button { flex: 1 1 100%; max-width: none; }
+}
 .table-scroll { overflow-x: auto; border-radius: var(--radius); }
 /* 右にまだ欄があるときは、右の端をぼかして続きを見せる（印は app.js の表の部品の1か所が付け外す。2026-11-21 の見直し：右の欄が枠で切れて、
    横に送れることが分からなかった） */
@@ -384,6 +385,19 @@ table.map select { max-width: 280px; }
 .adder .panel .field { font-weight: 600; font-size: 13px; }
 .adder.inline .panel { width: 360px; }
 .tabrow.businesses .adder .panel { left: 0; right: auto; }
+/* 狭い幅の小窓（ふつうの決まりのあとに置く。⛔ 2026-11-22 まで：狭い幅の決まりを先に書いていて効かず、320px の幅では、どの小窓も
+   画面の外へはみ出していた＝「＋ 依頼者」はほとんどが画面の外。閉じた小窓は横幅の測りに出ないので、開いて測る道具で見つけた）：
+   - 本文の中の小窓は、その場で下に広がる（押したボタンのすぐ下・画面の外に切れない）
+   - タブの所の小窓（＋ 依頼者・グループ・依頼者を探す）は、上の帯のすぐ下に画面の幅いっぱいで出す（タブの並びの中には広げる場所が無い） */
+@media (max-width: 900px) {
+  .adder .panel, .adder.inline .panel { position: static; width: auto; max-width: none; margin-top: 8px; box-shadow: none; }
+  .adder .panel select, .adder .panel input[type=text] { max-width: 100%; min-width: 0; }
+  .shell details.adder[open] { display: block; width: 100%; }   /* 開いた小窓は、その行いっぱいに（文の横で狭いまま開かない） */
+  .adder:not(.more-act) .panel { white-space: normal; }
+  .tabs .adder .panel, .tabrow.businesses .adder .panel, .tabs .finder .panel, .finder .panel {
+    position: fixed; top: 64px; left: 8px; right: 8px; width: auto; max-height: calc(100vh - 80px); overflow: auto; z-index: 20;
+    box-shadow: 0 8px 24px rgba(16,24,40,.18); margin-top: 0; }
+}
 /* 設定 */
 .settings-filter input { max-width: 420px; }
 .setting-group { margin-top: 24px; }

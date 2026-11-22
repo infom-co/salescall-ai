@@ -965,6 +965,32 @@ class Web(_World):
         code = "\n".join(line.split("//")[0] for line in js.splitlines())
         self.assertEqual(re.findall(r"\bform\.(?:method|action|target|encoding|enctype)\b", code), [])
 
+    def test_no_narrow_width_rule_is_beaten_by_a_later_rule_of_the_same_selector(self):
+        """狭い幅の決まり（@media max-width）は、あとに書いた同じ部品・同じ性質のふつうの決まりに負けない（負けると黙って効かない。
+        ⛔ 2026-11-22：小窓・まとめて変える帯の狭い幅の決まりが効かず、320px で小窓が画面の外へはみ出していた）。"""
+        import pathlib
+        css = pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/static/app.css").read_text(encoding="utf-8")
+        css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        items, media = [], None
+        for m in re.finditer(r"@media[^{]*\{|[^{}]+\{[^{}]*\}|\}", css):
+            t = m.group(0)
+            if t.startswith("@media"):
+                media = t
+                continue
+            if t == "}":
+                media = None
+                continue
+            sel, body = t.split("{", 1)
+            for one in sel.split(","):
+                for d in body.rstrip("}").split(";"):
+                    if ":" in d and d.split(":", 1)[0].strip():
+                        items.append((m.start(), media, " ".join(one.split()), d.split(":", 1)[0].strip()))
+        beaten = sorted({(sel, prop) for at, med, sel, prop in items if med and "max-width" in med
+                         and any(at2 > at and med2 is None and sel2 == sel and prop2 == prop for at2, med2, sel2, prop2 in items)
+                         and not any(at3 > at and med3 and "max-width" in med3 and sel3 == sel and prop3 == prop
+                                     for at3, med3, sel3, prop3 in items)})   # あとの狭い幅の決まりで直してあるものは除く
+        self.assertEqual(beaten, [])
+
     def test_every_i_mark_on_the_screens_has_its_text_in_one_place(self):
         """ひな形で使う i マークの鍵は、どれも core の help_texts.FIELDS にある（説明を画面に写さない・書き漏れを試験で見つける。設計書 6-7）。"""
         import pathlib
