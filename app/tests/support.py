@@ -388,7 +388,7 @@ class World:
             if business is None:
                 return f"依頼者「{c}」："
             return f"依頼者「{c}」・業務「{tx.one('SELECT name FROM salescall.businesses WHERE business_id = %s', (business,))['name']}」："
-        return self.a.in_tenant(OPERATOR, tenant, names) + text
+        return self.a.in_client(OPERATOR, tenant, client, names) + text   # 業務の表は依頼者の取引でだけ見える
 
     def line(self, tenant: UUID) -> UUID:
         from salescall.core import registry

@@ -95,6 +95,16 @@ class Ledger(unittest.TestCase):
             tx, {"business_id": s["business"], "line_id": s["line"]})), both[:-1] + "・" + line)      # 依頼者・業務・回線の順
         with self.assertRaises(LookupError):
             in_client({"task_id": str(uuid.uuid4())})
+        stranger = self.w.setup()                                                                 # ほかの契約者の印は引けない
+        for ref in ({"task_id": stranger["task"]}, {"business_id": stranger["business"]}, {"client_id": stranger["client"]}):
+            with self.subTest(stranger=ref), self.assertRaises(LookupError):
+                self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: notify.about(tx, ref))
+        mate = self.w.client(s["tenant"])                                                         # 同じ契約者のほかの依頼者の取引からも引けない
+        with self.assertRaises(LookupError):
+            self.a.in_client(SYSTEM, s["tenant"], mate, lambda tx: notify.about(tx, {"task_id": s["task"]}))
+        self.assertEqual(self.a.in_system(SYSTEM, lambda tx: notify.about(tx, {"task_id": s["task"]})), both)   # 全体の取引（システムの処理・管理者だけが開ける）
+        attempt = self.w.insert_claim(s)
+        self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: notify.about(tx, {"attempt_id": attempt})), both)   # 契約者の範囲でも（通話から）
         other = self.w.client(s["tenant"])
         with self.assertRaises(ValueError):
             self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: notify.about(tx, {"task_id": s["task"], "client_id": other}))

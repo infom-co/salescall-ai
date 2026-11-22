@@ -129,16 +129,7 @@ class UnknownKind(Exception):
     """一覧に無い種類。"""
 
 
-# 知らせが指す業務を、差し込む値の印から引く1か所（細かい印から順に：通話 → お客様の行 → 実施回 → 業務。業務設定の版も業務を指す）。
-_BUSINESS_OF = """
-SELECT COALESCE(%(business_id)s::uuid,
-         (SELECT r.business_id FROM salescall.runs r WHERE r.run_id = COALESCE(%(run_id)s::uuid,
-            (SELECT t.run_id FROM salescall.tasks t WHERE t.task_id = COALESCE(%(task_id)s::uuid,
-               (SELECT a.task_id FROM salescall.attempts a WHERE a.attempt_id = %(attempt_id)s::uuid))))),
-         (SELECT v.business_id FROM salescall.business_versions v WHERE v.version_id = %(version_id)s::uuid)) AS business_id,
-       salescall.cur_client() AS tx_client
-"""
-_POINTS_TO_BUSINESS = ("business_id", "run_id", "task_id", "attempt_id", "version_id")
+_POINTS_TO_BUSINESS = ("attempt_id", "task_id", "run_id", "business_id", "version_id")   # 細かい印から（業務設定の版も業務を指す）
 
 
 def about(tx: Tx, refs: dict[str, Any]) -> str:
@@ -147,32 +138,26 @@ def about(tx: Tx, refs: dict[str, Any]) -> str:
     ✅ CL-3 のお願い 71（回線）・CL-2 の 4-470 の (5) への CL-3 の答え（2026-11-22：(イ)＝入口で文に付ける。大事な方が先＝依頼者・業務・回線の順。
     業務を指さない知らせは依頼者だけ。契約者全体の知らせ（依頼者を持たない取引で、依頼者の印も無い）は付けない。お客様の名前・番号は入れない。
     名前は縮めない＝似た名前の依頼者を、縮めた形で取り違えるほうが害が大きい）。
-    - 依頼者：知らせが指す業務の依頼者・差し込む値の client_id・取引の依頼者（知らせの行の依頼者になるもの）の順。業務は `_BUSINESS_OF`。
-    - 印があるのに引けない（無い・見えない）・依頼者が2つに食い違う、は誤りとして止める（黙って名指しの無い文にしない）。
+    - 依頼者・業務は、データベースの1か所 `salescall.notice_about` が引く（0283。通話 → お客様の行 → 実施回 → 業務／業務設定の版の順。依頼者は、
+      業務の依頼者・差し込む値の client_id・取引の依頼者の順。契約者の範囲の取引でも引ける＝依頼者ごとの表は行ごとの守りで見えないため。
+      返すのは取引の契約者の中の名前だけ）。
+    - 印があるのに引けない（無い・ほかの契約者）・依頼者が食い違う、は誤りとして止める（黙って名指しの無い文にしない）。
     - 回線は `line_names` の1か所（差し込む値の line_id は、知らせが指す回線だけ＝門の tried_line_id は名指ししない）。
     ⛔ それまで：ショートメールとチャットワークの文（種類の言葉と要約だけ）では、どの依頼者・業務の知らせか分からなかった（「今日の費用が
     上限を超えました」など）。画面の一覧だけが別の欄で依頼者を出していた。"""
-    ids = {k: refs.get(k) for k in _POINTS_TO_BUSINESS}
-    row = tx.one(_BUSINESS_OF, {k: (None if v is None else str(v)) for k, v in ids.items()})
-    business_id = row["business_id"]
-    if business_id is None and any(v is not None for v in ids.values()):
-        raise LookupError(f"知らせが指す業務を引けません：{ids}")
+    ids = [None if refs.get(k) is None else str(refs[k]) for k in (*_POINTS_TO_BUSINESS, "client_id")]
+    row = tx.one("SELECT * FROM salescall.notice_about(%s::uuid, %s::uuid, %s::uuid, %s::uuid, %s::uuid, %s::uuid)", ids)
+    if row["pointed"] and row["business_name"] is None:
+        raise LookupError(f"知らせが指す業務を引けません：{ {k: refs.get(k) for k in _POINTS_TO_BUSINESS} }")
+    if row["business_client"] is not None and refs.get("client_id") is not None and str(refs["client_id"]) != str(row["business_client"]):
+        raise ValueError(f"知らせの依頼者が食い違っています：{refs['client_id']} と業務の依頼者 {row['business_client']}")
+    if refs.get("client_id") is not None and row["client_name"] is None:
+        raise LookupError(f"知らせが指す依頼者を引けません：{refs['client_id']}")
     parts = []
-    named = None
-    if business_id is not None:
-        named = tx.one("SELECT b.name, b.client_id FROM salescall.businesses b WHERE b.business_id = %s", (business_id,))
-        if named is None:
-            raise LookupError(f"知らせが指す業務がありません：{business_id}")
-    client_id = named["client_id"] if named else (refs.get("client_id") or row["tx_client"])
-    if named and refs.get("client_id") is not None and str(refs["client_id"]) != str(named["client_id"]):
-        raise ValueError(f"知らせの依頼者が食い違っています：{refs['client_id']} と業務の依頼者 {named['client_id']}")
-    if client_id is not None:
-        client = tx.one("SELECT name FROM salescall.clients WHERE client_id = %s", (str(client_id),))
-        if client is None:
-            raise LookupError(f"知らせが指す依頼者がありません：{client_id}")
-        parts.append(f"依頼者「{client['name']}」")
-    if named:
-        parts.append(f"業務「{named['name']}」")
+    if row["client_name"] is not None:
+        parts.append(f"依頼者「{row['client_name']}」")
+    if row["business_name"] is not None:
+        parts.append(f"業務「{row['business_name']}」")
     if refs.get("line_id") is not None:
         parts.append(f"回線「{line_names.of(tx, refs['line_id'])}」")
     return "・".join(parts) + "：" if parts else ""
