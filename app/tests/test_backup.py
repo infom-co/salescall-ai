@@ -478,8 +478,16 @@ class PerClient(unittest.TestCase):
             ok(s["client"], error="試験：戻せなかった")                       # 戻せなかった控えは、取れたうちに入らない
             ok(second)                                                         # ほかの依頼者の控えも入らない
             self.assertEqual(watch(), [s["client"]])
+            late = lambda c: self.app.in_client(SYSTEM, s["tenant"], c, lambda tx: backup.overdue(tx, "client_ai"))   # noqa: E731
+            told = len(self.notices(s["tenant"]))
+            self.assertEqual([late(s["client"]), late(second)], [True, False])   # 読むだけの口（CL-3 のお願い 75）：見張りと同じ答え
+            self.assertEqual(len(self.notices(s["tenant"])), told)              # 知らせは出さない
+            with self.assertRaises(ValueError):
+                self.app.in_tenant(SYSTEM, s["tenant"], lambda tx: backup.overdue(tx, "client_ai"))   # 依頼者の取引で読む
             ok(s["client"])
             self.assertEqual(watch(), [])
+            self.assertFalse(late(s["client"]))
+            self.assertTrue(self.app.in_system(ADMIN, lambda tx: backup.overdue(tx, "system")))
             self.assertTrue(backup.watch_whole(self.app))                      # データベース全体は管理者へ（1日1回）
             whole = lambda: [r for r in self.notices() if r["summary"] == backup.OVERDUE_WHOLE]   # noqa: E731
             self.assertEqual([r["origin_tenant"] for r in whole()], [None])
@@ -487,6 +495,7 @@ class PerClient(unittest.TestCase):
             self.assertEqual(len(whole()), 1)
             backup._record(self.app, soon, "x.dump.enc", ("0" * 64, 1), {"tasks": 1}, None, person=None)
             self.assertFalse(backup.watch_whole(self.app))
+            self.assertFalse(self.app.in_system(ADMIN, lambda tx: backup.overdue(tx, "system")))
         self.assertNotIn(backup.OVERDUE_WHOLE, [r["summary"] for r in self.notices(s["tenant"])])   # 全体の控えは契約者へ知らせない
 
     def test_the_first_contractor_time_is_given_only_to_the_whole_database_watch(self):

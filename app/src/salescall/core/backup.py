@@ -278,12 +278,26 @@ def _overdue(tx: Tx, part: str, since: Any) -> bool:
         {"since": since, "late": _overdue_after(tx), "part": part})["late"]
 
 
+def overdue(tx: Tx, part: str) -> bool:
+    """控えが「取れていない」か（読むだけ。知らせない）。part＝"client_ai"（依頼者の取引で、その依頼者の AI用）・"system"（全体の取引で、
+    データベース全体）。見張りを始めてよい時刻（依頼者を作ったとき・最初の契約者を作ったとき）と、取れていないとみなす長さは、ここと
+    `_overdue` の1か所（知らせを出す見張り `watch_client`・`watch_whole` も、画面の見張りの表示＝CL-3 のお願い 75 も、これを読む）。"""
+    if part == "client_ai":
+        row = tx.one("SELECT created_at FROM salescall.clients WHERE client_id = salescall.cur_client()")
+        if row is None:
+            raise ValueError("依頼者の AI用の控えは、その依頼者の取引で読みます")
+        return _overdue(tx, part, row["created_at"])
+    if part == "system":
+        since = tx.one("SELECT salescall.first_tenant_at() AS t")["t"]   # 全体の取引からは契約者の表を読めない（0102）
+        return since is not None and _overdue(tx, part, since)
+    raise ValueError(f"控えの種類は client_ai か system です（{part!r}）")
+
+
 def watch_client(app: Access, tenant_id: UUID, client_id: UUID) -> bool:
     """その依頼者の AI用の控えが取れているか（見守り役が、設定に関係なく依頼者ごとに呼ぶ＝1つの依頼者の誤りで、ほかの依頼者を見落と
     さない）。取れていなければ、その依頼者の取引で、契約者と管理者に1日1回知らせる（止めない）。知らせたかを返す。"""
     def work(tx: Tx) -> bool:
-        since = tx.one("SELECT created_at FROM salescall.clients WHERE client_id = %s", (client_id,))["created_at"]
-        if not _overdue(tx, "client_ai", since):
+        if not overdue(tx, "client_ai"):
             return False
         day = tx.today()
         notify.emit(tx, "backup_failed", key=f"backup_overdue:{day}:client_ai:{client_id}", summary=OVERDUE_CLIENT,
@@ -296,8 +310,7 @@ def watch_whole(app: Access) -> bool:
     """データベース全体の控えが取れているか（中央の見守り役が、設定に関係なく呼ぶ。見張るのは、最初の契約者を作ってから）。
     取れていなければ、管理者に1日1回知らせる（止めない）。"""
     def work(tx: Tx) -> bool:
-        since = tx.one("SELECT salescall.first_tenant_at() AS t")["t"]   # 全体の取引からは契約者の表を読めない（0102）
-        if since is None or not _overdue(tx, "system", since):
+        if not overdue(tx, "system"):
             return False
         day = tx.today()
         notify.emit(tx, "backup_failed", key=f"backup_overdue:{day}:system", summary=OVERDUE_WHOLE, admin=True, contractor=False)
