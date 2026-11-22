@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
+from common import KeyRing, base_parser, describe_error, drop_partial, latest_result, require_python, save_partial, save_result, say
 from flowctl import Question
 from g48_meanings import QUESTIONS
 from meanings import clean, decide, negated
@@ -64,10 +64,7 @@ def generate(client, model: str) -> list[dict]:
 
 def meanings_g48() -> list[dict]:
     """G-48 の保存した答えから、取込と同じ決め方で、質問ごとの意味の言葉を決める。"""
-    from pathlib import Path
-
-    files = sorted((Path(__file__).parent / "results").glob("G-48_*.json"))
-    d = json.loads(files[-1].read_text(encoding="utf-8"))
+    d = json.loads(latest_result("G-48_*.json").read_text(encoding="utf-8"))
     rows = {k: {(q, tuple(c)): w for (q, c), w in zip(d["questions"], v)} for k, v in d["rows"].items()}
     return [decide(q, c, [rows[k].get((q, tuple(c)), {}) for k in MODELS if k in rows]) for q, c in QUESTIONS]
 

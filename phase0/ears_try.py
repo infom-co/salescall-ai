@@ -18,7 +18,6 @@ docs/EARS_SETUP.md（ここで確かめる接続先の名前・キーの名前�
 from __future__ import annotations
 
 import asyncio
-import glob
 import http.client
 import json
 import os
@@ -28,7 +27,7 @@ import sys
 import urllib.parse
 from collections import Counter
 
-from common import HERE, RESULTS_DIR, KeyRing, base_parser, has_secret, load_keys, read_wav_pcm16_mono, require_python, save_result, say
+from common import HERE, KeyRing, base_parser, has_secret, load_keys, read_wav_pcm16_mono, require_python, result_files, save_result, say
 from ears import AMIVOICE_URL, EAR_KINDS, GEMINI_EAR_MODEL, SECRETS, SONIOX_MODEL, SONIOX_URL, open_ear
 from flowctl import TAKEN, Limits
 from g15_ear import live_calls, ok, tally
@@ -130,8 +129,8 @@ def run_step(cmd: list[str]) -> int:
 
 
 def latest(pattern: str) -> list[str]:
-    """結果のファイル（途中の保存・数え直しを除く）。"""
-    return sorted(p for p in glob.glob(str(RESULTS_DIR / pattern)) if "_partial" not in p and "TALLY" not in p)
+    """結果のファイル（途中の保存・数え直しを除く＝common.result_files の1か所）。"""
+    return [str(p) for p in result_files(pattern)]
 
 
 def flow_outcome(q, heard: str, condition: str | None, check: dict | None = None) -> tuple[str, str | None]:
