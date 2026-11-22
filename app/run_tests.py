@@ -8885,6 +8885,9 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '''    if False:
         summary = f"回線「{line_names.of(tx, line_id)}」：{summary}"''',
      ("tests.test_answer_rate.Watch.test_a_drop_is_told_to_the_contractor_once_a_day_and_nothing_stops", "tests.test_supervisor.Blame.test_the_last_row_waits_for_the_test_number_and_an_earlier_ring_decides_nothing")),
+    ('お客様の条件の言い方から「ならば」を外す（「明日ならば」を読めないにする＝2026-11-22 の前の形）', 'src/salescall/core/spoken_time.py',
+     '''_IF_WORDS = r"(?:ならば|なら|であれば|でしたら|だったら)"''', '''_IF_WORDS = r"(?:なら|であれば|でしたら|だったら)"''',
+     ("tests.test_spoken_time.MoreWords.test_every_condition_word_reads_the_same_as_without_it",)),
     ('回線を名前だけで名指す（発信番号を添えない）', 'src/salescall/core/line_names.py',
      '''    return f"{name}（{number.display or caller_e164}）"''', '''    return name''',
      ("tests.test_phone.KindsAndSpecials.test_a_line_is_named_with_its_caller_number", "tests.test_answer_rate.Watch.test_a_drop_is_told_to_the_contractor_once_a_day_and_nothing_stops")),
