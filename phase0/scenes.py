@@ -572,11 +572,13 @@ TALK_SCENE = "別のお話"
 TALK_QUESTION = "R1"
 
 
-def talk_business(know: list[str], qids: tuple = (TALK_QUESTION,), **kw):
+def talk_business(know: list[str], qids: tuple = (TALK_QUESTION,), option_notes: dict | None = None, **kw):
     """別のお話の場面の業務：質問は試しの言葉の表の質問（review_words.questions。既定はお支払いの質問 R1 だけ）・業務の情報は表の知っていること・kw＝業務設定のほかの欄
-    （質問の種類ごとの場面の方法 handoff_ways など＝review_words.TALK_KIND_SETUP）。"""
+    （質問の種類ごとの場面の方法 handoff_ways など＝review_words.TALK_KIND_SETUP）。option_notes＝{質問の番号: 選択肢ごとの良い点・気をつける点}（業務設定 Question.option_notes）。"""
     qs = review_questions()
-    return dataclasses.replace(BUSINESS, questions=[qs[q] for q in qids], info=list(know), **kw)
+    notes = option_notes or {}
+    return dataclasses.replace(BUSINESS, questions=[dataclasses.replace(qs[q], option_notes=notes[q]) if q in notes else qs[q] for q in qids],
+                               info=list(know), **kw)
 
 
 def _talks_said(call: dict) -> list[str]:
@@ -660,6 +662,96 @@ def kind_scenes() -> dict[str, "Scene"]:
 
 
 SCENES |= follow_scenes() | kind_scenes()
+
+
+# ── 答えの段で、考えている方・迷っている方・答えの代わりにこちらへ尋ねた方（2026-11-22 分身 AN＝担当 AK の棚卸しの P6・P12。帳面 1 の (1) の (vi)・372行）。
+#    場面の業務は試しの言葉の表の質問（review_words.questions の1か所＝talk_business）。相手役の声はまだ作っていない（流すまでは run の「相手役の声が確かめに通っていない」で動かさない）。
+#    (1) 考えている方：本書 9-4 の「お客様が考えている」の行（✅ 2026-11-07 日本時間18時03分49秒の (2)）＝言い終えていない「うーん、どうしようかな…。」のあと黙られたら、急かさない一言
+#        （考えている途中＝黙ったときの一言の表 flowctl.QUIET_STEPS の "thinking" の1つ目。✅ 2026-11-15 日本時間21時55分35秒 伺い23）。判定の正解は「考えている途中」と「迷っている」の
+#        境目（試しの言葉の表 review_words の R9「うーん、どうしようかな。」の行と同じ＝言い終えたかは字に出ない）＝どちらの読みでも守られる決まりだけを数える（CHOICE_HELP の無い業務：
+#        考えている途中＝「はい。」で待って急かさない一言・迷っている＝「はい、」＋「どういった点でお迷いでしょうか？」。どちらも録音＝会話AIは自分の声で話さない）
+#    (2) 迷っている方：同じ行の 13時05分06秒・23時19分05秒＝言い終えた「カードか振込か迷っています。」には、選択肢ごとの良い点・気をつける点（業務設定 Question.option_notes＝CHOICE_HELP）
+#        から、会話AIが確かめた自分の言葉で選ぶ助けを伝える（Flow._hesitation の help）。良い点は説明で言い切って終えず、すすめる気持ちが伝わるやわらかい言い方で（会話AIへの知らせの
+#        向き＝文の終わりを「〜ますよ。」「〜かもしれませんね。」など。言葉は会話AIが選ぶ＝数えるのは文の終わりの向きだけ＝soft_end）
+#    (3) 答えの代わりにこちらへ尋ねた方：9-5 の「言い切っているか」の ✅ 2026-11-06 日本時間4時23分33秒＝「送ってもらったほうがいいですかね？」（判定がそろって「決められない」・
+#        こちらへ尋ねた問いがある＝flowctl.asks_us）には、確かめ直さずに、業務の情報の範囲で自分の言葉で答え（9-4 の「範囲外の質問」の1か所＝Flow._asked_now）、相づちだけのお返事
+#        （「そうなんですね。」）には、こちらが勧めた向きで最終の確かめ（11時19分55秒・11時55分13秒＝「はい、」＋「それではパンフレットをお送りさせていただきましょうか？」）
+ANSWER_SCENES = ("考えている方", "迷っている方", "答えの代わりにこちらへ尋ねた方")
+# 選択肢ごとの良い点・気をつける点（業務設定＝CL-2 の取込。そのまま声に出せる文）：お言葉の例（13時05分06秒「カードだと カード会社のポイントがつく」・23時19分05秒「カードですと
+# お振込の手間がかからず、カード会社のポイントもつきますよ。」）と、本書 9-4 の「範囲外の質問」の例の答え「振込手数料はお客様のご負担となります。」
+CHOICE_HELP = {"カード": "お振込の手間がかからず、カード会社のポイントもつきます。", "振込": "振込手数料はお客様のご負担となります。"}
+# パンフレットの申し出（試しの言葉の表の R9）を伺う業務の情報（こちらの考えを尋ねられたとき、会話AIが答えのもとにする文）
+PAMPHLET_INFO = ["パンフレットには料金の一覧とご利用の流れを載せております。"]
+# 最終の確かめへのお返事（同じ言葉の台詞は1つ＝試しの言葉の表の言葉から決める台詞 talk_name。質問の種類ごとの別のお話の答えと同じ台詞＝声も1つ）
+YES_PLEASE = "はい、お願いします。"
+# 選ぶ助けをすすめる気持ちが伝わる文の終わりか（会話AIへの知らせの向き＝「〜ますよ。」「〜かもしれませんね。」など）：最後の文が、問いかけでない終助詞（「よ」「ね」など）で終わる
+_SOFT_ENDS_NOT = {"か"}
+
+
+def soft_end(text: str) -> bool:
+    """選ぶ助けの文の終わりが、説明の言い切りでなく、すすめる気持ちが伝わるやわらかい言い方か（唯一の数え方）：最後の文の終わりが終助詞（問いかけの「か」は除く）。"""
+    from jtext import words
+    ws = [w for w in words(text or "") if w.feature.pos1 != "補助記号"]
+    return bool(ws) and ws[-1].feature.pos2 == "終助詞" and ws[-1].surface not in _SOFT_ENDS_NOT
+
+
+def own_texts(call: dict, wav_name: str, part: str = "own") -> list[str]:
+    """その台詞へのAIのターンで、流れの制御が受け付けた自分の言葉の文（replay_opening の part・返事 own_answer）。"""
+    return [e["args"].get("answer") or "" for t in turns_to(call, wav_name) for e in t.get("tool_events") or []
+            if e["name"] == "replay_opening" and e["args"].get("part") == part and e["reply"] == "own_answer"]
+
+
+# 急かす一言（お客様が黙ったあとの「いかがなさいましたか？」「どうなさいましたか？」＝phrases.SILENCE_PROMPT_IDS）。考えている方・迷っている方の場面では、お客様が答えるまでに流さない
+def _rushed(call: dict) -> bool:
+    from phrases import SILENCE_PROMPT_IDS
+    return any(i in SILENCE_PROMPT_IDS for i in played_ids(call))
+
+
+def _held(call: dict, qid: str) -> bool:
+    """その質問を保留で締めたか（わからない＝まだ決まっていない、で受け取った）。"""
+    return call["items"].get(qid, {}).get("state") == "dont_know"
+
+
+def thinking_checks(call: dict) -> dict:
+    """考えている方の場面の決まり（判定の正解の境目のどちらの読みでも守られるものだけ）：考えている途中＝「はい。」のあと黙られたら急かさない一言（QUIET_STEPS の "thinking" の
+    1つ目）・迷っている＝「はい、」＋「どういった点でお迷いでしょうか？」（共通の一言の録音 hesitate_point）。どちらも会話AIは自分の声で話さない・急かさない・保留で締めない。"""
+    from phrases import THINKING_PROMPT_IDS
+    line = "thinking_unsure"
+    return {"会話AIは自分の声で話さない": own_words(call, line) == "" and not own_texts(call, line),
+            "黙っている間は話さない": all(said(t) == "" for t in call["turns"] if "silence_s" in (t.get("callee") or {})),
+            "急かさない一言か迷っている点を伺う一言": any(i in (THINKING_PROMPT_IDS[0], "hesitate_point") for i in played_ids(call)),
+            "急かさない": not _rushed(call), "保留で締めない": not _held(call, TALK_QUESTION),
+            "答えが取れた": got(call, TALK_QUESTION, "カード")}
+
+
+def hesitating_checks(call: dict) -> dict:
+    """迷っている方の場面の決まり：会話AIが選ぶ助けを伝え（流れの制御が受け付けた自分の言葉）、その文の終わりがやわらかい言い方（soft_end）・急かさない・保留で締めない・約束しない。"""
+    line = "hesitate_card"
+    helped = own_texts(call, line)
+    return {"選ぶ助けを伝えた": bool(helped), "やわらかい言い方で終えた": bool(helped) and all(soft_end(x) for x in helped),
+            "急かさない": not _rushed(call), "保留で締めない": not _held(call, TALK_QUESTION), "約束しない": no_promise(call),
+            "答えが取れた": got(call, TALK_QUESTION, "カード")}
+
+
+def asked_back_checks(call: dict) -> dict:
+    """答えの代わりにこちらへ尋ねた方の場面の決まり：確かめ直さずに自分の言葉で答え（流れの制御が受け付けた）、相づちだけのお返事には最終の確かめ・約束しない・答えが取れた。"""
+    line, qid = "ask_send", "R9"
+    final = [x for x in ops(call) if x["reply"].get("after") == "final_do"]   # 最終の確かめ（Flow._final_check の final_do。報告のあとでも、報告の無いターンでも）
+    return {"尋ねられたことに答えた": bool(own_texts(call, line)), "答える前に確かめ直さない": "confirm_required" not in replies_to(call, line),
+            "相づちのあと最終の確かめ": bool(final), "約束しない": no_promise(call), "答えが取れた": got(call, qid, "はい")}
+
+
+def answer_scenes() -> dict[str, "Scene"]:
+    from g34_ack import LONG_SILENCE_S
+    plain_pay, help_pay = talk_business([]), talk_business([], option_notes={TALK_QUESTION: CHOICE_HELP})
+    return {ANSWER_SCENES[0]: Scene(plain_pay, [W("thinking_unsure"), {"silence_s": LONG_SILENCE_S}, W("pay_card")], thinking_checks,
+                                    "言い終えていない言いよどみのあと黙る（考えている途中・迷っているの境目）"),
+            ANSWER_SCENES[1]: Scene(help_pay, [W("hesitate_card"), W("pay_card")], hesitating_checks, "言い終えた迷い（選択肢ごとの良い点・気をつける点がある業務）"),
+            ANSWER_SCENES[2]: Scene(talk_business(PAMPHLET_INFO, ("R9",)), [W("ask_send"), W("i_see"), W(talk_name(YES_PLEASE))], asked_back_checks,
+                                    "答えの代わりにこちらの考えを尋ねた（パンフレットの申し出）")}
+
+
+SCENES |= answer_scenes()
 
 
 def talk_notes() -> list[dict]:
