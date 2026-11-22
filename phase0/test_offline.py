@@ -61,10 +61,9 @@ CL2_PENDING = frozenset({
                          "prompt_reply",
                          # 深める一言に入れる困りごとの言葉・困りごとが続く形の句を会話AIが書く道具の引数（replay_opening の trouble・kept。伺い29＝✅ 2026-11-16
                          # 日本時間0時42分38秒・12時48分22秒 ユーザー。CL-2 への知らせはまとめ役）
-                         "trouble", "kept",
-                         # 平日と土日の2択に2つとも合わないときの時期の2択の共通の一言の録音と、戻る一言のあとの形（phrases.TIME_LADDER_IDS の period＝伺い102 イ。✅ 2026-11-21
-                         # 日本時間21時15分00秒。分身 AG の (1)。CL-2 への知らせは CL-1）
-                         "callback_time_period", "callback_time_period_bare", "callback_time_period_midway"})
+                         "trouble", "kept"})
+# （2026-11-22 日本時間16時台に外した：CL-2 の第11便が main に入った＝3eeb143a・CL-2 の連絡帳 4-471 の (1)・4-473 の (1)：平日と土日の2択に2つとも合わないときの時期の2択の
+# 共通の一言の録音と、戻る一言のあとの形 callback_time_period・callback_time_period_bare・callback_time_period_midway（phrases.TIME_LADDER_IDS の period＝伺い102 イ・分身 AG の (1)））
 # （2026-11-21 日本時間23時台に外した：CL-2 の第9便・第10便が main に入った＝75a1ef48・CL-2 の連絡帳 4-467 の (1)・4-469 の (2)＝CL-1.md 4-244：共通の一言の録音の
 # 2つ目からのお詫びの頭に「また」を付けた5本（phrases.APOLOGY_ALSO_IDS＝apology_missed_promise_also・apology_cut_off_also・apology_cut_off_same_day_also・
 # apology_cut_end_same_day_also・apology_cut_end_later_also＝伺い97 ア・分身 AA）と、お給料日を伺う一言 time_payday（伺い99 ア・分身 AB））
@@ -15699,6 +15698,24 @@ class TargetTest(unittest.TestCase):
         node = next(n.value for n in ast.parse(src.read_text(encoding="utf-8")).body if isinstance(n, ast.Assign)
                     and getattr(n.targets[0], "id", None) == "_UNTIL_TAIL")
         self.assertEqual(node.args[0].value.split("|"), list(UNTIL_TAIL))
+
+    def test_if_tail_matches_cl2_spoken_time(self):
+        # 値の終わりの条件の言い方（flowctl._IF_TAIL＝値を受け取る1か所 normalize_value が外す・分身 AI）が、CL-2 の時刻の読みの並び（spoken_time._IF_WORDS）と同じ
+        # 言葉か（CL-2 の連絡帳 4-471 の (3)「あなたが外す言い方を足すときは、先にこの連絡帳でお知らせください」＝食い違うと、こちらが外さない言い方を CL-2 が読めない・
+        # その逆。足す・外すときは CL-2 に先に知らせ、両方の並びを同じ時に直す＝CL-1.md 4-248）。CL-2 の部品（app/）が無い所では飛ばす。ast で読む
+        import ast
+        import pathlib
+        from flowctl import _IF_TAIL
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "spoken_time.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の時刻の読み（app/）がまだ無い")
+        node = next(n.value for n in ast.parse(src.read_text(encoding="utf-8")).body if isinstance(n, ast.Assign)
+                    and getattr(n.targets[0], "id", None) == "_IF_WORDS")
+        theirs = node.value.removeprefix("(?:").removesuffix(")").split("|")
+        ours = _IF_TAIL.pattern.replace("なら(?:ば)?", "ならば|なら").removeprefix("(?:").removesuffix(")$").split("|")
+        self.assertEqual(sorted(ours), sorted(theirs))
+        for word in theirs:   # 並びの言葉は、どれもこちらの1か所が値の終わりから外す
+            self.assertEqual(_IF_TAIL.sub("", "火曜日の午後3時まで" + word), "火曜日の午後3時まで", word)
 
     def test_recorded_names_match_cl2_common_parts(self):
         # CL-2 の 4-154・4-194：共通の一言の組（システムの持ち物）にそろっているかを確かめる一覧（CL-2 の recordings.COMMON_PARTS。前の名前は
@@ -51018,12 +51035,14 @@ class AGPeriodTest(unittest.TestCase):
         s = ladder_read("14日からの週でお願いします。", {}, thu)
         self.assertEqual((s.get("week"), s.get("day"), s.get("frame")), ("12月14日からの週", None, None))
 
-    def test_9_the_new_recordings_wait_for_cl2(self):
+    def test_9_the_new_recordings_are_in_cl2(self):
+        # 2026-11-22 日本時間16時台に CL-2 の第11便が main に入り（3eeb143a・CL-2 の連絡帳 4-471・4-473）、3本が CL-2 の共通の一言の写しにそろった＝待ちの一覧から外した
+        # （CL-2 の写しと名前・文がそろっているかは TargetTest.test_recorded_names_match_cl2_common_parts の1か所が見る）。⛔ e7604a50 までは待ちの一覧にあることを見ていた
         import make_ack_clips
         from phrases import RECORDED
         names = {k for k in RECORDED if k.startswith("callback_time_period")}
         self.assertEqual(names, {"callback_time_period", "callback_time_period_bare", "callback_time_period_midway"})
-        self.assertLessEqual(names, CL2_PENDING)
+        self.assertFalse(names & CL2_PENDING)
         self.assertEqual(make_ack_clips.HOW_OF["callback_time_period"], "question")
 
     def test_10_the_rows_of_the_period_pairs(self):
