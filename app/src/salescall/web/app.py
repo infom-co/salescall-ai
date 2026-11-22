@@ -1527,7 +1527,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
 
     # ── 報酬の決まり（業務ごと。docs/DASHBOARD.md 5-11。✅ 2026-11-18 管理者「報酬の決まりは『業務』ごと」。core の reward.set_terms の1か所＝CL-2 4-437）
     REWARD_FIELDS = (("per_completed_yen", "成果1件"), ("per_dial_yen", "かけた1本"), ("per_talk_yen", "話せた1本"),
-                     ("monthly_yen", "月額"), ("hourly_yen", "時給（1時間）"))
+                     ("monthly_yen", "月額"), ("hourly_yen", "時給（1時間あたり）"))
 
     @app.get("/c/{client_id}/b/{business_id}/reward")
     def reward_page(request: Request, client_id: UUID, business_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:

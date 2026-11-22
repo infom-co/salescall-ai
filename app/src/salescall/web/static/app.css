@@ -150,6 +150,8 @@ ul.numbers li.old .num { color: var(--muted); font-weight: 500; text-decoration:
 .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .stack > * + * { margin-top: 16px; }
+/* 欄の見出しは、自分の欄に近づける（2026-11-22：見出しとその欄のあいだにも、別の項目どうしと同じ16pxのあきがあり、見出しが上の欄のものに見えた） */
+.stack > label.field + * { margin-top: 0; }
 /* 塊（札・並び・表・まとまり）が続くときの間は、ここ1か所で決める（2026-11-20 の見直し：ページごとの書き込みに頼っていて、
    書き忘れた所で札どうしがくっついていた＝お客様の行の画面・設定の画面） */
 .content > :is(.card, .grid, section, .stack, .table-scroll, .settings-filter, .filters, form.card, article)
@@ -210,7 +212,7 @@ table.list td.num, table.list th.num { text-align: right; white-space: nowrap; }
 textarea, select, input[type="text"], input[type="search"], input[type="date"], input[type="number"] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit;
                                         background: var(--surface); color: var(--text); }
 textarea { min-height: 72px; resize: vertical; }
-label.field { display: block; font-weight: 600; margin-bottom: 6px; }
+label.field, legend.field { display: block; font-weight: 600; margin-bottom: 6px; }   /* 枠なしの選び肢の見出し（legend）も欄の見出しと同じ形 */
 .hint { font-size: 12px; color: var(--muted); }
 
 .flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 600; }
@@ -253,6 +255,9 @@ label.choice { display: flex; gap: 8px; align-items: center; padding: 10px 12px;
    危ないものに見えた。前は場所ごとに藍へ上書きしていた） */
 label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 #emergency-dialog label.choice:has(input:checked) { border-color: var(--stop); background: var(--stop-soft); color: var(--stop); }
+/* 選び肢の下に説明を添える形（1か所。例：赤字の知らせの早さ）：丸は1行目にそろえ、説明は細い字で次の行に */
+label.choice:has(.small-block) { align-items: flex-start; } label.choice:has(.small-block) input { margin-top: 3px; }
+label.choice .small-block { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; line-height: 1.6; }
 .scope-name { font-size: 18px; font-weight: 800; padding: 10px 12px; border-radius: 8px; background: var(--stop-soft); color: var(--stop); margin: 8px 0 12px; }
 
 /* 数が変わった所を少し光らせる */
@@ -361,7 +366,7 @@ ol.steps li.done::before { content: "✓"; background: var(--ok-soft); color: va
 /* 押せない形（取り込めるようになるまで。import_parts.upload の fieldset disabled）：選べないことが見て分かるように薄くする */
 .drop:has(input:disabled) { opacity: .55; cursor: not-allowed; }
 .drop:has(input:disabled):hover { border-color: var(--line); background: none; }
-fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset.plain { border: 0; padding: 0; margin-inline: 0; min-width: 0; }   /* 上下のあきは、並べる入れ物の決まり（.stack）に任せる（margin: 0 で消していた） */
 .drop-name { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .drop-name.chosen { color: var(--text); font-weight: 600; }
 .drop-title { font-weight: 700; font-size: 15px; }

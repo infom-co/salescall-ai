@@ -26,14 +26,20 @@
     {{ csrf(token) }}
     <p class="muted">使う形にだけ円を入れてください（組み合わせても構いません）。使わない形は空のままにします。</p>
     {% for k, label in fields %}
-    <label class="field" for="rw-{{ k }}">{{ label }}（円）</label>
+    <label class="field" for="rw-{{ k }}">{{ label|replace("（", "（円・") if "（" in label else label ~ "（円）" }}</label>
     <input id="rw-{{ k }}" type="text" inputmode="decimal" name="{{ k }}" value="{{ current[k]|int if current and current[k] else '' }}">
     {% endfor %}
     <label class="field" for="rw-gap">時給のとき：電話と電話の間（秒）</label>
     <input id="rw-gap" type="text" inputmode="numeric" name="hourly_gap_seconds" value="{{ current.hourly_gap_seconds if current and current.hourly_gap_seconds else '' }}" placeholder="時給を使うときだけ">
-    <label class="field" for="rw-caution">赤字の知らせの早さ</label>
-    <select id="rw-caution" name="deficit_caution">{% for k, c in cautions.items() %}<option value="{{ k }}" {% if current and current.deficit_caution == k %}selected{% elif not current and k == "normal" %}selected{% endif %}>{{ c[0] }}</option>{% endfor %}</select>
-    <p class="muted">{% for k, c in cautions.items() %}{{ c[0] }}：{{ c[1] }}。{% endfor %}</p>
+    {#- 選び肢ごとに説明を添える（2026-11-22 の見直し：3つの説明が1つの段落にまとめて書かれ、どれがどれか読み取りにくかった。言葉は core の
+        reward.CAUTIONS の1か所） -#}
+    <fieldset class="plain">
+      <legend class="field">赤字の知らせの早さ</legend>
+      {% for k, c in cautions.items() %}
+      <label class="choice"><input type="radio" name="deficit_caution" value="{{ k }}" {% if (current and current.deficit_caution == k) or (not current and k == "normal") %}checked{% endif %}>
+        <span><b>{{ c[0] }}</b><span class="muted small-block">{{ c[1] }}</span></span></label>
+      {% endfor %}
+    </fieldset>
     <label class="field" for="rw-from">いつから（空なら今から）</label>
     <input id="rw-from" type="date" name="valid_from">
     <label class="field" for="rw-reason">理由（記録に残ります）</label>
