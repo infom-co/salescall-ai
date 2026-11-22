@@ -19,6 +19,9 @@
               "一覧の番号か管理番号を持つお客様には、断ったお客様と同じく、もうおかけしません（この依頼者の中だけ。ほかの依頼者には効きません）。" if client
               else "この契約者のすべての依頼者で、一覧の番号へはかけません（番号だけで止めます）。") }}
 
+{% elif stage == "map" and ambiguous %}
+{{ imp.encoding_choice(base, key, ambiguous, encoding_names, token, base) }}
+
 {% elif stage == "map" %}
 <p class="lead">ファイル：{{ file_name }}。どの列がどの欄かを選んでください（見出しから案を入れています）。{% if client %}番号か管理番号の、どちらかがあれば止められます。{% endif %}</p>
 {% set ns = namespace(items=[]) %}{% for f in fields %}{% set ns.items = ns.items + [(f, words.DNC_IMPORT_FIELD_WORDS[f])] %}{% endfor %}

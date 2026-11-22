@@ -1171,10 +1171,19 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             c = cid(request)
             def extra(person: Person, ctx: Ctx) -> dict[str, Any]:
                 u = _upload_or_missing(person, _dnc_place(ctx, c), key)
-                sheet = _sheet(u)
+                try:
+                    sheet = _sheet(u)
+                except import_files.EncodingAmbiguous as e:
+                    return {"ambiguous": e.samples, "encoding_names": import_files.ENCODING_NAMES, "file_name": u.file_name}
                 guess = {f: h for f, h in importing.guess(sheet).items() if f in dnc_import.FIELDS and (c is not None or f == "phone")}
                 return {"sheet": sheet, "sample": sheet.rows[:3], "mapping": u.mapping or guess, "file_name": u.file_name}
             return _dnc_import_page(request, c, "map", key=key, extra=extra)
+
+        @app.post(prefix + "/{key}/encoding")
+        async def dnc_import_encoding(request: Request, key: str) -> HTMLResponse:
+            c = cid(request)
+            return await _choose_encoding(request, _dnc_base(c), key, lambda ctx: _dnc_place(ctx, c),
+                                          check=lambda ctx: _dnc_in(ctx, c, lambda tx: None, read_only=True))
 
         @app.post(prefix + "/{key}/preview")
         async def dnc_import_preview(request: Request, key: str) -> HTMLResponse:
@@ -1947,7 +1956,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 u = uploads.Upload(person.login_id, place(ctx), file_name, data,
                                    sheet_name=str(form.get("sheet_name") or "").strip() or None,
                                    encoding=str(form.get("encoding") or "") or None)
-                _sheet(u)   # 読めるか（読めなければ理由の文つきで断る）
+                try:
+                    _sheet(u)   # 読めるか（読めなければ理由の文つきで断る）
+                except import_files.EncodingAmbiguous:
+                    pass        # 読み方が決まらないだけ：置いて、次の画面で読み方ごとの中身を見せて選んでいただく（選び直させない）
                 return uploads.put(u)
             out = actions.act(secret, person.login_id, dict(form), do, done="")
             if not out.ok:
@@ -1977,9 +1989,42 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         """列と欄の対応付け（はじめの案つき）と、ファイルの最初の数行。"""
         def extra(person: Person, ctx: Ctx) -> dict[str, Any]:
             u = _upload_or_missing(person, _list_place(ctx, client_id, run_id), key)
-            sheet = _sheet(u)
+            try:
+                sheet = _sheet(u)
+            except import_files.EncodingAmbiguous as e:
+                return {"ambiguous": e.samples, "encoding_names": import_files.ENCODING_NAMES}
             return {"sheet": sheet, "sample": sheet.rows[:3], "mapping": u.mapping or importing.guess(sheet)}
         return _import_page(request, "import_map.html", client_id, business_id, run_id, key=key, extra=extra)
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/import/{key}/encoding")
+    async def import_encoding(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, key: str) -> HTMLResponse:
+        base = f"/c/{client_id}/b/{business_id}/runs/{run_id}/import"
+        return await _choose_encoding(request, base, key, lambda ctx: _list_place(ctx, client_id, run_id),
+                                      check=lambda ctx: ctx.client(client_id, lambda tx: _run_in(tx, business_id, run_id), read_only=True))
+
+    async def _choose_encoding(request: Request, base: str, key: str, place: Callable[[Ctx], tuple[Any, ...]], *,
+                               check: Callable[[Ctx], Any]) -> HTMLResponse:
+        """読み方（文字の決まり）を選んでいただいた1か所（お客様リスト・発信禁止の一覧）。選べるのは、そのファイルで読めた読み方だけ
+        （core の EncodingAmbiguous の samples）。選んだら列の画面へ。"""
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            check(ctx)
+            u = _upload_or_missing(person, place(ctx), key)
+            chosen = str(form.get("encoding") or "")
+            def do() -> None:
+                try:
+                    _sheet(u)
+                    return   # もう決まっている（古い画面）：そのまま列の画面へ
+                except import_files.EncodingAmbiguous as e:
+                    if chosen not in e.samples:
+                        raise actions.Refused("読み方を選んでください") from None
+                u.encoding = chosen
+                _sheet(u)
+            out = actions.act(secret, person.login_id, form, do, done="")
+            if not out.ok:
+                return _back(f"{base}/{key}", out)
+            return RedirectResponse(f"{base}/{key}", status_code=303)
+        return handle(request, render)
 
     @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/import/{key}/preview")
     async def import_preview(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, key: str) -> HTMLResponse:

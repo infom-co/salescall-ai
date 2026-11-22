@@ -103,3 +103,23 @@
   </div>
 </form>
 {%- endmacro %}
+
+
+{#- 文字の決まりが決められないとき（CSV が2つ以上の読み方で読めて、中身が違う）：読み方ごとの最初の数行を並べて選んでいただく
+    （計画書 7-2「推測せず、読める読み方をすべて見せて選んでもらう」）。ファイルは置いたまま（選び直させない）。
+    samples＝core の import_files.EncodingAmbiguous の samples（読み方 → 最初の数行）・names＝読み方の名前（import_files.ENCODING_NAMES） -#}
+{% macro encoding_choice(ibase, key, samples, names, token, cancel) -%}
+<form method="post" action="{{ ibase }}/{{ key }}/encoding">
+  {{ csrf(token) }}
+  <div class="card">
+    <h2>どちらの読み方で正しく読めますか</h2>
+    <p class="muted">このファイルは、2つ以上の文字の決まりで読めて、読み方によって中身が違います。会社名やお名前が正しく読めている方を選んでください（化けた文字のまま取り込まないため）。</p>
+    {% for enc, lines in samples.items() %}
+    <label class="choice enc-choice"><input type="radio" name="encoding" value="{{ enc }}" required>
+      <span><b>{{ names.get(enc, enc) }}</b>
+        <span class="enc-sample">{% for ln in lines %}<span>{{ ln }}</span>{% else %}<span class="muted">（中身がありません）</span>{% endfor %}</span></span></label>
+    {% endfor %}
+  </div>
+  <div class="actions" style="margin-top:12px"><a class="btn" href="{{ cancel }}">やめる</a><button class="btn main" type="submit">この読み方で続ける</button></div>
+</form>
+{%- endmacro %}

@@ -79,3 +79,32 @@ class DncImport(_World):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AmbiguousEncoding(_World):
+    def test_an_ambiguous_csv_is_kept_and_the_readings_are_shown_to_choose_from(self):
+        """CSV が2つ以上の読み方で読めるときは、ファイルを置いたまま、読み方ごとの最初の数行を見せて選んでいただく（計画書 7-2「推測せず、
+        読める読み方をすべて見せて選んでもらう」）。前は、最初の画面に戻ってファイルを選び直させ、どう読めるかも見せていなかった。"""
+        base = f"/c/{self.a['client']}/dnc/import"
+        body = "名前,番号\nあい,03-0000-0001\n".encode("utf-8")      # UTF-8 とも Shift_JIS とも読める（core の試験と同じ）
+        r = self.http.post(base, data={"form_token": self.token("A")}, files={"file": ("かけないで.csv", body, "text/csv")},
+                           headers={"x-test-person": "A"}, follow_redirects=False)
+        self.assertEqual(r.status_code, 303)
+        key_url = r.headers["location"]
+        self.assertTrue(key_url.startswith(base + "/"), key_url)               # 選び直させない（置いて次へ）
+        page = self.get("A", key_url).text
+        self.assertIn("どちらの読み方で正しく読めますか", page)
+        self.assertIn("あい,03-0000-0001", page)                                 # 読み方ごとの最初の数行
+        self.assertIn('value="cp932"', page)
+        bad = self.http.post(key_url + "/encoding", data={"form_token": self.token("A"), "encoding": "euc_jp"},
+                             headers={"x-test-person": "A"}, follow_redirects=False)   # 読めなかった読み方は選べない
+        self.assertIn("ok=0", bad.headers["location"])
+        ok = self.http.post(key_url + "/encoding", data={"form_token": self.token("A"), "encoding": "utf-8"},
+                            headers={"x-test-person": "A"}, follow_redirects=False)
+        self.assertEqual(ok.headers["location"], key_url)
+        mapped = self.get("A", key_url).text
+        self.assertNotIn("どちらの読み方で正しく読めますか", mapped)
+        self.assertIn('<option value="番号"', mapped)                            # 選んだ読み方で、列の画面へ
+        other = self.http.post(key_url + "/encoding", data={"form_token": self.token("B"), "encoding": "utf-8"},
+                               headers={"x-test-person": "B"}, follow_redirects=False)
+        self.assertEqual(other.status_code, 404)                                 # ほかの契約者は、置いたファイルに触れない
