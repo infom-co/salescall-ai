@@ -49039,7 +49039,8 @@ class XReadersXLabelsTest(unittest.TestCase):
     """答えの段の「はい、代わりました〇〇です。ご用件を伺います。」（帳面 E|G11・E|G18）に、答えを伏せた読み手2人（束 x）の答えを当てた（まとめ役 CL-1 の頼み rv178/X の7回目 (2)）。
     こちらへ尋ねた問いがあるか＝2人がそろって「ある」・一つに決まる。別のお話か＝束 x の2人は「別のお話」、F5 の2人は書かなかった（答えの話の側）で、説明の文
     （ご事情・世間話・ほかの話題）に電話を代わった方のあいさつが入るかが書かれていない＝境目（どちらも正解）。どちらの読みでも正解の動きは同じ（流し直す）。
-    ⛔ f37daf42 まで「無い」・「答えの話」"""
+    ⛔ f37daf42 まで「無い」・「答えの話」。2026-11-22 分身 AL（担当 AK の棚卸しの束1 の P1）：電話を代わった方の言葉が答えの話か別のお話かの境目を説明の1か所
+    （flowctl.away_choices の「答えの話」）に書いた＝別のお話かは「答えの話」だけ（正解の表の32行をそろえた・仮＝束 p1＝ALHandoverAwayTest）"""
 
     W = "はい、代わりました〇〇です。ご用件を伺います。"
 
@@ -49048,7 +49049,8 @@ class XReadersXLabelsTest(unittest.TestCase):
         from flowctl import AWAY, AWAY_NO, AWAY_YES, QUERY, QUERY_YES
         labels = json.load(open("g53_labels.json", encoding="utf-8"))["labels"]
         for k in (f"E|G11|{self.W}|", f"E|G18|{self.W}|念のためご訪問は平日でよろしいでしょうか？"):
-            self.assertEqual((labels[k]["accept"], labels[k][QUERY], labels[k][AWAY]), (["代わった人が話し始めた"], [QUERY_YES], [AWAY_YES, AWAY_NO]), k)
+            self.assertEqual((labels[k]["accept"], labels[k][QUERY], labels[k][AWAY]), (["代わった人が話し始めた"], [QUERY_YES], [AWAY_NO]), k)
+            self.assertEqual(labels[k]["away_talk_was"], [AWAY_YES, AWAY_NO], k)   # 直す前の境目は残す
 
     def test_the_correct_action_does_not_change(self):
         import json
@@ -51685,3 +51687,34 @@ class ALReadersDoneNotesTest(unittest.TestCase):
                  for n, line in enumerate((here / name).read_text(encoding="utf-8").splitlines(), 1) if waits.search(line)]
         self.assertEqual(found, [])
         self.assertEqual(review_words.TO_READERS, [])   # 読み手を待っている行は無い
+
+
+class ALHandoverAwayTest(unittest.TestCase):
+    """分身 AL（担当 AK の棚卸しの束1 の P1）：電話を代わった方が出て話し始めた言葉（答えの読み「代わった人が話し始めた」）が「答えの話」か「別のお話」かの境目は、説明の1か所
+    （flowctl.away_choices の「答えの話」）に1回だけ書き、正解の表の32行はその決まりで1つ（答えの話）。流れの制御は、どちらの読みでもお客様に聞こえる言葉・記録・動きが同じ"""
+
+    def test_the_boundary_is_written_once_and_the_rows_follow_it(self):
+        import copy
+        import json as _json
+        import g53_meaning as G
+        from common import latest_result
+        from flowctl import AWAY, AWAY_NO, AWAY_YES, HANDOVER, away_choices
+        from review_words import questions
+        c = away_choices(False, True)
+        self.assertIn("電話を代わった方が出て、名乗る・あいさつする・こちらの用件を尋ねる、とだけ話したのも", c[AWAY_NO])
+        self.assertNotIn("電話を代わった方", c[AWAY_YES])
+        qmap = G.question_map() | questions()
+        rows = [it for it in G.with_new_rows(_json.loads(latest_result("G-53d1base_*.json").read_text(encoding="utf-8"))["items"])
+                if HANDOVER in G.accept(it)]
+        self.assertEqual(len(rows), 32)
+        for it in rows:
+            self.assertEqual(G.away_truths(it), (AWAY_NO,), it["text"])
+            q = qmap[it["qid"]]
+            for r in G.label_readings(it, q, True):
+                got = []
+                for av in (AWAY_NO, AWAY_YES):
+                    rr = copy.deepcopy(r)
+                    setattr(rr, AWAY, av)
+                    f, qid, rep, asked = G.flow_reply(it, q, rr)
+                    got.append((heard_words(rep), f.export(), G.flow_name(f, qid, rep, it, asked)))
+                self.assertEqual(got[0], got[1], it["text"])
