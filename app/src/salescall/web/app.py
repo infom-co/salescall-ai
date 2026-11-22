@@ -1778,7 +1778,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     raise NotFound()
                 return len(exclusions.mark(tx, tasks_, level, reason=str(form.get("reason") or "").strip()))
             out = actions.act(secret, person.login_id, dict(form), lambda: ctx.client(client_id, do), done="", reason_field="reason")
-            msg = f"お客様 {out.value}件を「{words.exclusion_level(level)}」にしました（同じ印だったお客様は、そのままです）。" if out.ok else out.message
+            word = words.exclusion_level(level)
+            msg = (out.message if not out.ok else
+                   f"選んだお客様は、どれももう「{word}」でした（変えたお客様はいません）。" if out.value == 0 else
+                   f"お客様 {out.value}件を「{word}」にしました" + ("（同じ印だったお客様は、そのままです）。" if out.value < len(set(ids)) else "。"))
             target = f"{base}/rows/{ids[0]}" if back == "row" and len(ids) == 1 else base
             return _back(target, actions.Outcome(out.ok, msg))
         return handle(request, render)

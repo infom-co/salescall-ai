@@ -345,6 +345,9 @@ class Web(_World):
         try:
             r = self.post("A", url, {"form_token": tok, "task_id": str(self.a["task"]), "level": "force", "reason": "試験（架空）"})
             self.assertIn("ok=1", r.headers["location"])
+            self.assertIn("お客様 1件を「1本もかけない」にしました。", unquote(r.headers["location"]))
+            same = self.post("A", url, {"form_token": tok, "task_id": str(self.a["task"]), "level": "force", "reason": "試験（架空）"})
+            self.assertIn("どれももう「1本もかけない」でした", unquote(same.headers["location"]))   # 何も変わらなかったときは、そう言う
             self.assertEqual(self._level(), "force")
             self.assertIn("1本もかけない", self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}").text)
         finally:

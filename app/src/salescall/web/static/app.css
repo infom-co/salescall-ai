@@ -308,6 +308,9 @@ label.choice:has(input:checked) { border-color: var(--primary); background: var(
   background: var(--surface); color: var(--text); font: inherit; padding: 0 8px; }
 .bulk input[type=text] { flex: 1; min-width: 180px; }
 .bulk-hint { flex-basis: 100%; font-size: 12px; }
+/* 狭い幅では、まとめて変える帯は上に留めない（高さがあり、表を見る所を狭くする）。ふだんの決まり（上の sticky）のあとに置く
+   （⛔ 2026-11-22 まで：狭い幅の決まりを先に書いていて、あとの sticky に負け、効いていなかった） */
+@media (max-width: 900px) { .bulk { position: static; } }
 th.check, td.check { width: 36px; text-align: center; }
 td.check input, th.check input { width: 16px; height: 16px; }
 tr.excluded td { color: var(--muted); }
@@ -657,7 +660,9 @@ details.info > summary::-webkit-details-marker { display: none; }
 details.info > summary:hover, details.info[open] > summary { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 details.info > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 /* 開いた説明は（上の帯・タブ＝重なりの順 9・10 の下に）、札（なければ本文）の幅いっぱいに、そのすぐ下へ重ねて出す（項目名の細い欄に押し込まない・横にはみ出さない） */
-.card, .content { position: relative; }
+/* 札の位置の基準。:where は決まりの強さを持たないので、ほかの決まり（上に留まる帯 .bulk の sticky など）が先に効く
+   （⛔ 2026-11-22：.card に直に付けて、まとめて変える帯が上に留まらず、スマホでは下へずれてお客様の札に重なった） */
+:where(.card, .content) { position: relative; }
 details.info .info-body { position: absolute; left: 12px; right: 12px; z-index: 8; display: block; margin-top: 8px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: 0 8px 24px rgba(16,24,40,.16);
   color: var(--text); font-size: 13px; font-weight: 400; line-height: 1.75; text-align: left; overflow-wrap: anywhere; white-space: normal; }
