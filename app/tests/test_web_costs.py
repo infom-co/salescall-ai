@@ -42,6 +42,20 @@ class DeficitOnScreen(CostRatio):
         self.assertNotIn(f'href="{reward_url}"', http.get("/t/costs").text)       # 決まりが入ったので、もう出さない
 
 
+    def test_a_client_with_nothing_this_month_is_one_name_not_a_row(self):   # 2026-11-22 の見直し：0円の札が11枚続いた
+        s = self.ready()
+        self.terms(s, per_dial_yen=10)                                            # 決まりはあるが、今月まだかけていない
+        http = TestClient(create_app(app_access(), lambda r: Person("試験の契約者", False, s["tenant"], "架空の契約者"), SECRET))
+        costs = http.get("/t/costs").text
+        link = f'<a href="/c/{s["client"]}">'
+        quiet = costs[costs.index('class="quiet-clients'):]
+        self.assertIn(link, quiet[:quiet.index("</p>")])                          # 動きの無い依頼者は、名前だけの1行に
+        self.assertNotIn(f"<td>{link}", costs)                                    # 表の行には並べない
+        self.talked(s)                                                            # かけたら、表の行に出る
+        costs = http.get("/t/costs").text
+        self.assertIn(f"<td>{link}", costs)
+        self.assertNotIn('class="quiet-clients', costs)
+
     def test_the_deficit_stays_on_screen_after_it_is_confirmed(self):
         s = self.ready()
         self.terms(s, per_dial_yen=10)
