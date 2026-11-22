@@ -79,7 +79,7 @@
     {% if i.audio %}
     <div class="listen-list">
       <p class="muted">承認する前に、録音をすべて聞いてください（聞いた記録が残ります）。</p>
-      {% for label, ref in i.audio %}<div class="listen"><span>{{ label }}</span><audio controls preload="none" src="/c/{{ place.client_id }}/recordings/{{ ref }}.wav"></audio></div>{% endfor %}
+      {% for label, ref in i.audio %}<div class="listen"><span>{{ label }}</span><audio controls preload="none" src="{{ '/c/' ~ place.client_id if place.client_id else '/admin' }}/recordings/{{ ref }}.wav"></audio></div>{% endfor %}
     </div>
     {% endif %}
     {% if i.if_not %}<div class="if-not">{{ i.if_not }}</div>{% endif %}

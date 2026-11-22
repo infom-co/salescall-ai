@@ -163,6 +163,35 @@ def _recordings(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     return items
 
 
+def _system_recordings(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
+    """システムの録音の承認（管理者だけ。全体の取引）：どの依頼者にも同じ一言（共通の一言）と、システムの標準の想定問答などの、システムの
+    持ち物の録音の組で、まだ承認していない部分のあるもの（承認できるのは管理者だけ＝データベースが守る。CL-2 4-194「共通の一言の録音を
+    聞いて承認する画面は、管理者の画面だけに置いてください」）。聞いていただくのは、まだ承認していない部分だけ（core の
+    recordings.unapproved_parts の1か所）。承認は依頼者の録音と同じ部品（すべて聞いてから）。"""
+    if task is not None or run is not None:
+        return []
+    items = []
+    for r in tx.all("SELECT s.set_id, s.unit, s.voice_name, s.created_at FROM salescall.recording_sets s"
+                    " WHERE s.tenant_id IS NULL AND NOT EXISTS (SELECT 1 FROM salescall.recording_approvals a WHERE a.set_id = s.set_id)"
+                    " ORDER BY s.created_at, s.set_id"):
+        need = recordings.unapproved_parts(tx, r["set_id"])
+        if not need:
+            continue
+        texts = {x["part"]: x["spoken_text"] for x in tx.all(
+            "SELECT part, spoken_text FROM salescall.recordings WHERE set_id = %s AND part = ANY(%s)", (r["set_id"], need))}
+        parts = playable_parts(tx, r["set_id"], need)
+        ready = parts is not None
+        items.append(Item(
+            kind="system_recording", key={"set_id": str(r["set_id"])}, title="システムの録音の承認",
+            decide=f"{words.RECORDING_UNIT_WORDS.get(r['unit'], words.NO_WORD)}（声：{r['voice_name']}）を、すべての契約者のお客様に流してよいか",
+            evidence=[(f"録音 {n} の文", texts.get(p, "")) for n, p in enumerate(need, start=1)],
+            if_not="承認するまで、この録音が要る声では、どの契約者もかけません。", at=r["created_at"],
+            buttons=(Button("approve", "録音を聞いたので承認する", main=True),) if ready else (),
+            waiting_why="" if ready else "録音の音がまだそろっていません（聞いてから承認する決まりのため）",
+            audio=_audio(r["set_id"], parts) if ready else ()))
+    return items
+
+
 def _approve_recording(tx: Tx, k: dict[str, str]) -> Any:
     from salescall.web.actions import Refused
     set_id = UUID(k["set_id"])
@@ -516,6 +545,9 @@ KINDS: dict[str, Kind] = {
         "approve": (lambda tx, k: fix_requests.approve(tx, int(k["request_id"])), "承認しました。"),
     }, where="system"),
     "name_review": Kind("名前の録音の審査", _name_reviews, {}, where="system"),   # 決めるのは審査の画面（束で決める）
+    "system_recording": Kind("システムの録音の承認", _system_recordings, {
+        "approve": (_approve_recording, "承認しました。この録音を使う電話を、どの契約者もかけられます。"),
+    }, where="system"),
 }
 
 

@@ -2077,6 +2077,21 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                                      "Cache-Control": "no-store"})
         return handle(request, render)
 
+    @app.get("/admin/recordings/{set_id}/{part}.wav")
+    def system_recording_listen(request: Request, set_id: UUID, part: str) -> Response:
+        """管理者が、システムの録音（共通の一言・標準の想定問答）の1つの部分を聞く（全体の取引。読むのも聞いた記録も core の
+        recording_audio.listen の1か所。見えない組・置き場に無い音は「見つかりません」）。"""
+        from salescall.core import recording_audio
+        def render(person: Person, ctx: Ctx) -> Response:
+            if not person.is_admin:
+                raise NotFound()
+            try:
+                data = ctx.system(lambda tx: recording_audio.listen(tx, set_id, part))
+            except recording_audio.AudioMissing:
+                return problem(request, 404, "見つかりません", "その録音は、いま聞けません。")
+            return Response(data, media_type="audio/wav", headers={"Cache-Control": "no-store"})
+        return handle(request, render)
+
     @app.get("/c/{client_id}/recordings/{set_id}/{part}.wav")
     def recording_listen(request: Request, client_id: UUID, set_id: UUID, part: str) -> Response:
         """承認・審査の画面で録音の1つの部分を聞く（音を読むのも聞いた記録を残すのも core の recording_audio.listen の1か所＝CL-2 の 4-460）。

@@ -428,7 +428,8 @@ DETAIL_KIND_WORDS: dict[str, str] = {
 
 # 録音の組の単位の、画面の名前（承認する録音の種類。core の recordings.create_set の unit のうち、契約者が承認するもの）
 RECORDING_UNIT_WORDS: dict[str, str] = {"business": "業務の録音", "name_role": "名前の録音（役職の部分）",
-                                        "name": "名前の録音（お名前の部分）", "name_tail": "名前の録音（続く言葉）"}
+                                        "name": "名前の録音（お名前の部分）", "name_tail": "名前の録音（続く言葉）",
+                                        "contractor": "共通の一言（どの依頼者にも同じ一言）", "standard": "標準の想定問答の録音"}
 
 
 # 業務・期間・声の型の指標（計画書 9-8。数えるのは core の metrics.business の1か所＝画面は並べるだけ）の、画面の名前と形。
