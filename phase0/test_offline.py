@@ -52309,20 +52309,22 @@ class AMCallingSceneMarksTest(unittest.TestCase):
         import g59_tally as t
         from flowctl import ABOUT, ABOUT_DEPARTED, ABOUT_WRONG
         table = t.current()
-        for c in self.marked():
+        # 正解の表（cases＝1回に数秒）は1回だけ作る（⛔ 2026-11-22 分身 AM の続き2 まで、印のある行ごとに作り直し＝20回・試験の全部が命令の上限 900秒を超えた）
+        marked = self.marked()
+        keys = {t.key(g.case_row(x)) for x in marked}
+        for c in marked:
             r = g.case_row(c)
             self.assertIn(t.key(r), table, c[0])
-            self.assertNotIn(t.key({**r, "mobile": False, "personal": False, "named_first": None}),
-                             {t.key(g.case_row(x)) for x in self.marked()}, c[0])
+            self.assertNotIn(t.key({**r, "mobile": False, "personal": False, "named_first": None}), keys, c[0])
             self.assertFalse(t.hear_only(r), c[0])   # 正しい読みが外れと数えられないことは、表の全部の行で test_every_row_is_built_in_the_production_flow_and_right_readings_never_miss
         # ご本人の電話の「そういう方はいない」は番号違い：在籍していないと読む外れ（後任のご担当者様を伺う）は動きを変える
-        c = next(c for c in self.marked() if c.mobile and c[5][ABOUT] == {ABOUT_WRONG} and c[3] is None)
+        c = next(c for c in marked if c.mobile and c[5][ABOUT] == {ABOUT_WRONG} and c[3] is None)
         r = g.case_row(c)
         right = {k: sorted(v)[0] for k, v in c[5].items()}
         self.assertTrue(t.moves(t.flow_miss(right | {ABOUT: ABOUT_DEPARTED}, c[5], r)))
         # 数えの覚え（calling_acts）の鍵も印を読む：携帯電話の番号の2回目の聞き返しへのお返事は、印の無い業務（会社の電話＝2回目は「もう一回よろしいでしょうか？」）では
         # 組めない＝覚えた動きを印の無い行に使わない
-        c = next(c for c in self.marked() if c.mobile and c[2] == g.UNHEARD_TWICE)
+        c = next(c for c in marked if c.mobile and c[2] == g.UNHEARD_TWICE)
         r = g.case_row(c)
         right = {k: sorted(v)[0] for k, v in c[5].items()}
         fc._ACTS.clear()
