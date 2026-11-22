@@ -73,6 +73,34 @@
       <input type="text" name="reason" aria-label="なぜ変えるか（記録に残ります）" placeholder="なぜ変えるか（例：依頼者からのご希望・試してみて合わなかった）">
       <div class="actions"><button class="btn main small" type="submit" data-submit disabled>この値に変える</button></div>
     </form>
+    {#- この段の値の記録（計画書 5-3 の (11)「変更の中身・日時を記録し、前の版へ戻せる」。読むのは core の settings.history の1か所）。
+        戻すときは記録の番号だけを送り、値はサーバーが記録から引く（画面から値を送り直さない＝取り違えない） -#}
+    {% if r.history %}
+    {% set now_value = r.history[0].value %}
+    {% set can = r.history|rejectattr("value", "equalto", now_value)|list %}
+    <details class="more setting-history">
+      <summary>この段のこれまでの値（{{ r.history|length }}）</summary>
+      {#- 戻す値は丸で1つ選び、理由の欄とボタンは1つ（2026-11-22 の見直し：値ごとに欄とボタンが並び、記録が増えると長かった）。いまの値と同じ値は
+          選べない（押しても何も変わらない。サーバーも断る） -#}
+      <form method="post" action="{{ action }}" class="restore-form" data-needs-reason data-confirm-ok="この値に戻す"
+            data-confirm="{{ where }}の「{{ r.label }}」を、{radio:restore}に戻します。戻したことも記録に残ります。">
+        {{ csrf(token) }}<input type="hidden" name="key" value="{{ r.key }}">
+        <ol class="history-list">
+        {% for h in r.history %}
+          <li>{% if h.value != now_value %}<label class="choice"><input type="radio" name="restore" value="{{ h.value_id }}" required
+                 data-word="{{ time(h.set_at) }}の値「{{ h.shown }}」"><span>{% else %}<div>{% endif %}
+            <b>{{ h.shown }}</b>{% if loop.first %} {{ tag("いまの値", "info") }}{% elif h.value == now_value %} <span class="muted">（いまの値と同じ）</span>{% endif %}{% if h.status == "provisional" %} {{ tag("仮の値", "wait") }}{% endif %}
+            <span class="muted small-block">{{ time(h.set_at) }}・{{ h.set_by }}{% if h.rationale %}・{{ h.rationale }}{% endif %}</span>
+            {% if h.value != now_value %}</span></label>{% else %}</div>{% endif %}</li>
+        {% endfor %}
+        </ol>
+        {% if can %}
+        <input type="text" name="reason" aria-label="この値に戻す理由（記録に残ります）" placeholder="戻す理由（例：前の値のほうがお客様に合っていた）">
+        <div class="actions"><button class="btn small" type="submit" data-submit disabled>選んだ値に戻す</button></div>
+        {% endif %}
+      </form>
+    </details>
+    {% endif %}
   </details>
   {% endfor %}
 </section>

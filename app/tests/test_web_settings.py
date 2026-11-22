@@ -194,6 +194,42 @@ class Screens(unittest.TestCase):
         self.assertEqual(self.get("B", biz).status_code, 404)
         self.assertEqual(self.post("B", biz, {"form_token": self.token("B"), "key": self.key, "f_v": "5", "reason": "乗っ取り"}).status_code, 404)
 
+    def test_the_values_so_far_are_listed_and_an_earlier_one_can_be_restored(self):
+        """計画書 5-3 の (11)「変更の中身・日時を記録し、前の版へ戻せる」：設定の札に、この段のこれまでの値（新しい順・いちばん上がいまの値）を
+        出し、前の値に戻せる（読むのは core の settings.history・戻すのは set_value の1か所＝CL-2 4-475）。戻すときは記録の番号だけを送る。"""
+        from salescall.core import settings as core_settings
+        w = World()
+        s = w.setup(tenant=self.a["tenant"])                                       # この試験だけの業務（ほかの試験の値と混ぜない）
+        biz = f"/c/{s['client']}/b/{s['business']}/settings"
+        for v, why in (("7", "試験：はじめの値"), ("9", "試験：次の値")):
+            self.assertIn("ok=1", self.post("A", biz, {"form_token": self.token("A"), "key": self.key, "f_v": v, "reason": why}).headers["location"])
+        ids = dict(tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"])
+        hist = app_access().in_client(OPERATOR, s["tenant"], s["client"], lambda tx: core_settings.history(tx, self.key, scope="business", **ids))
+        self.assertEqual([h["value"] for h in hist], [9, 7])
+        page = self.get("A", biz).text
+        card = page[page.index(f'id="s-{self.key.replace(".", "-")}"'):]
+        card = card[:card.index("</details>\n  </details>") if "</details>\n  </details>" in card else 4000]
+        self.assertIn("この段のこれまでの値（2）", card)
+        self.assertIn("試験：はじめの値", card)
+        self.assertEqual(card.count('name="restore" value='), 1)                  # いまの値と同じ値は選べない（選べるのは前の値だけ）
+        older, newer = str(hist[1]["value_id"]), str(hist[0]["value_id"])
+        self.assertIn("ok=0", self.post("A", biz, {"form_token": self.token("A"), "key": self.key, "restore": older, "reason": ""}).headers["location"])   # 理由は必ず
+        self.assertIn("ok=0", self.post("A", biz, {"form_token": self.token("A"), "key": self.key, "restore": newer, "reason": "試験"}).headers["location"])  # いまの値
+        other = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: core_settings.history(
+            tx, self.key, scope="business", tenant_id=self.a["tenant"], client_id=self.a["client"], business_id=self.a["business"]))
+        if other:                                                                   # ほかの段（ほかの業務）の記録の番号は使えない
+            self.assertEqual(self.post("A", biz, {"form_token": self.token("A"), "key": self.key, "restore": str(other[0]["value_id"]), "reason": "試験"}).status_code, 404)
+        self.assertEqual(self.post("B", biz, {"form_token": self.token("B"), "key": self.key, "restore": older, "reason": "乗っ取り"}).status_code, 404)
+        r = self.post("A", biz, {"form_token": self.token("A"), "key": self.key, "restore": older, "reason": "試験：前のほうが合っていた"})
+        self.assertIn("ok=1", r.headers["location"])
+        from urllib.parse import unquote
+        self.assertIn("前の値に戻しました", unquote(r.headers["location"]))
+        hist = app_access().in_client(OPERATOR, s["tenant"], s["client"], lambda tx: core_settings.history(tx, self.key, scope="business", **ids))
+        self.assertEqual([h["value"] for h in hist], [7, 9, 7])                   # 戻したことも1行として残る
+        self.assertTrue(hist[0]["rationale"].startswith("前の値に戻す："))
+        same = str(hist[2]["value_id"])                                            # いまの値（7）と同じ値の記録へは戻さない
+        self.assertIn("ok=0", self.post("A", biz, {"form_token": self.token("A"), "key": self.key, "restore": same, "reason": "試験"}).headers["location"])
+
     def test_a_business_value_is_saved_with_a_reason_and_shown_as_its_own(self):
         biz = f"/c/{self.a['client']}/b/{self.a['business']}/settings"
         tok = self.token("A")

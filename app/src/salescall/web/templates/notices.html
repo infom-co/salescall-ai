@@ -4,13 +4,14 @@
 {% block title %}{{ words.page("notices") }}{% endblock %}
 {% macro notice_table(rows) -%}
 <div class="table-scroll"><table class="list">
-  <thead><tr><th>種類</th><th>依頼者</th><th>中身</th><th class="wide">時刻</th><th class="wide">届いたか</th><th></th></tr></thead>
+  <thead><tr><th>種類</th><th>中身</th><th class="wide">時刻</th><th class="wide">届いたか</th><th></th></tr></thead>
   <tbody>
   {% for r in rows %}
     <tr>
       <td>{{ tag(words.notice_kind(r.kind), words.notice_tone(r.kind, r.urgent)) }}</td>
-      <td>{{ r.where or "全体" }}{% if r.who %}<div class="muted">{{ r.who }}</div>{% endif %}</td>
-      <td>{{ words.plain(r.summary) }}</td>
+      {#- 依頼者・業務・回線の名前は、知らせの文の頭に core が付ける（notify.about の1か所。CL-2 4-475）ので、別の欄に重ねない。お客様の名前は
+          送る知らせの文に入れない決まりなので、画面でだけ中身の下に添える -#}
+      <td>{{ words.plain(r.summary) }}{% if r.who %}<div class="muted">お客様：{{ r.who }}</div>{% endif %}</td>
       <td class="when">{{ time(r.occurred_at) }}</td>
       <td class="wide">{% if r.later %}{{ tag("まとめて送ります", "") }}<div class="muted">{{ time(r.later) }}に、ほかの知らせと1通で</div>
         {% else %}{{ tag(state_words[r.state], {"sent": "ok", "gave_up": "stop", "trying": "wait"}.get(r.state, "")) }}{% endif %}</td>

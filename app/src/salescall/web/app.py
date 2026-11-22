@@ -665,7 +665,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             rows = ctx.tenant(read(False), read_only=True)
             admin_rows = ctx.system(read(True)) if person.is_admin else []
-            # 知らせ1件ずつの「どこの」と「見る」：依頼者の知らせは依頼者の名前、お客様の知らせはその行へ（住所は links の1か所。
+            # 知らせ1件ずつの「見る」：お客様の知らせはその行へ、業務の知らせは業務へ、依頼者の知らせは依頼者へ（住所は links の1か所。
             # 行は依頼者の取引でしか見えないので、依頼者ごとに1回で引く）
             names = {c["client_id"]: c for c in ctx.clients()}
             tasks: dict[Any, list[str]] = {}
@@ -678,7 +678,6 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 found.update({str(k): v for k, v in ctx.client(cid, lambda tx: links.rows(tx, valid), read_only=True).items()})
             for r in rows:
                 c = names.get(r["client_id"])
-                r["where"] = c["name"] if c else ""
                 row = found.get(str(r["task_id"])) if r["task_id"] else None
                 biz = links.business_notice(c["client_id"], r["business_id"], r["kind"]) if c and _is_uuid(r["business_id"] or "") else ""
                 r["link"] = row["url"] if row else (biz or (f"/c/{c['client_id']}" if c else ""))
@@ -701,6 +700,11 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         if len(levels) < 2:
             return ""
         return MERGE_WORDS.get(kind, "").format(chain=" ＞ ".join(SCOPE_SHORT[x] for x in reversed(levels)))
+
+    def _level_ids(level: str, tenant_id: UUID | None, client_id: UUID | None, business_id: UUID | None) -> dict[str, Any]:
+        """その段の値を指す印（契約者・依頼者・業務のうち、その段で要るものだけ＝core の settings の段の約束と同じ）。"""
+        return {"system": {}, "tenant": {"tenant_id": tenant_id}, "client": {"tenant_id": tenant_id, "client_id": client_id},
+                "business": {"tenant_id": tenant_id, "client_id": client_id, "business_id": business_id}}[level]
 
     def _setting_shown(d: dict[str, Any], value: Any) -> str:
         """設定の値の見せ方（1か所。いまの値も、これまでの値も同じ形で見せる）。選び肢の言葉は設定の定義の choice_words（CL-2 4-450）、
@@ -735,7 +739,13 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             except settings.SettingMissing:
                 got = None
             shown = None if got is None else _setting_shown(d, got["value"])
-            rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": words.plain(d["help"]),
+            # この段の値の記録（新しい順・いちばん上がこの段のいまの値。読むのは core の settings.history の1か所＝CL-2 4-475・お願い 73）。
+            # 出すのは、画面から人が決める契約者・依頼者・業務の段だけ（システムの初めの値は表の作りが書き、理由は設計の覚え書き＝根拠の正本は
+            # 設計書。画面に開発の覚え書きを出さない決まり）
+            hist = [] if level == "system" else [
+                {**h, "shown": _setting_shown(d, h["value"])}
+                for h in settings.history(tx, d["key"], scope=level, **_level_ids(level, tenant_id, client_id, business_id))]
+            rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": words.plain(d["help"]), "history": hist,
                          "got": got, "shown": shown,
                          "own": got is not None and got["from"] == level, "group": d["screen_group"], "confirm": d["confirm_text"],
                          "merge": _merge_words(d["merge_kind"], d["finest_scope"]), "unit": words.SETTING_UNITS.get(d["key"], "")})
@@ -779,6 +789,21 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                            " FROM salescall.setting_definitions WHERE key = %s", (key,))
                 if d is None or SCOPES.index(d["finest_scope"]) < SCOPES.index(level):
                     raise NotFound()
+                restore = str(form.get("restore") or "")
+                if restore and level == "system":
+                    raise NotFound()   # システムの段は「これまでの値」を出していない（戻す入口も無い）
+                if restore:   # 前の値に戻す：画面から値を送り直さず、記録の番号でこの段の記録から値を引く（取り違えを作りで防ぐ。CL-2 4-475 の (3)）
+                    ids = _level_ids(level, None if level == "system" else ctx.tenant_id, client_id, business_id)
+                    hist = settings.history(tx, key, scope=level, **ids)
+                    entry = next((h for h in hist if str(h["value_id"]) == restore), None)
+                    if entry is None:
+                        raise NotFound()
+                    if entry["value"] == hist[0]["value"]:
+                        raise actions.Refused("その値は、いまの値と同じです（何も変えていません）")
+                    reason = "前の値に戻す：" + str(form.get("reason") or "").strip()
+                    return settings.set_value(tx, key, entry["value"], scope=level, rationale=reason,
+                                              status=entry["status"] if level == "system" else "decided",
+                                              review_when=entry["review_when"] if level == "system" else "変える必要が出たとき", **ids)
                 value = setting_forms.read(d["value_type"], form, "f_", d)
                 try:
                     if level == "system":
@@ -793,7 +818,9 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             work = ((lambda: ctx.system(do)) if level == "system" else
                     (lambda: ctx.tenant(do)) if client_id is None else (lambda: ctx.client(client_id, do)))
             label = words.SETTING_LABELS.get(key, words.NO_WORD)
-            out = actions.act(secret, person.login_id, form, work, done=f"「{label}」を変えました。前の値は記録に残っています。", reason_field="reason")
+            done = (f"「{label}」を前の値に戻しました。戻したことも記録に残っています。" if form.get("restore")
+                    else f"「{label}」を変えました。前の値は記録に残っています。")
+            out = actions.act(secret, person.login_id, form, work, done=done, reason_field="reason")
             # 戻った画面は、変えた設定の所へ送り、結果の1行もその札の上に出す（93 の設定のどれを変えたかを、いちばん上の1行で探させない）
             return _back(back, out, anchor="changed", changed=key)
         return handle(request, render)
