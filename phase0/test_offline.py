@@ -52196,7 +52196,8 @@ class ALGarbledAndWhichPointRowsTest(unittest.TestCase):
             self.assertEqual(it["qid"], "R1")
             self.assertEqual(it["label"]["accept"][0], UNDECIDED, it["text"])
             self.assertLessEqual(set(it["label"]["accept"]), {UNDECIDED, THINKING}, it["text"])
-            self.assertEqual(it["label"][AWAY], [AWAY_NO], it["text"])
+            # 分身 AQ（束 ap1x の (g)）：「か……ど……で……」「……ふ……りこ……」は答えの話と決められないの境目（2つの読みで動きが同じ＝AQTwoReadsBordersTest）
+            self.assertIn(it["label"][AWAY], ([AWAY_NO], [AWAY_NO, UNDECIDED]), it["text"])
             self.assertIn("…", it["text"])
 
     def test_the_which_point_scene_is_the_production_line(self):
@@ -52868,7 +52869,8 @@ class APGarbledWordsTest(unittest.TestCase):
             self.assertEqual(it["label"]["accept"], [UNDECIDED], text)   # 組み立てた読み（カード・振込）は正解に入れない
             self.assertIn("組み立てない", it["label"]["why"], text)
         for it in rw.GARBLED_ROWS + rw.WHICH_POINT_ROWS:
-            self.assertNotIn("仮", it["label"]["why"], it["text"])
+            # 分身 AQ が書き足した所（答えの話か・聞こえ方・問いの境目＝仮）のほかに仮は無い（答えの正解は仮ではない）
+            self.assertNotIn("仮", it["label"]["why"].split("／2026-11-23 分身 AQ")[0], it["text"])
         point = next(r for r in rw.WHICH_POINT_ROWS if r["text"] == "いや、いろいろとですね。")
         self.assertEqual(point["label"]["accept"], ["点は言っていない"])   # 2人の境目が違う＝作った側のまま
 
@@ -52914,7 +52916,7 @@ class APP1ReadersTest(unittest.TestCase):
         self.assertIn(line, hear_choices(False)[HEAR_LOST])
         self.assertNotIn(line, hear_choices(True)[HEAR_LOST])   # お呼びする段の文は変えない
         it = next(i for i in self.items() if i["text"] == "すみません、会社名をもう一度教えてもらえますか？")
-        self.assertEqual(G.hear_truth(it), HEAR_OK)
+        self.assertEqual(G.hear_truths(it), (HEAR_OK,))   # 分身 AQ：正解の並び（hear_truths）にした
         q = (G.question_map() | questions())[it["qid"]]
         r = copy.deepcopy(G.label_readings(it, q, True)[0])
         cuts = []
@@ -53173,5 +53175,42 @@ class AQHearRepeatTest(unittest.TestCase):
         got = {}
         for it in ap_items():
             if it["text"] in want:
-                got[it["text"]] = G.hear_truth(it)
+                got[it["text"]] = G.hear_truths(it)[0] if len(G.hear_truths(it)) == 1 else G.hear_truths(it)
         self.assertEqual(got, want)
+
+
+class AQTwoReadsBordersTest(unittest.TestCase):
+    """分身 AQ（束 ap1x の (g)）：答えを伏せた読み手2人がそろって挙げた2つの読みのうち、流れの制御に通して、お客様に聞こえる言葉・記録・動き・すぐあとに切れたときの切れ方が同じものは
+    境目（両方を正解）にした（帳面 0-3 の 141行・rv196/AQ/probe/aq/tr_w1.txt・tr_garbled.txt）：W1 の「じゃあ、やっぱり電話してもらってもいいかな。」の言い切り・崩れた言葉
+    「か……ど……で……」「……ふ……りこ……」の答えの話か・聞こえ方・こちらへ尋ねた問いがあるか。聞こえ方の正解は並びで持てる形にした（g53_meaning.hear_truths）"""
+
+    def test_rows(self):
+        import g53_meaning as G
+        from flowctl import AWAY, AWAY_NO, HEAR_OK, QUERY, QUERY_NO, UNDECIDED
+        from review_words import questions
+        seen = set()
+        qmap = G.question_map() | questions()
+        for it in ap_items():
+            if it["text"] == "じゃあ、やっぱり電話してもらってもいいかな。" and G._label(it):
+                seen.add(it["text"])
+                self.assertTrue(G.either(it))
+                self.assertEqual({r.firm for r in G.label_readings(it, qmap[it["qid"]], True)}, {True, False})
+            if it["text"] in ("か……ど……で……", "……ふ……りこ……"):
+                seen.add(it["text"])
+                self.assertEqual(G.hear_truths(it), (HEAR_OK, UNDECIDED))
+                self.assertEqual(set(G.away_truths(it)), {AWAY_NO, UNDECIDED})
+                self.assertEqual(set(G.query_truths(it)), {QUERY_NO, UNDECIDED})
+                rs = G.label_readings(it, qmap[it["qid"]], True)
+                self.assertEqual({getattr(r, "hear") for r in rs}, {HEAR_OK, UNDECIDED})
+        self.assertEqual(len(seen), 3)
+
+    def test_hear_tally_counts_any_listed_name(self):
+        import g53_meaning as G
+        from flowctl import HEAR_OK, UNDECIDED
+        it = {"set": "R", "qid": "R1", "text": "x", "hear_truth": [HEAR_OK, UNDECIDED], "J": UNDECIDED, "J聞こえ": UNDECIDED}
+        with unittest.mock.patch.object(G, "_label", return_value=None), unittest.mock.patch.object(G, "accept", return_value=[UNDECIDED]), \
+                unittest.mock.patch.object(G, "truth", return_value=UNDECIDED):
+            t = G.tally([it], ["J"])
+        h = t["J"]["数え"]["こちらの声が届いていない様子か"]
+        self.assertTrue(any("正しい" in k for k in h), h)
+        self.assertFalse(any("⛔" in k for k in h))
