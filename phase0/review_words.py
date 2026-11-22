@@ -850,7 +850,8 @@ _GARBLED_WHY = ("崩れた言葉。どの答えの向きも言い切っていな
 # 「決められない」とも読んだ（rv195/ap1x_AB.txt の #15・#16）。項目ごとに2つの読みで流れの制御に通すと、お客様に聞こえる言葉・記録・動き・すぐあとに切れたときの切れ方が同じ
 # （rv196/AQ/probe/aq/tr_garbled.txt）＝境目にした（帳面 0-3 の 141行・分身 AP の two_reads.py の形）。直す前の値＝答えの話・そういう様子は無い・こちらへ尋ねた問いは無い
 _GARBLED_TWO_READS = ("／2026-11-23 分身 AQ：答えの話か・聞こえ方・こちらへ尋ねた問いがあるかは「決められない」との境目（束 ap1x の #15・#16 の2人とも挙げた・2つの読みで流れの制御の"
-                      "動き・切れ方が同じ＝rv196/AQ/probe/aq/tr_garbled.txt。直す前の値＝答えの話・そういう様子は無い・こちらへ尋ねた問いは無い）／⏳ 仮＝読み手の束 aq1 の読みが届くまで")
+                      "動き・切れ方が同じ＝rv196/AQ/probe/aq/tr_garbled.txt。直す前の値＝答えの話・そういう様子は無い・こちらへ尋ねた問いは無い）／束 aq1 の読み手2人とも、"
+                      "この境目の読みの中（CL-1 の読み rv195/rr_aqf.txt＝仮を外した・分身 AU）")
 GARBLED_ROWS = [
     _row("R1", "ちょ……と……", [UNDECIDED, THINKING], AWAY_NO, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
          why=_GARBLED_WHY + "。言いかけて続きそう＝考えている途中との境目"),

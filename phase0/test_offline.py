@@ -53730,3 +53730,45 @@ class AUTwoReadsBordersTest(unittest.TestCase):
             self.assertIn(WHY_NOT_SAID, reason[t], t)
         for t in ("どうだったかな。", "覚えていないです。", "うろ覚えです。", "表記が芝だったか三田だったか…"):
             self.assertIn(DONT_KNOW_LABEL["unknown_now"], reason[t], t)
+
+
+class AUFirmChangeRequestTest(unittest.TestCase):
+    """分身 AU（帳面 1 の (6) の (i) の L25 の残り・束 aq1 の #13〜#16＝答えを伏せた読み手2人とも、ご予約の日時に変更が無いかを伺った質問への、できるかを尋ねる形の変更の頼みを
+    言い切りと読んだ＝rv195/aq1_firm.txt。CL-1 が書いてある決まりで決めた＝伺わない）：✅ 2026-11-01 日本時間3時45分（「あいては確認しているので…別の日が確定にならない」）＝変更などが
+    あるか無いかを伺ったのは事実を伺っただけで、変更などをご希望として伺ったのではない、を言い切りの確かめる側の条件「決めるのをこちらの返事に預けた」の括弧の1か所に書いた。
+    そのまま記録する側の頭は確かめる側を名前で指す（判断のモデルの問い JEV_FIRM では true の定義が先に並ぶ＝「上のどれにも」がずれていた）。正解の表（変更・取り消しの質問の
+    245行）は今のまま（できるかを尋ねる形の頼み7行＝言い切っていない・言い切って頼んだ行＝言い切り）。仮を外した：束 aq1 の2人の読みが作った側の正解の中だった分身 AQ の行"""
+
+    def test_1_the_border_is_in_one_place_and_named(self):
+        from meaning_judge import FIRM_NOT, FIRM_YES, JEV_FIRM
+        self.assertIn("変更や取り消しなどがあるか無いかを伺っただけ", FIRM_NOT)
+        self.assertIn("言い切って頼んだのは、これに当たらない", FIRM_NOT)
+        self.assertNotIn("変更", FIRM_YES)                     # 境目は確かめる側の1か所
+        self.assertNotIn("上のどれにも", FIRM_YES)
+        self.assertIn("「記録する前に、その答えでよいかをお客様にもう一度確かめる」", FIRM_YES)
+        self.assertTrue(FIRM_NOT.startswith("記録する前に、その答えでよいかをお客様にもう一度確かめる"))
+        self.assertEqual(list(JEV_FIRM), ["true", "false"])   # 並びは今のまま（名前で指すので並びに寄らない）
+
+    def test_2_the_change_rows_keep_their_truths(self):
+        import json
+        from pathlib import Path
+        import g53_meaning as G
+        labels = json.loads((Path(G.__file__).parent / "g53_labels.json").read_text(encoding="utf-8"))["labels"]
+        rows = {(k.split("|")[1], k.split("|")[2]): v for k, v in labels.items() if k.split("|")[1] in ("G10", "G11", "G28")}
+        for t in ("別の日にならないでしょうか", "変更をお願いできないでしょうか", "別の日時に変えてもらえますか", "日にちの変更をお願いできますか",
+                  "いいえ、別の日にしてもらえませんか", "時間の変更をお願いできますか", "日時を変えてもらえますか"):
+            self.assertTrue(any(v.get("hedged") is True for (q, tt), v in rows.items() if tt == t), t)
+        for t in ("いいえ、変更をお願いしたいです", "はい、変更をお願いしたいです。", "いえ、日程をずらしてほしいです。", "ええ、変えてほしいです", "別の日程に変えてほしいです"):
+            self.assertTrue(all(not v.get("hedged") for (q, tt), v in rows.items() if tt == t), t)
+
+    def test_3_aq_rows_are_no_longer_provisional(self):
+        import json
+        from pathlib import Path
+        import g53_meaning as G
+        import review_words as rw
+        labels = json.loads((Path(G.__file__).parent / "g53_labels.json").read_text(encoding="utf-8"))["labels"]
+        self.assertIn("仮を外した", labels["D|G16|振込のほうがいいかしら|念のためお支払いは振込でよろしいでしょうか？"]["why"])
+        self.assertIn("仮を外した", labels["W1|W1@E1|じゃあ、やっぱり電話してもらってもいいかな。|"]["hedged_why"])
+        for text in ("か……ど……で……", "……ふ……りこ……"):
+            it = next(r for r in rw.GARBLED_ROWS if r["text"] == text)
+            self.assertNotIn("⏳", it["label"]["why"], text)
