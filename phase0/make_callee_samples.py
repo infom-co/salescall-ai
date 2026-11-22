@@ -180,19 +180,36 @@ UTTERANCES = {
     "business_hours_q": "そちらの営業時間って、なんじまでですか？",
     # 会話AIの通話の試験（G-57）の別のお話の場面で、ひとことのあとにお支払いの質問へ答える（scenes.TALK_SCENE）
     "pay_card": "カードでお願いします。",
+    # 2026-11-22 分身 AN（担当 AK の棚卸しの P6・P12）：会話AIの通話の試験（G-57）の考えている方・迷っている方・答えの代わりにこちらへ尋ねた方の場面（scenes.ANSWER_SCENES）。
+    # 言葉は本書 9-4 の「お客様が考えている」の行（✅ 2026-11-07 日本時間18時03分49秒の (2)「言い終えていない「うーん、どうしようかな…。」」・13時05分06秒の
+    # 「言い終えた「迷っています。」（「カードか振込か迷っています。」）」）と 9-5 の「言い切っているか」（✅ 2026-11-06 日本時間4時23分33秒「送ってもらったほうがいいですかね？」）のまま
+    "thinking_unsure": ("うーん、どうしようかな…。", "どうしようか考え込むように、語尾を小さく伸ばして、言い終えずに"),
+    "hesitate_card": ("カードか振込か迷っています。", "どちらにするか迷っている様子で"),
+    "ask_send": ("送ってもらったほうがいいですかね？", "こちらの考えを尋ねるように、語尾をはっきり上げて"),
+    # 2026-11-22 分身 AN（担当 AK の棚卸しの P13）：名前の読みの直し（G-46＝g46_reading_more）で、読みの中に「さ」「ん」のある読みへ直す（分身 AJ の書き置き rv191/AJ/notes.md の
+    # (続6-1)＝直していただいた読みの「さ」「ん」まで消していた形が、測りの名前に無かった）。カタカナで書いて読みを決める（上の「ナカシマ」と同じ。⛔「いえ、」は「え、」に聞こえる＝「いや、」）
+    "correct_saidou": "いや、サイドウです。",
+    "correct_kanno": "いや、カンノです。",
+    "name_only_kanno": "カンノです。",
 }
 
 
+# 手で名前を付けた台詞（上の一覧）の名前を、言葉から引く（試しの言葉の表から作る台詞の名前 talk_name が、同じ言葉ならこの名前を使う＝同じ言葉の声を2つ作らない）
+_NAMED = {(v if isinstance(v, str) else v[0]): k for k, v in UTTERANCES.items()}
+
+
 def talk_name(words: str) -> str:
-    """別のお話の台詞の名前（唯一の決め方＝言葉から決める。言葉は試しの言葉の表 review_words.TALK_WORDS の1か所＝ここに書き写さない）。"""
+    """別のお話の台詞の名前（唯一の決め方＝言葉から決める。言葉は試しの言葉の表 review_words.TALK_WORDS の1か所＝ここに書き写さない）。手で名前を付けた台詞と同じ言葉なら、
+    その台詞の名前（声も同じ1つ）。2026-11-22 分身 AN の続き：⛔ それまでは「そうなんですね。」が i_see と talk_9bdfadd6 の2つになり、声も2つ作ることになった"""
     import hashlib
-    return "talk_" + hashlib.sha1(words.encode("utf-8")).hexdigest()[:8]
+    return _NAMED.get(words) or "talk_" + hashlib.sha1(words.encode("utf-8")).hexdigest()[:8]
 
 
 def _talk_lines() -> dict[str, str]:
-    """会話AIの通話の試験（G-57）の別のお話の台詞（試しの言葉の表 review_words の1か所 talk_lines＝別のお話・2つ目のお返事・質問の種類ごとの場面の言葉）。"""
+    """会話AIの通話の試験（G-57）の別のお話の台詞（試しの言葉の表 review_words の1か所 talk_lines＝別のお話・2つ目のお返事・質問の種類ごとの場面の言葉）。手で名前を付けた台詞と
+    同じ言葉は足さない（その台詞を使う＝talk_name）。"""
     from review_words import talk_lines
-    return {talk_name(words): words for words in talk_lines()}
+    return {talk_name(words): words for words in talk_lines() if words not in _NAMED}
 
 
 UTTERANCES |= _talk_lines()
@@ -206,7 +223,7 @@ TONES = {"fax_tone": "fax"}
 PAUSED = {"hold_target_pause": ("hold_target", 1.5), "okada_whois_pause": ("okada_whois", 1.5)}
 # 別の耳は名前を漢字で書くので、カタカナで書いた名前の読みは比べられない（「中島」＝なかじま と読んでしまう）。名前だけ、その漢字に
 # 直してから比べる（読みそのものは G-44 の書き起こしで確かめた）。名前の一覧ではなく、この試験の材料の名前だけ
-NAME_SPELLINGS = {"ナカシマ": "中島", "カクタ": "角田", "カドタ": "角田"}
+NAME_SPELLINGS = {"ナカシマ": "中島", "カクタ": "角田", "カドタ": "角田", "サイドウ": "斎藤", "カンノ": "菅野"}
 INSTRUCTION = "あなたは音声の材料を作る係です。渡された言葉だけを、そのまま、自然な日本語で読み上げます。言葉を足しません。"
 # お客役の話し方（Leda・Sadachbia）：お店や会社から電話を受けた、ふつうのお客さん。営業や受付のような話し方にしない
 CUSTOMER_INSTRUCTION = ("あなたは、お店から電話を受けた、ふつうのお客さんです。渡された言葉だけを、そのまま、電話の相手に答えるように話します。"
@@ -259,21 +276,46 @@ def matches_script(m: dict) -> bool:
     return m.get("text") == text_and_how(UTTERANCES[m["id"]])[0]
 
 
-def verified(wav: str) -> bool:
-    """その声が、確かめ（sample_ok）に通っているか。試験は、通っていない声を使わない。"""
-    if any(wav.endswith(f"_{uid}.wav") for uid in TONES):
-        return (OUT / wav).exists()  # 作った音（声ではない）：別の耳の確かめは無い。ファイルがあればよい
+def _paused_source(wav: str) -> tuple[str, float] | None:
+    """間を長くした台詞の声（PAUSED）なら (もとの声のファイル, 間の秒)。ほかは None。"""
     for uid, (base, pause_s) in PAUSED.items():
         if wav.endswith(f"_{uid}.wav"):
-            source = wav[: -len(f"{uid}.wav")] + f"{base}.wav"
-            if not verified(source):
-                return False
-            from stitch_gap import widen_pause
-            widen_pause(source, pause_s, wav)  # もとの声から作り直す（間の秒を変えたら、すぐ効く）
-            return True
+            return wav[: -len(f"{uid}.wav")] + f"{base}.wav", pause_s
+    return None
+
+
+def verified(wav: str) -> bool:
+    """その声が、確かめ（sample_ok）に通っているか（見るだけ＝ファイルを書かない）。試験は、通っていない声を使わない。間を長くした台詞の声は、もとの声が通っていれば
+    通っている（作るのは流す前の1か所＝make_paused）。2026-11-22 分身 AN の続きの (4)：⛔ それまでは見るたびに間を長くした声を書いていた＝数えるだけの道具でも results/callee/ に
+    ファイルができた・書き直された"""
+    if any(wav.endswith(f"_{uid}.wav") for uid in TONES):
+        return (OUT / wav).exists()  # 作った音（声ではない）：別の耳の確かめは無い。ファイルがあればよい
+    if (paused := _paused_source(wav)) is not None:
+        return verified(paused[0])
     index = OUT / "index.json"
     made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
     return any(m.get("wav") == wav and m.get("ok") is True and matches_script(m) for m in made)
+
+
+def missing_voices(lines: list, voice: str) -> list[str]:
+    """試験の台詞の並び lines（場面の相手役の台詞＝{"wav": …}・答え直しの台詞 if_asked_target・こちらの言った値で答えが変わる台詞 yes／no）のうち、声 voice の録音が
+    確かめ（verified）に通っていないもの（唯一の見分け＝通話の試験は、通っていない声では動かさない＝G-57 scenes.run・G-46 g46_reading_more.run）。"""
+    from convo import callee_wav
+    wavs = [x[k] for x in lines if isinstance(x, dict) for k in ("wav", "if_asked_target", "yes", "no") if k in x]
+    return list(dict.fromkeys(w for w in wavs if not verified(callee_wav(w, voice))))
+
+
+def make_paused(lines: list, voice: str) -> list[str]:
+    """通話を流す前に、台詞の並び lines のうち、間を長くした台詞の声（PAUSED）を、声 voice のもとの声から作り直す（唯一の作る所＝G-57 scenes.run。間の秒を変えたら、すぐ効く）。
+    もとの声が確かめに通っていないものは作らない（その場面は missing_voices で動かさない）。作ったファイルの名前を返す。"""
+    from convo import callee_wav
+    from stitch_gap import widen_pause
+    out = []
+    for x in lines:
+        if isinstance(x, dict) and "wav" in x and (paused := _paused_source(w := callee_wav(x["wav"], voice))) is not None and verified(paused[0]):
+            widen_pause(paused[0], paused[1], w)
+            out.append(w)
+    return out
 
 
 # 日本語の言葉の種類として範囲が決まっている一覧（業務や場面ごとの一覧ではない）
