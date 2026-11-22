@@ -1708,7 +1708,8 @@ def _way_which_scene(key: str | None) -> Flow:
     from flowctl import WAY_UNSAID
     f = _wish_scene(key)
     _scene_say(f, SCENE_WAY_UNSAID, _scene_read(WAY_UNSAID), "record_answer", question_id="W1", condition_id=WAY_UNSAID)
-    if f.current != "W1" or not f.questions["W1"].lists_ways:
+    # 並べて伺い直したか（流れの制御のほかのご希望の手順の which）。⛔ 分身 AU（L31）から、申し出の形の W1 も lists_ways（「どちらでも」を出す）＝それでは見分けられない
+    if f.current != "W1" or not (f.wish or {}).get("which"):
         raise NoScene(f"申し出た方法を並べて伺わない（{key}）")
     return f
 
