@@ -263,10 +263,18 @@ def before_connect(call: dict) -> list[dict]:
 TARGET_PARTS = TARGET_BUSINESS.opening_parts()
 
 
-# 聞いた方（名乗り・用件を聞いた・聞き返した受付の方）に返さない返事の決まりの名前（中身の全部＝目的の人かの確かめ confirm_target・別の方としてのお呼びし直し call_target・
-# 次の質問へ進む返事 next。帳面 0-3 の (12)「名前は中身の全部を言い表す」）。⛔ 2026-11-23 まで同じ数え方に名前が2つあった（「聞いた方には確かめも用件も流さない」＝
-# 目的の人_名前を確かめてから名乗りを聞かれる・「聞いた方には確かめも質問も流さない」＝分身 BE の4場面）
+# 聞いた方（名乗り・用件を聞いた・聞き返した受付の方と、名乗り・用件のほかのことを聞いた受付の方）に返さない返事の決まりの名前（中身の全部＝目的の人かの確かめ confirm_target・
+# 別の方としてのお呼びし直し call_target・次の質問へ進む返事 next。帳面 0-3 の (12)「名前は中身の全部を言い表す」）。⛔ 2026-11-23 まで同じ数え方に名前が2つあった（「聞いた方には
+# 確かめも用件も流さない」＝目的の人_名前を確かめてから名乗りを聞かれる・「聞いた方には確かめも質問も流さない」＝分身 BE の4場面）
 ASKER_LEFT = "聞いた方には確かめもお呼びし直しも質問も返さない"
+
+
+def asker_left(call: dict, line: str) -> dict:
+    """聞いた方の決まり（名前 ASKER_LEFT）の唯一の数え：聞いた方の台詞 line（続きの待ち・知らせのターンも＝replies_to）へのAIのターンで、流れの制御が目的の人かの確かめ・
+    別の方としてのお呼びし直し・次の質問へ進む返事のどれも返していないか。名乗り・用件を聞いた・聞き返した受付の方（replayed_to_reception）も、名乗り・用件のほかのこと（関係・
+    番号の出どころ・会社の所在地）を聞いた受付の方も、ここで数える。⛔ 2026-11-23 分身 BH まで、ほかのことを聞かれた4場面は「確かめない」（確かめとお呼びし直しだけ・次の質問は
+    見ない）として別に数えていた＝同じ問いに答える所が2つ（帳面 1 の (6) の (i) の L49。前に流した記録 176通話で、聞いた方に次の質問を返した通話は0＝合格・外れは変わらない）"""
+    return {ASKER_LEFT: not any(r in ("confirm_target", "call_target", "next") for r in replies_to(call, line))}
 
 
 def replayed_to_reception(line: str, parts: list[str], again: bool = False):
@@ -275,15 +283,14 @@ def replayed_to_reception(line: str, parts: list[str], again: bool = False):
     「目的の人_名前を確かめてから名乗りを聞かれる」「目的の人_用件を聞かれる」もここで数える＝同じ数え方に名前が2つあった＝帳面 1 の (6) の (i) の L42 の (a)）：
     聞かれたことに合う部分（parts）を録音で流し直し（名乗り・用件・呼ぶ一言は流れの制御が足す＝Flow.on_opening_cut・_op_replay_opening。もう一度は「失礼いたしました。」のあと、
     言ったこと＝名乗りと呼ぶ一言。あいさつはお詫びの相づちと重ねない）、自分の声では話さず、聞いた方には目的の人かの確かめも、別の方としてのお呼びし直し（call_target）も、
-    次の質問へ進む返事（next＝繋いで用件と質問・かけ直しの質問）も返さず、取り次がれた岡田様にはあいさつ・名乗り・用件の全部を流してから質問へ。繋がるまで質問を流さないは、
-    目的のお客様のどの場面にも当てる1か所（measures）で数える。"""
+    次の質問へ進む返事（next＝繋いで用件と質問・かけ直しの質問）も返さず（聞いた方の決まりの1か所 asker_left）、取り次がれた岡田様にはあいさつ・名乗り・用件の全部を流してから
+    質問へ。繋がるまで質問を流さないは、目的のお客様のどの場面にも当てる1か所（measures）で数える。"""
     head = "言ったことをもう一度" if again else {"intro": "名乗りと呼ぶ一言", "purpose": "用件と呼ぶ一言"}[parts[0]]
 
     def check(c: dict) -> dict:
         return {head: any(played_parts(x["reply"]) == parts and (not again or x["reply"].get("ack") == "shitsurei")
                           for x in ops(c) if x["op"] == "replay_opening"),
-                "自分の言葉で話さない": own_words(c, line) == "",
-                ASKER_LEFT: not any(r in ("confirm_target", "call_target", "next") for r in replies_to(c, line)),
+                "自分の言葉で話さない": own_words(c, line) == "", **asker_left(c, line),
                 "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}
     return check
 
@@ -468,8 +475,10 @@ SCENES = {
     # ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、『ご本人』に
     #    なりますよね」⛔ 直す前は「確かめた」を正しい形にしていた（判定に、その前の受付の方の言葉を渡していなかった）。
     # ⛔ 2026-10-19 の見直し：前は代わった方の台詞のあとに「はい、そうです。」を台本で置いていた＝確かめなかった回は、それが最初の質問への答えになっていた
+    # ⛔ 2026-11-23 分身 BH まで、この決まりの名前は「確かめない」＝名乗り・用件のほかのことを聞かれた4場面の、聞いた方へのターンだけを見る別の数えと同じ名前だった
+    #    （帳面 1 の (6) の (i) の L49・帳面 0-3 の (12)。4場面は聞いた方の決まりの1か所 asker_left へ）
     "目的の人_名乗らない方": Scene(TARGET_BUSINESS, [W("hold_target"), T("taken_over_unnamed")] + FULL, lambda c: {
-        "確かめない": not any(x["reply"]["result"] == "confirm_target" for x in ops(c)),
+        "通話のどこでも目的の人かを確かめない": not any(x["reply"]["result"] == "confirm_target" for x in ops(c)),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}),
     # 受付の方が用件を聞く：用件と呼ぶ一言を流してもう一度だけ呼ぶ（本書 9-4 の目的のお客様の (2)。数えは録音のあとに聞かれた場面の1か所 replayed_to_reception）
@@ -536,24 +545,24 @@ SCENES = {
         "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい"),
         "かけ直しは要らない": last_fact(c, "callback").get("connected") is True, "締め": closing_of(c) == CLOSING}),
     # 受付の方が、名乗り・用件のほかのことを聞く（✅ 2026-10-22 ユーザー：「想定の質問ならそれでいいけど、録音や想定にない質問だった場合は？」）：
-    # 聞き流さず、目的の人かを確かめずに答え、作らず約束せず、取り次がれた岡田様には全部を流す
+    # 聞き流さず、目的の人かを確かめずに答え（聞いた方には確かめもお呼びし直しも質問も返さない＝聞いた方の決まりの1か所 asker_left）、作らず約束せず、取り次がれた岡田様には
+    # 全部を流す
     # 決まった答えのある問い（名乗り・用件・想定問答）は録音（✅ 2026-10-22 ユーザー：「必ずどんな営業トークにも出てくるパターンはシステム側に録音して
     # おいた方がよくない？」。Flow._answer）。⛔ tc18（直す前）：「答えた」をAIの声の有無で見ていたので、聞き流した2本と、AIが自分の言葉で目的の人の
     # 名前を言った1本を合格にしていた
     **{f"目的の人_{label}": Scene(business, [W(line), W("hold_target"), T("taken_over_okada")] + FULL, lambda c, line=line, parts=parts: {
-        "決まった答えで答えた": answered_with(c, line, *parts), "自分の言葉で話さない": own_words(c, line) == "",
-        "確かめない": not any(r in ("confirm_target", "call_target") for r in replies_to(c, line)),
+        "決まった答えで答えた": answered_with(c, line, *parts), "自分の言葉で話さない": own_words(c, line) == "", **asker_left(c, line),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "約束しない": no_promise(c),
         "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")})
        for label, business, line, parts in (
            ("関係を聞かれる", TARGET_BUSINESS, "relation_ask", ("purpose", "intro", "all")),
            ("番号の出どころを聞かれる_想定問答あり", TARGET_FAQ, "number_from", ("番号の出どころ", "answer_番号の出どころ")))},
     # 録音の無い問い（✅ 2026-10-22 ユーザー：「想定外の時はどうするのかを聞いているんですよ」）：AIが業務の情報の範囲で自分の言葉で答える。
-    # 情報に無いこと（番号の出どころ）は作らない。どちらも、名前を自分の声で言わず・約束せず・目的の人かを確かめず、返事のあともう一度だけお呼びする
+    # 情報に無いこと（番号の出どころ）は作らない。どちらも、名前を自分の声で言わず・約束せず・目的の人かを確かめず（聞いた方の決まりの1か所 asker_left）、返事のあともう一度だけ
+    # お呼びする
     **{f"目的の人_{label}": Scene(business, [W(line)] + rest, lambda c, line=line, want=want: {
         "自分の言葉で答えた": own_answered(c, line), "情報で答えた": want in plain(said_to(c, line)) if want else True,
-        "名前を言わない": not re.search(r"岡田|おかだ|アオバ|佐藤", own_words(c, line)),
-        "確かめない": not any(r in ("confirm_target", "call_target") for r in replies_to(c, line)),
+        "名前を言わない": not re.search(r"岡田|おかだ|アオバ|佐藤", own_words(c, line)), **asker_left(c, line),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "約束しない": no_promise(c),
         "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")})
        for label, business, line, rest, want in (

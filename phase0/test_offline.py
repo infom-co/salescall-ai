@@ -55705,3 +55705,55 @@ class BGTargetCountsInOnePlaceTest(unittest.TestCase):
         own = row("G-57tc16_20261022_092940.json", 10)   # 「どちら様でしょうか？」に会話AIが自分の声で「申し訳ございません。アオバ物流の佐藤様ですか?」
         self.assertEqual((own["scene"], own["pass"]), ("目的の人_名前を確かめてから名乗りを聞かれる", True))
         self.assertEqual(scenes.measures(own, own["scene"])["failed"], ["自分の言葉で話さない"])
+
+
+class BHAskerLeftOnePlaceTest(unittest.TestCase):
+    """分身 BH（帳面 1 の (6) の (i) の L49・分身 BG の書き置き rv203/BG/notes.md の 6章の (1)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIの通話の試験 G-57 で、
+    名乗り・用件のほかのことを聞かれた4場面（目的の人_関係を聞かれる・番号の出どころを聞かれる（想定問答あり・なし）・会社の所在地を聞かれる）の「確かめない」（聞いた方へのターンで
+    確かめ・お呼びし直しを返さない＝次の質問は見ない）を、聞いた方の決まり（scenes.ASKER_LEFT）の1か所 scenes.asker_left で数える（共通の決まり「同じ問いに答える所を2つ作らない」）。
+    同じ名前「確かめない」だった「目的の人_名乗らない方」の数え（通話のどこでも確かめない）は、中身を言う名前に（帳面 0-3 の (12)「名前は中身の全部を言い表す」）。"""
+
+    OTHER = {"目的の人_関係を聞かれる": "relation_ask", "目的の人_番号の出どころを聞かれる_想定問答あり": "number_from",
+             "目的の人_番号の出どころを聞かれる": "number_from", "目的の人_会社の所在地を聞かれる": "where_company"}
+    ASKER = "聞いた方には確かめもお呼びし直しも質問も返さない"
+    NEVER = "通話のどこでも目的の人かを確かめない"
+    EMPTY = {"turns": [], "flow_log": [], "items": {}, "facts": {}}
+
+    def test_1_one_name_for_the_asker_and_a_full_name_for_the_whole_call(self):
+        import scenes
+        asked = ("目的の人_名前を確かめてから名乗りを聞かれる", "目的の人_用件を聞かれる", *scenes.G22_TARGET_SCENES, *self.OTHER)
+        for name in asked:
+            checks = scenes.measures(self.EMPTY, name)["checks"]
+            self.assertIn(self.ASKER, checks, name)
+        names = {k for name in scenes.SCENES for k in scenes.measures(self.EMPTY, name)["checks"]}
+        self.assertNotIn("確かめない", names)   # 前は2つの別の数え（聞いた方へのターンだけ・通話のどこでも）に同じ名前
+        self.assertIn(self.NEVER, scenes.measures(self.EMPTY, "目的の人_名乗らない方")["checks"])
+        self.assertEqual([n for n in scenes.SCENES if self.NEVER in scenes.measures(self.EMPTY, n)["checks"]], ["目的の人_名乗らない方"])
+
+    def test_2_replies_to_the_asker(self):
+        """聞いた方の台詞へのターンで、流れの制御が次の質問へ進む返事（繋いで用件と質問）を返した形も外れ（前は確かめとお呼びし直しだけを数えた）。確かめた形の外れの名前も同じ1つ。"""
+        import scenes
+        for name, line in self.OTHER.items():
+            for reply in ("next", "confirm_target", "call_target"):
+                with self.subTest(name=name, reply=reply):
+                    call = {**self.EMPTY, "turns": [{"callee": {"wav": f"Puck_{line}.wav"}, "tool_events": [{"name": "report_party", "args": {}, "reply": reply}]}]}
+                    m = scenes.measures(call, name)
+                    self.assertIn(self.ASKER, m["failed"])
+                    self.assertFalse({k for k in m["failed"] if "確かめ" in k} - {self.ASKER})
+
+    def test_3_records_already_run(self):
+        """既に流した記録（results）で：関係を聞かれた受付の方へのターンの返事を次の質問へ進む返事にした形は、聞いた方の決まりだけの外れ（前の数えは合格）。
+        名乗らない方の場面で岡田様かを確かめた通話の外れの名前は、中身を言う名前。"""
+        import copy
+        import scenes
+        def row(f, i):
+            return json.load(open(f"results/{f}", encoding="utf-8"))["rows"][i]
+        ok = row("G-57J11a_20261025_000826.json", 54)
+        self.assertEqual((ok["scene"], ok["pass"]), ("目的の人_関係を聞かれる", True))
+        self.assertTrue(scenes.measures(ok, ok["scene"])["pass"])
+        bad = copy.deepcopy(ok)   # 関係を聞いた受付の方を目的の人と報告して、繋いだ（用件と最初の質問を流した）
+        scenes.turns_to(bad, "relation_ask")[-1]["tool_events"].append({"name": "report_party", "args": {"party": "target"}, "reply": "next"})
+        self.assertEqual(scenes.measures(bad, bad["scene"])["failed"], [self.ASKER])
+        asked = row("G-57J11a_20261025_000826.json", 36)
+        self.assertEqual(asked["scene"], "目的の人_名乗らない方")
+        self.assertEqual(scenes.measures(asked, asked["scene"])["failed"], [self.NEVER])
