@@ -4374,6 +4374,14 @@ def called_words(seeks_successor: bool) -> tuple[str, str]:
     return "お呼びした方", "お呼びした方ではない"
 
 
+def successor_terms(seeks_successor: bool) -> tuple[str, ...]:
+    """後任の方をお呼びしている場面の、判定に見せる「お呼びした方」「いまお呼びしている方」の言葉の決まり（唯一の場所＝目的のお客様の判定の言葉の決まり facet_terms と、
+    尋ねているかの問いの言葉の決まり Flow._calling_questions の asks_questions の Question.terms）。ふつうの場面は ()（いまお呼びしている方＝お呼びした方＝called_words）。
+    ⛔ 分身 AW まで、目的のお客様の判定にだけあり、尋ねているかの問いには無かった＝答えを伏せた読み手4人（束 au3・束 av2 の2人ずつ）がそろって、尋ねているかの説明の
+    「お呼びした方」が、はじめにお呼びした前任の方か、いまお呼びしている後任の方かが分からないと書いた（L35・帳面 0-3 の (b)）"""
+    return ("「お呼びした方」「ご本人」＝はじめにお呼びした前任の方。「いまお呼びしている方」＝いまの質問でお呼びしている後任のご担当者様",) if seeks_successor else ()
+
+
 def facet_terms(asked: bool, seeks_successor: bool) -> tuple[str, ...]:
     """説明と見分け方と決まりが使う言葉の中身（Question.terms＝判定の文の「言葉の決まり」と、Jev の問いの指示が、ここだけから作る）。場面＝
     確かめる一言への返事か（asked）・後任の方をお呼びしているか（seeks_successor）で、その場面で本当のことだけを書く。⚠️ 例は、試しの言葉
@@ -4395,8 +4403,7 @@ def facet_terms(asked: bool, seeks_successor: bool) -> tuple[str, ...]:
              (f"{OTHER_NAME}＝その前の言葉で{P}だと言われたお名前とは違うお名前" if seeks_successor else
               f"{OTHER_NAME}＝お呼びした方のお名前とは違うお名前（お呼びした方のお名前＝質問の言葉のお名前か、その前の言葉でお呼びした方だと"
               "言われたお名前）"))
-            + (("「お呼びした方」「ご本人」＝はじめにお呼びした前任の方。「いまお呼びしている方」＝いまの質問でお呼びしている後任のご担当者様",)
-               if seeks_successor else ()))
+            + successor_terms(seeks_successor))
 
 
 def target_facets(asked: bool = False, seeks_successor: bool = False, own_phone: bool = False) -> tuple[Facet, ...]:
@@ -7581,8 +7588,10 @@ class Flow:
                                                  named=True, facets=target_facets(True, self.successor, self._own_phone()),
                                                  terms=facet_terms(True, self.successor), **scene)
                                   for qid, part in asked_parts[1:]}
+        # 尋ねているかの問いにも、後任の方の場面では、はじめにお呼びした言葉（called）と「お呼びした方」「いまお呼びしている方」の言葉の決まり（successor_terms）を、目的のお客様の判定と
+        # 同じ1か所から見せる（ふつうの場面は、どちらも空＝文は前と同じ。L35・分身 AW）
         self.asks_questions = {qid: Question(qid, target[part], "yes_no", required=False, conditions=tuple(ASKS_MEANINGS), meanings=dict(ASKS_MEANINGS),
-                                        named=True) for qid, part in asked_parts}
+                                        named=True, called=scene["called"], terms=successor_terms(self.successor)) for qid, part in asked_parts}
         self.return_question = (Question("R1", target["target"], "yes_no", required=False, conditions=tuple(RETURN_MEANINGS),
                                          meanings=dict(RETURN_MEANINGS), named=True) if target else None)
 

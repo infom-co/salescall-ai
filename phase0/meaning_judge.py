@@ -39,7 +39,12 @@ from flowctl import (ABOUT, DATE_TIME_TYPES, ABSENT_WHY, OFFER, ANY, NONE, WAIT_
 REFUSED_HEAD = ("この質問に答えることそのものを、はっきり拒んだ（知らないとは言わずに、答えを言わない・教えられない、と言ったのも。どの答えを選んでも"
                 "要ることを言うのを拒んだのも。")
 REFUSED_TAIL = "選ぶこと・指定することを避けただけの言葉は入れない）"
-SYSTEM_DESC = {ANY: "こちらに任せた・どれでもよい・希望は無い、と言った（選ぶのを頼んだときも。選ぶのを避けただけの言葉は入れない）",
+# 「どちらでも」の説明の「希望は無い」の字（ANY_NO_WISH）。申し出た方法を並べて伺い直す質問・方法を申し出る質問（flowctl.Question.lists_ways）では出さない（system_desc の1か所）：
+# そこでは、受けると言っていない「希望は無い」は申し出へのお断り（「無い」）で、受けると言って方法の希望は無いと言ったのが「どちらでも」＝境目は「無い」の括弧の1か所（flowctl.WISH_NONE_ANY）。
+# ⛔ 分身 AW まで、両方に書いていた＝束 au1・束 av1 の2回とも、読み手2人とも「いえ、特に希望はないです。」を「どちらでも」とも読み、2人とも、境目が「どちらでも」の説明の「希望は無い」と
+#    「無い」の括弧の2か所に書かれていると書いた（帳面 0-3 の (a)「境目の決まりは1か所だけに書く」・CL-1 の読み rv200/rr_av.txt の (2)）
+ANY_NO_WISH = "・希望は無い"
+SYSTEM_DESC = {ANY: f"こちらに任せた・どれでもよい{ANY_NO_WISH}、と言った（選ぶのを頼んだときも。選ぶのを避けただけの言葉は入れない）",
                # ⛔ 2026-11-15（F4 の (c)・帳面 1 の (1)）：「確かめていない」をここに、「確かめる・調べる・人に聞く、と言っただけ」を「決められない」の説明に
                #    書いていて、同じ場面が2つの説明に入っていた（正解の表は 924行で両方を正解にした＝流れの制御は、ご希望の質問の最初の答えで「わからない」なら
                #    選ぶ助け・「決められない」なら聞き直す、と動きが違う）⇒ ご自分がいまは答えを持っていないと言った場面は、この1か所に書く（あとで確かめる、は
@@ -85,9 +90,12 @@ def system_desc(q, c: str) -> str:
     """システムが足す選べるもの（どちらでも・わからない・答えたくない）の説明（唯一の場所。options が使う）：事実を伺う質問（Question.asks_fact）の
     「答えたくない」は、控える・断る返事も入れる（⛔ 2026-10-31 の夜：「ご予約はされていますでしょうか？」への「差し控えさせていただきます」を、
     d1-ultra と Jev が3回の測りとも「いいえ」と読んだ＝申し出への断りの決まりを、事実の質問に当てた見込み）。どちらの場合もありうるときに確かめる答えの
-    ある質問（Question.maybe）の「どちらでも」は、どちらにもなりうると言った答え（MAYBE_DESC）。"""
+    ある質問（Question.maybe）の「どちらでも」は、どちらにもなりうると言った答え（MAYBE_DESC）。申し出た方法を並べて伺い直す質問・方法を申し出る質問（Question.lists_ways）の
+    「どちらでも」は、「希望は無い」の字（ANY_NO_WISH）を出さない（境目は「無い」の括弧の1か所＝flowctl.WISH_NONE_ANY。分身 AW）。"""
     if c == ANY and getattr(q, "maybe", ()):
         return MAYBE_DESC
+    if c == ANY and getattr(q, "lists_ways", False):
+        return SYSTEM_DESC[ANY].replace(ANY_NO_WISH, "", 1)
     if c == "unknown" and getattr(q, "type", "") in DATE_TIME_TYPES:
         return SYSTEM_DESC[c].removesuffix("）") + "。" + UNKNOWN_DATE + "）"
     return REFUSED_FACT if c == "refused" and getattr(q, "asks_fact", False) else SYSTEM_DESC[c]
@@ -774,6 +782,21 @@ def asks_about_line(q) -> str:
     return f"（この質問は、{about}を伺っています）\n" if about else ""
 
 
+def called_line(q) -> str:
+    """問い合わせの文の、はじめにお呼びした言葉の一行（唯一の場所＝prompt_parts の、目的のお客様の判定と尋ねているかの問い）。後任の方をお呼びしている場面だけ（Question.called）。
+    ⛔ 2026-10-30 G-59（3つの段の形の1回目）：考える Haiku は、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ（この行の、はじめにお呼びした方のことを、いまお呼びしている
+       方の事情と取り違えた）。同じ日の2回目：この行の「在籍していないと伺い」が残る間は、考える・考えない Haiku とも、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ
+       （流れの制御は、後任の方がいまは話せないと受け取り、繋がない）⇒ この行には事情を書かない"""
+    return f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
+
+
+def terms_line(q) -> str:
+    """項目ごとに答える質問ではない問い（尋ねているか）の、言葉の決まり（Question.terms＝後任の方の場面の flowctl.successor_terms）の行（唯一の場所＝prompt_parts）。無ければ ""
+    （文は前と同じ）。項目ごとに答える質問の言葉の決まりは facet_rules。L35・分身 AW"""
+    terms = () if getattr(q, "facets", None) else getattr(q, "terms", ())
+    return "言葉の決まり（説明の中の言葉）：\n" + "".join(f"- {t}\n" for t in terms) if terms else ""
+
+
 def prompt(q, text: str, asked: str | None = None, before: str | None = None) -> str:
     return "".join(prompt_parts(q, text, asked, before))
 
@@ -788,14 +811,9 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
     said = (f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else "") + (f"{PROMPTED}：「{q.prompted}」\n{prompted_note(q.prompted)}\n" if getattr(q, "prompted", "") else "")
     before = f"{BEFORE}：「{before}」\n" if before else f"{BEFORE}：{NO_BEFORE}\n" if q.facets else ""
     if q.facets:   # 項目ごとに答える質問：決まり・質問（はじめにお呼びした言葉）・項目は毎回同じ（まとめて送る前の部分）
-        # ⛔ 2026-10-30 G-59（3つの段の形の1回目）：考える Haiku は、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ（この行の、
-        #    はじめにお呼びした方のことを、いまお呼びしている方の事情と取り違えた）
-        # ⛔ 同じ日の2回目：この行の「在籍していないと伺い」が残る間は、考える・考えない Haiku とも、後任の方の「はい、そうです。」の事情を
-        #    「在籍していない」と読んだ（流れの制御は、後任の方がいまは話せないと受け取り、繋がない）⇒ この行には事情を書かない
-        called = f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
-        return facet_rules(q) + f"質問：「{q.text}」\n" + called + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
+        return facet_rules(q) + f"質問：「{q.text}」\n" + called_line(q) + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
     choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
-    head, tail = rules(q, asked) + items_text(q, asked) + f"質問：「{q.text}」\n" + asks_about_line(q), f"お客様の言葉：「{text}」\n"
+    head, tail = rules(q, asked) + items_text(q, asked) + f"質問：「{q.text}」\n" + asks_about_line(q) + called_line(q) + terms_line(q), f"お客様の言葉：「{text}」\n"
     if getattr(q, "named", False):
         return head + choices, before + said + tail
     return head, before + said + choices + tail
@@ -1492,7 +1510,9 @@ def jev_request(model: str, q, text: str, asked: str | None = None, before: str 
                                       "criteria": dict(f.choices)}
                               for f in q.facets}}
     return {"model": model, "state": scene(q, text, asked, before),
-            "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)}}
+            "questions": {"choice": {"type": "choice", "instructions": (JEV_ASK_REPLY if asked else JEV_ASK)
+                                     + ("言葉の決まり：" + "／".join(q.terms) if getattr(q, "terms", ()) else ""),   # 後任の方の場面の尋ねているか（terms_line と同じ1か所）
+                                     "criteria": jev_criteria(q, asked)}}
             | {m: {"type": "noul", "instructions": JEV_MARKS[m][0], "criteria": JEV_MARKS[m][1]} for m in answer_marks(q)}
             | {k: {"type": "choice", "instructions": JEV_ITEMS[k], "criteria": c} for k, c in answer_items(q, asked).items()}}
 
