@@ -54920,7 +54920,6 @@ class BDRemadeWishRowsTest(unittest.TestCase):
         self.assertFalse(any(it["text"] in self.OLD for it in rw.answer_words()))
 
 
-
 class BDAgainNoteOneWriterTest(unittest.TestCase):
     """分身 BD の (2)（帳面 1 の (6) の (i) の L3・CL-1_OPEN の (A)(6)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIが話す通話で、言い直しへの相手の返事がまだ無いときに
     同じ言い直しを会話AIにもう一度伺わせる知らせ「相手がまだ答えていなければ、「（言い直し）」と、もう一度聞いてください。」を、書く1か所 flowctl.again_note から作り、お客様が
@@ -55043,3 +55042,96 @@ class BDSameFinalCheckTest(unittest.TestCase):
     def test_2_the_first_final_check_is_as_before(self):
         f, heard = self.talk(rounds=1)
         self.assertEqual(heard[-1], self.FINAL)
+
+
+class BDCall:
+    """分身 BD の試験の、1本の電話（担当 BB の道具 rv202/BB/tools/bb.py の Call の写し）：業務設定の入口 Business.flow で流れの制御を作り、判定の読みは Flow の判定の入口
+    （on_check・on_decided）で渡す。お客様に聞こえる言葉は返事の相づち（ack）・流す録音（play）・会話AIに言わせる文（say）から作る（heard）。"""
+
+    def __init__(self, biz, checks=("ear", "judge", "judge2"), first="はい、もしもし。", party="person"):
+        self.f = biz.flow(recorded=True, play_recordings=True)
+        self.checks = tuple(checks)
+        if self.checks:
+            self.f.use_checks(*self.checks)
+        self.heard = []
+        f = self.f
+        f.on_connect(); f.on_callee(); f.on_heard(first)
+        r = f.apply("report_party", {"party": party})
+        self.say(r if r.get("result") in ("opening", "end") else f.on_first_words_end())
+
+    @staticmethod
+    def voice(r) -> str:
+        from phrases import ACK
+        if not r:
+            return ""
+        return (ACK.get(r.get("ack"), "") if r.get("ack") else "") + "".join(p.get("text") or "" for p in r.get("play") or []) + (r.get("say") or "")
+
+    def say(self, r):
+        self.heard.append(self.voice(r))
+        if r and r.get("play"):
+            self.f.on_played([p["text"] for p in r["play"]])
+        return r
+
+    @staticmethod
+    def rd(v, firm=True, **items):
+        from flowctl import END, END_NONE, HEAR, HEAR_OK, QUERY, QUERY_NO
+        from meaning_judge import Reading
+        r = Reading(v, firm)
+        setattr(r, QUERY, QUERY_NO); setattr(r, END, END_NONE); setattr(r, HEAR, HEAR_OK)
+        for k, x in items.items():
+            setattr(r, k, x)
+        return r
+
+    def hear(self, text, reading=None, decided=True):
+        f = self.f
+        js = [k for k in ("judge", "judge2") if k in self.checks]
+        f.on_callee()
+        for k in js:
+            f.on_judging(k)
+        f.on_heard(text)
+        if "ear" in self.checks:
+            f.on_check("ear", text)
+        if reading is not None:
+            for k in js:
+                f.on_check(k, reading)
+        if decided:
+            f.on_decided()
+
+    def report(self, op, args):
+        return self.say(self.f.apply(op, args))
+
+
+class BDAnytimeOnceTest(unittest.TestCase):
+    """分身 BD の (4)（A-9・担当 BB の 4章の 1＝rv202/BB/out/s_same.txt。CL-1 が書いてある決まりで決めた＝伺わない）：点を言っていただけないままご承認いただけなかったときの手順を
+    終えて挟む一言「ご不満な点がございましたらいつでもお申し出ください。」（POINT_ANYTIME_PLAIN。「何か思い出されたり」の付く形も同じ一言）は、ご承認の質問が違っても1つの電話で
+    1回（言った印 anytime_said を、ご承認の質問ごとでなく通話で1つに読む＝Flow._leave_open）。✅ 2026-11-01 日本時間18時11分53秒「全く同じ質問を2度したら、機械だと思われて
+    しまいませんか？」・本書 9-4 の「範囲外の質問」の行「同じ長い文を2度言わない」・10-19（同じ理由が当たる場面すべてに）。⛔ 直す前は、2つ目のご承認の手順でもう一度言った"""
+
+    def call(self, n1a, n1b):
+        import dataclasses
+        import scenes
+        from flowctl import CALLBACK_IDS, Question
+        n1 = CALLBACK_IDS["not_agreed"]
+        qs = [Question("Q1", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                       intro="こちらのプランは月額3,000円で初月は無料となっております。"),
+              Question("Q2", "以上の契約の条件でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, intro="契約期間は1年です。"),
+              Question("Q3", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))]
+        c = BDCall(dataclasses.replace(scenes.BUSINESS, questions=qs, info=[]))
+        for words, r, qid in (("いや、ちょっと。", "いいえ", "Q1"), ("それは言いたくないですね。" if n1a == "refused" else "どこと言われても分からないですね。", n1a, n1),
+                              ("いや、それも無理ですね。", "いいえ", "Q2"), ("それも言いたくないです。" if n1b == "refused" else "うーん、分からないですね。", n1b, n1)):
+            cur = c.f.current
+            c.hear(words, c.rd(r))
+            c.report("record_answer", {"question_id": qid if qid != n1 else cur, "condition_id": r})
+        return c
+
+    def test_1_the_second_approval_does_not_say_it_again(self):
+        from phrases import POINT_ANYTIME_PLAIN
+        c = self.call("refused", "refused")
+        said = [h for h in c.heard if POINT_ANYTIME_PLAIN in h]
+        self.assertEqual(said, ["承知しました。ご不満な点がございましたらいつでもお申し出ください。契約期間は1年です。以上の契約の条件でご承認いただけますでしょうか？"])
+        self.assertEqual(c.heard[-1], "承知しました。続きましてご訪問の日時のご希望はございますでしょうか？")
+
+    def test_2_the_first_approval_still_says_it_once(self):
+        from phrases import POINT_ANYTIME_PLAIN
+        c = self.call("unknown", "unknown")
+        self.assertEqual(sum(POINT_ANYTIME_PLAIN in h for h in c.heard), 1)
