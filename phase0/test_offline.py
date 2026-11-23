@@ -55135,3 +55135,61 @@ class BDAnytimeOnceTest(unittest.TestCase):
         from phrases import POINT_ANYTIME_PLAIN
         c = self.call("unknown", "unknown")
         self.assertEqual(sum(POINT_ANYTIME_PLAIN in h for h in c.heard), 1)
+
+
+class BDLadderRestReceiptTest(unittest.TestCase):
+    """分身 BD の (5)（帳面 1 の (6) の (i) の L40・分身 AY の書き置き rv201/AY/notes.md の 6章の (3)。CL-1 が書いてある決まりで決めた＝伺わない）：お言葉に甘えてお客様から
+    折り返していただく日の2択（伺い67＝_theirs_begin）と、かけ直しを頼んだお話で日と午前・午後を言われた時刻の2択（場面C）は、先に言われた答えから進む2択＝頭はその答えを受ける
+    「ありがとうございます。」（Flow._ladder_ask の ahead）。会話AIが「ほかに言われたこと」を添えると、L39 と同じ1か所（_ladder_ask の _offer_ahead）で伺う番を開き、会話AIが答えは
+    無いと読んで戻ると、頭が「承知しました。」に替わっていた（取っておく相づち ahead_ack が2択の受けでなかった）。✅ 2026-11-19 日本時間14時18分13秒（場面C）・2026-11-04
+    日本時間20時27分の (2)・本書 9-3「取得済みのことを重ねて聞かない」・10-19（ほかに言われたことの有無で、伺えた所から先の2択の受けを変えない）"""
+
+    @staticmethod
+    def call():
+        import dataclasses
+        import datetime as dt
+        import scenes
+        from g53_meaning import question_map
+        from g73_system_words import wish_scenes
+        of = wish_scenes(question_map())["W1@E1"][0]
+        c = BDCall(dataclasses.replace(scenes.BUSINESS, questions=[of], info=[]), checks=("ear", "judge", "judge2"))
+        c.f.today, c.f.now = dt.date(2026, 11, 19), dt.datetime(2026, 11, 19, 10, 0)
+        c.hear("うーん、お電話はちょっと…。", c.rd("いいえ", False))
+        c.report("record_answer", {"question_id": "E1", "condition_id": "いいえ"})
+        return c
+
+    def resume_if_offered(self, c):
+        h = c.f.answer_held
+        if h is not None and h.get("ahead"):
+            c.report("replay_opening", {"part": "resume"})
+
+    def theirs(self, rest):
+        c = self.call()
+        c.hear("あとでこちらからかけ直しますね。", c.rd("お客様から折り返す"))
+        c.say(c.f.judged_turn(voiced=False))
+        c.hear("平日の4時までには折り返します。" + (rest or ""), c.rd("答えた"))
+        c.report("record_answer", {"question_id": c.f.current, "condition_id": "答えた", "value": "平日の4時まで", **({"rest": rest} if rest else {})})
+        self.resume_if_offered(c)
+        return c.heard[-1]
+
+    def scene_c(self, rest):
+        import g53_meaning as G
+        it = {"set": "W1", "qid": "W1@E1", "text": "夜の七時以降に、もう一度かけてもらえますか。"}
+        later = next(r for r in G.label_readings(it, G.question_map()["W1@E1"], False) if str(r) == "あとでかけ直す")
+        c = self.call()
+        c.hear("明日の午後に、もう一度かけてもらえますか。" + (rest or ""), later)
+        c.say(c.f.judged_turn(voiced=False))
+        c.report("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "明日の午後", **({"rest": rest} if rest else {})})
+        self.resume_if_offered(c)
+        return c.heard[-1]
+
+    def test_1_theirs_day_pair_keeps_the_thanks(self):
+        plain = self.theirs(None)
+        self.assertEqual(plain, "ありがとうございます。金曜日と月曜日ではどちらがよろしいでしょうか？")
+        self.assertEqual(self.theirs("資料も送ってほしいです。"), plain)
+        self.assertEqual(self.theirs("たぶん来週になると思います。"), plain)
+
+    def test_2_scene_c_clock_pair_keeps_the_thanks(self):
+        plain = self.scene_c(None)
+        self.assertEqual(plain, "ありがとうございます。2時と4時ではどちらがよろしいでしょうか？")
+        self.assertEqual(self.scene_c("資料も送ってほしいです。"), plain)

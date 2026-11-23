@@ -9497,7 +9497,7 @@ class Flow:
         if result == "next" and reply.get("question_id") == CALLBACK_IDS["brief"]:
             return "arigatou"   # 手短になら聞くと言われた（_brief_ask）：「ありがとうございます。」＋「（要約）の件でお電話させていただきましたが…」（伺い30・伺い31）
         if reply.get("ahead_offer"):
-            if (self.ahead_ack or (None,))[0] != self.callee_turns:
+            if (self.ahead_ack or (None,))[0] != self.callee_turns or reply.get("ahead"):
                 # この発話で初めて伺う番を開いた：ふつうなら流した相づち（受け取った答えで選ぶ＝この下の決まりそのもの。本書 9-7）を取っておき、同じ発話の最後の
                 # 返事の頭に受けの言葉が要るときに流す（Flow._ack）。同じ発話のうちに続けて伺う番を開いても（「LINEなら、IDは abc_123 です」）、最初の答えのもの。
                 # 順番に回す数は、選んだ時には進めず、その相づちを流したときの数を一緒に取っておく（進めるのは流したときだけ＝_ack の1か所）
@@ -9578,7 +9578,7 @@ class Flow:
             # はっきりしないお返事は「承知しました。」（分身 O の書き置き (6-2)）。⛔ 分身 Q の (1) まで、R1 は D2 の印（concern_back＝_concern_decided だけが付けた）の外で、
             # 同じ食い違いが残っていた（分身 P の書き置き (6-3)）
             return "hai"
-        if (result == "ask_back" and reply.get("ask_reason") == "ladder") or (result == "next" and reply.get("weekend")):
+        if (result == "ask_back" and reply.get("ask_reason") == "ladder") or (result == "next" and (reply.get("weekend") or reply.get("ahead"))):
             # 日時の2択の段の次の2択：土日を選ばれたら、その受けの一言の頭の「はい、」（✅ 2026-11-19 日本時間14時18分13秒 お言葉の文「はい、承知致しました。土日に…」。
             # 受けの一言は返事の中＝_ladder_ask。受けの一言のあとに先に言われた答えを伺う番を開いた返事＝next の weekend も同じ頭で、取っておく相づちも同じ「はい、」＝伺う番を
             # 閉じて2択を流すとき、受けの言葉を重ねない＝_ack の ahead_closed。分身 AY の (1)）。申し出を受けていただいた同じ発話で日時を言われて（先に言われた答え＝場面C）次の2択へ進むときは、受けのお礼（✅ 2026-11-12
@@ -18448,7 +18448,7 @@ class Flow:
         # 先に開いていたので、お詫びとお伝えが「はい、」→「ありがとうございます。あいにく…」に替わり（会話AIが時刻を報告すると、お伝えそのものが無かった）、お詫びの印が次の2択の頭に残った）
         if not self.items[qid].no_room_now and (r := self._offer_ahead(self.questions[qid], "" if weekend else "受け付けました。")) is not None:
             self.items[qid].played = again
-            return (self._led(weekend_line, "受け付けました。", r) | {"weekend": True}) if weekend else r
+            return (self._led(weekend_line, "受け付けました。", r) | {"weekend": True}) if weekend else r | ({"ahead": True} if ahead else {})
         line = question_play(self._plays(), qid, again=again)
         plays = [*weekend_line, line]
         say = "".join(p["text"] for p in plays)
