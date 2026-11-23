@@ -761,6 +761,47 @@ def answer_scenes() -> dict[str, "Scene"]:
 SCENES |= answer_scenes()
 
 
+# ── 条件を付けて受けた方（2026-11-23 分身 AW＝帳面 1 の (6) の (i) の L34・分身 AV の書き置き rv200/AV/notes.md の 3章）：担当者からのお電話のご案内の申し出（ご案内の方法を伺う最終目的の
+#    質問 E1＝測りの場面 W1@E1 の元の質問と同じ1か所 g73_system_words.wish_scenes。ご案内できる方法＝お電話・メール・LINE・ZOOM）に、こちらで応えられるご都合の条件を付けて受けた
+#    「来週の土曜日なら都合がつきます。」。✅ 2026-11-12 日本時間13時40分05秒の (2)（伺い直さず「ありがとうございます。」＋言い切り「それでは（条件、）（中身）…させていただきますね。」。
+#    条件の言葉は会話AIが答えの報告に添え、伺い直しの提案と同じ確かめを通す）・11-03 日本時間20時48分（業務に無い約束はしない）・G-54（判定が答えを読んで会話AIが報告しなければ1回促す）・
+#    本書 9-5 の (3) の下の行の 11-09 日本時間9時48分09秒からの段（条件は会話AIが書き、通話の事実 offer_terms に残して依頼者へ渡す）。相手役の声はまだ作っていない（流すまでは run の
+#    「相手役の声が確かめに通っていない」で動かさない）。⚠️ 申し出（W1）への「夜の七時以降に、もう一度かけてもらえますか。」の場面は作っていない（正解が3つの境目で、読みごとの動きと
+#    記録が割れる＝分身 AW の書き置きの 2章・3章）
+TERMS_SCENE = "条件を付けて受けた方"
+TERMS_QUESTION, TERMS_LINE, TERMS_WORD = "E1", "terms_saturday", "土曜日"
+
+
+def terms_business():
+    """条件を付けて受けた方の場面の業務：質問は測りの場面 W1@E1 の元の質問 E1（最終目的・ご案内の方法を伺う質問・業務の方法つき＝g73_system_words.wish_scenes の1か所）だけ。"""
+    from g53_meaning import question_map
+    from g73_system_words import wish_scenes
+    return dataclasses.replace(BUSINESS, questions=[wish_scenes(question_map())["W1@E1"][0]], info=[])
+
+
+def nudged_once(call: dict, wav_name: str) -> bool:
+    """その台詞に会話AIが答えを報告しなかったときだけ、報告を促す知らせ（Flow.unreported_note＝convo の nudge のターン）が1回あった（G-54・唯一の数え方）：促しのターンは多くて1回・
+    その台詞のはじめのターンに受け付けた報告が無ければ、促しのターンがある。"""
+    plain_turns = [t for t in call["turns"] if isinstance(t.get("callee"), dict) and t["callee"].get("wav", "").endswith(f"_{wav_name}.wav")]
+    nudges = [t for t in call["turns"] if isinstance(t.get("callee"), dict) and "nudge_of" in t["callee"] and _line_of(t).endswith(f"_{wav_name}.wav")]
+    reported = any(e["name"] == "record_answer" and e["reply"] != "rejected" for t in plain_turns for e in t.get("tool_events") or [])
+    return len(nudges) <= 1 and (reported or len(nudges) == 1)
+
+
+def terms_checks(call: dict) -> dict:
+    """条件を付けて受けた方の場面の決まり（唯一の場所）：会話AIが答えの報告に条件を添えた（受け付けられた報告の terms に「土曜日」）・条件が通話の事実 offer_terms に残った・伺い直さずに
+    受けた（その台詞への返事に言い直しの確かめが無い）・約束しない・答えが取れた・報告しなければ1回促した（nudged_once）。"""
+    terms = [x["args"].get("terms") or "" for x in ops(call) if x["op"] == "record_answer" and x["args"].get("question_id") == TERMS_QUESTION
+             and x["reply"].get("result") != "rejected"]
+    kept = [e.get("terms") or "" for e in call["facts"].get("offer_terms") or [] if e.get("question") == TERMS_QUESTION]
+    return {"条件を答えの報告に添えた": any(TERMS_WORD in t for t in terms), "条件が通話の事実に残った": any(TERMS_WORD in t for t in kept),
+            "伺い直さずに受けた": "confirm_required" not in replies_to(call, TERMS_LINE), "約束しない": no_promise(call),
+            "答えが取れた": got(call, TERMS_QUESTION, "はい"), "報告しなければ1回促した": nudged_once(call, TERMS_LINE)}
+
+
+SCENES[TERMS_SCENE] = Scene(terms_business(), [W(TERMS_LINE)], terms_checks, "担当者からのお電話のご案内に、ご都合の条件を付けて受けた（伺い直さずに条件つきで言い切る）")
+
+
 def talk_notes() -> list[dict]:
     """別のお話の場面ごとに、本番の流れの制御（業務の Business.flow の1か所）が組み立てる会話AIへの知らせの文（流さない＝0円）：電話に出た方の第一声 →
     人の報告 → 名乗りとお支払いの質問 → お客様の別のお話 → 判定の読み（決められない・別のお話＝表の R1 の別のお話の行の正解）→ 報告の無いターンの返事の知らせ。"""

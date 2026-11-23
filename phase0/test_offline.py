@@ -54298,3 +54298,89 @@ class AWSuccessorAsksTermsTest(unittest.TestCase):
             self.assertNotIn("いまお呼びしている方", prompt(aq, r["text"], None, r["before"]))
             self.assertNotIn(CALLED, jev_request("x", aq, r["text"], None, r["before"])["state"])
             break
+
+
+class AWTermsSceneTest(unittest.TestCase):
+    """分身 AW（帳面 1 の (6) の (i) の L34・分身 AV の書き置きの 3章。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIの通話の試験（G-57＝scenes.SCENES）に、条件を付けて受けた方の場面
+    （scenes.TERMS_SCENE）を足した：担当者からのお電話のご案内（ご案内の方法を伺う最終目的の質問 E1＝測りの場面 W1@E1 の元の質問と同じ1か所 g73_system_words.wish_scenes）に「来週の土曜日なら
+    都合がつきます。」。✅ 2026-11-12 日本時間13時40分05秒の (2)（伺い直さず「ありがとうございます。」＋条件つきの言い切り・条件は会話AIが答えの報告に添え、伺い直しの提案と同じ確かめを通す）・
+    11-03 日本時間20時48分（業務に無い約束はしない）・G-54（判定が答えを読んで会話AIが報告しなければ1回促す）・本書 9-5 の (3) の下の行の 11-09 日本時間9時48分09秒からの段（通話の事実
+    offer_terms に残す）。場面の正解は流れの制御に通して出す（_SceneCall）。相手役の声はまだ作らない（声は E9）"""
+
+    TERMS = "来週の土曜日に"
+    STATED = "ありがとうございます。来週の土曜日に、担当者から詳しいご案内のお電話をさせていただきますね。"
+
+    @staticmethod
+    def ground(c, text):
+        from grounding import GROUNDED, Verdict
+        v = Verdict(GROUNDED, "")
+        v.by, v.touch = "test", ""
+        c.f.on_grounded(text, v)
+
+    @staticmethod
+    def nudge(c):
+        """電話接続側が、報告の無いターンのあとに報告を促す知らせを出した（convo の nudge のターン＝Flow.unreported_note の1か所）。"""
+        note = c.f.unreported_note()
+        if note:
+            c.turns.append({"callee": {"nudge_of": c.lines[c.i - 1]}, "tool_events": [], "audio_seconds": 0})
+        return note
+
+    def test_1_the_scene_uses_the_measured_offer_question(self):
+        import make_callee_samples as m
+        import scenes
+        from g53_meaning import question_map
+        from g73_system_words import wish_scenes
+        self.assertEqual(m.text_and_how(m.UTTERANCES[scenes.TERMS_LINE])[0], "来週の土曜日なら都合がつきます。")
+        sc = scenes.SCENES[scenes.TERMS_SCENE]
+        self.assertEqual([x["wav"].removeprefix("Puck_").removesuffix(".wav") for x in sc.call()[0]], ["hello", scenes.TERMS_LINE])
+        (q,) = sc.business.questions
+        self.assertEqual(q, wish_scenes(question_map())["W1@E1"][0])
+        self.assertTrue(q.final_goal and q.asks_way and q.offer_ways)
+        # 同じ言葉は答えの段の試しの言葉の表 W1@E1 にある（声は1つ＝同じ言葉の台詞を2つ作らない）
+        self.assertEqual([k for k, v in m.UTTERANCES.items() if m.text_and_how(v)[0] == "来週の土曜日なら都合がつきます。"], [scenes.TERMS_LINE])
+
+    def test_2_terms_are_reported_kept_and_stated_without_asking_again(self):
+        import scenes
+        from meaning_judge import Reading
+        c = _SceneCall(scenes.TERMS_SCENE)
+        c.heard(Reading("はい"))
+        self.ground(c, self.TERMS)
+        r = c.report("record_answer", {"question_id": scenes.TERMS_QUESTION, "condition_id": "はい", "terms": self.TERMS})
+        self.assertEqual(r["result"], "end")
+        self.assertTrue(heard_words(r).startswith(self.STATED), heard_words(r))
+        checks = scenes.SCENES[scenes.TERMS_SCENE].expect(c.call())
+        self.assertTrue(all(checks.values()), checks)
+        self.assertEqual([e["terms"] for e in c.f.facts["offer_terms"]], [self.TERMS])
+
+    def test_3_an_unreported_answer_is_nudged_once(self):
+        import scenes
+        from meaning_judge import Reading
+        c = _SceneCall(scenes.TERMS_SCENE)
+        c.heard(Reading("はい"))
+        self.assertIsNone(c.judged())   # 判定が答えを読んでも、報告の無いターンでは応じない（会話AIが報告する）
+        note = self.nudge(c)
+        self.assertIn("record_answer", note or "")
+        self.assertIsNone(c.f.unreported_note())   # 1つの発話に1回まで
+        self.ground(c, self.TERMS)
+        c.report("record_answer", {"question_id": scenes.TERMS_QUESTION, "condition_id": "はい", "terms": self.TERMS})
+        checks = scenes.SCENES[scenes.TERMS_SCENE].expect(c.call())
+        self.assertTrue(all(checks.values()), checks)
+
+    def test_4_the_wrong_shapes_are_counted(self):
+        import scenes
+        from meaning_judge import Reading
+        # 条件を添えずに報告した：受け取って言い切るが、条件は依頼者へ渡らない
+        c = _SceneCall(scenes.TERMS_SCENE)
+        c.heard(Reading("はい"))
+        r = c.report("record_answer", {"question_id": scenes.TERMS_QUESTION, "condition_id": "はい"})
+        self.assertNotIn("土曜日", heard_words(r))
+        got = scenes.SCENES[scenes.TERMS_SCENE].expect(c.call())
+        self.assertEqual({k for k, v in got.items() if not v}, {"条件を答えの報告に添えた", "条件が通話の事実に残った"})
+        # 報告せず、促しも無かった・促しが2回あった
+        c = _SceneCall(scenes.TERMS_SCENE)
+        c.heard(Reading("はい"))
+        c.judged()
+        self.assertFalse(scenes.nudged_once(c.call(), scenes.TERMS_LINE))
+        call = c.call()
+        call["turns"] = call["turns"] + [{"callee": {"nudge_of": c.lines[1]}, "tool_events": []}] * 2
+        self.assertFalse(scenes.nudged_once(call, scenes.TERMS_LINE))
