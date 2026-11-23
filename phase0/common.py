@@ -82,17 +82,31 @@ def read_env_file(path: str | os.PathLike) -> list[tuple[str, str]]:
     return pairs
 
 
+class SecretsNotRead(SystemExit):
+    """組み立てだけ（--dry-run）の印が立っていたので、鍵を読む唯一の口（secret_pairs）が何も読まなかった。キーの束（KeyRing）は形だけのキーで組み立て、
+    ほか（判定AI・別の耳の鍵・キーがあるかの確かめ・K-1 の形の確かめ）はこの知らせのまま止まる。"""
+
+
+def secret_pairs(env_path: str | os.PathLike, what: str = "キー", environ: bool = True) -> tuple[list[tuple[str, str]], str]:
+    """鍵（名前と値）を読む唯一の口：`.env` のファイルがあればそこから、無ければ環境変数から（environ=False は .env だけ＝K-1 の形の確かめ）。返すのは
+    (名前と値の並び, 読んだ場所)。組み立てだけ（--dry-run）の印が立っていれば、何も読まずに止める（SecretsNotRead。what＝知らせに書く読まないもの）。
+    Gemini のキー（load_keys＝KeyRing・pick_key）・判定AI・別の耳の鍵（load_secret）・キーがあるか（has_secret）・K-1 は、どれもここを通る（試験
+    BADryRunReadsNoKeyTest が、ほかに鍵を読む所が無いことと、道具を組み立てだけで流して環境変数・.env を読まないことを見張る）。
+    ⛔ 2026-11-23 日本時間11時台（担当 AZ）：答えの段の道具の `--rejudge --dry-run` が、組み立てだけの止まりの前に KeyRing を作り、環境変数の鍵 25個を読んで
+    いた（外へはつないでいない＝close_network が先）。印を見ていたのは load_secret と pick_key だけ（帳面 0-3 の 11-02 日本時間7時20分の失敗 (1) と同じ形）"""
+    if DRY_RUN:
+        raise SecretsNotRead(f"組み立てだけ（--dry-run）なので、{what}は読みません（送りません）")
+    if Path(env_path).is_file() or not environ:
+        return read_env_file(env_path), str(env_path)
+    return sorted(os.environ.items()), "環境変数"
+
+
 def load_keys(env_path: str | os.PathLike, key_names: list[str] | None = None) -> list[ApiKey]:
     """APIキーを読み込む唯一の場所。`key_names` を指定しなければ、名前に GEMINI/GOOGLE と KEY を含む変数を使う。
 
-    `.env` のファイルがあればそこから、無ければ環境変数から読む（クラウドの作業環境では環境変数に入れる）。
+    `.env` のファイルがあればそこから、無ければ環境変数から読む（クラウドの作業環境では環境変数に入れる＝読むのは secret_pairs の1か所）。
     """
-    if Path(env_path).is_file():
-        pairs = read_env_file(env_path)
-        source = str(env_path)
-    else:
-        pairs = sorted(os.environ.items())
-        source = "環境変数"
+    pairs, source = secret_pairs(env_path)
     if key_names:
         wanted = set(key_names)
         keys = [ApiKey(n, v) for n, v in pairs if n in wanted and v]
@@ -112,12 +126,11 @@ def load_keys(env_path: str | os.PathLike, key_names: list[str] | None = None) -
 
 
 def _secret_value(name: str, env_path: str | os.PathLike | None) -> str | None:
-    env_path = env_path or os.environ.get("SALESCALL_ENV", DEFAULT_ENV_PATH)
-    pairs = read_env_file(env_path) if Path(env_path).is_file() else list(os.environ.items())
+    pairs, _ = secret_pairs(env_path or os.environ.get("SALESCALL_ENV", DEFAULT_ENV_PATH), f"キー {name} ")
     return next((v for n, v in pairs if n == name and v), None)
 
 
-DRY_RUN = False   # 組み立てだけの印（--dry-run）を受け取ったか（base_parser の _DryRun が立てる。load_secret・pick_key が見る1か所）
+DRY_RUN = False   # 組み立てだけの印（--dry-run）を受け取ったか（base_parser の _DryRun が立てる。鍵を読む secret_pairs・送る口 make_client・pick_key が見る）
 _LOOPBACK = {"localhost", "127.0.0.1", "::1"}
 _OUT_EVENTS = {"socket.connect", "socket.getaddrinfo", "socket.sendto", "socket.sendmsg"}
 _RELAY_PORTS: set[int] = set()   # 手元にある外への中継所の口（作業環境の proxy の変数が指す 127.0.0.1 の口。close_network が読む）
@@ -177,17 +190,15 @@ class _DryRun(argparse.Action):
 
 
 def has_secret(name: str, env_path: str | os.PathLike | None = None) -> bool:
-    """キーが入っているか（値は伏せる一覧にも画面にも出さず、あるかだけ。足りないものの確かめ用）。"""
+    """キーが入っているか（値は伏せる一覧にも画面にも出さず、あるかだけ。足りないものの確かめ用）。組み立てだけ（--dry-run）では読まずに止まる（secret_pairs）。"""
     return _secret_value(name, env_path) is not None
 
 
 def load_secret(name: str, env_path: str | os.PathLike | None = None) -> str:
     """Gemini 以外のキー（別の耳など）を1つ読む唯一の場所。`.env` があればそこから、無ければ環境変数から。値は伏せる一覧に入れ、画面には名前だけ出す。
     無ければ、入れ方を書いて止める（⛔ キーの値をチャットで聞かない。クラウドの作業環境では「環境変数」の欄に入れていただく＝docs/EARS_SETUP.md）。"""
-    if DRY_RUN:
-        # 組み立てだけ（--dry-run）：判定AI・別の耳の鍵は渡さない＝どの道具でも送れない（⛔ 2026-11-02 日本時間7時29分：答えの段の道具が
-        # --dry-run を見ておらず、組み立てだけのつもりで判定を2,840回送った＝約22円。印が Gemini の鍵の所（pick_key）でしか効いていなかった）
-        raise SystemExit(f"組み立てだけ（--dry-run）なので、キー {name} は読みません（送りません）")
+    # 組み立てだけ（--dry-run）：判定AI・別の耳の鍵は読まない＝どの道具でも送れない（鍵を読む唯一の口 secret_pairs が止める。⛔ 2026-11-02 日本時間7時29分：
+    # 答えの段の道具が --dry-run を見ておらず、組み立てだけのつもりで判定を2,840回送った＝約22円。印が Gemini の鍵の所（pick_key）でしか効いていなかった）
     value = _secret_value(name, env_path)
     if not value:
         raise SystemExit(f"キー {name} が見つかりません。作業環境の設定（セッションの上のクラウド環境のメニュー →「編集」）の「環境変数」の欄に、"
@@ -386,7 +397,16 @@ class KeyRing:
     ⚠️ 上限はプロジェクトごとに数えられる。同じプロジェクトのキーなら、次のキーもすぐ上限に当たる。"""
 
     def __init__(self, args, min_interval_s: float = 13.0, state_path: Path | None = None):
-        self.keys = [PROXY_PLACEHOLDER] if getattr(args, "proxy_key", False) else load_keys(args.env, args.key_name)
+        if getattr(args, "proxy_key", False):
+            self.keys = [PROXY_PLACEHOLDER]
+        else:
+            try:
+                self.keys = load_keys(args.env, args.key_name)
+            except SecretsNotRead as exc:
+                # 組み立てだけ（--dry-run）：鍵を読まずに、形だけのキーで束を組み立てる（送る口 make_client は組み立てだけでは送らない）。道具は今の順番のまま
+                # （束を作ってから組み立てだけの止まりへ）流せる
+                say(f"{exc}＝形だけのキーで組み立てます")
+                self.keys = [FORM_ONLY_KEY]
         self.start = getattr(args, "key_index", 0)
         self.min_interval_s = min_interval_s
         self.spent: dict[str, dict[int, float]] = {}  # モデル ⇒ 1日の上限に当たったキーの番号 ⇒ 休み明けの時刻（time.time）
@@ -643,6 +663,8 @@ def base_parser(description: str) -> argparse.ArgumentParser:
 
 # 中継所が本物のキーに置き換えるための、形だけの値（本物のキーではない）
 PROXY_PLACEHOLDER = ApiKey("PROXY_INJECTED", "AIza" + "0" * 35)
+# 組み立てだけ（--dry-run）のキーの束（KeyRing）が持つ、形だけのキー（鍵は読まない＝secret_pairs。送る口 make_client が送らない）
+FORM_ONLY_KEY = ApiKey("DRY_RUN_NOT_READ", "AIza" + "0" * 35)
 
 
 def pick_key(args) -> ApiKey | None:

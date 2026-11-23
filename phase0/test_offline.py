@@ -54875,3 +54875,179 @@ class AYReaderBordersTest(unittest.TestCase):
         rb = AVReaderBordersTest()
         got = {(e["束"], e["読み手"], e["項目"], e["値"]) for t in (self.TEXTS[3], self.TEXTS[5]) for e in RA.of("G-53", rb.it(t)) if e["束"] == "ax1"}
         self.assertEqual(got, {("ax1", "B", "end", "決められない"), ("ax1", "B", "query", "決められない")})
+
+
+class BADryRunReadsNoKeyTest(unittest.TestCase):
+    """分身 BA の (3)（担当 AZ の棚卸し rv201/AZ/inventory.md の 7章の「気づいたこと」の (1)。CL-1 が書いてある決まりで決めた＝伺わない）：組み立てだけ（--dry-run）の印では、
+    どの道具も鍵の名前・値を読まない＝鍵（.env か環境変数）を読む唯一の口 common.secret_pairs が印を見て何も読まない。Gemini のキーの束（KeyRing）は形だけのキー
+    （common.FORM_ONLY_KEY）で組み立て（送る口 make_client は組み立てだけでは送らない）、判定AI・別の耳の鍵（load_secret・has_secret）と K-1 の形の確かめは読まずに止まる。
+    ⛔ 11-23 日本時間11時台（担当 AZ）：`g53_meaning.py … --rejudge --dry-run` が「キーを読んだ場所：環境変数（25 個）」と出した＝main で KeyRing を組み立てだけの
+    止まりより前に作り、環境変数の鍵を全部読んでいた（外へはつないでいない＝close_network が先）。印を見ていたのは load_secret と pick_key だけで、Gemini のキーを読む
+    load_keys・キーがあるかを見る has_secret・K-1 の .env の読みは見ていなかった（帳面 0-3 の 11-02 日本時間7時20分の失敗 (1)「印を鍵を読む1か所で効かせた」・
+    帳面 0-2「外へのつなぎは、流す人の環境変数ではなく作りの1か所で閉じる」と同じ形の穴＝道具ごとに順番を直さず、読む1か所で止める）"""
+
+    # 子の処理：環境変数のうち鍵の形の名前（KEY・TOKEN・SECRET）を phase0 の作りが読んだら記録し、.env の場所（SALESCALL_ENV）を phase0 の作りが開いたら記録して、
+    # 道具を順に流す（外へのつなぎは最初に閉じる）。読んだ所は、呼んだ所をさかのぼって最初の、標準の部品でも外の部品でもない所（phase0 のファイルと行）
+    CHILD = r'''
+import json, os, re, runpy, sys
+HERE = os.path.realpath(os.getcwd())
+STD = os.path.dirname(os.__file__)
+GUARDED = {os.environ.decodekey(k) for k in os.environ._data if re.search(r"KEY|TOKEN|SECRET", os.environ.decodekey(k), re.I)}
+ENV_FILE = os.environ.get("SALESCALL_ENV", "")
+reads = []
+
+def who():
+    f = sys._getframe(2)
+    while f is not None:
+        fn = f.f_code.co_filename
+        outside = "site-packages" in fn or "dist-packages" in fn
+        if not outside and (fn.startswith(STD) or fn.startswith("<")):
+            f = f.f_back
+            continue
+        return None if outside or not os.path.realpath(fn).startswith(HERE) else f"{os.path.basename(fn)}:{f.f_lineno}"
+    return None
+
+class Guard(type(os.environ)):
+    def __getitem__(self, key):
+        if key in GUARDED and (w := who()):
+            reads.append(f"{key}@{w}")
+        return super().__getitem__(key)
+
+os.environ = Guard(os.environ._data, os.environ.encodekey, os.environ.decodekey, os.environ.encodevalue, os.environ.decodevalue)
+
+def hook(event, args):
+    if event == "open" and ENV_FILE and args and str(args[0]) == ENV_FILE and (w := who()):
+        reads.append(f".env@{w}")
+
+sys.addaudithook(hook)
+sys.path.insert(0, ".")
+import common
+common.close_network()
+for cmd in json.loads(sys.argv[1]):
+    del reads[:]
+    sys.argv = list(cmd)
+    try:
+        runpy.run_path(cmd[0], run_name="__main__")
+        end = "end"
+    except SystemExit as e:
+        end = f"exit {e}"
+    except BaseException as e:
+        end = f"{type(e).__name__} {e}"
+    print("@@" + json.dumps({"tool": cmd[0], "reads": sorted(set(reads)), "loaded": len(common._LOADED_SECRETS), "end": end[:200]}, ensure_ascii=False), flush=True)
+'''
+    FAKE = {"GEMINI_API_KEY_1": "AIza" + "F" * 35, "GEMINI_API_KEY_2": "AIza" + "G" * 35, "OPENROUTER_JUDGE_KEY": "sk-or-test-" + "0" * 20,
+            "ANTHROPIC_JUDGE_KEY": "sk-ant-test-" + "0" * 20, "SONIOX_API_KEY": "soniox-test-" + "0" * 20}
+    # 鍵を作る道具（KeyRing・load_secret・has_secret・判定の組 make_judges・中身の判定 make_reader・K-1）。担当 AZ が流した形（答えの段の --rejudge）と、
+    # お呼びする段・戻ったか・中身の判定・最新版の確かめ・判定の確かめ・取込の決める処理に問う道具（g71・g72・g73）・K-1 の形の確かめ
+    TOOLS = (("g53_meaning.py", "--dry-run", "--reuse", "{reuse}", "--rejudge", "--judge", "d1 Ultra（Liquid）"),
+             ("g59_calling_judge.py", "--dry-run", "--judge", "--judge2"),
+             ("g68_returned.py", "--dry-run", "--judge", "--judge2", "Jev 1.14"),
+             ("g63_grounding.py", "--dry-run"),
+             ("latest_ai.py", "--dry-run"),
+             ("judge_try.py", "--dry-run", "--check", "--name", "d1 Ultra（Liquid）"),
+             ("g71_facts.py", "--dry-run"),
+             ("g72_choice_words.py", "--dry-run"),
+             ("g73_system_words.py", "--dry-run"),
+             ("k01_env_shape.py", "--dry-run"))
+
+    def _run(self, from_file: bool) -> dict:
+        import os
+        import re
+        import subprocess
+        here = Path(__file__).resolve().parent
+        place = run_place("ba-dry-keys")
+        reuse = place / "reuse.json"
+        reuse.write_text(json.dumps({"items": []}), encoding="utf-8")
+        env = {k: v for k, v in os.environ.items() if not re.search(r"KEY|TOKEN|SECRET", k, re.I)}   # 本物の鍵は子に渡さない（形だけの値を入れる）
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        if from_file:
+            (place / ".env").write_text("".join(f"{k}={v}\n" for k, v in self.FAKE.items()), encoding="utf-8")
+            env["SALESCALL_ENV"] = str(place / ".env")
+        else:
+            env.update(self.FAKE)
+            env["SALESCALL_ENV"] = str(place / "no_such.env")
+        cmds = [[a.replace("{reuse}", str(reuse)) for a in c] for c in self.TOOLS]
+        done = subprocess.run(child_python("-c", self.CHILD, json.dumps(cmds, ensure_ascii=False)), cwd=here, env=env, capture_output=True, text=True, timeout=300)
+        got = {r["tool"]: r for r in (json.loads(line[2:]) for line in done.stdout.splitlines() if line.startswith("@@"))}
+        self.assertEqual(sorted(got), sorted(c[0] for c in self.TOOLS), done.stdout[-2000:] + done.stderr[-2000:])
+        self.assertNotIn(self.FAKE["GEMINI_API_KEY_1"], done.stdout + done.stderr)
+        return {"got": got, "out": done.stdout}
+
+    def _check(self, from_file: bool) -> None:
+        run = self._run(from_file)
+        for tool, r in run["got"].items():
+            self.assertEqual(r["reads"], [], f"{tool}：組み立てだけで鍵を読んだ（{r['end']}）")
+            self.assertEqual(r["loaded"], 0, f"{tool}：鍵の値が伏せる一覧に入った")
+        # 答えの段は、鍵を読まずに形だけのキーで束を組み立て、組み立てだけの止まり（送る数を出して止める）まで進む（道具の順番は今のまま）
+        self.assertEqual(run["got"]["g53_meaning.py"]["end"], "end")
+        self.assertIn("判定は送りません", run["out"])
+        self.assertIn("形だけのキー", run["out"])
+
+    def test_1_no_key_from_the_environment(self):
+        self._check(from_file=False)
+
+    def test_2_no_key_from_the_env_file(self):
+        self._check(from_file=True)
+
+    def test_3_only_the_one_place_reads_keys(self):
+        """鍵を読む所は common.secret_pairs の1か所だけ（.env を読む read_env_file を呼ぶ所・環境変数を名前で読まずに全部読む所・鍵の形の名前で読む所）。
+        送る前の見張り check_keys.py だけは除く（引数が無い＝組み立てだけの印を受けない・外へ送らない・値は件数しか出さない＝紛れた値を探すために全部読む）"""
+        import ast
+        import re
+        here = Path(__file__).resolve().parent
+        secretish = re.compile(r"KEY|TOKEN|SECRET|PASSWORD", re.I)
+        found = []
+        for path in sorted(here.glob("*.py")):
+            if path.name in ("test_offline.py", "check_keys.py"):
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            parents = {c: p for p in ast.walk(tree) for c in ast.iter_child_nodes(p)}
+
+            def where(node):
+                n = node
+                while n in parents:
+                    n = parents[n]
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        return n.name
+                return ""
+
+            def names(node):
+                """読む名前の候補（文字そのもの・文字の並びを回す for の変数・その upper()/lower()）。決まらなければ None（名前で読まない＝全部の名前を読みうる）"""
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    return {node.value}
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("upper", "lower") and not node.args:
+                    got = names(node.func.value)
+                    return None if got is None else {getattr(n, node.func.attr)() for n in got}
+                if isinstance(node, ast.Name):
+                    n = node
+                    while n in parents:
+                        n = parents[n]
+                        if (isinstance(n, ast.For) and isinstance(n.target, ast.Name) and n.target.id == node.id
+                                and isinstance(n.iter, (ast.Tuple, ast.List)) and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in n.iter.elts)):
+                            return {e.value for e in n.iter.elts}
+                return None
+
+            def secret(got):
+                return got is None or any(secretish.search(n) for n in got)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) == "read_env_file":
+                    found.append((path.name, where(node), "read_env_file"))
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "getenv":
+                    got = names(node.args[0]) if node.args else None
+                    if secret(got):
+                        found.append((path.name, where(node), f"getenv {got}"))
+                if not (isinstance(node, ast.Attribute) and node.attr == "environ"):
+                    continue
+                up = parents.get(node)
+                if isinstance(up, ast.Subscript) and isinstance(up.ctx, ast.Store):
+                    continue   # 書く所（読まない）
+                if isinstance(up, ast.Subscript):
+                    got = names(up.slice)
+                elif isinstance(up, ast.Attribute) and up.attr in ("get", "pop") and isinstance(parents.get(up), ast.Call):
+                    call = parents[up]
+                    got = names(call.args[0]) if call.args else None
+                else:
+                    got = None   # 名前で読まずに全部読む（items・回す・写す）
+                if secret(got):
+                    found.append((path.name, where(node), f"environ {got}"))
+        self.assertEqual(sorted(set(found)), [("common.py", "secret_pairs", "environ None"), ("common.py", "secret_pairs", "read_env_file")])
