@@ -54630,7 +54630,9 @@ class AXReaderBordersTest(unittest.TestCase):
                 self.assertIsNone(rb.miss(*rb.reread(text, answer=UNDECIDED, **{NEAR: nv})), (text, nv))
             why = G._label(it)["why"]
             self.assertIn("分身 AX", why)
-            self.assertTrue(why.endswith("⏳ 仮（束 ax1）"), why[-80:])
+            # 束 ax1 で読み手2人とも正解の中＝分身 AY の (2) が仮を外した（AYReaderBordersTest）
+            self.assertNotIn("⏳ 仮（束 ax1）", why)
+            self.assertIn("仮（束 ax1）／2026-11-23 分身 AY", why)
 
     def test_2_the_aw_rows_both_readers_kept_are_no_longer_provisional(self):
         import g53_meaning as G
@@ -54842,3 +54844,34 @@ class AYWeekendRestTest(unittest.TestCase):
         r = f.apply("replay_opening", {"part": "resume"})
         self.assertEqual(heard_words(r), "承知しました。お時間は午前と午後のどちらがよろしいでしょうか？")
 
+
+class AYReaderBordersTest(unittest.TestCase):
+    """分身 AY の (2)（束 ax1 の読み手の結果＝CL-1 の並べた表 rv201/ax1_out.txt・並べた道具 rv201/cmp_ax1.py。CL-1 が書いてある決まりで決めた＝伺わない）：束 ax1 の7行（W1@E1）は、答えと
+    答えのほかの項目が読み手2人とも正解の中＝#1「いえ、特に希望はないです。」・#2「特にないので、そのままで大丈夫です。」の境目（答え＝「無い」と「決められない」・いちばん近い答え4つ）の
+    仮を外した（正解の値は変えない）。1人だけの読み2つ（#4「大丈夫です、ほかに何もありません。」の B の電話を終える言葉か end＝「決められない」・#6「んー、どっちがいいかな。」の B の
+    こちらへ尋ねた問い query＝「決められない」）は、読み手の別の読みの欄（reader_alts.json）へ"""
+
+    TEXTS = ("いえ、特に希望はないです。", "特にないので、そのままで大丈夫です。", "今のところ、ほかには無いです。", "大丈夫です、ほかに何もありません。",
+             "うーん、まあ、いろいろありますけど……。", "んー、どっちがいいかな。", "とくに希望はないので、お任せします。")
+
+    def test_1_the_two_borders_are_no_longer_provisional(self):
+        import g53_meaning as G
+        from flowctl import ANY_LABEL, NEAR_NONE, NEAR_OFF, UNDECIDED, WISH_NONE
+        rb = AVReaderBordersTest()
+        for text in self.TEXTS[:2]:
+            it = rb.it(text)
+            self.assertEqual(set(G.accept(it)), {WISH_NONE, UNDECIDED}, text)
+            self.assertEqual(set(G.near_truths(it)), {NEAR_OFF, WISH_NONE, NEAR_NONE, ANY_LABEL}, text)
+            why = G._label(it)["why"]
+            self.assertNotIn("⏳ 仮（束 ax1）", why, text)
+            self.assertIn("分身 AY", why, text)
+        for text in self.TEXTS:
+            why = G._label(rb.it(text))["why"]
+            self.assertIn("束 ax1", why, text)
+            self.assertNotIn("⏳ 仮", why[-60:], text)
+
+    def test_2_one_reader_readings_go_to_the_field(self):
+        import reader_alts as RA
+        rb = AVReaderBordersTest()
+        got = {(e["束"], e["読み手"], e["項目"], e["値"]) for t in (self.TEXTS[3], self.TEXTS[5]) for e in RA.of("G-53", rb.it(t)) if e["束"] == "ax1"}
+        self.assertEqual(got, {("ax1", "B", "end", "決められない"), ("ax1", "B", "query", "決められない")})
