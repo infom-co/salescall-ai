@@ -288,6 +288,10 @@ class Screens(unittest.TestCase):
         page = self.get("ADMIN", "/admin/settings")
         self.assertEqual(page.status_code, 200)
         self.assertIn("システムの初めの値", page.text)
+        from salescall.core import settings as core_settings
+        prov = app_access().in_system(SYSTEM, core_settings.provisional)
+        if prov:   # 仮の値は、管理者には見直す時と一緒に見せる（2026-11-23：無い名前 person.admin を見ていて、管理者にも契約者向けの文が出ていた）
+            self.assertIn("仮の値（見直す時：", page.text)
 
     def test_the_ai_tier_rows_show_only_when_the_contractor_uses_its_own_api(self):
         """会話AIの枠は、自分で API を契約するプランのときだけ（決めるのは core の ai_plans.tier の1か所。CL-2 4-438・4-446 の 55）。"""

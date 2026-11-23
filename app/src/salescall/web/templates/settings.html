@@ -55,7 +55,7 @@
   <details class="setting card {{ 'own' if r.own }} {{ 'needed' if needed }} {{ 'just-changed' if just and ok }}" id="s-{{ r.key|replace('.', '-') }}" {% if just and not ok %}open{% endif %}>
     <summary>
       <span class="meaning"><b>{{ r.label }}</b></span>
-      <span class="now">{% if r.got %}<b>{{ r.shown }}</b>{% if r.got["from"] != "system" and not r.own %} <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% endif %}{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if needed %} {{ tag("決めてください", words.tone("waiting")) }}{% endif %}{% if r.own and level != "system" %} {{ tag("ここで決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag(("仮の値（見直す時：" ~ words.plain(r.provisional.review_when) ~ "）") if person.admin else "仮の値（あとで見直すことがあります）", "wait") }}{% endif %}</span>
+      <span class="now">{% if r.got %}<b>{{ r.shown }}</b>{% if r.got["from"] != "system" and not r.own %} <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% endif %}{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if needed %} {{ tag("決めてください", words.tone("waiting")) }}{% endif %}{% if r.own and level != "system" %} {{ tag("ここで決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag(("仮の値（見直す時：" ~ words.plain(r.provisional.review_when) ~ "）") if person.is_admin else "仮の値（あとで見直すことがあります）", "wait") }}{% endif %}</span>
       <span class="change" aria-hidden="true">変える</span>
     </summary>
     <form method="post" action="{{ action }}" class="setting-form" data-needs-reason

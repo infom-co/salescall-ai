@@ -1094,6 +1094,18 @@ class Web(_World):
         self.assertEqual(visible_primary_buttons(page), ["確かめた"])
         self.assertEqual(page.count("確かめた"), 3)                              # ほかの札のボタンも出ている（白い枠で）
 
+    def test_templates_read_only_names_the_logged_in_person_has(self):
+        """ひな形の person.〇〇 は、ログインした方の形（web/context.Person）に本当にある名前だけ（Jinja は無い名前を黙って空にする。
+        2026-11-23：person.admin を見ていて、管理者にも契約者向けの「仮の値」の文が出ていた）。s.person など、ほかの形の person は見ない。"""
+        import dataclasses
+        import pathlib
+        from salescall.web.context import Person
+        has = {f.name for f in dataclasses.fields(Person)} | {n for n in dir(Person) if not n.startswith("_")}
+        tpl = pathlib.Path(__file__).resolve().parents[1].joinpath("src/salescall/web/templates")
+        bad = [(f.name, m.group(1)) for f in sorted(tpl.glob("*.html"))
+               for m in re.finditer(r"(?<![\w.])person\.([a-z_]+)", f.read_text(encoding="utf-8")) if m.group(1) not in has]
+        self.assertEqual(bad, [])
+
     def test_every_field_in_every_template_has_a_name(self):
         """どのひな形の入力欄・選ぶ欄にも、何を入れる欄かの名前を結び付ける（全画面をたどる試験が届かない画面の分も、ひな形を直接読んで見る。
         2026-11-22 の見直し：見出しの文と欄が結び付いていない欄が11あった）。"""
