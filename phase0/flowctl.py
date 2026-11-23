@@ -1845,6 +1845,10 @@ def question_forms(questions: list["Question"], qid: str) -> list[dict]:
         # 言い換えた質問の頭の無い形（「番号_aside_again」）を流しうる（前は言い換えた形の戻る一言のあとの形として一覧にあった＝同じ録音）
         if q.reworded:
             forms.append(question_play([aside_form(x) if x.id == qid else x for x in questions], qid, again=True, soft=True))
+        # 3回目からの戻る一言（文を終えない BACK_TO_MIDWAY）に続ける、その所でまだ言っていない形（Flow._continue の joined＝soft_form の heard）：選択肢を並べた文・
+        # 言い換えた質問の「確認の途中でしたので…が」の形（帳面 1 の (6) の (i) の L47・分身 BF の (6)。元の形の分は上の BACK_LINES の形）
+        forms += [question_play([f if x.id == qid else x for x in questions], qid, again=True, before=BACK_LINES[-1][1])
+                  for f in {soft_form(q).text: soft_form(q), **({aside_form(q).text: aside_form(q)} if q.reworded else {})}.values() if f is not q]
         # 先に並べた文（伺い16）：その選択肢に触れたひとことのあとの形ごとに1本（「番号_alternatives_（選択肢の番号）」。✅ 2026-11-14 日本時間23時45分00秒）
         forms += [question_play([soft_form(x, lead) if x.id == qid else x for x in questions], qid, again=True, soft=True)
                   for lead in _led_leads(q)]
@@ -2235,13 +2239,15 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     # ⛔ 見直しで見つけた漏れ：読みの確かめを挟むと、そのあとの質問のつなぎの言葉（＝録音の名前）が1つずれた（「それでは」⇒「続きまして」）
     i = [x.id for x in questions if not x.reading_of and not x.callback].index(qid)
     others = others_head(q)
-    if soft or in_alternatives_form(q):
-        return head_join(others, q.text), others
     if before and not closes(before):
         # 3回目から戻るときの一言（phrases.BACK_TO_MIDWAY「確認の途中でしたのでもう一度お伺いさせていただきますが」＝文を終えない）は、質問の頭として1本で
         # 録音する（✅ 2026-11-07 日本時間4時40分35秒 ユーザー「…「確認の途中でしたのでもう一度お伺いさせていただきますが、ご予約は～」」）
-        # 頭と文をつなぐのは phrases.head_join の1か所（「が」で終わる頭のあとは「恐れ入りますが」を外す＝システムの質問の back_fit と同じ。⛔ K-3 の確かめで見つけた）
+        # 頭と文をつなぐのは phrases.head_join の1か所（「が」で終わる頭のあとは「恐れ入りますが」を外す＝システムの質問の back_fit と同じ。⛔ K-3 の確かめで見つけた）。
+        # 続く質問が、その所でまだ言っていない形（選択肢を並べた文・言い換えた質問＝Flow._continue が soft_form の heard で選ぶ）でも、頭はこの一言のまま（帳面 1 の (6) の (i) の
+        # L47・分身 BF の (6)。⛔ 774939b7 まで、この形の前に下の頭の無い形を返していた＝3回目からの戻りでは選ばれない形だった）
         return head_join(before + others, q.text), before + others
+    if soft or in_alternatives_form(q):
+        return head_join(others, q.text), others
     if again:
         # 直前に流す一言（2回目に戻るときの「それではもう一度確認させていただきますね。」＝phrases.BACK_LINES）の頭が同じ「それでは」なら重ねない（頭を付けない）
         lead = ("" if AGAIN_LEAD in heads_said(before) else AGAIN_LEAD) + others
@@ -13673,7 +13679,14 @@ class Flow:
             soft = q is not None and (q.id in self.soft_plain or (bare and again))
         else:
             soft = (final or soft) and again and not back and soft_fits(q)
-            if q is not None and not q.reading_of:
+            # 3回目からの戻る一言（文を終えない「確認の途中でしたので…が」＝joined）のあと：頭は 11-07 日本時間4時40分35秒のお言葉のまま、続く質問の形を、その所で
+            # まだ言っていない形を選ぶ1か所（soft_form の heard＝伺い46 イ・11-19 日本時間3時17分22秒）で選ぶ（直前と同じ文を続けて言わない＝11-01・10-19）。形が1つしか
+            # 無い質問は今のまま（同じ文）。帳面 1 の (6) の (i) の L47（CL-1 が決めた・分身 BF の (6)）。⛔ 774939b7 まで、2回目・3回目とも同じ「確認の途中でしたので…が（質問）」
+            midway = joined and q is not None and not q.reading_of and soft_fits(q)
+            if q is not None and not q.reading_of and midway:
+                self._soften(q.id, True, heard=self._heard_last(q.id), back=True)
+                q, qs = self.questions[q.id], self._plays()
+            elif q is not None and not q.reading_of:
                 # 意向が分からないまま戻る1回目の戻りも、その所でお客様がもう聞いた文（_heard_last）を見て、まだ言っていない形から選ぶ（soft_form の heard の1か所＝
                 # 直前と同じ文を続けて言わない＝11-01。⛔ 4e94ba37 まで、いまの形のままだったので、3回目の急かしで選択肢の文を言ったあと、尋ねられて答えて相づちだけの
                 # お返事が来ると、また選択肢の文＝分身 E の書き置きの穴 (b)）。戻る一言のあと（2回目からの戻り）は、「ところで」の言い換えた形も元の質問に戻す
