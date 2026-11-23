@@ -7208,7 +7208,8 @@ class MeasureSentTest(unittest.TestCase):
     def test_g68_says_returned_only_when_the_flow_decides_it(self):
         import g68_returned as g68
         from flowctl import RETURNED_OTHER, RETURNED_SAME
-        others = sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if w == RETURNED_OTHER)
+        others = sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if g68.other_side(w))   # 別の方の言葉（境目の行＝別の方・代わった人も。分身 AV の L33）
+        self.assertGreaterEqual(others, sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if w == RETURNED_OTHER))
         one = self._g68({"judge2": self.Fake(RETURNED_SAME)})["summary"]
         self.assertEqual(one["別の方をそろって戻ったと読んだ（害）"], f"0/{others}")   # 本番は判定1つの「戻った」では名乗りを省かない
         two = self._g68({"judge": self.Fake(RETURNED_SAME), "judge2": self.Fake(RETURNED_SAME)})["summary"]
@@ -53995,3 +53996,44 @@ class AVReaderBordersTest(unittest.TestCase):
             self.assertNotIn("⏳ 仮", v, text)
             self.assertIn("分身 AV", v, text)
             self.assertIn("仮を外した", v, text)
+
+
+class AVReturnedBorderTest(unittest.TestCase):
+    """分身 AV（帳面 1 の (6) の (i) の L33・分身 AU の書き置きの 6章の (7)。CL-1 が書いてある決まりで決めた＝伺わない）：待たせた方が戻ったか（G-68）の表で、
+    取り次ぎで待ったあとに、説明の「代わった人が話し始めた」と「別の方が出た」のどちらにも当たる言葉（違う名前を名乗った方＝「代わった方が誰かで答えが決まる」
+    （お呼びした方に取り次いだ）とも「お呼びした方と違う名前を名乗った」とも読める・お呼びした方ではない担当の方に代わると言われたあとに出た方）は、2つの読みで
+    流れの制御の動き（名乗りを省くか・お客様に聞こえる言葉・記録・切れ方）が同じ（rv200/AV/probe/av/tr_returned_before.txt）＝境目（✅ 2026-11-06 日本時間4時11分28秒・
+    帳面 0-3 の数えは流れの制御の動きで比べる）。⛔ それまでは「別の方が出た」だけを正しいと数えた（害の数には入らない）"""
+
+    BORDER = ("お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。", "お電話代わりました、山田です。岡田は外出しておりまして。",
+              "お待たせいたしました。お電話代わりました、営業部の田中です。", "もしもし、代わりました。同じ部署の佐々木ですが、岡田は今日お休みです。",
+              "お電話代わりました。担当の者ですが。", "お待たせいたしました。担当の佐藤でございます。", "お待たせいたしました。営業部の田中と申します。岡田は本日おりません。",
+              "お待たせいたしました。担当の者ですが、どのようなご用件でしょうか。", "お待たせしました。岡田の上司の村上ですが。", "はい、お待たせしました。総務の木村です。")
+    ONLY_OTHER = ("はい、お電話代わりました。", "お電話代わりました。岡田です。", "お待たせいたしました、岡田です。", "お待たせいたしました。岡田と同じ課の者です。")
+
+    def run_with(self, value):
+        import asyncio
+        import g68_returned as g68
+        fake = MeasureSentTest.Fake(value)
+        args = SimpleNamespace(only_new=False, repeat=1)
+        with unittest.mock.patch("meaning_judge.make_judges", lambda a: {"judge": fake, "judge2": fake}):
+            return asyncio.run(g68.run(args))["summary"]
+
+    def test_1_the_border_rows_count_both_readings(self):
+        import g68_returned as g68
+        from flowctl import HANDOVER, RETURNED_OTHER, RETURNED_SAME
+        want = {t: w for _, t, w in g68.CASES + g68.NEW_CASES}
+        for t in self.BORDER:
+            self.assertEqual(set(g68.accepted(want[t])), {RETURNED_OTHER, HANDOVER}, t)
+        for t in self.ONLY_OTHER:
+            self.assertEqual(g68.accepted(want[t]), (RETURNED_OTHER,), t)
+        others = sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if g68.other_side(w))
+        self.assertEqual(others, len(self.BORDER) + len(self.ONLY_OTHER))
+        counted = sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if g68.accepted(w))
+        got = self.run_with(HANDOVER)
+        self.assertEqual(got["judge・正しい（どちらとも言えない言葉を除く）"], f"{len(self.BORDER)}/{counted}")
+        self.assertEqual(got["別の方をそろって戻ったと読んだ（害）"], f"0/{others}")
+        got = self.run_with(RETURNED_OTHER)
+        self.assertEqual(got["judge・正しい（どちらとも言えない言葉を除く）"], f"{others}/{counted}")
+        got = self.run_with(RETURNED_SAME)
+        self.assertEqual(got["別の方をそろって戻ったと読んだ（害）"], f"{others}/{others}")
