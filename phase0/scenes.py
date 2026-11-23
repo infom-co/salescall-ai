@@ -779,13 +779,18 @@ def terms_business():
     return dataclasses.replace(BUSINESS, questions=[wish_scenes(question_map())["W1@E1"][0]], info=[])
 
 
+def nudge_count(call: dict, wav_name: str) -> int:
+    """その台詞への、報告を促す知らせ（Flow.unreported_note＝convo の nudge のターン）の数（唯一の数え方＝nudged_once・申し出に時刻を付けてかけ直しを頼んだ方の場面 terms_seven_checks）。"""
+    return sum(1 for t in call["turns"] if isinstance(t.get("callee"), dict) and "nudge_of" in t["callee"] and _line_of(t).endswith(f"_{wav_name}.wav"))
+
+
 def nudged_once(call: dict, wav_name: str) -> bool:
     """その台詞に会話AIが答えを報告しなかったときだけ、報告を促す知らせ（Flow.unreported_note＝convo の nudge のターン）が1回あった（G-54・唯一の数え方）：促しのターンは多くて1回・
     その台詞のはじめのターンに受け付けた報告が無ければ、促しのターンがある。"""
     plain_turns = [t for t in call["turns"] if isinstance(t.get("callee"), dict) and t["callee"].get("wav", "").endswith(f"_{wav_name}.wav")]
-    nudges = [t for t in call["turns"] if isinstance(t.get("callee"), dict) and "nudge_of" in t["callee"] and _line_of(t).endswith(f"_{wav_name}.wav")]
+    nudges = nudge_count(call, wav_name)
     reported = any(e["name"] == "record_answer" and e["reply"] != "rejected" for t in plain_turns for e in t.get("tool_events") or [])
-    return len(nudges) <= 1 and (reported or len(nudges) == 1)
+    return nudges <= 1 and (reported or nudges == 1)
 
 
 def terms_checks(call: dict) -> dict:
@@ -800,6 +805,31 @@ def terms_checks(call: dict) -> dict:
 
 
 SCENES[TERMS_SCENE] = Scene(terms_business(), [W(TERMS_LINE)], terms_checks, "担当者からのお電話のご案内に、ご都合の条件を付けて受けた（伺い直さずに条件つきで言い切る）")
+
+
+# ── 申し出に時刻を付けてかけ直しを頼んだ方（2026-11-23 分身 AX＝帳面 1 の (6) の (i) の L34 の (b)・分身 AW の書き置きの 3章と 7章の (4)）：上の業務（E1）を言い切らずに断ったあとの、
+#    ご案内の方法の申し出（W1「それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！」）に「夜の七時以降に、もう一度かけてもらえますか。」。答えの段の正解は3つの読みの境目
+#    （あとでかけ直す・ほかの希望を言った・やはり担当者から詳しいご案内のお電話を差し上げてよろしいということ＝正解の表 W1@E1 の同じ言葉）で、読みごとに道と記録の項目が違う＝数えるのは
+#    どの読みでも成り立つ決まりだけ（分身 AW の書き置きの 7章の (4)）：「七時以降」が記録の値（かけ直しの時刻・申し出の条件・ほかのご希望の値）のどこかに残る（✅ 本書 9-3・11-04 日本時間
+#    20時27分の (2)・11-12 日本時間13時40分05秒の (2)・11-03 日本時間20時48分）・促しは多くて1回（G-54）・約束しない（確定でない約束をしない）。「あとでかけ直す」の読みは、かけ直しの日時の
+#    2択（平日と土日）へのお返事と言い直しの確かめへのお返事の台詞を足した（ほかの読みでは電話はその前に終わる＝台詞は流れない）。分身 AX の (1)（選び直しの条件）・(2)（ほかに言われたことの
+#    時刻を次の2択で使う）のあとで、どの読みでも成り立つ。相手役の声はまだ作っていない
+TERMS_SEVEN_SCENE = "申し出に時刻を付けてかけ直しを頼んだ方"
+TERMS_SEVEN_LINE, TERMS_SEVEN_TIME = "terms_seven", re.compile(r"(七|7|19)時以降")
+
+
+def terms_seven_checks(call: dict) -> dict:
+    """申し出に時刻を付けてかけ直しを頼んだ方の場面の決まり（唯一の場所。どの読みでも成り立つものだけ）：「七時以降」が記録の値（通話の事実のかけ直しの記録の時刻 callback の time・
+    申し出の条件 offer_terms の terms・ほかのご希望 other_wish の値）のどこかに残った・その台詞への促しは多くて1回（nudge_count）・約束しない。"""
+    facts = call["facts"]
+    kept = ([e.get("time") or "" for e in facts.get("callback") or []] + [e.get("terms") or "" for e in facts.get("offer_terms") or []]
+            + [e.get("value") or "" for e in facts.get("other_wish") or []])
+    return {"七時以降が記録の値に残った": any(TERMS_SEVEN_TIME.search(v) for v in kept), "促しは多くて1回": nudge_count(call, TERMS_SEVEN_LINE) <= 1,
+            "約束しない": no_promise(call)}
+
+
+SCENES[TERMS_SEVEN_SCENE] = Scene(terms_business(), [W("decline_call"), W(TERMS_SEVEN_LINE), W("weekday_please"), W(talk_name(YES_PLEASE))], terms_seven_checks,
+                                  "担当者からのお電話のご案内を言い切らずに断ったあとの、ご案内の方法の申し出に、時刻を付けてもう一度かけてほしいと頼んだ（正解の読みが3つ＝どの読みでも成り立つ決まりだけ）")
 
 
 def talk_notes() -> list[dict]:

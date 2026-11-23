@@ -54652,3 +54652,89 @@ class AXReaderBordersTest(unittest.TestCase):
         row = g59.case_row(g59.case_of("後任はおりません。", "岡田は先月退職いたしました。", False, True))
         got = {(e["束"], e["読み手"], e["項目"], e["値"]) for e in RA.of("G-59", row)}
         self.assertEqual(got, {("aw2", "B", "absent_why", "不在"), ("aw2", "B", "target", "不在")})
+
+
+class AXTermsSevenSceneTest(unittest.TestCase):
+    """分身 AX の (3)（帳面 1 の (6) の (i) の L34 の (b)・分身 AW の書き置きの 3章と 7章の (4)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIの通話の試験（G-57＝scenes.SCENES）に、
+    申し出に時刻を付けてかけ直しを頼んだ方の場面（scenes.TERMS_SEVEN_SCENE）を、条件を付けて受けた方の場面（分身 AW）と同じ1か所に足した。数えるのは、正解の3つの読み（あとでかけ直す・
+    ほかの希望を言った・やはり担当者から詳しいご案内のお電話を差し上げてよろしいということ）のどれでも成り立つ決まりだけ（terms_seven_checks）：「七時以降」が記録の値のどこかに残る・促しは
+    多くて1回・約束しない。場面の正解は、読みごとに本番の流れの制御に通して出す（_SceneCall）。相手役の声はまだ作らない（声は E9）"""
+
+    PICK = "やはり担当者から詳しいご案内のお電話を差し上げてよろしいということ"
+
+    @staticmethod
+    def rd(v, firm=True):
+        from flowctl import END, END_NONE, HEAR, HEAR_OK, QUERY, QUERY_NO
+        from meaning_judge import Reading
+        r = Reading(v, firm)
+        setattr(r, QUERY, QUERY_NO); setattr(r, END, END_NONE); setattr(r, HEAR, HEAR_OK)
+        return r
+
+    def run_reading(self, name: str) -> "tuple[dict, _SceneCall]":
+        """場面を、判定の組が「夜の七時以降に…」を正解の読み name と読み、会話AIが正しく報告したとおりに流す（返り値＝場面の決まりの数え・通話）。"""
+        import g53_meaning as G
+        import scenes
+        from flowctl import WISH_OTHER
+        c = _SceneCall(scenes.TERMS_SEVEN_SCENE)
+        self.assertEqual(c.heard(self.rd("いいえ", False)), "うーん、お電話はちょっと…。")
+        c.report("record_answer", {"question_id": "E1", "condition_id": "いいえ"})
+        it = {"set": "W1", "qid": "W1@E1", "text": "夜の七時以降に、もう一度かけてもらえますか。"}
+        reading = next(r for r in G.label_readings(it, G.question_map()["W1@E1"], False) if str(r) == name)
+        self.assertEqual(c.heard(reading), it["text"])
+        r = c.judged()
+        if name == "あとでかけ直す":
+            self.assertEqual(heard_words(r), "はい、")
+            r = c.report("replay_opening", {"part": "resume", "rest": "夜の七時以降"})
+            self.assertEqual(heard_words(r), "承知しました。それでは平日と土日のどちらがよろしいでしょうか？")
+            self.assertEqual(c.heard(self.rd("答えた")), "平日でお願いします。")
+            self.assertEqual(heard_words(c.report("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "平日"})), "はい、")
+            r = c.report("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "夜の七時以降"})
+            self.assertEqual(heard_words(r), "ありがとうございます。平日の19時以降、午後7時以降でよろしいでしょうか？")
+            self.assertEqual(c.heard(self.rd("affirmed")), "はい、お願いします。")
+            r = c.report("confirm_field", {"question_id": "C1", "result": "affirmed"})
+        else:
+            self.assertIsNone(r)   # 判定が答えを読んでも、報告の無いターンでは応じない（会話AIが報告する）
+            AWTermsSceneTest.nudge(c)
+            if name == WISH_OTHER:
+                r = c.report("record_answer", {"question_id": "W1", "condition_id": WISH_OTHER, "value": "夜の七時以降にもう一度電話してほしい"})
+            else:
+                AWTermsSceneTest.ground(c, "夜の七時以降に")
+                r = c.report("record_answer", {"question_id": "W1", "condition_id": name, "terms": "夜の七時以降に"})
+        self.assertEqual(r["result"], "end", (name, r))
+        return scenes.SCENES[scenes.TERMS_SEVEN_SCENE].expect(c.call()), c
+
+    def test_1_the_scene_and_lines(self):
+        import make_callee_samples as m
+        import scenes
+        sc = scenes.SCENES[scenes.TERMS_SEVEN_SCENE]
+        self.assertEqual([m.text_and_how(m.UTTERANCES[x["wav"].removeprefix("Puck_").removesuffix(".wav")])[0] for x in sc.call()[0]][1:],
+                         ["うーん、お電話はちょっと…。", "夜の七時以降に、もう一度かけてもらえますか。", "平日でお願いします。", "はい、お願いします。"])
+        self.assertEqual(sc.business.questions, scenes.SCENES[scenes.TERMS_SCENE].business.questions)   # 同じ業務（測りの場面 W1@E1 の元の質問 E1）
+
+    def test_2_every_correct_reading_keeps_the_rules(self):
+        import g53_meaning as G
+        it = {"set": "W1", "qid": "W1@E1", "text": "夜の七時以降に、もう一度かけてもらえますか。"}
+        names = {str(r) for r in G.label_readings(it, G.question_map()["W1@E1"], False)}
+        self.assertEqual(names, {"あとでかけ直す", "ほかの希望を言った", self.PICK})
+        kept = {}
+        for name in sorted(names):
+            checks, c = self.run_reading(name)
+            self.assertTrue(all(checks.values()), (name, checks))
+            kept[name] = (c.f.facts.get("callback") or [{}])[-1].get("time"), [e["terms"] for e in c.f.facts.get("offer_terms") or []], \
+                [e["value"] for e in c.f.facts.get("other_wish") or [] if e.get("value")]
+        self.assertEqual(kept["あとでかけ直す"][0], "平日の夜の7時以降")
+        self.assertEqual(kept[self.PICK][1], ["夜の七時以降に"])
+        self.assertEqual(kept["ほかの希望を言った"][2], ["夜の七時以降にもう一度電話してほしい"])
+
+    def test_3_the_wrong_shapes_are_counted(self):
+        import scenes
+        # 選び直しに条件を添えずに報告した：受け取るが「七時以降」はどの記録の値にも残らない
+        c = _SceneCall(scenes.TERMS_SEVEN_SCENE)
+        c.heard(self.rd("いいえ", False)); c.report("record_answer", {"question_id": "E1", "condition_id": "いいえ"})
+        c.heard(self.rd(self.PICK))
+        c.report("record_answer", {"question_id": "W1", "condition_id": self.PICK})
+        got = scenes.SCENES[scenes.TERMS_SEVEN_SCENE].expect(c.call())
+        self.assertEqual({k for k, v in got.items() if not v}, {"七時以降が記録の値に残った"})
+        call = c.call()
+        call["turns"] = call["turns"] + [{"callee": {"nudge_of": c.lines[2]}, "tool_events": []}] * 2
+        self.assertFalse(scenes.SCENES[scenes.TERMS_SEVEN_SCENE].expect(call)["促しは多くて1回"])
