@@ -23,7 +23,7 @@ from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import VOICE_TYPES, Target
 from make_callee_samples import UTTERANCES, make_paused, missing_voices, talk_name, text_and_how
 from meaning_judge import STANDIN, add_judge_args, make_judges
-from flowctl import OWN_PARTS, PROMISE, refusal_in
+from flowctl import OWN_PARTS, PROMISE, SUBSTITUTE_ID, refusal_in
 from review_words import TALK_WORDS, questions as review_questions
 from phrases import CLOSE_DECLINED, CLOSING, STANDARD_PARTS
 
@@ -237,34 +237,49 @@ def played_parts(reply: dict) -> list[str]:
     return [p.get("part", p.get("kind")) for p in reply.get("play") or []]
 
 
-def connect_reply(call: dict) -> dict:
-    """目的の人に繋がったときの返事（流れの制御が、名乗り・用件・最初の質問を流した返事）。繋ぐのは、AIの「目的の人」の報告か、代わった方への
-    名乗りの流し直しの頼み（判定が「ご本人」。Flow._calling_reported の1か所）の、どちらか。"""
+def connected_at(call: dict) -> int | None:
+    """繋いだ所（操作の記録の何番目の返事で繋いだか。繋がらなかった通話は None）の唯一の読み。繋いだ返事（connect_reply）も、繋がる前の操作（before_connect）も、
+    繋いだか（「繋がない」「用件より先へ進まない」ほか）も、どの決まりもここだけを読む。
+    流れの制御が繋いだ1か所（Flow._connect：目的の人・後任の方・判断いただける代わりの方）が残す通話の事実 connect の発話の番号で、次へ進めた返事（next・confirm_required）。
+    事実 connect の無い記録（事実を残す前＝2026-10-21 の途中までの記録と、繋がなかった通話）は、目的の人・後任の方の報告か、代わった方への名乗りの流し直しの頼み（判定が
+    「ご本人」。Flow._calling_reported）で、次へ進めた返事。
+    ⛔ 2026-11-23 分身 BH まで、繋いだ所を2か所で決めていた（繋いだ返事 connect_reply は報告・流し直しの見方だけ＝代わりの方に繋いだ返事を見ない・before_connect はそれか事実）
+    ＝帳面 1 の (6) の (i) の L50 の (b)。既に流した G-57 の記録 3,152通話で：事実のある 927通話は、事実の所がどれも次へ進めた返事に当たり、報告・流し直しの見方もある
+    887通話では2つの見方の所が全部同じ（ほかの40通話は代わりの方に繋いだ）"""
+    log = ops(call)
+    fact = (call.get("facts", {}).get("connect") or [None])[0]
+    if fact:
+        return next((k for k, x in enumerate(log) if x.get("callee_turns") == fact.get("turn") and x["reply"].get("result") in ("next", "confirm_required")), None)
     # かけ直しの質問（C1・C2）が始まった返事は、繋いだ返事ではない（プログラムがかけ直しへ進めた・確かめのあと続きへ戻った＝Flow._callback。
     # ⛔ 2026-10-22 tc28：代わった山田様へのかけ直しの質問を、繋いだ返事と取り違えて「用件を流さない」を外していた）
     # 後任の方へ切り替えたあとの「後任の方」の報告も、目的の人の報告（Flow._calling_reported。⛔ 2026-10-25 J12b 在籍していない S4：お呼びした
     # 田中様にAIが「後任の方」と報告して繋いだ返事を拾わず、あいさつ・名乗り・用件を流したのに「代わった方に全部」を外していた）。切り替えの前の
-    # 「後任の方」は確かめる返事（confirm_target）なので、ここには入らない
-    return next((x["reply"] for x in ops(call)
+    # 「後任の方」は確かめる返事（confirm_target）なので、ここには入らない。
+    # 代わった方を代わりの方と読んで、お立場を伺った返事（質問 SUBSTITUTE_ID）も、繋いだ返事ではない（繋ぐのは「判断できる」のお返事のあと＝Flow._connect の who substitute。
+    # ⛔ 2026-11-23 分身 BH まで、この見方は代わった方への流し直しの頼みにお立場を伺った返事を繋いだ返事と数えていた＝事実 connect の無い（繋がなかった）「目的の人_不在で
+    # 別の方に代わる」の15通話（10-22〜10-25）。そのときは、どの決まりもこの見方で繋いだかを読んでいなかったので、合格・外れは変わっていない）
+    return next((k for k, x in enumerate(log)
                  if ((x["op"] == "report_party" and x["args"].get("party") in ("target", "successor"))
                      or (x["op"] == "replay_opening" and x["args"].get("part") == "handover"))
                  and x["reply"]["result"] in ("next", "confirm_required")
-                 and not str(x["reply"].get("question_id", "")).startswith("C")), {})
+                 and not str(x["reply"].get("question_id", "")).startswith("C") and x["reply"].get("question_id") != SUBSTITUTE_ID), None)
+
+
+def connect_reply(call: dict) -> dict:
+    """繋いだときの返事（目的の人・後任の方へは、あいさつ・名乗り・用件・最初の質問を流した返事・代わりの方へは、お立場を伺ったお返事の報告に次へ進めた返事）。
+    繋がらなかった通話は空。繋いだ所は connected_at の1か所。"""
+    at = connected_at(call)
+    return {} if at is None else ops(call)[at]["reply"]
 
 
 CONNECT_FIRST = "繋がるまで質問を流さない"   # 目的のお客様のある業務のどの場面にも当てる決まりの名前（数えの1か所＝measures）
 
 
 def before_connect(call: dict) -> list[dict]:
-    """目的の人に繋がる前（繋いだ返事より前）の操作の記録。繋がらなかった通話は全部。繋いだ返事は connect_reply（目的の人・後任の方の報告と、代わった方への
-    流し直し）か、それが無ければ、流れの制御が繋いだ1か所（Flow._connect）が残す通話の事実 connect の発話の番号で、次へ進めた返事（代わりの方に繋いだ＝お立場を伺った
-    お返事の報告ほか。2026-11-23 分身 BG：目的のお客様のどの場面にも当てたとき、代わりの方の2場面の38通話で、代わりの方に繋いだ返事を繋ぐ前と数えていた）。
-    ⚠️ 通話の事実 connect は 2026-10-21 より前の記録には無い（その記録は connect_reply だけ。既に流した記録 2,117通話で、2つの見方の繋いだ所は、どちらもある通話では全部同じ）"""
-    log, con = ops(call), connect_reply(call)
-    at = next((k for k, x in enumerate(log) if x["reply"] is con), None)
-    if at is None and (fact := (call.get("facts", {}).get("connect") or [None])[0]):
-        at = next((k for k, x in enumerate(log) if x.get("callee_turns") == fact.get("turn") and x["reply"].get("result") in ("next", "confirm_required")), None)
-    return log[:len(log) if at is None else at]
+    """繋がる前（繋いだ返事より前）の操作の記録。繋がらなかった通話は全部。繋いだ所は connected_at の1か所（2026-11-23 分身 BG：目的のお客様のどの場面にも当てたとき、
+    代わりの方の2場面の38通話で、代わりの方に繋いだ返事を繋ぐ前と数えていた＝通話の事実 connect も見る）。"""
+    log, at = ops(call), connected_at(call)
+    return log if at is None else log[:at]
 
 
 # 目的のお客様を呼ぶ形の名乗りの録音の文（あいさつ・名乗り・呼ぶ一言＝instruction.Business.opening_parts の1か所）。録音の途中で止めた場面の、届いた文とまだの文
@@ -544,7 +559,7 @@ SCENES = {
         "お立場を伺った": "callback_authority" in played_ids(c), "お礼の録音": "offer_thanks" in played_ids(c),
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "お呼びし直さない": not any(r in ("call_target", "confirm_target") for r in replies_to(c, "taken_over_yamada")),
-        "繋がない": not c.get("facts", {}).get("connect"), "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c),
+        "繋がない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c),
         "約束しない": no_promise(c)}),
     # かけ直しの質問の途中で、お呼びした方が戻って代わる（2026-10-22 の見直しで見つけた形。⛔ G-57 tc24：代わって出た岡田様に「恐れ入りますが
     # 何時ごろお戻りになられますでしょうか？」を流し、業務の質問を聞かずに締めた）：1回確かめて繋ぎ、業務の質問を聞いて、ふつうに締める
@@ -597,7 +612,7 @@ SCENES = {
     "目的の人_代わりの方（判断できない）": Scene(TARGET_BUSINESS, [W("hold_target"), W("substitute_offer"), W("authority_no"), W("back_5pm"),
                                                          W("affirm")], lambda c: {
         "お立場を伺った": "callback_authority" in played_ids(c), "お礼の録音": "offer_thanks" in played_ids(c),
-        "用件より先へ進まない": not c.get("facts", {}).get("connect"), "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
+        "用件より先へ進まない": connect_reply(c) == {}, "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "締め": closing_of(c) == CLOSING, "約束しない": no_promise(c)}),
     "目的の人_在籍していない": Scene(TARGET_BUSINESS, [W("departed"), W("successor_hold"), T("taken_over_tanaka")] + FULL, lambda c: {
         "在籍していないと受けた": bool(c.get("facts", {}).get("departed")),
