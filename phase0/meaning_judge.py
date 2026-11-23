@@ -39,7 +39,12 @@ from flowctl import (ABOUT, DATE_TIME_TYPES, ABSENT_WHY, OFFER, ANY, NONE, WAIT_
 REFUSED_HEAD = ("この質問に答えることそのものを、はっきり拒んだ（知らないとは言わずに、答えを言わない・教えられない、と言ったのも。どの答えを選んでも"
                 "要ることを言うのを拒んだのも。")
 REFUSED_TAIL = "選ぶこと・指定することを避けただけの言葉は入れない）"
-SYSTEM_DESC = {ANY: "こちらに任せた・どれでもよい・希望は無い、と言った（選ぶのを頼んだときも。選ぶのを避けただけの言葉は入れない）",
+# 「どちらでも」の説明の「希望は無い」の字（ANY_NO_WISH）。申し出た方法を並べて伺い直す質問・方法を申し出る質問（flowctl.Question.lists_ways）では出さない（system_desc の1か所）：
+# そこでは、受けると言っていない「希望は無い」は申し出へのお断り（「無い」）で、受けると言って方法の希望は無いと言ったのが「どちらでも」＝境目は「無い」の括弧の1か所（flowctl.WISH_NONE_ANY）。
+# ⛔ 分身 AW まで、両方に書いていた＝束 au1・束 av1 の2回とも、読み手2人とも「いえ、特に希望はないです。」を「どちらでも」とも読み、2人とも、境目が「どちらでも」の説明の「希望は無い」と
+#    「無い」の括弧の2か所に書かれていると書いた（帳面 0-3 の (a)「境目の決まりは1か所だけに書く」・CL-1 の読み rv200/rr_av.txt の (2)）
+ANY_NO_WISH = "・希望は無い"
+SYSTEM_DESC = {ANY: f"こちらに任せた・どれでもよい{ANY_NO_WISH}、と言った（選ぶのを頼んだときも。選ぶのを避けただけの言葉は入れない）",
                # ⛔ 2026-11-15（F4 の (c)・帳面 1 の (1)）：「確かめていない」をここに、「確かめる・調べる・人に聞く、と言っただけ」を「決められない」の説明に
                #    書いていて、同じ場面が2つの説明に入っていた（正解の表は 924行で両方を正解にした＝流れの制御は、ご希望の質問の最初の答えで「わからない」なら
                #    選ぶ助け・「決められない」なら聞き直す、と動きが違う）⇒ ご自分がいまは答えを持っていないと言った場面は、この1か所に書く（あとで確かめる、は
@@ -85,9 +90,12 @@ def system_desc(q, c: str) -> str:
     """システムが足す選べるもの（どちらでも・わからない・答えたくない）の説明（唯一の場所。options が使う）：事実を伺う質問（Question.asks_fact）の
     「答えたくない」は、控える・断る返事も入れる（⛔ 2026-10-31 の夜：「ご予約はされていますでしょうか？」への「差し控えさせていただきます」を、
     d1-ultra と Jev が3回の測りとも「いいえ」と読んだ＝申し出への断りの決まりを、事実の質問に当てた見込み）。どちらの場合もありうるときに確かめる答えの
-    ある質問（Question.maybe）の「どちらでも」は、どちらにもなりうると言った答え（MAYBE_DESC）。"""
+    ある質問（Question.maybe）の「どちらでも」は、どちらにもなりうると言った答え（MAYBE_DESC）。申し出た方法を並べて伺い直す質問・方法を申し出る質問（Question.lists_ways）の
+    「どちらでも」は、「希望は無い」の字（ANY_NO_WISH）を出さない（境目は「無い」の括弧の1か所＝flowctl.WISH_NONE_ANY。分身 AW）。"""
     if c == ANY and getattr(q, "maybe", ()):
         return MAYBE_DESC
+    if c == ANY and getattr(q, "lists_ways", False):
+        return SYSTEM_DESC[ANY].replace(ANY_NO_WISH, "", 1)
     if c == "unknown" and getattr(q, "type", "") in DATE_TIME_TYPES:
         return SYSTEM_DESC[c].removesuffix("）") + "。" + UNKNOWN_DATE + "）"
     return REFUSED_FACT if c == "refused" and getattr(q, "asks_fact", False) else SYSTEM_DESC[c]

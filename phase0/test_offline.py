@@ -54221,3 +54221,32 @@ class AWReaderBordersTest(unittest.TestCase):
         self.assertTrue({(ANY, "answer"), (UNDECIDED, "answer")} <= got, got)
         b = next(b for b, t, _ in g68.CASES + g68.NEW_CASES if t == self.SAME_TOO[-1])
         self.assertEqual([(e["束"], e["読み手"], e["値"]) for e in RA.of("G-68", (b, self.SAME_TOO[-1]))], [("av3", "A", UNDECIDED)])
+
+
+class AWAnyNoWishOnceTest(unittest.TestCase):
+    """分身 AW（束 av1 の #5「いえ、特に希望はないです。」＝CL-1 の読み rv200/rr_av.txt の (2)。CL-1 が書いてある決まりで決めた＝伺わない）：読み手2人とも答えを「どちらでも」「決められない」とも
+    読み、2人とも、「どちらでも」の説明「こちらに任せた・どれでもよい・希望は無い、と言った」の「希望は無い」と、「無い」の括弧「ご案内やお送りは受けると言って…方法の希望は無い、と言ったのは
+    「どちらでも」」（受けると言ったときだけ）の2か所に境目があると書いた（束 au1 に続いて2回目）＝帳面 0-3 の (a)「境目の決まりは1か所だけに書く」：申し出た方法を並べて伺い直す質問・
+    方法を申し出る質問（Question.lists_ways）の「どちらでも」の説明から、受けると言っていない「希望は無い」を指しうる字を外し、境目は「無い」の括弧（flowctl.WISH_NONE_ANY）の1か所にする。
+    ふつうの選ぶ質問の「どちらでも」の説明は変えない（その質問には、受けるかを分ける「無い」の括弧が無い）"""
+
+    def test_1_the_offer_question_writes_the_border_once(self):
+        import g53_meaning as G
+        import review_words as rw
+        from flowctl import ANY, WISH_NONE, WISH_NONE_ANY
+        from meaning_judge import SYSTEM_DESC, options, system_desc
+        qm = G.question_map() | rw.questions()
+        lw = [q for q in qm.values() if getattr(q, "lists_ways", False)]
+        self.assertTrue(lw)
+        for q in lw:
+            desc = {c: d for _, d, c in options(q)}
+            shown = {c: n + d for n, d, c in options(q)}   # 判定に見せる名前と説明（意味の言葉は名前に出る）
+            self.assertNotIn("希望は無い", shown[ANY], q.id)
+            self.assertEqual(desc[ANY], system_desc(q, ANY))
+            self.assertIn(WISH_NONE_ANY, shown[WISH_NONE], q.id)   # 境目は「無い」の括弧の1か所
+            self.assertEqual(sum("希望は無い" in d for d in shown.values()), 1, q.id)
+            self.assertTrue(desc[ANY].startswith("こちらに任せた・どれでもよい、と言った"), desc[ANY])
+        # ふつうの選ぶ質問は今のまま
+        plain = next(q for q in qm.values() if ANY in q.all_conditions and not getattr(q, "lists_ways", False) and not getattr(q, "maybe", ()))
+        self.assertEqual(system_desc(plain, ANY), SYSTEM_DESC[ANY])
+        self.assertIn("希望は無い", SYSTEM_DESC[ANY])
