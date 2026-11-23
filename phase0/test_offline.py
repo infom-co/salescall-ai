@@ -55288,7 +55288,7 @@ class BDRemadeWishRowsTest(unittest.TestCase):
                 self.assertLessEqual(set(G.accept(it)), {c for _, _, c in options(shown)})
                 self.assertLessEqual(set(G.near_truths(it)), set(near_choices(False, shown)))
                 self.assertEqual(it["label"]["misgiving"], [MISGIVING_OFF])
-                self.assertIn("⏳ 仮（束 bd1）", it["label"]["why"])
+                self.assertIn("束 bd1 の読み手2人とも正解の中（仮を外した＝分身 BF）", it["label"]["why"])   # 仮を外した（分身 BF の (1)＝BFReaderBordersBd1Test）
                 self.assertFalse(any(w.startswith((G.SCENE_MISSING, G.OTHER_ACT)) for w in G.step_wants(it, q, False)))
 
     def test_2_the_old_rows_stay_once_and_nothing_is_counted_twice(self):
@@ -55613,3 +55613,23 @@ class BDCloseOfferEvidenceTest(unittest.TestCase):
                 c = self.call(rest)
                 (fact,) = c.f.facts["close_offer"]
                 self.assertEqual((fact["agreed"], fact["said"], fact["turn"]), (True, "はい、お願いします。", c.f.callee_turns))
+
+
+class BFReaderBordersBd1Test(unittest.TestCase):
+    """分身 BF の (1)（束 bd1 の読み手の結果＝CL-1 の並べた表 rv202/w/bd1_out.txt。CL-1 が書いてある決まりで決めた＝伺わない）：W1@E1 の作り直した3行（review_words.REMADE_ROWS）は、
+    答えと答えのほかの項目（いちばん近い答え・電話を終える言葉か・こちらへ尋ねた問い・ほかの会社・聞こえ方）を、答えを伏せた読み手 A・B が2人とも正解の中で読んだ（迷っているか・
+    理由・番号違い・言い切りも2人とも同じ読み）＝「⏳ 仮（束 bd1）」を外す。正解の値は変えない（判定に送る文・流れの制御は変わらない）"""
+
+    NEW = BDRemadeWishRowsTest.NEW
+
+    def test_the_bd1_rows_are_no_longer_provisional_and_keep_their_truths(self):
+        import g53_meaning as G
+        import review_words as rw
+        rows = {it["text"]: it for it in rw.answer_words() if it["text"] in self.NEW}
+        self.assertEqual(sorted(rows), sorted(self.NEW))
+        for text, it in rows.items():
+            with self.subTest(text=text):
+                why = it["label"]["why"]
+                self.assertNotIn("⏳ 仮", why)
+                self.assertTrue(why.endswith("束 bd1 の読み手2人とも正解の中（仮を外した＝分身 BF）"), why[-80:])
+        self.assertEqual([sorted(G.accept(rows[t])) for t in self.NEW], [["無い"], ["無い"], sorted(["決められない", "考えている途中"])])
