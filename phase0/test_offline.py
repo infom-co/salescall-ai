@@ -54536,3 +54536,67 @@ class AXNearAnyTest(unittest.TestCase):
             f = self.w1()
             r = NearAnswerTest.said(None, f, self.WORDS, [NearAnswerTest.rd(near), NearAnswerTest.rd(near)])
             self.assertEqual(r["result"], "callee_asked", near)   # 会話AIがひとこと応えて申し出を伺い直す番（今のまま）
+
+
+class AXLadderRestTest(unittest.TestCase):
+    """分身 AX の (2)（分身 AW の書き置きの 6章の (3)＝帳面 1 の (6) の (i) の L37。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIが「ほかに言われたこと」（rest）に書いた時刻は、
+    日時の2択の段の次の2択でも、次に伺う質問へ進むときと同じ1か所（_offer_ahead＝「はい、」だけを流し、その言葉に次の2択の答えがあれば受け取る・無ければ2択を流す）で使う
+    （Flow._ladder_ask）。✅ 本書 9-3「取得済みのことを重ねて聞かない」・2026-11-04 日本時間20時27分の (2)・2026-11-19 日本時間14時18分13秒（お客様がもう言った所から先の2択だけを伺う）・
+    本書 9-4 の「担当者が不在」の行の【決まりで決めた】(b)。⛔ それまでは、申し出への「夜の七時以降に、もう一度かけてもらえますか。」を「あとでかけ直す」と読み、会話AIが質問に戻る報告に
+    「夜の七時以降」を添えても、平日と土日の2択のあと「お時間は午前と午後のどちらがよろしいでしょうか？」と伺った（持ったまま使わなかった）"""
+
+    WORDS = "夜の七時以降に、もう一度かけてもらえますか。"
+
+    def call(self):
+        """測りの場面 W1@E1（担当者からのお電話のご案内＝最終目的）を言い切らずに断ったあとの申し出への WORDS を、判定の組が正解の表の読み「あとでかけ直す」と読み、会話AIが
+        質問に戻る報告に「夜の七時以降」を添えた。返り値＝(流れの制御, 平日と土日の2択への「平日でお願いします。」の返事)"""
+        import dataclasses
+        import g53_meaning as G
+        import scenes
+        from g73_system_words import wish_scenes
+        from flowctl import END, END_NONE, HEAR, HEAR_OK, QUERY, QUERY_NO
+        from meaning_judge import Reading
+
+        def rd(v, firm=True):
+            r = Reading(v, firm)
+            setattr(r, QUERY, QUERY_NO); setattr(r, END, END_NONE); setattr(r, HEAR, HEAR_OK)
+            return r
+
+        def hear(f, words, reading):
+            f.on_callee(); f.on_heard(words); f.on_check("ear", words)
+            for k in ("judge", "judge2"):
+                f.on_check(k, reading)
+            f.on_decided()
+        qm = G.question_map()
+        of = wish_scenes(qm)["W1@E1"][0]
+        f = dataclasses.replace(scenes.BUSINESS, questions=[of], info=[]).flow(recorded=True, play_recordings=True)
+        f.use_checks("ear", "judge", "judge2")
+        f.on_connect(); f.on_callee(); f.on_heard("はい、もしもし。")
+        r = f.apply("report_party", {"party": "person"})
+        if r.get("result") not in ("opening", "end"):
+            f.on_first_words_end()
+        hear(f, "うーん、お電話はちょっと…。", rd("いいえ", False))
+        f.apply("record_answer", {"question_id": of.id, "condition_id": "いいえ"})
+        later = next(x for x in G.label_readings({"set": "W1", "qid": "W1@E1", "text": self.WORDS}, qm["W1@E1"], False) if str(x) == "あとでかけ直す")
+        hear(f, self.WORDS, later)
+        self.assertEqual(heard_words(f.judged_turn(voiced=False)), "はい、")
+        r = f.apply("replay_opening", {"part": "resume", "rest": "夜の七時以降"})
+        self.assertEqual(heard_words(r), "承知しました。それでは平日と土日のどちらがよろしいでしょうか？")
+        hear(f, "平日でお願いします。", rd("答えた"))
+        return f, f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "平日"})
+
+    def test_1_the_kept_time_is_offered_at_the_next_pair(self):
+        f, r = self.call()
+        self.assertTrue(r.get("ahead_offer"), r)
+        self.assertEqual(heard_words(r), "はい、")
+        self.assertIn("「夜の七時以降」", r["message"])
+        self.assertIn("お時間は午前と午後のどちらがよろしいでしょうか？", r["message"])
+        # 会話AIが、ほかに言われたことにある答えを報告した：午前と午後・時刻を重ねて伺わず、伺えた所と合わせて言い直して確かめる（「はい、」のあとの受けの言葉＝11-04 20時27分の文の形）
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "夜の七時以降"})
+        self.assertEqual((r["result"], heard_words(r)), ("confirm_required", "ありがとうございます。平日の19時以降、午後7時以降でよろしいでしょうか？"))
+        self.assertNotIn("午前と午後", heard_words(r))
+
+    def test_2_without_an_answer_the_pair_is_asked(self):
+        f, r = self.call()
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertTrue(heard_words(r).endswith("お時間は午前と午後のどちらがよろしいでしょうか？"), heard_words(r))

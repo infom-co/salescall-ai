@@ -11940,13 +11940,16 @@ class Flow:
         答えを当てる言葉は、判定のどれかが、いまの質問の答えと読んだいちばん新しい言葉：いまの発話で報告した（相手に応える前・応えた直後）・
         いまの発話を判定が答えと読んだ（「あ、やっぱりまだでした」と言い直された）なら None＝いまの言葉のまま。
         言い直しへの返事として覚えた言葉（confirm＝待つかかけ直すかを伺っている間に、伺う前の言い直しに返事をした＝_wait_left）は、言い直しへの返事の報告
-        （confirm_field）にだけ当てる。"""
+        （confirm_field）にだけ当てる。いまの発話のうちに伺う番を開いた先に言われた答え（offered がいまの発話）は、いまの発話の答えの読みでは外さない：いまの発話の答えは、
+        その番を開いた報告がもう受け取った（日時の2択の段の次の2択＝同じ質問の次の2択を、先に言われた答えで伺う番＝_ladder_ask。分身 AX の (2)）"""
         h = self.answer_held
         if name not in ("record_answer", "confirm_field") or h is None or (h["turn"] == self.callee_turns and not h.get("ahead")):
             return None
         if (name == "confirm_field") != bool(h.get("confirm")):
             return None
-        if args.get("question_id") != h["qid"] or h["qid"] != self.current or self._heard_answer(self.questions[h["qid"]]):
+        if args.get("question_id") != h["qid"] or h["qid"] != self.current:
+            return None
+        if h.get("offered") != self.callee_turns and self._heard_answer(self.questions[h["qid"]]):
             return None
         return h
 
@@ -18410,7 +18413,14 @@ class Flow:
         あらためてご連絡させていただきますね。」＝共通の一言の録音）のあとに続ける。先に言われた答え（伺う前のお話に日時があった＝場面C・ahead）から進むときは、
         その答えを受ける一言（言い直しの頭と同じ「ありがとうございます。」）。again＝同じ2択へもう一度伺う（答えがほかの所だけを埋めた）：頭はもう伺った質問へ戻る
         「それでは」（question_play の again＝phrases.again_fit の1か所）。聞き返しの回数には数えない。
-        ⛔ d54df841 まで、相づちを付けない例外だった（「⇒間髪おかず」「⇒すぐに」を相づち無しと読んでいた＝まとめ役の続きの (3)）"""
+        ⛔ d54df841 まで、相づちを付けない例外だった（「⇒間髪おかず」「⇒すぐに」を相づち無しと読んでいた＝まとめ役の続きの (3)）
+        まだ使っていない「ほかに言われたこと」（先に言われた答え＝_take_rest が持ち続ける self.ahead）があれば、次の2択も、次に伺う質問へ進むときと同じ1か所（_offer_ahead＝
+        「はい、」だけを流し、その言葉に次の2択の答えがあれば受け取る・無ければ2択を流す）で伺う（✅ 2026-11-04 日本時間20時27分の (2)・2026-11-19 日本時間14時18分13秒＝お客様がもう
+        言った所から先の2択だけを伺う・本書 9-3・9-4 の「担当者が不在」の行の【決まりで決めた】(b)）。土日を選ばれた受けの一言を流す2択（weekend）は今のまま（受けの一言のすぐあとに
+        2択が続く決まった形）＝持ち続けて、その次の2択で使う。⛔ 分身 AX の (2)（分身 AW の書き置きの 6章の (3)＝帳面 1 の (6) の (i) の L37）まで、2択の段の次の2択では使わず、
+        申し出への「夜の七時以降に、もう一度かけてもらえますか。」の「夜の七時以降」を持ったまま「お時間は午前と午後のどちらがよろしいでしょうか？」と伺った"""
+        if not weekend and (r := self._offer_ahead(self.questions[qid], "受け付けました。")) is not None:
+            return r
         line = question_play(self._plays(), qid, again=again)
         plays = [*([{"kind": "recorded", "id": TIME_LADDER_IDS["weekend"], "text": TIME_LADDER["weekend"]}] if weekend else []), line]
         say = "".join(p["text"] for p in plays)
