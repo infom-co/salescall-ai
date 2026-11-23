@@ -28277,11 +28277,13 @@ class AsideTest(unittest.TestCase):
             h = self.flow(reworded=reworded)
             r = waited(h)
             self.assertEqual(([(p["id"], p["text"]) for p in r["play"]], r.get("ack")), (play, ack), reworded)
-        # 録音で流す形の一覧：増えるのは、選択肢を並べた文のある選ぶ質問ごとに1本（頭は無い・読点は入れない＝10-15）。言い換えた質問・元の質問の頭の無い形は前から
-        # 一覧にある
+        # 録音で流す形の一覧：増えるのは、選択肢を並べた文のある選ぶ質問ごとに1本（頭は無い・読点は入れない＝10-15）と、その文の3回目からの戻る一言に続ける形1本
+        # （分身 BF の (6)・L47）。言い換えた質問・元の質問の頭の無い形は前から一覧にある
+        from phrases import BACK_TO_MIDWAY, question_clip
         forms = {(p["id"], p.get("lead") or ""): p["text"] for p in question_forms(list(self.flow(alternatives=self.ALT).questions.values()), "Q2")}
         before = {(p["id"], p.get("lead") or ""): p["text"] for p in question_forms(list(self.flow().questions.values()), "Q2")}
-        self.assertEqual({k: v for k, v in forms.items() if k not in before}, {("Q2" + ALTERNATIVES_SUFFIX, ""): self.ALT})
+        self.assertEqual({k: v for k, v in forms.items() if k not in before},
+                         {("Q2" + ALTERNATIVES_SUFFIX, ""): self.ALT, ("Q2" + ALTERNATIVES_SUFFIX, BACK_TO_MIDWAY): BACK_TO_MIDWAY + self.ALT})
         self.assertNotIn("、", self.ALT)
 
     def test_the_alternatives_put_first_the_option_our_word_touched(self):
@@ -29369,7 +29371,8 @@ class ReaskOneTest(unittest.TestCase):
         for _ in range(3):
             self.asked(f)
             got.append(self.heard(self.nod(f)))
-        self.assertEqual(got, [self.a.ALT, BACK_LINES[1][1] + self.a.PAY, BACK_LINES[2][1] + self.a.PAY])
+        # 3回目の戻りは「確認の途中でしたので…」＋その所でまだ言っていない形（言い換えた質問＝分身 BF の (6)・L47。⛔ それまでは2回目と同じ元の質問）
+        self.assertEqual(got, [self.a.ALT, BACK_LINES[1][1] + self.a.PAY, BACK_LINES[2][1] + self.a.PAY2])
         # B の外：言い換えも並べた文も無い質問は、1回目の戻りでも同じ文をすぐくり返さない（言い方を変えられない＝2回目の戻りの一言から）
         f = self.a().flow(reworded="")
         self.asked(f)
@@ -30763,8 +30766,8 @@ class ImportFormsReviewTest(unittest.TestCase):
         asked = dataclasses.replace(offered, do_words={})
         self.assertEqual((leads_fit(offered), leads_fit(asked)), (False, True))
         ids = lambda q: sorted(p["id"] for p in question_forms([q], "Q2") if "_alternatives" in p["id"])
-        self.assertEqual(ids(offered), ["Q2_alternatives"])
-        self.assertEqual(ids(asked), ["Q2_alternatives", "Q2_alternatives_2"])
+        self.assertEqual(ids(offered), ["Q2_alternatives"] * 2)   # 頭の無い形と、3回目からの戻る一言に続ける形（分身 BF の (6)・L47）
+        self.assertEqual(ids(asked), ["Q2_alternatives", "Q2_alternatives", "Q2_alternatives_2"])
         seen = []
 
         def by_model(client, model, its, think=False):
@@ -37260,14 +37263,15 @@ class AsideSecondReturnTest(unittest.TestCase):
                     self.assertIn(f"「{BACK_TO_AGAIN}」", r["message"])
                 # 判定と会話AIへの知らせは、お客様が聞いた文（元の質問）で読む
                 self.assertEqual((f.questions["Q2"].text, f.judge_context()[0].text), (a.PAY, a.PAY), (alt, play))
-                # 3回目の戻り：「確認の途中でしたので…」＋元の質問（1つの文）
+                # 3回目の戻り：「確認の途中でしたので…」＋その所でまだ言っていない形（1つの文）＝選択肢を並べた文があればそれ・無ければいちばん前に聞いた形（「ところで」で
+                # 言った言い換えた質問の頭の無い形）。⛔ 分身 BF の (6)（帳面 1 の (6) の (i) の L47・CL-1 が決めた）まで「確認の途中でしたので…」＋元の質問（直前の2回目と同じ質問）
                 r = self.asked_back(f, "カードだと分割できます？", self.OWN2)
+                third = alt or a.PAY2
                 if play:
-                    self.assertEqual([p["text"] for p in r["play"]], [BACK_TO_MIDWAY + a.PAY], (alt, play))
+                    self.assertEqual([p["text"] for p in r["play"]], [BACK_TO_MIDWAY + third], (alt, play))
                 else:
-                    self.assertIn(f"Q2「{a.PAY}」", r["message"]); self.assertIn(f"「{BACK_TO_MIDWAY}」から話し始めて", r["message"])
-                    self.assertNotIn(a.PAY2, r["message"])
-                self.assertEqual(f.questions["Q2"].text, a.PAY)   # 3回目のあとも、判定と会話AIへの知らせは元の質問の文
+                    self.assertIn(f"Q2「{third}」", r["message"]); self.assertIn(f"「{BACK_TO_MIDWAY}」から話し始めて", r["message"])
+                self.assertEqual(f.questions["Q2"].text, third)   # 判定と会話AIへの知らせは、お客様が聞いた形の文
         # 別のお話が続いた2回目（_talk_again）も同じ1か所：ひとこと＋戻る一言＋元の質問（録音で流す通話・会話AIが話す通話）
         hot = "本当に暑い日が続いておりますね。"
         for play in (True, False):
@@ -37280,8 +37284,8 @@ class AsideSecondReturnTest(unittest.TestCase):
                 self.assertIn(f"Q2「{a.PAY}」", r["message"]); self.assertIn(f"「{BACK_TO_AGAIN}」", r["message"])
                 self.assertNotIn(a.PAY2, r["message"])
             self.assertEqual(f.questions["Q2"].text, a.PAY, play)
-        # 録音：2回目・3回目からの元の質問の形は、今の一覧にある（元の質問の戻る一言のあとの形）。言い換えた質問の「確認の途中でしたので…」の形は流れないので、
-        # 一覧に載せない（言い換えた質問の頭の無い形＝意向が分からないまま戻る形・重ねて急かされた4回目と同じ録音は残る）
+        # 録音：2回目・3回目からの元の質問の形は、今の一覧にある（元の質問の戻る一言のあとの形）。言い換えた質問の「確認の途中でしたので…」の形も、3回目からの戻りで
+        # まだ言っていない形として流れうるので一覧に載せる（分身 BF の (6)・L47。⛔ それまでは流れないので載せなかった）
         from flowctl import aside_form, question_forms
         f = a.flow()
         qs = list(f.questions.values())
@@ -37292,7 +37296,7 @@ class AsideSecondReturnTest(unittest.TestCase):
         aq = [aside_form(x) if x.id == "Q2" else x for x in qs]
         mid = question_play(aq, "Q2", again=True, before=BACK_TO_MIDWAY)
         self.assertEqual(mid["text"], BACK_TO_MIDWAY + a.PAY2)
-        self.assertNotIn((mid["id"], mid.get("lead") or ""), keys)
+        self.assertEqual(keys.get((mid["id"], mid.get("lead") or "")), mid["text"])
         self.assertEqual(keys.get(("Q2_aside_again", "")), a.PAY2)
 
 
@@ -51668,8 +51672,10 @@ class _SceneCall:
         self.played(r)
 
     def words(self, line: dict) -> str:
-        from make_callee_samples import UTTERANCES, text_and_how
-        return text_and_how(UTTERANCES[line["wav"].removeprefix("Puck_").removesuffix(".wav")])[0]
+        # 間を長くした台詞（make_callee_samples.PAUSED）は、もとの台詞の言葉（2026-11-23 分身 BG：「目的の人_名前を確かめてから名乗りを聞かれる」を通すため）
+        from make_callee_samples import PAUSED, UTTERANCES, text_and_how
+        uid = line["wav"].removeprefix("Puck_").removesuffix(".wav")
+        return text_and_how(UTTERANCES[PAUSED.get(uid, (uid,))[0]])[0]
 
     def heard(self, reading=None) -> str:
         """次の台詞を相手が話した（判定の読み reading を、2つの判定の受け持ちとも同じに届ける）。"""
@@ -55218,7 +55224,7 @@ class BEG22TargetScenesTest(unittest.TestCase):
             m = scenes.measures(c.call(), name)
             self.assertTrue(m["pass"], (name, m["checks"]))
             want = {"名乗りと呼ぶ一言" if cut in (0, 1) else "用件と呼ぶ一言" if cut == 2 else "言ったことをもう一度", "自分の言葉で話さない",
-                    "聞いた方には確かめも質問も流さない", "繋がるまで質問を流さない", "取り次ぎの間は話さない", "代わった方に全部", "答えが取れた", "断らない"}
+                    "聞いた方には確かめもお呼びし直しも質問も返さない", "繋がるまで質問を流さない", "取り次ぎの間は話さない", "代わった方に全部", "答えが取れた", "断らない"}
             self.assertEqual(set(m["checks"]), want, name)
 
     def test_3_wrong_shapes_are_counted_as_misses(self):
@@ -55255,7 +55261,7 @@ class BEG22TargetScenesTest(unittest.TestCase):
         # (6) 聞き返した方に確かめる一言を流した
         bad = copy.deepcopy(call)
         bad["turns"][1]["tool_events"][0]["reply"] = "confirm_target"
-        self.assertEqual(scenes.measures(bad, name)["failed"], ["聞いた方には確かめも質問も流さない"])
+        self.assertEqual(scenes.measures(bad, name)["failed"], ["聞いた方には確かめもお呼びし直しも質問も返さない"])
 
 
 class BDRemadeWishRowsTest(unittest.TestCase):
@@ -55288,7 +55294,7 @@ class BDRemadeWishRowsTest(unittest.TestCase):
                 self.assertLessEqual(set(G.accept(it)), {c for _, _, c in options(shown)})
                 self.assertLessEqual(set(G.near_truths(it)), set(near_choices(False, shown)))
                 self.assertEqual(it["label"]["misgiving"], [MISGIVING_OFF])
-                self.assertIn("⏳ 仮（束 bd1）", it["label"]["why"])
+                self.assertIn("束 bd1 の読み手2人とも正解の中（仮を外した＝分身 BF）", it["label"]["why"])   # 仮を外した（分身 BF の (1)＝BFReaderBordersBd1Test）
                 self.assertFalse(any(w.startswith((G.SCENE_MISSING, G.OTHER_ACT)) for w in G.step_wants(it, q, False)))
 
     def test_2_the_old_rows_stay_once_and_nothing_is_counted_twice(self):
@@ -55613,3 +55619,301 @@ class BDCloseOfferEvidenceTest(unittest.TestCase):
                 c = self.call(rest)
                 (fact,) = c.f.facts["close_offer"]
                 self.assertEqual((fact["agreed"], fact["said"], fact["turn"]), (True, "はい、お願いします。", c.f.callee_turns))
+
+
+class BGTargetCountsInOnePlaceTest(unittest.TestCase):
+    """分身 BG（帳面 1 の (6) の (i) の L42・分身 BE の書き置き rv202/BE/notes.md の 6章の (2)(3)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIの通話の試験 G-57 の
+    目的のお客様の場面の数え方を1か所に。(a) 録音のあとに名乗り・用件を聞かれた2場面（「目的の人_名前を確かめてから名乗りを聞かれる」「目的の人_用件を聞かれる」）も、録音の途中で
+    話し始めた・もう一度の4場面と同じ数えの1か所（scenes.replayed_to_reception）で数え、聞いた方に返さない返事（目的の人かの確かめ・別の方としてのお呼びし直し・次の質問）の
+    決まりの名前を1つにする（中身の全部を言い表す名前＝帳面 0-3 の (12)・共通の決まり「同じ問いに答える所を2つ作らない」）。(b)「繋がるまで質問を流さない」（本書 9-4 の
+    目的のお客様の (2)「繋がるまで：最初の質問を渡さない」）を、目的のお客様のある業務のどの場面にも、数えの1か所（scenes.measures）で当てる（10-19「同じ理由が当たる場面
+    すべてに当てる」）。繋いだ所は、繋いだ返事（目的の人・後任の方の報告・代わった方への流し直し）か、流れの制御が繋いだ1か所の通話の事実 connect（代わりの方に繋いだ）。"""
+
+    ASKED = {"目的の人_名前を確かめてから名乗りを聞かれる": ("okada_whois_pause", "intro", ["intro", "target"], "名乗りと呼ぶ一言"),
+             "目的の人_用件を聞かれる": ("what_for", "purpose", ["purpose", "target"], "用件と呼ぶ一言")}
+    ASKER = "聞いた方には確かめもお呼びし直しも質問も返さない"
+    FIRST = "繋がるまで質問を流さない"
+
+    def drive(self, name: str):
+        """場面を本番の流れの制御に通す（会話AIの正しい報告と判定の正しい読み＝分身 BE の BEG22TargetScenesTest.drive と同じ形・録音は止めずに流し切った）。"""
+        from flowctl import ASKS_NO, ASKS_YES
+        from meaning_judge import Reading
+        c = _BEBargeCall(name)
+        c.calling("同受xx", ASKS_YES)   # 受付の方が、こちらの名乗り（どちら様）・用件（ご用件）を尋ねた
+        replay = c.report("replay_opening", {"part": self.ASKED[name][1]})
+        c.calling("同受待x", ASKS_NO)   # 「岡田ですね。少々お待ちください。」＝取り次ぎを待つ
+        c.report("report_party", {"party": "reception"})
+        c.calling("違本xx", ASKS_NO)    # 「お電話代わりました。岡田です。」＝前と違う方・ご本人
+        c.report("report_party", {"party": "target"})
+        c.heard(Reading("はい"))
+        c.report("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        return c, replay
+
+    def test_1_the_two_asked_scenes_are_counted_in_the_one_place(self):
+        import scenes
+        for name, (line, _, heard, head) in self.ASKED.items():
+            with self.subTest(name=name):
+                c, replay = self.drive(name)
+                self.assertEqual((replay["result"], scenes.played_parts(replay)), ("replayed", heard))
+                m = scenes.measures(c.call(), name)
+                self.assertTrue(m["pass"], m["checks"])
+                self.assertEqual(set(m["checks"]), {head, "自分の言葉で話さない", self.ASKER, self.FIRST, "取り次ぎの間は話さない", "代わった方に全部", "答えが取れた",
+                                                    "断らない"})
+        # 聞いた方に返さない返事の決まりの名前は、録音の途中で話し始めた・もう一度の4場面とも同じ1つ（前は「聞いた方には確かめも用件も流さない」と「…確かめも質問も流さない」）
+        empty = {"turns": [], "flow_log": [], "items": {}, "facts": {}}
+        for name in (*self.ASKED, *scenes.G22_TARGET_SCENES):
+            self.assertIn(self.ASKER, scenes.measures(empty, name)["checks"], name)
+            self.assertFalse({k for k in scenes.measures(empty, name)["checks"] if k.startswith("聞いた方")} - {self.ASKER}, name)
+
+    def test_2_wrong_shapes_in_the_two_asked_scenes(self):
+        import copy
+        import scenes
+        for name, (line, *_) in self.ASKED.items():
+            with self.subTest(name=name):
+                call = self.drive(name)[0].call()
+                # (1) 聞いた受付の方へのターンで、会話AIが自分の声で話した（前の数えでは「目的の人_名前を確かめてから名乗りを聞かれる」は数えていなかった）
+                bad = copy.deepcopy(call)
+                bad["turns"][1]["said_events"] = [{"text": "アオバ物流の佐藤と申します。"}]
+                self.assertEqual(scenes.measures(bad, name)["failed"], ["自分の言葉で話さない"])
+                # (2) 聞いた方に目的の人かを確かめた（前の数えでは「目的の人_用件を聞かれる」は数えていなかった）
+                bad = copy.deepcopy(call)
+                bad["turns"][1]["tool_events"][0]["reply"] = "confirm_target"
+                self.assertEqual(scenes.measures(bad, name)["failed"], [self.ASKER])
+
+    def test_3_connect_first_in_every_target_scene(self):
+        import scenes
+        empty = {"turns": [], "flow_log": [], "items": {}, "facts": {}}
+        for name, sc in scenes.SCENES.items():
+            self.assertEqual(self.FIRST in scenes.measures(empty, name)["checks"], sc.business.target is not None, name)
+        # 繋がる前に質問を流した（取り次ぎを待つと言った受付の方に最初の質問）：前はこの決まりを数えていなかった場面でも外れ
+        q1 = {"kind": "question", "id": "Q1", "text": "ご予約はされていますでしょうか？"}
+        for name in ("目的の人_取り次ぎ", "目的の人_不在", "目的の人_代わりの方（判断できる）", "第一声でご本人が名乗る"):
+            bad = {**empty, "flow_log": [{"op": "report_party", "args": {"party": "reception"}, "reply": {"result": "hold", "play": [q1]}, "callee_turns": 1}]}
+            self.assertIn(self.FIRST, scenes.measures(bad, name)["failed"], name)
+
+    def test_4_records_already_run(self):
+        """既に流した記録（results）で：代わりの方に繋いだ返事（お立場を伺ったお返事の報告）は繋いだ所（通話の事実 connect）＝そのあとの質問は外れにしない。
+        録音のあとに名乗りを聞かれた受付の方へのターンで、会話AIが自分の声で話した通話は外れ（前の数えでは合格）。"""
+        import scenes
+        def row(f, i):
+            return json.load(open(f"results/{f}", encoding="utf-8"))["rows"][i]
+        sub = row("G-57J11a_20261025_000826.json", 63)
+        self.assertEqual((sub["scene"], sub["facts"]["connect"][0]["who"]), ("目的の人_代わりの方（判断できる）", "substitute"))
+        self.assertEqual(scenes.connect_reply(sub), {})   # 繋いだ返事の見方（目的の人・後任の方・代わった方への流し直し）では見えない
+        m = scenes.measures(sub, sub["scene"])
+        self.assertTrue(m["pass"], m["failed"])
+        self.assertIn(self.FIRST, m["checks"])
+        before = scenes.before_connect(sub)
+        self.assertEqual([x["op"] for x in before][-1:], ["report_party"])   # 繋いだのは次の record_answer（お立場の質問 S1 への「判断できる」）
+        self.assertFalse(any("question" in scenes.played_parts(x["reply"]) for x in before))
+        own = row("G-57tc16_20261022_092940.json", 10)   # 「どちら様でしょうか？」に会話AIが自分の声で「申し訳ございません。アオバ物流の佐藤様ですか?」
+        self.assertEqual((own["scene"], own["pass"]), ("目的の人_名前を確かめてから名乗りを聞かれる", True))
+        self.assertEqual(scenes.measures(own, own["scene"])["failed"], ["自分の言葉で話さない"])
+
+
+class BFReaderBordersBd1Test(unittest.TestCase):
+    """分身 BF の (1)（束 bd1 の読み手の結果＝CL-1 の並べた表 rv202/w/bd1_out.txt。CL-1 が書いてある決まりで決めた＝伺わない）：W1@E1 の作り直した3行（review_words.REMADE_ROWS）は、
+    答えと答えのほかの項目（いちばん近い答え・電話を終える言葉か・こちらへ尋ねた問い・ほかの会社・聞こえ方）を、答えを伏せた読み手 A・B が2人とも正解の中で読んだ（迷っているか・
+    理由・番号違い・言い切りも2人とも同じ読み）＝「⏳ 仮（束 bd1）」を外す。正解の値は変えない（判定に送る文・流れの制御は変わらない）"""
+
+    NEW = BDRemadeWishRowsTest.NEW
+
+    def test_the_bd1_rows_are_no_longer_provisional_and_keep_their_truths(self):
+        import g53_meaning as G
+        import review_words as rw
+        rows = {it["text"]: it for it in rw.answer_words() if it["text"] in self.NEW}
+        self.assertEqual(sorted(rows), sorted(self.NEW))
+        for text, it in rows.items():
+            with self.subTest(text=text):
+                why = it["label"]["why"]
+                self.assertNotIn("⏳ 仮", why)
+                self.assertTrue(why.endswith("束 bd1 の読み手2人とも正解の中（仮を外した＝分身 BF）"), why[-80:])
+        self.assertEqual([sorted(G.accept(rows[t])) for t in self.NEW], [["無い"], ["無い"], sorted(["決められない", "考えている途中"])])
+
+
+class BFRecallAfterPurposeTest(unittest.TestCase):
+    """分身 BF の (2)（帳面 1 の (6) の (i) の L43・担当 BB の報告 rv202/BB/report.md の 5章の (f)・会話 rv202/BB/out/s_recall.txt。CL-1 が書いてある決まりで決めた＝伺わない）：
+    お名前だけではどの方か分からない・「そういう者はおりませんが。」と言われて部署とフルネームでお呼びし直した（詳しい呼ぶ一言＝Flow._recall_full）あとに、受付の方から
+    用件を尋ねられたら、用件のあとに、その方が最後に聞いた詳しい呼ぶ一言を1回だけ添える（用件を2回目に聞かれたら添えない）。本書 9-4 の目的のお客様の (2)「用件を聞かれたら
+    用件を流してもう一度だけ呼ぶ」が細かい決まり・詳しい呼ぶ一言は「呼ぶ一言を使い切る前もあとも同じ1か所」（「担当者が不在」の行）＝(5)「呼ぶ一言は1人に2回まで」の上限の外。
+    決める1か所は Flow._call_after_answer（名乗り・用件で答えたあとのお呼びする段＝Flow._continue）"""
+    N = NoSuchPersonRecallTest
+    FULL = "営業部部長の「おかだたろう」様はいらっしゃいますでしょうか？"
+    PURPOSE = "失礼いたしました。ご予約の確認でお電話いたしました。"
+
+    def purpose(self, f, words="失礼ですが、どういったご用件でしょうか？"):
+        heard_asking(f, words)
+        r = f.apply("replay_opening", {"part": "purpose"})
+        f.on_played([p["text"] for p in (r or {}).get("play") or [] if p.get("text")])
+        return heard_words(r)
+
+    def recalled(self, how):
+        from end_words import _reading
+        from flowctl import ABOUT_NO_SUCH, END_WHO, JUDGMENTS, UNDECIDED
+        f = self.N().opened()
+        if how == "no_such":
+            r = self.N.say(f, "そういう者はおりませんが。", ABOUT_NO_SUCH)
+        elif how == "who_unclear":
+            f.on_callee(); f.on_heard("お名前だけではどの者か分かりかねますので、お繋ぎできかねます。")
+            for k in JUDGMENTS:
+                f.on_check(k, _reading(UNDECIDED, END_WHO))
+            f.on_decided()
+            r = f.apply("request_end", {"reason": "not_transferred"})
+            f.on_played([p["text"] for p in (r or {}).get("play") or [] if p.get("text")])
+        else:   # どちらの岡田でしょうか？（どの方かの答えの1か所 _asked_target も同じ詳しい呼ぶ一言）
+            heard_asking(f, "どちらの岡田でしょうか？")
+            r = f.apply("replay_opening", {"part": "target"})
+            f.on_played([p["text"] for p in (r or {}).get("play") or [] if p.get("text")])
+        self.assertTrue(heard_words(r).endswith(self.FULL), heard_words(r))
+        return f
+
+    def test_1_the_full_call_follows_the_purpose_once(self):
+        for how in ("no_such", "who_unclear", "which_one"):
+            with self.subTest(how=how):
+                f = self.recalled(how)
+                self.assertEqual(self.purpose(f), self.PURPOSE + self.FULL)
+                self.assertEqual(self.purpose(f, "それで、ご用件は何でしたっけ？"), self.PURPOSE)   # 用件を2回目に聞かれたら添えない
+                self.assertIsNone(f.end_reason)
+
+    def test_2_the_plain_call_stays_as_it_was(self):
+        # 詳しい呼ぶ一言を聞いていない方：今までどおり、用件のあとにいつもの呼ぶ一言を1回（呼ぶ一言は1人に2回まで）
+        f = self.N().opened()
+        self.assertEqual(self.purpose(f), self.PURPOSE + "部長の「おかだ」様はいらっしゃいますでしょうか？")
+        self.assertEqual(self.purpose(f, "それで、ご用件は何でしたっけ？"), self.PURPOSE)
+        # 名乗りだけで答えたとき（「失礼ですが、どちら様でしょうか？」）は今のまま：詳しい呼ぶ一言を添えない（お言葉の (2) は用件を聞かれたときの決まり＝控えの C13 と同じ）
+        g = self.recalled("no_such")
+        heard_asking(g, "失礼ですが、どちら様でしょうか？")
+        r = g.apply("replay_opening", {"part": "intro"})
+        self.assertFalse(heard_words(r).endswith(self.FULL), heard_words(r))
+
+
+class BFQuietNoteNoReaskTest(unittest.TestCase):
+    """分身 BF の (4)（帳面 1 の (6) の (i) の L45・分身 BD の書き置き rv202/BD/notes.md の 6章の (1)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIに「何も言わずに」（待つ・
+    報告し直す）と頼む知らせには、伺い直しを頼む文（「相手がまだ答えていなければ、「…」と、もう一度聞いてください。」＝again_note）を添えない（いま待っている文は書く）。
+    お客様に伺うことはプログラムが流す（本書 9-3）・黙ったときに何を流すかは黙ったときの表の1か所（QUIET_STEPS）。決める1か所は、いま求めていることの知らせ Flow._now の quiet"""
+
+    def flow(self):
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",)),
+                  Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        f.on_callee(); f.on_heard("来週の火曜日の午後で。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "来週の火曜日の午後"})
+        self.assertEqual(r["result"], "confirm_required")
+        return f, r["say"]
+
+    def test_1_the_silence_note_waits_without_asking_again(self):
+        from flowctl import again_note
+        f, say = self.flow()
+        x = f.on_silence()
+        self.assertEqual([p["text"] for p in x["play"]], ["もしもし？"])
+        self.assertIn("何も言わずに、お客様のお返事を待ちます。", x["message"])
+        self.assertIn(f"いまは Q1 の言い直し「{say}」への、相手の返事を待っています。", x["message"])   # いま待っている文は書く
+        self.assertNotIn("もう一度聞いてください", x["message"])
+        self.assertNotIn(again_note(say), x["message"])
+        # 「何も言わずに」と頼まない知らせ（いつもの報告の差し戻し）は今のまま、伺い直しを頼む（会話AIが話す通話で、伺わせた文を読む1か所＝分身 BD の (2)）
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"})
+        self.assertIn(again_note(say), r["message"])
+
+    def test_2_every_quiet_note_reads_now_quietly(self):
+        # 流れの制御の知らせのうち、文に「何も言わずに」「何も言わないで」のある式の中で、いま求めていることの知らせ（self._now）を読む所は、どれも quiet＝True・ほかは付けない
+        import ast
+        import flowctl
+        tree = ast.parse(open(flowctl.__file__, encoding="utf-8").read())
+        seen, bad, quiet = set(), [], 0
+        for n in ast.walk(tree):
+            if not isinstance(n, (ast.JoinedStr, ast.BinOp)):
+                continue
+            text = "".join(c.value for c in ast.walk(n) if isinstance(c, ast.Constant) and isinstance(c.value, str))
+            for c in ast.walk(n):
+                if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "_now" and id(c) not in seen:
+                    seen.add(id(c))
+                    q = any(k.arg == "quiet" and getattr(k.value, "value", None) is True for k in c.keywords)
+                    quiet += q
+                    if ("何も言わず" in text or "何も言わないで" in text) != q:
+                        bad.append(c.lineno)
+        self.assertEqual(bad, [])
+        self.assertGreaterEqual(quiet, 14)
+
+
+class BFAskedNoteReadsAllTest(unittest.TestCase):
+    """分身 BF の (5)（帳面 1 の (6) の (i) の L46・分身 BD の書き置きの 6章の (2)。CL-1 が書いてある決まりで決めた＝伺わない・10-18「一本化の追究」）：会話AIに質問・言い直しを
+    伺わせる知らせを書く1か所（ask_note・next_note・again_note）が書いた文を、もう聞いた文を読む1か所（ASKED_NOTE＝Flow._ai_asked・_heard_last）が全部読む＝中に「」」のある文
+    （名前の入る言い直し「お名前の読みの方は「やまざき」様でよろしかったでしょうか？」）も。⛔ 直す前は「」」の手前で切れて読めず、その返事は、お客様に何も聞こえない返事と
+    数えた（黙ったときの見張りが付かなかった）"""
+    TEXTS = ("お名前の読みの方は「やまざき」様でよろしかったでしょうか？", "ご予約は「さくらコース」でよろしいでしょうか？", "ご予約はされていますでしょうか？")
+
+    def test_1_every_writer_is_read_whole(self):
+        from flowctl import ASKED_NOTE, again_note, ask_note, next_note
+        read = lambda m: "".join("".join(g) for g in ASKED_NOTE.findall(m))
+        for t in self.TEXTS:
+            for w in (lambda t: ask_note("N1", t), lambda t: next_note("N1", t), again_note):
+                with self.subTest(text=t, note=w(t)[:12]):
+                    self.assertEqual(read(f"前の知らせです。{w(t)}そのあとの知らせです。"), t)
+        self.assertEqual(read(ask_note("Q1", self.TEXTS[0]) + "。" + again_note(self.TEXTS[1])), self.TEXTS[0] + self.TEXTS[1])
+
+    def test_2_the_name_restatement_is_heard(self):
+        # 会話AIが話す通話で、名前の読みの言い直しの返事待ちに会話AIが別の報告をして差し戻された（again_note の入る知らせ）：言い直しを伺った返事と同じく黙ったときの見張り
+        from flowctl import Flow, Question, reading_question
+        f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")), reading_question("N1", "山崎", "やまざき"),
+                  Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))])
+        f.on_callee()
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual(r["say"], self.TEXTS[0])
+        x = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "明日"})
+        self.assertEqual((x["result"], f._ai_asked(x), x.get("silence_s")), ("rejected", self.TEXTS[0], r["silence_s"]))
+
+
+class BFMidwayUnsaidFormTest(unittest.TestCase):
+    """分身 BF の (6)（帳面 1 の (6) の (i) の L47・担当 BB の rv202/BB/out/s_same.txt の (1)。CL-1 が書いてある決まりで決めた＝伺わない）：選ぶ質問へ、迷い→選ぶ助け→相づちで
+    戻る3回目からの戻り（文を終えない一言「確認の途中でしたのでもう一度お伺いさせていただきますが」に続ける形）は、頭は 11-07 日本時間4時40分35秒のお言葉のまま、続く質問の形を、
+    その所でまだ言っていない形を選ぶ1か所（soft_form の heard＝伺い46 イ）で選ぶ（直前と同じ文を続けて言わない＝11-01・10-19）。形が1つしか無い質問は今のまま。
+    録音の一覧（question_forms）にも、その形を載せる"""
+    MIDWAY = "確認の途中でしたのでもう一度お伺いさせていただきますが"
+    NOTES = {"カード": "カード会社のポイントがつく", "振込": "振込手数料はお客様のご負担"}
+    MORE = {"alternatives": "カードとお振込がございますがどちらになさいますか？", "reworded": "お支払い方法はどちらがよろしいでしょうか？"}
+
+    def returns(self, **more):
+        import dataclasses
+        import grounding
+        import scenes
+        from flowctl import HESITATING, UNDECIDED, Question
+        qs = [Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"), option_notes=self.NOTES, **more),
+              Question("Q2", "お打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？", "choice", conditions=("オンライン", "訪問"))]
+        c = BDCall(dataclasses.replace(scenes.BUSINESS, questions=qs, info=[]))
+        helps = ["カードですとポイントもつきますよ。", "お振込ですとお手元で管理しやすいかもしれませんね。", "どちらでもお手続きは簡単ですので、ご安心いただけますよ。"]
+        back = []
+        for i in range(3):
+            c.hear(["カードか振込か迷っています。", "うーん、やっぱり迷いますね。", "うーん、迷いますねえ。"][i], BDCall.rd(HESITATING))
+            r = c.report("record_answer", {"question_id": "Q1", "condition_id": "unknown"})
+            if r and r.get("result") == "hesitate":
+                c.hear(["手数料が気になって。", "ポイントがどれくらいか気になって。", "うーん、なんとなく。"][i], BDCall.rd(UNDECIDED))
+                c.report("record_answer", {"question_id": "Q1", "condition_id": "unknown"})
+            v = grounding.Verdict(grounding.NO_FACT, "")
+            v.by, v.touch = "test", ""
+            c.f.on_grounded(helps[i], v)
+            c.report("replay_opening", {"part": "own", "answer": helps[i]})
+            c.hear(["なるほど。", "そうですか。", "そうなんですね。"][i], BDCall.rd(UNDECIDED))
+            back.append(BDCall.voice(c.report("replay_opening", {"part": "resume"})))
+        return c, back, qs
+
+    def test_1_the_third_return_takes_a_form_not_yet_said(self):
+        c, back, qs = self.returns(**self.MORE)
+        self.assertEqual(back, ["はい、カードとお振込がございますがどちらになさいますか？",
+                                "それではもう一度確認させていただきますね。お支払いはカードと振込のどちらがよろしいでしょうか？",
+                                self.MIDWAY + "お支払い方法はどちらがよろしいでしょうか？"])
+        # 流した録音（3回目の戻り）は、録音の一覧（question_forms）にある形（名前・頭・文が同じ）
+        from flowctl import question_forms
+        (p,) = c.f.log[-1]["reply"]["play"]
+        self.assertIn((p["id"], p["lead"], p["text"]), {(x["id"], x.get("lead"), x["text"]) for x in question_forms(qs, "Q1")})
+
+    def test_2_the_recording_list_has_the_midway_forms(self):
+        from flowctl import Question, question_forms
+        q = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"), **self.MORE)
+        texts = {p["text"] for p in question_forms([q], "Q1")}
+        for t in ("カードとお振込がございますがどちらになさいますか？", "お支払い方法はどちらがよろしいでしょうか？", "お支払いはカードと振込のどちらがよろしいでしょうか？"):
+            self.assertIn(self.MIDWAY + t, texts)
+
+    def test_3_a_question_with_one_form_stays(self):
+        _, back, _ = self.returns()
+        self.assertEqual(back, ["それではもう一度確認させていただきますね。お支払いはカードと振込のどちらがよろしいでしょうか？",
+                                *[self.MIDWAY + "お支払いはカードと振込のどちらがよろしいでしょうか？"] * 2])

@@ -244,29 +244,46 @@ def connect_reply(call: dict) -> dict:
                  and not str(x["reply"].get("question_id", "")).startswith("C")), {})
 
 
+CONNECT_FIRST = "繋がるまで質問を流さない"   # 目的のお客様のある業務のどの場面にも当てる決まりの名前（数えの1か所＝measures）
+
+
 def before_connect(call: dict) -> list[dict]:
-    """目的の人に繋がる前（繋いだ返事＝connect_reply より前）の操作の記録。繋がらなかった通話は全部。"""
+    """目的の人に繋がる前（繋いだ返事より前）の操作の記録。繋がらなかった通話は全部。繋いだ返事は connect_reply（目的の人・後任の方の報告と、代わった方への
+    流し直し）か、それが無ければ、流れの制御が繋いだ1か所（Flow._connect）が残す通話の事実 connect の発話の番号で、次へ進めた返事（代わりの方に繋いだ＝お立場を伺った
+    お返事の報告ほか。2026-11-23 分身 BG：目的のお客様のどの場面にも当てたとき、代わりの方の2場面の38通話で、代わりの方に繋いだ返事を繋ぐ前と数えていた）。
+    ⚠️ 通話の事実 connect は 2026-10-21 より前の記録には無い（その記録は connect_reply だけ。既に流した記録 2,117通話で、2つの見方の繋いだ所は、どちらもある通話では全部同じ）"""
     log, con = ops(call), connect_reply(call)
-    return log[:next((k for k, x in enumerate(log) if x["reply"] is con), len(log))]
+    at = next((k for k, x in enumerate(log) if x["reply"] is con), None)
+    if at is None and (fact := (call.get("facts", {}).get("connect") or [None])[0]):
+        at = next((k for k, x in enumerate(log) if x.get("callee_turns") == fact.get("turn") and x["reply"].get("result") in ("next", "confirm_required")), None)
+    return log[:len(log) if at is None else at]
 
 
 # 目的のお客様を呼ぶ形の名乗りの録音の文（あいさつ・名乗り・呼ぶ一言＝instruction.Business.opening_parts の1か所）。録音の途中で止めた場面の、届いた文とまだの文
 TARGET_PARTS = TARGET_BUSINESS.opening_parts()
 
 
+# 聞いた方（名乗り・用件を聞いた・聞き返した受付の方）に返さない返事の決まりの名前（中身の全部＝目的の人かの確かめ confirm_target・別の方としてのお呼びし直し call_target・
+# 次の質問へ進む返事 next。帳面 0-3 の (12)「名前は中身の全部を言い表す」）。⛔ 2026-11-23 まで同じ数え方に名前が2つあった（「聞いた方には確かめも用件も流さない」＝
+# 目的の人_名前を確かめてから名乗りを聞かれる・「聞いた方には確かめも質問も流さない」＝分身 BE の4場面）
+ASKER_LEFT = "聞いた方には確かめもお呼びし直しも質問も返さない"
+
+
 def replayed_to_reception(line: str, parts: list[str], again: bool = False):
-    """お呼びする段で、受付の方が名乗りの録音の途中で話し始めた・録音のあとに聞き返した場面の確かめ（G-22・G-50 の目的のお客様を呼ぶ形＝本書 9-4 の目的のお客様の (2)(8)）：
+    """お呼びする段で、受付の方が名乗り・用件を聞いた（録音のあとの「どちら様」「ご用件」・名前を確かめてから間を置いて名乗りを聞いた）・名乗りの録音の途中で話し始めた・
+    録音のあとに聞き返した場面の確かめの1か所（G-22・G-50 の目的のお客様を呼ぶ形＝本書 9-4 の目的のお客様の (2)(8)。2026-11-23 分身 BG：録音のあとに聞かれた2場面
+    「目的の人_名前を確かめてから名乗りを聞かれる」「目的の人_用件を聞かれる」もここで数える＝同じ数え方に名前が2つあった＝帳面 1 の (6) の (i) の L42 の (a)）：
     聞かれたことに合う部分（parts）を録音で流し直し（名乗り・用件・呼ぶ一言は流れの制御が足す＝Flow.on_opening_cut・_op_replay_opening。もう一度は「失礼いたしました。」のあと、
-    言ったこと＝名乗りと呼ぶ一言。あいさつはお詫びの相づちと重ねない）、自分の声では話さず、聞いた方には確かめも質問も流さず、繋がるまで質問を流さず、取り次がれた岡田様には
-    あいさつ・名乗り・用件の全部を流してから質問へ。"""
+    言ったこと＝名乗りと呼ぶ一言。あいさつはお詫びの相づちと重ねない）、自分の声では話さず、聞いた方には目的の人かの確かめも、別の方としてのお呼びし直し（call_target）も、
+    次の質問へ進む返事（next＝繋いで用件と質問・かけ直しの質問）も返さず、取り次がれた岡田様にはあいさつ・名乗り・用件の全部を流してから質問へ。繋がるまで質問を流さないは、
+    目的のお客様のどの場面にも当てる1か所（measures）で数える。"""
     head = "言ったことをもう一度" if again else {"intro": "名乗りと呼ぶ一言", "purpose": "用件と呼ぶ一言"}[parts[0]]
 
     def check(c: dict) -> dict:
         return {head: any(played_parts(x["reply"]) == parts and (not again or x["reply"].get("ack") == "shitsurei")
                           for x in ops(c) if x["op"] == "replay_opening"),
                 "自分の言葉で話さない": own_words(c, line) == "",
-                "聞いた方には確かめも質問も流さない": not any(r in ("confirm_target", "call_target", "next") for r in replies_to(c, line)),
-                "繋がるまで質問を流さない": not any("question" in played_parts(x["reply"]) for x in before_connect(c)),
+                ASKER_LEFT: not any(r in ("confirm_target", "call_target", "next") for r in replies_to(c, line)),
                 "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}
     return check
 
@@ -455,10 +472,9 @@ SCENES = {
         "確かめない": not any(x["reply"]["result"] == "confirm_target" for x in ops(c)),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}),
-    "目的の人_用件を聞かれる": Scene(TARGET_BUSINESS, [W("what_for"), W("hold_target"), T("taken_over_okada")] + FULL, lambda c: {
-        "用件と呼ぶ一言": any(played_parts(x["reply"]) == ["purpose", "target"] for x in ops(c) if x["op"] == "replay_opening"),
-        "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
-        "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}),
+    # 受付の方が用件を聞く：用件と呼ぶ一言を流してもう一度だけ呼ぶ（本書 9-4 の目的のお客様の (2)。数えは録音のあとに聞かれた場面の1か所 replayed_to_reception）
+    "目的の人_用件を聞かれる": Scene(TARGET_BUSINESS, [W("what_for"), W("hold_target"), T("taken_over_okada")] + FULL,
+                                replayed_to_reception("what_for", ["purpose", "target"])),
     "目的の人_不在": Scene(TARGET_BUSINESS, [W("absent_okada"), W("back_5pm"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "用件を受付に流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
@@ -487,12 +503,9 @@ SCENES = {
                                                 W("hold_target"), T("taken_over_okada")] + FULL,
                                   not_the_target("taken_over_unnamed", "not_okada")),
     # 名前を確かめた方が、間を置いて名乗りを聞く（✅ 2026-10-22 ユーザー：「相手が喋っていても、それが質問だった場合の対処は？」）：言葉の途中で
-    # 決めず、言い終わってから、名乗りと呼ぶ一言を流す（用件は聞かれたときだけ）。目的の人かは聞かない
+    # 決めず、言い終わってから、名乗りと呼ぶ一言を流す（用件は聞かれたときだけ）。目的の人かは聞かない（数えは録音のあとに聞かれた場面の1か所 replayed_to_reception）
     "目的の人_名前を確かめてから名乗りを聞かれる": Scene(TARGET_BUSINESS, [W("okada_whois_pause"), W("hold_target"), T("taken_over_okada")] + FULL,
-                                                lambda c: {
-        "名乗りと呼ぶ一言": any(played_parts(x["reply"]) == ["intro", "target"] for x in ops(c) if x["op"] == "replay_opening"),
-        "聞いた方には確かめも用件も流さない": not any(r in ("confirm_target", "call_target", "next") for r in replies_to(c, "okada_whois_pause")),
-        "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}),
+                                                replayed_to_reception("okada_whois_pause", ["intro", "target"])),
     # 受付の方が名乗りの録音の途中で話し始めた（録音の最初・あいさつのあと・名乗りのあと）・録音のあとに「もう一度」（G22_TARGET）：言い終わってから、聞かれたことに合う
     # 部分を録音で流し直し（まだ届いていない名乗りと呼ぶ一言はプログラムが足す）、取り次がれた岡田様には全部を流してから質問へ（本書 9-4 の目的のお客様の (2)(8)）
     **{name: Scene(TARGET_BUSINESS, [W(line), W("hold_target"), T("taken_over_okada")] + FULL, replayed_to_reception(line, parts, again=cut is None),
@@ -935,6 +948,10 @@ def unmeasured(call: dict, scene: str) -> str | None:
 
 def measures(call: dict, scene: str) -> dict:
     checks = {**SCENES[scene].expect(call), "断らない": no_refusal(call)}  # 断らないは、どの場面でも
+    if SCENES[scene].business.target is not None:
+        # 目的のお客様のある業務のどの場面でも（取り次ぎ・確かめ・申し出・聞き返しほか）：繋がるまで最初の質問を渡さない（本書 9-4 の目的のお客様の (2)。
+        # 2026-11-23 分身 BG＝帳面 1 の (6) の (i) の L42 の (b)・10-19「同じ理由が当たる場面すべてに当てる」。前は分身 BE の4場面だけ）
+        checks[CONNECT_FIRST] = not any("question" in played_parts(x["reply"]) for x in before_connect(call))
     return {"checks": checks, "pass": all(checks.values()), "failed": [k for k, v in checks.items() if not v],
             "unmeasured": unmeasured(call, scene),
             "said": [said(t)[:80] for t in call["turns"]],
