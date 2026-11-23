@@ -116,6 +116,9 @@ def _explain(key: str) -> str:
 _phone = names.phone_text   # 番号の書き方（1か所＝web/names。そろえるのは core の phone.normalize）
 
 
+PAGE_FRAME_NAMES = frozenset({"person", "ctx", "clients", "groups", "no_group", "token"})   # 画面を出す1か所（page）がどの画面にも渡す名前
+
+
 def _back(path: str, out: actions.Outcome, *, anchor: str = "", **params: str) -> RedirectResponse:
     """操作のあと、元の画面へ戻し、結果の1行を出す（送り直しで二度効かないよう、必ず GET の画面へ戻す）。
     anchor＝戻った画面で送る先（その操作をした所。結果の1行もそこに出す画面がある）・params＝画面に渡す印（例：変えた設定）。"""
@@ -184,6 +187,11 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
 
     def page(request: Request, name: str, person: Person, ctx: Ctx, **values: Any) -> HTMLResponse:
         """画面を出す1か所。依頼者の画面なら、業務のタブ（その依頼者の業務の一覧）も、ここで必ず添える。"""
+        # 上の帯・タブが使う名前は、画面ごとの値で上書きさせない（2026-11-23：名前の録音の審査の画面が groups を審査の組で上書きし、上の帯の
+        # グループの選びが崩れていた。Jinja は合わない名前を黙って空にするので、ここで止める）
+        clash = PAGE_FRAME_NAMES & values.keys()
+        if clash:
+            raise ValueError(f"画面の値の名前が、上の帯・タブの名前と重なっています：{sorted(clash)}")
         values.setdefault("client", None)
         values.setdefault("business", None)
         if values["client"] is not None and "businesses" not in values:
@@ -1044,7 +1052,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 # 契約者ごとのチェックの形（いまの値は core の recordings.review_skips の1か所＝審査を待つ録音の無い契約者も入る。CL-2 の 4-472 の (2)）
                 skips = recordings.review_skips(tx)
                 checks = [{**t, "skipped": skips.get(t["tenant_id"], False)} for t in registry.tenants(tx)]
-                return {"groups": list(groups.values()), "heard": heard, "count": len(items), "checks": checks}
+                return {"review_groups": list(groups.values()), "heard": heard, "count": len(items), "checks": checks}
             return page(request, "admin_name_reviews.html", person, ctx, active="name_reviews", done=done, ok=bool(ok),
                         marks=recordings.REVIEW_MARKS, **ctx.system(read))
         return handle(request, render)

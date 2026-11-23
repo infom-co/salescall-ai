@@ -21,7 +21,7 @@
       <span class="muted" aria-live="polite">聞いた録音：<b data-heard-count>{{ heard|length }}</b> / {{ count }}</span>
     </div>
   </div>
-  {% for items in groups %}{% set first = items[0] %}
+  {% for items in review_groups %}{% set first = items[0] %}
   <section class="card review-group">
     <h2>{{ first.tenant_name }}{% if first.skipped %} {{ tag("チェック不要の契約者", "info") }}{% endif %}<span class="muted small"> {{ items|length }}件</span></h2>
     <div class="table-scroll"><table class="list">
