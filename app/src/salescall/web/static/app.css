@@ -774,3 +774,8 @@ label.enc-choice > input { margin-top: 4px; }
 
 /* 同じ値が続く表の欄（版の画面の「扱い」の質問 など）：広い画面の表では2行目から見せず、狭い画面の札の形ではどの札にも見せる（2026-11-23） */
 @media (min-width: 601px) { td.repeat-cell > span { visibility: hidden; } }
+
+/* 札（chip）が画面の幅より長いときだけ折り返す（短い札は1行のまま）。2026-11-23：見張りの画面の上の札に長い項目の名前が並ぶと、
+   折り返さずに画面の外へはみ出した（項目の名前は画面ごとに決まるので、札の決まりの1か所で受ける） */
+.chip { max-width: 100%; height: auto; min-height: 32px; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; padding-block: 5px; }
+.chip b { white-space: nowrap; }
