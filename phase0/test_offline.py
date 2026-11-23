@@ -54965,3 +54965,81 @@ class BDAgainNoteOneWriterTest(unittest.TestCase):
         self.assertTrue(found)
         self.assertEqual([x for x in found if x[0] not in writers], [])
         self.assertEqual({x[0] for x in found}, writers)
+
+
+class BDSameFinalCheckTest(unittest.TestCase):
+    """分身 BD の (3)（H-5・担当 BB の 4章の 2＝rv202/BB/out/s_same.txt。CL-1 が書いてある決まりで決めた＝伺わない）：言い切っていない「はい」の言い直しに迷われ、迷う点を伺い、
+    選ぶ助けをお伝えし、相づちを返されて最終の確かめへ戻る（Flow._final_check）のを何度もくり返したとき、最終の確かめをもう伺っていれば（Item.final）、同じ確かめを同じ言い方で
+    もう一度言わず「はい、いかがなさいますか？」で伺う（_how_now の1か所）。✅ 2026-11-09 日本時間3時06分51秒「同じ質問を繰り返しているし、悩んでいるのに、この返答はおかしい
+    ですよね。「いかがなさいますか？」のような返答が妥当」・2026-11-01 日本時間18時11分53秒「全く同じ質問を2度したら、機械だと思われてしまいませんか？」・本書 9-5 の
+    11-06 日本時間11時19分55秒の段（最終の確かめは同じ確かめをもう言い直さない）。⛔ 直す前は「はい、それではパンフレットをお送りさせていただきましょうか？」を3回同じ言い方で流した"""
+
+    FINAL = "はい、それではパンフレットをお送りさせていただきましょうか？"
+
+    def talk(self, rounds=3):
+        import dataclasses
+        import grounding
+        import scenes
+        from flowctl import END, END_NONE, HEAR, HEAR_OK, HESITATING, QUERY, QUERY_NO, UNDECIDED, Question
+        from meaning_judge import Reading
+        from phrases import ACK
+        qs = [Question("G8n", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                       meanings={"はい": "パンフレットをお送りしてよろしいということ", "いいえ": "パンフレットをお送りしなくてよろしいということ"},
+                       do_words={"はい": "パンフレットをお送りさせていただきます"}, away=("いいえ",)),
+              Question("G16", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))]
+        f = dataclasses.replace(scenes.BUSINESS, questions=qs, info=[]).flow(recorded=True, play_recordings=True)
+        f.use_checks("ear", "judge", "judge2")
+        heard = []
+
+        def voice(r):
+            s = ((ACK.get(r.get("ack"), "") if r.get("ack") else "") + "".join(p.get("text") or "" for p in r.get("play") or []) + (r.get("say") or "")) if r else ""
+            if r and r.get("play"):
+                f.on_played([p["text"] for p in r["play"]])
+            heard.append(s)
+            return r
+
+        def hear(text, value, firm=True):
+            rd = Reading(value, firm)
+            setattr(rd, QUERY, QUERY_NO); setattr(rd, END, END_NONE); setattr(rd, HEAR, HEAR_OK)
+            f.on_callee()
+            for k in ("judge", "judge2"):
+                f.on_judging(k)
+            f.on_heard(text); f.on_check("ear", text)
+            for k in ("judge", "judge2"):
+                f.on_check(k, rd)
+            f.on_decided()
+
+        def report(op, args):
+            if args.get("answer"):
+                v = grounding.Verdict(grounding.NO_FACT, "")
+                v.by, v.touch = "test", ""
+                f.on_grounded(args["answer"], v)
+            return voice(f.apply(op, args))
+
+        f.on_connect(); f.on_callee(); f.on_heard("はい、もしもし。")
+        r = f.apply("report_party", {"party": "person"})
+        voice(r if r.get("result") in ("opening", "end") else f.on_first_words_end())
+        hear("送ってもらおうかな…。", "はい", firm=False); report("record_answer", {"question_id": "G8n", "condition_id": "はい"})
+        for i in range(rounds):
+            hear(["うーん、迷ってるんですよね。", "うーん、やっぱり迷いますね。", "うーん、まだ迷いますねえ。"][i], HESITATING)
+            r = report("confirm_field", {"question_id": "G8n", "result": "affirmed"})
+            if "どういった点" in heard[-1]:
+                hear(["読む時間があるか気になってて。", "置き場所が気になって。", "なんとなくです。"][i], UNDECIDED)
+                report("confirm_field", {"question_id": "G8n", "result": "affirmed"})
+            report("replay_opening", {"part": "own", "answer": ["数分でお読みいただける内容ですよ。", "ご不要でしたら処分いただいて構いませんよ。",
+                                                                "お時間のあるときに見返していただけますよ。"][i]})
+            hear(["なるほど。", "そうですか。", "そうなんですね。"][i], UNDECIDED)
+            report("replay_opening", {"part": "resume"})
+        return f, heard
+
+    def test_1_the_final_check_is_not_said_twice_the_same_way(self):
+        from phrases import ACK, HOW_NOW
+        f, heard = self.talk()
+        backs = [h for h in heard if h in (self.FINAL, ACK["hai"] + HOW_NOW)]
+        self.assertEqual(backs, [self.FINAL, ACK["hai"] + HOW_NOW, ACK["hai"] + HOW_NOW])
+        self.assertEqual(heard.count(self.FINAL), 1)
+        self.assertEqual((f.awaiting_confirm, f.items["G8n"].final, f.items["G8n"].state), ("G8n", True, "checking"))
+
+    def test_2_the_first_final_check_is_as_before(self):
+        f, heard = self.talk(rounds=1)
+        self.assertEqual(heard[-1], self.FINAL)
