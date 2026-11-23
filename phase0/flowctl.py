@@ -2932,10 +2932,18 @@ def next_note(qid: str, text: str) -> str:
     return f"次の質問は {qid}「{text}」です。"
 
 
-# 会話AIに質問を伺わせる知らせの文（ask_note・next_note の書き方から作る＝書く所と読む所が同じ）。会話AIが話す通話で、お客様がもう聞いた文を知らせから読むのは、
+def again_note(text: str) -> str:
+    """会話AIが話す通話で、言い直し（Flow._ask_confirm の文 text）への相手の返事がまだ無いとき、同じ言い直しを会話AIにもう一度伺わせる知らせの唯一の書き方（いま求めている
+    ことの知らせ Flow._now）。読む所は ask_note と同じ（ASKED_NOTE）。⛔ 分身 BD の (2) まで、ここだけ知らせの中に手で書き、お客様がもう聞いた文の読み（Flow._ai_asked＝
+    黙ったときの見張りの「お客様に何か聞こえた返事」）が読まなかった（帳面 1 の (6) の (i) の L3・CL-1_OPEN の (A)(6)）"""
+    return f"相手がまだ答えていなければ、「{text}」と、もう一度聞いてください。"
+
+
+# 会話AIに質問・言い直しを伺わせる知らせの文（ask_note・next_note・again_note の書き方から作る＝書く所と読む所が同じ）。会話AIが話す通話で、お客様がもう聞いた文を知らせから読むのは、
 # この文の「…」だけ（Flow._heard_last。録音で流す通話は流した録音の文＝同じ所）。⛔ 4e94ba37 まで、知らせのどこに書いた文も読み、待つ返事の知らせの「相手の返事が、
 # いまの質問 Q2「…」への答えなら…」（お客様には聞こえていない）を、その時に聞いた文と読んでいた（分身 E の書き置きの穴 (e)）
-ASKED_NOTE = re.compile("|".join(re.escape(f("ZZQZZ", "ZZTEXTZZ")).replace("ZZQZZ", r"\S+").replace("ZZTEXTZZ", "([^」]*)") for f in (ask_note, next_note)))
+ASKED_NOTE = re.compile("|".join(re.escape(f("ZZQZZ", "ZZTEXTZZ")).replace("ZZQZZ", r"\S+").replace("ZZTEXTZZ", "([^」]*)")
+                                for f in (ask_note, next_note, lambda _qid, text: again_note(text))))
 
 
 def choice_words(q: "Question", cond: str | None) -> str | None:
@@ -17555,7 +17563,7 @@ class Flow:
         お客様がその所でもう聞いた文（_heard_last）と、お客様に何か聞こえた返事の数え（黙ったときの見張り _silence_watch。会話AIの声が終わった時を知るのは電話接続側＝
         流れの制御は返事に秒を付けるだけ）。⛔ d8b0d355 まで、見張りはこの文を数えず、会話AIに次の質問（E1「そうだったんですね。…」など）を言わせる相づちの無い
         返事に、黙ったときの見張りも待つ上限も付かなかった（L16＝分身 N の書き置き (6-1)）"""
-        return "" if self.play_recordings else "".join(a or b for a, b in ASKED_NOTE.findall(reply.get("message") or ""))
+        return "" if self.play_recordings else "".join("".join(got) for got in ASKED_NOTE.findall(reply.get("message") or ""))
 
     def _brief_ask(self) -> dict:
         """急いでいるが手短になら聞くと言われた（_brief_due）：「ありがとうございます。」（相づちの録音＝_ack_choice）のあと、「（要約）の件でお電話させていただきましたが
@@ -20959,8 +20967,7 @@ class Flow:
                 heard = f"（「{self.callee_said[:30]}」）" if self.callee_said else ""
                 return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事{heard}がもう届いています。"
                         f"もう一度聞かずに、何も言わないで、その返事を報告し直してください。{how}")
-            return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。{how}"
-                    f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
+            return f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。{how}{again_note(say)}"
         if self.end_reason in NOT_A_PERSON:
             return "通話は終わりです。何も言いません。"
         if self.phase == "calling" and self.asked_target and self.confirm_open and self.callee_turns <= self.asked_target_turn + 1:

@@ -54918,3 +54918,50 @@ class BDRemadeWishRowsTest(unittest.TestCase):
         for t in (*self.OLD, *self.NEW):
             self.assertEqual(keys.count(("W1", "W1@E1", t)), 1, t)
         self.assertFalse(any(it["text"] in self.OLD for it in rw.answer_words()))
+
+
+
+class BDAgainNoteOneWriterTest(unittest.TestCase):
+    """分身 BD の (2)（帳面 1 の (6) の (i) の L3・CL-1_OPEN の (A)(6)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIが話す通話で、言い直しへの相手の返事がまだ無いときに
+    同じ言い直しを会話AIにもう一度伺わせる知らせ「相手がまだ答えていなければ、「（言い直し）」と、もう一度聞いてください。」を、書く1か所 flowctl.again_note から作り、お客様が
+    もう聞いた文の読み（ASKED_NOTE＝Flow._ai_asked・_heard_last）がその文を読む（10-18「一本化の追究」）。⛔ 直す前は Flow._now の中に手で書き、_ai_asked は空を返した
+    （黙ったときの見張りが、この返事をお客様に何も聞こえない返事と数えた）。知らせの文は1文字も変わらない"""
+
+    def flow(self):
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",)),
+                  Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        f.on_callee(); f.on_heard("来週の火曜日の午後で。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "来週の火曜日の午後"})
+        return f, r["say"]
+
+    def test_1_the_again_note_is_read_as_asked(self):
+        from flowctl import again_note
+        f, say = self.flow()
+        self.assertFalse(f.play_recordings)
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertTrue(r["message"].endswith(again_note(say)))
+        self.assertEqual(again_note(say), f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
+        self.assertEqual(f._ai_asked(r), say)
+
+    def test_2_no_note_to_ask_is_written_by_hand(self):
+        import ast
+        import inspect
+        import flowctl
+        tree = ast.parse(inspect.getsource(flowctl))
+        writers = {"ask_note", "again_note"}
+        docs = {id(n.body[0].value) for n in ast.walk(tree) if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                and n.body and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
+        found = []
+
+        def walk(node, owner):
+            for ch in ast.iter_child_nodes(node):
+                if isinstance(ch, ast.Constant) and isinstance(ch.value, str) and "聞いてください" in ch.value and id(ch) not in docs:
+                    found.append((owner, ch.lineno))
+                walk(ch, ch.name if isinstance(ch, (ast.FunctionDef, ast.AsyncFunctionDef)) else owner)
+
+        walk(tree, None)
+        self.assertTrue(found)
+        self.assertEqual([x for x in found if x[0] not in writers], [])
+        self.assertEqual({x[0] for x in found}, writers)
