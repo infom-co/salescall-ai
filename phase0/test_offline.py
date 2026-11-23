@@ -54630,7 +54630,9 @@ class AXReaderBordersTest(unittest.TestCase):
                 self.assertIsNone(rb.miss(*rb.reread(text, answer=UNDECIDED, **{NEAR: nv})), (text, nv))
             why = G._label(it)["why"]
             self.assertIn("分身 AX", why)
-            self.assertTrue(why.endswith("⏳ 仮（束 ax1）"), why[-80:])
+            # 束 ax1 で読み手2人とも正解の中＝分身 AY の (2) が仮を外した（AYReaderBordersTest）
+            self.assertNotIn("⏳ 仮（束 ax1）", why)
+            self.assertIn("仮（束 ax1）／2026-11-23 分身 AY", why)
 
     def test_2_the_aw_rows_both_readers_kept_are_no_longer_provisional(self):
         import g53_meaning as G
@@ -54738,3 +54740,138 @@ class AXTermsSevenSceneTest(unittest.TestCase):
         call = c.call()
         call["turns"] = call["turns"] + [{"callee": {"nudge_of": c.lines[2]}, "tool_events": []}] * 2
         self.assertFalse(scenes.SCENES[scenes.TERMS_SEVEN_SCENE].expect(call)["促しは多くて1回"])
+
+
+class AYWeekendRestTest(unittest.TestCase):
+    """分身 AY の (1)（分身 AX の書き置きの 6章の (2)＝帳面 1 の (6) の (i) の L39。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIが「ほかに言われたこと」（rest）に書いた時刻を
+    持ったまま、平日と土日の2択に「土日で。」と答えていただいたら、受けの一言（「はい、」＋「承知致しました。土日にあらためてご連絡させていただきますね。」）のすぐあとに、先に言われた答えを
+    伺う番を開く（次に伺う質問へ進むときと同じ1か所 _offer_ahead・受けの一言は前に決まった言葉を流す1か所 _led＝「はい、」は重ねない・会話AIの声を待つ見張りも続く）＝時刻が入っていれば
+    2択を伺わずに受け取って言い直して確かめ、入っていなければ今の「お時間は午前と午後のどちらがよろしいでしょうか？」（Flow._ladder_ask）。✅ 本書 9-3「取得済みのことを重ねて聞かない」・
+    2026-11-19 日本時間14時18分13秒（お客様がもう言った所から先の2択だけを伺う・土日＝「はい、承知致しました。土日にあらためてご連絡させていただきますね。」⇒間髪おかず「お時間は…」）・
+    2026-11-04 日本時間20時27分の (2)・11-09 のまとめ役の見直し (D)。⛔ それまでは、受けの一言のすぐあとに「お時間は午前と午後のどちらがよろしいでしょうか？」と伺い、持っていた「夜の七時以降」は
+    その次の2択（時刻の2択）でやっと使った（午前と午後を重ねて伺った）"""
+
+    def call(self, rest="夜の七時以降"):
+        """分身 AX の AXLadderRestTest.call と同じ場面（測りの場面 W1@E1 の申し出への「夜の七時以降に、もう一度かけてもらえますか。」＝あとでかけ直す）で、会話AIが質問に戻る報告に
+        rest を添え（None なら添えない）、平日と土日の2択に「土日で。」。返り値＝(流れの制御, 「土日」の報告の返事)"""
+        import dataclasses
+        import g53_meaning as G
+        import scenes
+        from g73_system_words import wish_scenes
+        from flowctl import END, END_NONE, HEAR, HEAR_OK, QUERY, QUERY_NO
+        from meaning_judge import Reading
+
+        def rd(v, firm=True):
+            r = Reading(v, firm)
+            setattr(r, QUERY, QUERY_NO); setattr(r, END, END_NONE); setattr(r, HEAR, HEAR_OK)
+            return r
+
+        def hear(f, words, reading):
+            f.on_callee(); f.on_heard(words); f.on_check("ear", words)
+            for k in ("judge", "judge2"):
+                f.on_check(k, reading)
+            f.on_decided()
+        qm = G.question_map()
+        of = wish_scenes(qm)["W1@E1"][0]
+        f = dataclasses.replace(scenes.BUSINESS, questions=[of], info=[]).flow(recorded=True, play_recordings=True)
+        f.use_checks("ear", "judge", "judge2")
+        f.on_connect(); f.on_callee(); f.on_heard("はい、もしもし。")
+        r = f.apply("report_party", {"party": "person"})
+        if r.get("result") not in ("opening", "end"):
+            f.on_first_words_end()
+        hear(f, "うーん、お電話はちょっと…。", rd("いいえ", False))
+        f.apply("record_answer", {"question_id": of.id, "condition_id": "いいえ"})
+        words = AXLadderRestTest.WORDS
+        later = next(x for x in G.label_readings({"set": "W1", "qid": "W1@E1", "text": words}, qm["W1@E1"], False) if str(x) == "あとでかけ直す")
+        hear(f, words, later)
+        self.assertEqual(heard_words(f.judged_turn(voiced=False)), "はい、")
+        r = f.apply("replay_opening", {"part": "resume", **({"rest": rest} if rest else {})})
+        self.assertEqual(heard_words(r), "承知しました。それでは平日と土日のどちらがよろしいでしょうか？")
+        hear(f, "土日で。", rd("答えた"))
+        return f, f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "土日"})
+
+    def test_1_the_kept_time_is_offered_right_after_the_weekend_line(self):
+        from flowctl import voiceless
+        f, r = self.call()
+        self.assertTrue(r.get("ahead_offer"), r)
+        # 受けの一言だけ（頭の「はい、」が待ちの言葉＝重ねない）。午前と午後の2択はまだ流さない
+        self.assertEqual(heard_words(r), "はい、承知致しました。土日にあらためてご連絡させていただきますね。")
+        self.assertIn("「夜の七時以降」", r["message"])
+        self.assertIn("お時間は午前と午後のどちらがよろしいでしょうか？", r["message"])
+        # 会話AIの報告を待つ間も、こちらの声を待つ見張りは続く（受けの一言のあと黙ったら、つなぎの一言＝本書 9-7・0-2「つなぎの一言」）
+        self.assertFalse(voiceless(r), r)
+        self.assertIsNotNone(f.ours)
+        # 会話AIが、ほかに言われたことにある答えを報告した：午前と午後・時刻を重ねて伺わず、伺えた所と合わせて言い直して確かめる（今の言い直しの形）
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "夜の七時以降"})
+        self.assertEqual((r["result"], heard_words(r)), ("confirm_required", "ありがとうございます。土日の19時以降、午後7時以降でよろしいでしょうか？"))
+
+    def test_2_without_an_answer_the_pair_follows_the_weekend_line(self):
+        f, r = self.call(rest="資料も一緒に送ってほしい")
+        self.assertTrue(r.get("ahead_offer"), r)
+        self.assertEqual(heard_words(r), "はい、承知致しました。土日にあらためてご連絡させていただきますね。")
+        # 会話AIが答えは無いと読んで質問に戻った：今の2択だけ（受けの言葉・「はい、」・「それでは」を重ねない）
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(heard_words(r), "お時間は午前と午後のどちらがよろしいでしょうか？")
+
+    def test_3_without_kept_words_it_is_as_before(self):
+        f, r = self.call(rest=None)
+        self.assertFalse(r.get("ahead_offer"), r)
+        self.assertEqual((r["result"], heard_words(r)),
+                         ("ask_back", "はい、承知致しました。土日にあらためてご連絡させていただきますね。お時間は午前と午後のどちらがよろしいでしょうか？"))
+
+    def test_4_the_no_room_line_is_said_whole_and_the_words_wait(self):
+        # 同じ形の所（受けの一言のあとに2択が続く）：おっしゃった頃に空いている予定が無いことをお詫びしてお伝えする2択（伺い100 ア）は1つの文＝伺う番を間に開けず、今のまま流す。
+        # 先に言われた答え（rest「夕方」）は持ち続けて、その次の2択で使う。⛔ それまでは「はい、」→（質問に戻ると）「ありがとうございます。あいにく…」・お詫びの印が次の2択の頭に残った
+        from flowctl import CALLBACK_IDS, JUDGMENTS
+        c1 = CALLBACK_IDS["time"]
+        d, f, r = LadderNoRoomTest().started()
+        f.on_callee(); f.on_heard("月末は締めで忙しいので、来月の頭の夕方にお願いします。")
+        for k in JUDGMENTS:
+            f.on_check(k, CallbackTimeAheadTest.rd("答えた"))
+        f.on_decided()
+        r = f.apply("record_answer", {"question_id": c1, "condition_id": "答えた", "value": "来月の頭", "rest": "夕方"})
+        want = "申し訳ございません、あいにく来月の頭は空きがございませんので1月4日の月曜日と1月5日の火曜日ではどちらがよろしいでしょうか？"
+        self.assertEqual((r["result"], r.get("ack"), d.heard(r)), ("ask_back", "moushiwake_heavy", want))
+        self.assertFalse(r.get("ahead_offer"), r)
+        r = d.answer(f, "4日でお願いします。", "4日")
+        self.assertEqual((r.get("ahead_offer"), d.heard(r)), (True, "はい、"))   # 次の2択で伺う番（お詫びは重ねない）
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(d.heard(r), "承知しました。お時間は午前と午後のどちらがよろしいでしょうか？")
+
+    def test_5_the_weekday_pair_is_asked_as_a_first_time(self):
+        # 平日のあとの伺う番（分身 AX の (2)）も同じ1か所：会話AIが答えは無いと読んで戻ると、まだ流していない2択＝もう流した質問へ戻る頭「それでは」を付けない（受けの言葉＋今の2択）
+        f, r = AXLadderRestTest().call()
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(heard_words(r), "承知しました。お時間は午前と午後のどちらがよろしいでしょうか？")
+
+
+class AYReaderBordersTest(unittest.TestCase):
+    """分身 AY の (2)（束 ax1 の読み手の結果＝CL-1 の並べた表 rv201/ax1_out.txt・並べた道具 rv201/cmp_ax1.py。CL-1 が書いてある決まりで決めた＝伺わない）：束 ax1 の7行（W1@E1）は、答えと
+    答えのほかの項目が読み手2人とも正解の中＝#1「いえ、特に希望はないです。」・#2「特にないので、そのままで大丈夫です。」の境目（答え＝「無い」と「決められない」・いちばん近い答え4つ）の
+    仮を外した（正解の値は変えない）。1人だけの読み2つ（#4「大丈夫です、ほかに何もありません。」の B の電話を終える言葉か end＝「決められない」・#6「んー、どっちがいいかな。」の B の
+    こちらへ尋ねた問い query＝「決められない」）は、読み手の別の読みの欄（reader_alts.json）へ"""
+
+    TEXTS = ("いえ、特に希望はないです。", "特にないので、そのままで大丈夫です。", "今のところ、ほかには無いです。", "大丈夫です、ほかに何もありません。",
+             "うーん、まあ、いろいろありますけど……。", "んー、どっちがいいかな。", "とくに希望はないので、お任せします。")
+
+    def test_1_the_two_borders_are_no_longer_provisional(self):
+        import g53_meaning as G
+        from flowctl import ANY_LABEL, NEAR_NONE, NEAR_OFF, UNDECIDED, WISH_NONE
+        rb = AVReaderBordersTest()
+        for text in self.TEXTS[:2]:
+            it = rb.it(text)
+            self.assertEqual(set(G.accept(it)), {WISH_NONE, UNDECIDED}, text)
+            self.assertEqual(set(G.near_truths(it)), {NEAR_OFF, WISH_NONE, NEAR_NONE, ANY_LABEL}, text)
+            why = G._label(it)["why"]
+            self.assertNotIn("⏳ 仮（束 ax1）", why, text)
+            self.assertIn("分身 AY", why, text)
+        for text in self.TEXTS:
+            why = G._label(rb.it(text))["why"]
+            self.assertIn("束 ax1", why, text)
+            self.assertNotIn("⏳ 仮", why[-60:], text)
+
+    def test_2_one_reader_readings_go_to_the_field(self):
+        import reader_alts as RA
+        rb = AVReaderBordersTest()
+        got = {(e["束"], e["読み手"], e["項目"], e["値"]) for t in (self.TEXTS[3], self.TEXTS[5]) for e in RA.of("G-53", rb.it(t)) if e["束"] == "ax1"}
+        self.assertEqual(got, {("ax1", "B", "end", "決められない"), ("ax1", "B", "query", "決められない")})
