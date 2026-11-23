@@ -2932,10 +2932,18 @@ def next_note(qid: str, text: str) -> str:
     return f"次の質問は {qid}「{text}」です。"
 
 
-# 会話AIに質問を伺わせる知らせの文（ask_note・next_note の書き方から作る＝書く所と読む所が同じ）。会話AIが話す通話で、お客様がもう聞いた文を知らせから読むのは、
+def again_note(text: str) -> str:
+    """会話AIが話す通話で、言い直し（Flow._ask_confirm の文 text）への相手の返事がまだ無いとき、同じ言い直しを会話AIにもう一度伺わせる知らせの唯一の書き方（いま求めている
+    ことの知らせ Flow._now）。読む所は ask_note と同じ（ASKED_NOTE）。⛔ 分身 BD の (2) まで、ここだけ知らせの中に手で書き、お客様がもう聞いた文の読み（Flow._ai_asked＝
+    黙ったときの見張りの「お客様に何か聞こえた返事」）が読まなかった（帳面 1 の (6) の (i) の L3・CL-1_OPEN の (A)(6)）"""
+    return f"相手がまだ答えていなければ、「{text}」と、もう一度聞いてください。"
+
+
+# 会話AIに質問・言い直しを伺わせる知らせの文（ask_note・next_note・again_note の書き方から作る＝書く所と読む所が同じ）。会話AIが話す通話で、お客様がもう聞いた文を知らせから読むのは、
 # この文の「…」だけ（Flow._heard_last。録音で流す通話は流した録音の文＝同じ所）。⛔ 4e94ba37 まで、知らせのどこに書いた文も読み、待つ返事の知らせの「相手の返事が、
 # いまの質問 Q2「…」への答えなら…」（お客様には聞こえていない）を、その時に聞いた文と読んでいた（分身 E の書き置きの穴 (e)）
-ASKED_NOTE = re.compile("|".join(re.escape(f("ZZQZZ", "ZZTEXTZZ")).replace("ZZQZZ", r"\S+").replace("ZZTEXTZZ", "([^」]*)") for f in (ask_note, next_note)))
+ASKED_NOTE = re.compile("|".join(re.escape(f("ZZQZZ", "ZZTEXTZZ")).replace("ZZQZZ", r"\S+").replace("ZZTEXTZZ", "([^」]*)")
+                                for f in (ask_note, next_note, lambda _qid, text: again_note(text))))
 
 
 def choice_words(q: "Question", cond: str | None) -> str | None:
@@ -7134,7 +7142,7 @@ class Flow:
         # explained＝知っていることでご説明できたか・outcome＝agreed（ご納得）／declined（ご納得いただけない）／unresolved（ご説明できない・はっきりしない）
         self.point: dict | None = None
         # ご承認の質問ごとの、この通話でお客様にもう言った印（読み書きは _point_marks の1か所）：asked＝手順の一言ごとに伺った数（「ほかに…」の言い方を回す）・
-        # anytime_said＝「ご不満な点が…」を言った
+        # anytime_said＝「ご不満な点が…」を言った（言ったご承認の質問の印に立て、読むのは通話で1つ＝_leave_open）
         self.point_marks: dict[str, dict] = {}
         # 選ぶ質問の「どれも要らない」のあとに、ほかのご希望を伺う段の状態（Flow._wish_step の1か所だけが書く）：q＝元の質問・stage＝ask（ほかのご希望を
         # 伺っている）／detail（ご連絡の方法の連絡先を伺っている）・detail＝連絡先を伺う質問の番号・means＝ご連絡の方法・outcome＝通話の事実 other_wish の
@@ -8687,17 +8695,20 @@ class Flow:
     def _leave_open(self, head: str, rid: str) -> None:
         """点を言っていただけないまま手順を終えたときに、次へ進む前に挟む一言（「ご不満な点がございましたらいつでもお申し出ください。」など）と、その返事の頭の相づちの
         印を立てる唯一の場所（head＝頭の相づち・rid＝一言の録音の名前。一言を流すのは _advance の1か所・頭を読むのは _ack_choice の point_open）。一言は、このご承認の
-        質問でもう言っていれば立てない（同じ一言を2回言わない）・申し出を伺う業務（_offer_due＝営業に引き継ぐ架電の詳しい者からのお話・締める前の申し出）では、一言の
+        質問でも、ほかのご承認の質問でも、この電話でもう言っていれば立てない（同じ一言を2回言わない＝言った印 anytime_said は通話で1つに読む）・申し出を伺う業務（_offer_due＝営業に引き継ぐ架電の詳しい者からのお話・締める前の申し出）では、一言の
         代わりに申し出を伺う（_handoff_step。✅ 2026-11-09 日本時間4時36分49秒・6時33分57秒）。どちらのときも頭の相づちは同じ（一言の録音は流さず、言った印も
         立てない）＝点の無いまま手順を終えるときの頭に答える所は1つ（まとめ役の 7d62954b の確かめ。⛔ 7d62954b まで、申し出を伺うときは印を立てずに返し、頭は一般の
         相づちの決まりだった＝N1 への「そうでしたっけ。」で「はい、ご不満な点が…」と「かしこまりました。それでは詳しい者より…」に割れた）。
         ⛔ 2026-11-06 日本時間13時台の見直し（B2）：遅れた判定で取り消して段を戻す（_point_taken_back）と印だけ外し、言った印が無かったので、段が戻ったあとの
-        答えでもう一度挟んだ"""
-        self.point["open"] = (head, None if self._offer_due() or self._point_marks()["anytime_said"] else rid)
+        答えでもう一度挟んだ。⛔ 分身 BD の (4)（A-9）まで、印はご承認の質問ごとに読み、ご承認の質問が2つの業務で、2つ目の手順でもう一度
+        「ご不満な点がございましたらいつでもお申し出ください。」と言った（✅ 2026-11-01 日本時間18時11分53秒「全く同じ質問を2度したら…」・本書 9-4 の「範囲外の質問」の行
+        「同じ長い文を2度言わない」・10-19）"""
+        said = any(m.get("anytime_said") for m in self.point_marks.values())
+        self.point["open"] = (head, None if self._offer_due() or said else rid)
 
     def _point_marks(self) -> dict:
         """いまのご承認の質問（point の q）の、この通話でお客様にもう言った印を読む・書く唯一の場所（asked・anytime_said・n1＝Flow.__init__ の point_marks）。
-        ご承認の質問ごとに通話で1つ＝同じご承認でまた手順を始めても（締めの前の念のための確認で伺い直した「いいえ」）、
+        ご承認の質問ごとに通話で1つ（言った一言の印 anytime_said は、読む所 _leave_open が通話で1つに読む＝ご承認の質問が違っても同じ一言は1回）＝同じご承認でまた手順を始めても（締めの前の念のための確認で伺い直した「いいえ」）、
         もう伺った一言・もう言った一言は言わない（本書 9-5 のご承認の手順「もうお客様に伺った一言は、取り消しでもう一度伺わない」）。⛔ 2026-11-06 日本時間
         23時22分41秒のご質問の見直し（ご承認の手順の持ち場 A1）：印を手順の記録 point に持っていたので、手順をやめると印も消え、伺い直したご承認の「いいえ」の
         あと「ご納得いただけなかった点は…」をもう一度伺い、「ご不満な点が…」も2回言った"""
@@ -9496,7 +9507,7 @@ class Flow:
         if result == "next" and reply.get("question_id") == CALLBACK_IDS["brief"]:
             return "arigatou"   # 手短になら聞くと言われた（_brief_ask）：「ありがとうございます。」＋「（要約）の件でお電話させていただきましたが…」（伺い30・伺い31）
         if reply.get("ahead_offer"):
-            if (self.ahead_ack or (None,))[0] != self.callee_turns:
+            if (self.ahead_ack or (None,))[0] != self.callee_turns or reply.get("ahead"):
                 # この発話で初めて伺う番を開いた：ふつうなら流した相づち（受け取った答えで選ぶ＝この下の決まりそのもの。本書 9-7）を取っておき、同じ発話の最後の
                 # 返事の頭に受けの言葉が要るときに流す（Flow._ack）。同じ発話のうちに続けて伺う番を開いても（「LINEなら、IDは abc_123 です」）、最初の答えのもの。
                 # 順番に回す数は、選んだ時には進めず、その相づちを流したときの数を一緒に取っておく（進めるのは流したときだけ＝_ack の1か所）
@@ -9577,7 +9588,7 @@ class Flow:
             # はっきりしないお返事は「承知しました。」（分身 O の書き置き (6-2)）。⛔ 分身 Q の (1) まで、R1 は D2 の印（concern_back＝_concern_decided だけが付けた）の外で、
             # 同じ食い違いが残っていた（分身 P の書き置き (6-3)）
             return "hai"
-        if (result == "ask_back" and reply.get("ask_reason") == "ladder") or (result == "next" and reply.get("weekend")):
+        if (result == "ask_back" and reply.get("ask_reason") == "ladder") or (result == "next" and (reply.get("weekend") or reply.get("ahead"))):
             # 日時の2択の段の次の2択：土日を選ばれたら、その受けの一言の頭の「はい、」（✅ 2026-11-19 日本時間14時18分13秒 お言葉の文「はい、承知致しました。土日に…」。
             # 受けの一言は返事の中＝_ladder_ask。受けの一言のあとに先に言われた答えを伺う番を開いた返事＝next の weekend も同じ頭で、取っておく相づちも同じ「はい、」＝伺う番を
             # 閉じて2択を流すとき、受けの言葉を重ねない＝_ack の ahead_closed。分身 AY の (1)）。申し出を受けていただいた同じ発話で日時を言われて（先に言われた答え＝場面C）次の2択へ進むときは、受けのお礼（✅ 2026-11-12
@@ -10818,7 +10829,13 @@ class Flow:
         toward＝まだ答えていない質問について尋ねられて答えたあと（_continue の final）：こちらが勧めた向き（final_toward）で同じ最終の確かめ（✅ 2026-11-06
         日本時間11時55分13秒 ユーザー「(2) イ」。お断り・決められないは、言い直しの返事待ちと同じく、その答え・保留で受ける）。"""
         it, q = self.items[qid], self.questions[qid]
-        if in_announce_form(q):
+        if it.final and self.awaiting_confirm == qid:
+            # 最終の確かめをもう伺った（Item.final＝この関数と _accepted_ask）のに、また迷われ、尋ねられて答えたあとの相づちでここへ戻った：同じ最終の確かめを同じ言い方で
+            # もう一度言わず（✅ 2026-11-01 日本時間18時11分53秒「全く同じ質問を2度したら…」・本書 9-5 の 11-06 日本時間11時19分55秒の段「同じ確かめはもう言い直さない」）、
+            # 「はい、いかがなさいますか？」で伺う（まだ決めていないお返事の2回目と同じ1か所 _how_now＝✅ 2026-11-09 日本時間3時06分51秒）。分身 BD の (3)（H-5）。
+            # ⛔ 直す前は、迷う→選ぶ助け→相づち→戻るのたびに「はい、それではパンフレットをお送りさせていただきましょうか？」を同じ言い方で2回・3回流した
+            r = self._how_now(qid)
+        elif in_announce_form(q):
             # ご承認のお知らせのあと、質問のあとにこちらが言った一言（黙ったあとの一言・尋ねられた答え・受け答え）へのお返事だけ（_prompt_due）：了承として受け取らず、
             # 最終の確かめ（_accepted_ask の1か所）
             r = self._accepted_ask(qid, "ご承認のお知らせのあと、こちらが言った一言へのお返事だけ：最終の確かめ",
@@ -17567,7 +17584,7 @@ class Flow:
         お客様がその所でもう聞いた文（_heard_last）と、お客様に何か聞こえた返事の数え（黙ったときの見張り _silence_watch。会話AIの声が終わった時を知るのは電話接続側＝
         流れの制御は返事に秒を付けるだけ）。⛔ d8b0d355 まで、見張りはこの文を数えず、会話AIに次の質問（E1「そうだったんですね。…」など）を言わせる相づちの無い
         返事に、黙ったときの見張りも待つ上限も付かなかった（L16＝分身 N の書き置き (6-1)）"""
-        return "" if self.play_recordings else "".join(a or b for a, b in ASKED_NOTE.findall(reply.get("message") or ""))
+        return "" if self.play_recordings else "".join("".join(got) for got in ASKED_NOTE.findall(reply.get("message") or ""))
 
     def _brief_ask(self) -> dict:
         """急いでいるが手短になら聞くと言われた（_brief_due）：「ありがとうございます。」（相づちの録音＝_ack_choice）のあと、「（要約）の件でお電話させていただきましたが
@@ -18443,7 +18460,7 @@ class Flow:
         # 先に開いていたので、お詫びとお伝えが「はい、」→「ありがとうございます。あいにく…」に替わり（会話AIが時刻を報告すると、お伝えそのものが無かった）、お詫びの印が次の2択の頭に残った）
         if not self.items[qid].no_room_now and (r := self._offer_ahead(self.questions[qid], "" if weekend else "受け付けました。")) is not None:
             self.items[qid].played = again
-            return (self._led(weekend_line, "受け付けました。", r) | {"weekend": True}) if weekend else r
+            return (self._led(weekend_line, "受け付けました。", r) | {"weekend": True}) if weekend else r | ({"ahead": True} if ahead else {})
         line = question_play(self._plays(), qid, again=again)
         plays = [*weekend_line, line]
         say = "".join(p["text"] for p in plays)
@@ -19425,7 +19442,12 @@ class Flow:
         self._wish_contact(role, after=CALLBACK_IDS["handoff_way"] if CALLBACK_IDS["handoff_way"] in self.items else CALLBACK_IDS[h["kind"]], proc=h)
 
     def _handoff_fact(self, **extra) -> None:
-        """申し出の通話の事実（handoff・close_offer＝申し出の役目。この通話のこのご承認の1つ）を書き足す唯一の場所。"""
+        """申し出の通話の事実（handoff・close_offer＝申し出の役目。この通話のこのご承認の1つ）を書き足す唯一の場所。受けたか・断ったか（agreed）を書くときは、根拠の発話
+        （turn・said）も、その申し出（N4・N6）へのお返事の発話にする（答えの根拠を読む1か所 _evidence。本書 9-5「各項目には、根拠になった発話（時刻つき）を保存する」・
+        11-1「拒否・同意の記録（根拠の発話）」）。⛔ 分身 BD の (6)（担当 BB の気づいたこと 1）まで、申し出を伺った時の発話（N1 へのお返事・残りの質問のあとに伺ったときは
+        その前の確かめへのお返事）のままだった"""
+        if "agreed" in extra and (ev := self._evidence(CALLBACK_IDS[self.handoff["kind"]])) and ev.get("turn") is not None:
+            extra = {"turn": ev["turn"], "said": fact_said(ev.get("said")), **extra}
         for e in self.facts.get(self.handoff["kind"], []):
             if e.get("question") == self.handoff["q"]:
                 e.update(extra)
@@ -20276,7 +20298,7 @@ class Flow:
             p["open"] = None
             if opened[1] is not None:
                 plays.append({"kind": "recorded", "id": opened[1], "text": RECORDED[opened[1]]})
-                self._point_marks()["anytime_said"] = True   # 言った印（ご承認の質問ごとに通話で1つ＝取り消しで段を戻しても・手順をやめても残す）
+                self._point_marks()["anytime_said"] = True   # 言った印（通話で1つに読む＝_leave_open。取り消しで段を戻しても・手順をやめても残す）
         if (w := self.wish) is not None and w.get("announce"):
             # 並べて伺ったあとの「どれでも」に、こちらで方法をお伝えする一言（way_any_line の1か所）。連絡先の一言より先（1回だけ）
             aid, atext = w.pop("announce")
@@ -20972,8 +20994,7 @@ class Flow:
                 heard = f"（「{self.callee_said[:30]}」）" if self.callee_said else ""
                 return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事{heard}がもう届いています。"
                         f"もう一度聞かずに、何も言わないで、その返事を報告し直してください。{how}")
-            return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。{how}"
-                    f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
+            return f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。{how}{again_note(say)}"
         if self.end_reason in NOT_A_PERSON:
             return "通話は終わりです。何も言いません。"
         if self.phase == "calling" and self.asked_target and self.confirm_open and self.callee_turns <= self.asked_target_turn + 1:
