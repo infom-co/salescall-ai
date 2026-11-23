@@ -22,7 +22,8 @@ from flowctl import (POINT_UNSAID, ANY, WAY_UNSAID, wish_label, ABOUT_DEPARTED, 
                      END_PRESSED, END_REFUSED, LADDER_NEITHER, LADDER_OTHER, LADDER_OTHER_NOT, LADDER_OTHER_OK, LADDER_OTHER_UNSURE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
                      REFUSED_LABEL, REPEAT, HEAR_LOST, HEAR_OK, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHY_NOT_SAID, WRONG,
                      WRONG_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question, ladder_side_name, pain_question, since_form,
-                     NEAR, NEAR_OFF, MISGIVING, MISGIVING_OFF, MISGIVING_UNSAID, UNTIL_WHY, UNTIL_LABEL, UNTIL_WHY_NOT_SAID, CYCLE, CYCLE_LABEL, CYCLE_NOT_SAID)
+                     NEAR, NEAR_OFF, MISGIVING, MISGIVING_OFF, MISGIVING_UNSAID, UNTIL_WHY, UNTIL_LABEL, UNTIL_WHY_NOT_SAID, CYCLE, CYCLE_LABEL, CYCLE_NOT_SAID,
+                     NEAR_NONE, WISH_NONE)
 from grounding import TOUCHED, UNTOUCHED, one_touched
 from meaning_judge import UNDECIDED, WITHDREW
 from phrases import PAIN_ASK
@@ -352,6 +353,7 @@ def answer_words() -> list[dict]:
         *GARBLED_ROWS,
         *WHICH_POINT_ROWS,
         *WAY_ROWS,
+        *REMADE_ROWS,
     ]
 
 
@@ -850,7 +852,8 @@ _GARBLED_WHY = ("崩れた言葉。どの答えの向きも言い切っていな
 # 「決められない」とも読んだ（rv195/ap1x_AB.txt の #15・#16）。項目ごとに2つの読みで流れの制御に通すと、お客様に聞こえる言葉・記録・動き・すぐあとに切れたときの切れ方が同じ
 # （rv196/AQ/probe/aq/tr_garbled.txt）＝境目にした（帳面 0-3 の 141行・分身 AP の two_reads.py の形）。直す前の値＝答えの話・そういう様子は無い・こちらへ尋ねた問いは無い
 _GARBLED_TWO_READS = ("／2026-11-23 分身 AQ：答えの話か・聞こえ方・こちらへ尋ねた問いがあるかは「決められない」との境目（束 ap1x の #15・#16 の2人とも挙げた・2つの読みで流れの制御の"
-                      "動き・切れ方が同じ＝rv196/AQ/probe/aq/tr_garbled.txt。直す前の値＝答えの話・そういう様子は無い・こちらへ尋ねた問いは無い）／⏳ 仮＝読み手の束 aq1 の読みが届くまで")
+                      "動き・切れ方が同じ＝rv196/AQ/probe/aq/tr_garbled.txt。直す前の値＝答えの話・そういう様子は無い・こちらへ尋ねた問いは無い）／束 aq1 の読み手2人とも、"
+                      "この境目の読みの中（CL-1 の読み rv195/rr_aqf.txt＝仮を外した・分身 AU）")
 GARBLED_ROWS = [
     _row("R1", "ちょ……と……", [UNDECIDED, THINKING], AWAY_NO, reason=WHY_OTHER, misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
          why=_GARBLED_WHY + "。言いかけて続きそう＝考えている途中との境目"),
@@ -895,9 +898,10 @@ WHICH_POINT_ROWS = [
 # 「それではメールとLINEとZOOMのどちらがよろしいでしょうか？」＝✅ 2026-11-06 日本時間9時05分17秒 ユーザー「(3)…OK」）のお返事。並べたあとの「どれでも」は答え＝最初に並ぶ方法で
 # ご案内する・方法を言っていただけない（わからないも）は「ご案内の方法の件は担当の者に申し伝えさせていただきますね。」（✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」）。
 # お返事は同じ質問 W1 の答えとして読む（本番の流れの制御のまま）。正解は言葉と、W1 の選べるものの説明（flowctl._wish_choices・並べた形だけの「どちらでも」＝all_conditions）だけから
-# 決めた。いちばん近い答えは、どの行も答えの読みが決められないではない（B1 の決め方）。正解はどれも仮（答えを伏せた読み手の束 ar1）
+# 決めた。いちばん近い答えは、どの行も答えの読みが決められないではない（B1 の決め方）。答えを伏せた読み手の束 ar1（rv196/AR/readers・CL-1 の並べた表 rv195/ar1_AB.txt）：6行とも
+# 2人の読みは作った側の正解の中＝仮を外した（2026-11-23 分身 AU）
 _WE = "W1@E1"
-_WAY_TAIL = "。⏳ 仮（束 ar1）"
+_WAY_TAIL = "。束 ar1 の読み手2人とも同じ読み（仮を外した＝分身 AU）"
 WAY_ROWS = [
     {**_row(_WE, "はい、お願いします。", [WAY_UNSAID], near=[NEAR_OFF], misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
             why="申し出を受けると言っただけで、どの方法でかは言っていない＝方法は言っていない（説明の「申し出を受けると言っただけのときも」）" + _WAY_TAIL), "set": "W1"},
@@ -912,6 +916,32 @@ WAY_ROWS = [
     {**_row(_WE, "うーん、分からないです。", ["unknown"], scene=WAY_WHICH_SCENE, reason=(DONT_KNOW_LABEL["unspecified"],), near=[NEAR_OFF],
             misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
             why="どの方法がよいか分からないとだけ言った＝わからない（わけは言っていない）。言い終えている＝考えている途中ではない" + _WAY_TAIL), "set": "W1"},
+]
+
+
+# 分身 BD の (1)（帳面 1 の (1) の (f)・CL-1_OPEN の (B)(2) の残り・担当 AZ の棚卸しの (c)・分身 AR の書き置き rv196/AR/notes.md の 6章の (1)）：W1@E1 の試しの言葉（G-73）のうち、
+# 前の質問「それではほかにご希望などはございますでしょうか？」の言い方に合わせて作った3行（「今のところ、ほかには無いです。」「大丈夫です、ほかに何もありません。」
+# 「うーん、まあ、いろいろありますけど……。」）を、今の本番の質問（ご案内の方法の申し出「はい、それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！」＝
+# 場面は W1@E1 の1か所 g73_system_words.wish_scenes・判定に見せる文は Flow.judge_context）へのお返事として手で作り直した3行（帳面 0-3「試しの言葉を作るとき、本番で判定に渡る
+# 場面と同じかを確かめる」）。行ごとの言い表したい中身は前の行と同じ（断り・断り・言いよどみ）。正解は言葉と、W1 の申し出の形の選べるものの説明（flowctl._wish_choices の offer・
+# 無い＝WISH_NONE_MEANING["offer"]）と項目の説明だけから決めた。前の3行は残す（G-73 の言葉を読む口は g73_system_words.latest の1か所＝外すには2つ目の口が要る・正解は読み手で確かめた
+# 境目のまま。数えは行（組・質問・言葉）ごとに1回で、言葉が違うので重ならない）。答えを伏せた読み手の束 bd1（rv202/BD/readers）の読みが届くまで仮
+_REMADE_TAIL = "。正解は言葉と説明の文だけから決めた（分身 BD の (1)）。⏳ 仮（束 bd1）"
+REMADE_ROWS = [
+    {**_row(_WE, "いえ、そういうご案内は特に要らないです。", [WISH_NONE], near=[NEAR_OFF], misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+            why="申し出たご案内（「そういうご案内」＝メールやLINE、ZOOMなどでのご案内）は要らないと言った＝無い（説明「申し出た方法でのご案内も要らない・ご案内は受けないということ」）。"
+                "「特に」は柔らかく言っただけで言い切っている。電話を終える言葉かは「言っていない」（説明「前の質問でこちらが申し出たこと…を、断った・要らないと言った…だけのときも」）。"
+                "前の行「今のところ、ほかには無いです。」の作り直し" + _REMADE_TAIL), "set": "W1"},
+    {**_row(_WE, "大丈夫です、どれも特に要らないです。", [WISH_NONE], near=[NEAR_OFF], misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY,
+            why="申し出への「大丈夫です」だけではどちらとも取れる（✅ 2026-11-03 日本時間18時台）が、続けて、並べた方法の「どれも特に要らない」と言った＝無い（同じ説明）。電話を終える"
+                "言葉かは「言っていない」（同じ説明）。前の行「大丈夫です、ほかに何もありません。」の作り直し" + _REMADE_TAIL), "set": "W1"},
+    {**_row(_WE, "うーん、まあ、いろいろあるのは分かるんですけど……。", [UNDECIDED, THINKING], reason=WHY_OTHER, near=[NEAR_OFF, NEAR_NONE, WISH_NONE],
+            misgiving=[MISGIVING_OFF], misgiving_why=MG_OFF_WHY, end=(END_NONE, UNDECIDED),
+            why="並べた方法がいろいろあるのは分かると言い、「けど……」で言い終えていない＝どの答えも指していない・受け入れにも断りにも取れる（決められない）と、言いよどんでいる最中で"
+                "このあと続けて答えそう（考えている途中）の境目（✅ 2026-11-06 日本時間4時11分28秒「言葉だけで決まらなければ、どちらの読みも正解」）。迷っている・決めかねている、とは"
+                "言い終えていない＝迷っていない。いちばん近い答えは、決められないの読みでは、ためらってお断りに近い（無い）とどの答えにも近くないの境目・考えている途中の読みでは"
+                "答えの読みが決められないではない（「いろいろ」は並べた方法のこと＝ほかの希望は言っていない）。電話を終える言葉かは、断りかけて言い切らずに濁しただけ（決められない）と、"
+                "何も断っていない（言っていない）の境目。理由は言っていない。前の行「うーん、まあ、いろいろありますけど……。」の作り直し" + _REMADE_TAIL), "set": "W1"},
 ]
 
 

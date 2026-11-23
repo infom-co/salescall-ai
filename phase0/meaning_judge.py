@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, DATE_TIME_TYPES, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, DATE_TIME_TYPES, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, ASKS_NO, ASK_BACK_SHORT, RETURNED_OTHER, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items, WRONG, WRONG_HEADING, asks_wrong, wrong_choices, LADDER_OTHER, LADDER_SIDE_TAIL, ladder_choice_desc, ladder_other_choices, ladder_sides,
                      NEAR, near_choices, near_fits, MISGIVING, misgiving_choices, misgiving_fits,
@@ -39,7 +39,12 @@ from flowctl import (ABOUT, DATE_TIME_TYPES, ABSENT_WHY, OFFER, ANY, NONE, WAIT_
 REFUSED_HEAD = ("この質問に答えることそのものを、はっきり拒んだ（知らないとは言わずに、答えを言わない・教えられない、と言ったのも。どの答えを選んでも"
                 "要ることを言うのを拒んだのも。")
 REFUSED_TAIL = "選ぶこと・指定することを避けただけの言葉は入れない）"
-SYSTEM_DESC = {ANY: "こちらに任せた・どれでもよい・希望は無い、と言った（選ぶのを頼んだときも。選ぶのを避けただけの言葉は入れない）",
+# 「どちらでも」の説明の「希望は無い」の字（ANY_NO_WISH）。申し出た方法を並べて伺い直す質問・方法を申し出る質問（flowctl.Question.lists_ways）では出さない（system_desc の1か所）：
+# そこでは、受けると言っていない「希望は無い」は申し出へのお断り（「無い」）で、受けると言って方法の希望は無いと言ったのが「どちらでも」＝境目は「無い」の括弧の1か所（flowctl.WISH_NONE_ANY）。
+# ⛔ 分身 AW まで、両方に書いていた＝束 au1・束 av1 の2回とも、読み手2人とも「いえ、特に希望はないです。」を「どちらでも」とも読み、2人とも、境目が「どちらでも」の説明の「希望は無い」と
+#    「無い」の括弧の2か所に書かれていると書いた（帳面 0-3 の (a)「境目の決まりは1か所だけに書く」・CL-1 の読み rv200/rr_av.txt の (2)）
+ANY_NO_WISH = "・希望は無い"
+SYSTEM_DESC = {ANY: f"こちらに任せた・どれでもよい{ANY_NO_WISH}、と言った（選ぶのを頼んだときも。選ぶのを避けただけの言葉は入れない）",
                # ⛔ 2026-11-15（F4 の (c)・帳面 1 の (1)）：「確かめていない」をここに、「確かめる・調べる・人に聞く、と言っただけ」を「決められない」の説明に
                #    書いていて、同じ場面が2つの説明に入っていた（正解の表は 924行で両方を正解にした＝流れの制御は、ご希望の質問の最初の答えで「わからない」なら
                #    選ぶ助け・「決められない」なら聞き直す、と動きが違う）⇒ ご自分がいまは答えを持っていないと言った場面は、この1か所に書く（あとで確かめる、は
@@ -85,9 +90,12 @@ def system_desc(q, c: str) -> str:
     """システムが足す選べるもの（どちらでも・わからない・答えたくない）の説明（唯一の場所。options が使う）：事実を伺う質問（Question.asks_fact）の
     「答えたくない」は、控える・断る返事も入れる（⛔ 2026-10-31 の夜：「ご予約はされていますでしょうか？」への「差し控えさせていただきます」を、
     d1-ultra と Jev が3回の測りとも「いいえ」と読んだ＝申し出への断りの決まりを、事実の質問に当てた見込み）。どちらの場合もありうるときに確かめる答えの
-    ある質問（Question.maybe）の「どちらでも」は、どちらにもなりうると言った答え（MAYBE_DESC）。"""
+    ある質問（Question.maybe）の「どちらでも」は、どちらにもなりうると言った答え（MAYBE_DESC）。申し出た方法を並べて伺い直す質問・方法を申し出る質問（Question.lists_ways）の
+    「どちらでも」は、「希望は無い」の字（ANY_NO_WISH）を出さない（境目は「無い」の括弧の1か所＝flowctl.WISH_NONE_ANY。分身 AW）。"""
     if c == ANY and getattr(q, "maybe", ()):
         return MAYBE_DESC
+    if c == ANY and getattr(q, "lists_ways", False):
+        return SYSTEM_DESC[ANY].replace(ANY_NO_WISH, "", 1)
     if c == "unknown" and getattr(q, "type", "") in DATE_TIME_TYPES:
         return SYSTEM_DESC[c].removesuffix("）") + "。" + UNKNOWN_DATE + "）"
     return REFUSED_FACT if c == "refused" and getattr(q, "asks_fact", False) else SYSTEM_DESC[c]
@@ -112,8 +120,7 @@ KIND_DESC = {HOLD: "この電話の間に、取り次ぐ・確かめてくるあ
              #    言い直しを認めたと読んだ（確からしさ 0.69）＝話し始めた言葉がどんなものかを書いていなかった ⇒ 意味で足した（言葉の形の例は足さない）
              HANDOVER: "電話を代わった別の人が、話し始めた（「お電話代わりました」など。名乗る・待たせたことを詫びるなど、電話に出たあいさつで、頭の"
                        "「はい」もあいさつの「はい」。答えではない）。お呼びした方がいないので別の者に代わると"
-                       "言ったあとに代わった方が出たとき・お呼びした方と違う名前を名乗ったときも、こちら。代わった方が誰かで答えが決まるとき"
-                       "（お呼びした方の名前を名乗った・その前に取り次いだ方が、お呼びした方に取り次いだ）は、こちらではなく、その答えを選ぶ",
+                       "言ったあとに代わった方が出たとき・お呼びした方と違う名前を名乗ったときも、こちら",
              # 2026-10-25 G-53：言い直しへの「確認しておきます。」（これから確かめるだけ）を、考えない Sonnet 5.5 が答えと読んだ ⇒「答えになっていない」の例に足した。
              # ⛔ 同じ日に「聞いたことと違う範囲やもの（親会社・ほかの支店など）について言っただけ」も足したが、取り消した（✅ 2026-10-28 ユーザー：
              #    「『グループ全体だと50名超えますが…』を、4つの判定がそろって『50名以上』と読むことに何の問題があるんですか？人が見ても、その部分だけ
@@ -143,11 +150,19 @@ KIND_DESC = {HOLD: "この電話の間に、取り次ぐ・確かめてくるあ
              UNDECIDED: "この言葉と、前の質問・前の会話からは決められない（受け入れにも断りにも取れる・事実を伺う質問への言葉なら、どれかの答えの意味とも、断りの意味とも取れる・"
                         "どの答えも指していない・選ぶのを避けた・"
                         "どの答えがよいかを、こちらの考えとして尋ねた（自分の考えは言っていない）・"
-                        "話すことを終える言葉とも、質問への答えとも取れる。待つように言った・代わった人が話し始めた、に当たるときは、そちら）"}
+                        f"話すことを終える言葉とも、質問への答えとも取れる。「{HOLD}」「{WAIT_PLAIN}」「{HOLD_BACK}」「{HANDOVER}」に当たるときは、そちら）"}
 # 電話のやり取りを読む問い合わせ（尋ねているか・待たせた方が戻ったか＝TALK_KINDS）の「決められない」：お客様の答えの説明（上）は入れない
 #    （✅ 2026-10-31 ユーザー：(4) の案「OK」＝答えの段の説明を直すたびに、この2つの問い合わせの文が変わっていた・文の約30%が答え用だった）
-TALK_UNDECIDED = ("この言葉と、前の会話からは決められない（聞き違いもありうるので、近い言葉に読み替えない。待つように言った・代わった人が"
-                  "話し始めた、に当たるときは、そちら）")
+TALK_UNDECIDED = (f"この言葉と、前の会話からは決められない（聞き違いもありうるので、近い言葉に読み替えない。「{HOLD}」「{HANDOVER}」に当たるときは、"
+                  "そちら）")
+# 電話を代わった方の説明（KIND_DESC の HANDOVER）の終わりに、代わった方が誰かで答えが決まるときの行き先を、その問いで選ぶ選べるものの名前で書く（唯一の場所＝answer_kinds）：
+# 尋ねているか（asks＝G-59）は「尋ねていない」（名乗った・あいさつをした方は、こちらに尋ねていない）・待たせた方が戻ったか（returned＝G-68）は「別の方が出た」（お呼びした方ご本人が
+# 名乗った・取り次いだ先の方が出た＝前の言葉を言った方とは別の方）。答えの段（G-53）には、代わった方が誰かで決まる答えが無い＝書かない（帳面 0-3「判定（AI）への文も、初めて
+# 読む人がそのまま分かる言葉で書く」・(a)・(b)「場面だけの文は、その場面のときだけ作る」。帳面 1 の (6) の (i) の L26・分身 AU。⛔ それまでは3つの問いに同じ文「…こちらではなく、
+# その答えを選ぶ」が入り、指す先の選べるものがあるのは戻ったかだけ＝分身 AM の書き置き rv191/AM/notes.md の続き2 の (6-3)・分身 AQ の書き置き rv196/AQ/notes.md の 3章。
+# 決められないの「そちら」（KIND_DESC の UNDECIDED・TALK_UNDECIDED）も名前で指した）
+HANDOVER_WHO = {"asks": ASKS_NO, "returned": RETURNED_OTHER}
+HANDOVER_WHO_TEXT = "。代わった方が誰かで答えが決まるとき（お呼びした方の名前を名乗った・その前に取り次いだ方が、お呼びした方に取り次いだ）は、こちらではなく「{who}」"
 CONFIRM_DESC = {"affirmed": "こちらが言い直した値で合っていると認めた", "corrected": "違う・直した（別の値を言った）"}
 # 選ぶ質問（choice）の言い直しへの「違う」（判定に見せる名前, 説明）。中の名前は値を伺う型の言い直しへの「違う・直した」と同じ corrected（流れの制御は同じ1か所
 # Flow._denied_again＝「失礼いたしました。」＋「それでは（いまの質問）」）。選べるもう一方を言ったなら、その選択肢（今の訂正の道）・迷い・どれとも決まらないなら
@@ -260,17 +275,26 @@ LEAN = ("お客様のいまの言葉が答えについて言ったこと（そ�
 #    この条件の括弧の1か所に書き、そのまま記録する側からは名前で指す（帳面 0-3 の (a)・264行＝正解の表の両側を並べて0円で確かめてから入れた：rv196/AQ/probe/aq/firm_sides_before.txt）
 #    （分身 AQ）。⚠️ 11-01 に条件を足したとき、こちらへの頼み（望みの決まった頼み）の言い切りまで下げた＝PHASE0 の 11-01 の段。この形は、申し出ても伺ってもいないことの頼みだけを
 #    確かめる側に入れ、伺ったご希望・選択肢・申し出への頼みは、これに当たらないと書く
+# ⛔ 2026-11-23 まで、上の括弧（分身 AQ）でも、答えを伏せた読み手2人が、2人とも、ご予約の日時に変更が無いかを伺った質問への「日にちの変更をお願いできますか」「日時を変えて
+#    もらえますか」「別の日にならないでしょうか」「いいえ、別の日にしてもらえませんか」を言い切りと読んだ（束 aq1 の #13〜#16＝rv195/aq1_firm.txt・2人とも、変更が無いかを
+#    伺ったことが「ご希望として伺った」に当たるかが説明から分からないと書いた）。✅ 2026-11-01 日本時間3時45分（「あいては確認しているので、こちらが「大丈夫ですよ」などの一言が
+#    ないと、別の日が確定にならない」）＝変更などがあるか無いかを伺ったのは事実を伺っただけで、変更などをご希望として伺ったのではない、を同じ括弧の1か所に書いた（正解の表の
+#    分かれ目＝言い切って頼んだ「変更をお願いしたいです」などは言い切り・できるかを尋ねる形で頼んだ7行は言い切っていない、は今のまま＝rv198/AU/probe/au/change_rows.txt）。
+#    そのまま記録する側（FIRM_YES）の頭の「上のどれにも当たらない」は、判断のモデルの言い切りの問い（JEV_FIRM）では true の定義が先に並び、指す先がずれていた（分身 AQ の
+#    書き置きの 6章の (3)・束 aq1 の読み手 A）＝名前で指した（帳面 0-3 の (a) の注「ほかの説明の条件は、名前で指す」）。分身 AU
 FIRM_NOT = ("記録する前に、その答えでよいかをお客様にもう一度確かめる：次のどれかに当たる。お客様が、ご自分では確かに知らないこと（人や物・"
             "出来事の様子）について、答えに自信がなさそう（おそらく・思い出せない・人から聞いた、などと言った）／お客様が、ご自分の決めることに"
             "迷っている（決めかねている、などと言った）／お客様が、決めるのをこちらの返事に預けた（そうしたい・"
             "そのほうがよいという望みや考えを、こちらに同意を求める言い方や、自分に言い聞かせる言い方で言っただけで、そうしてほしいとは頼んでいない。"
             "または、こちらが申し出ておらず、ご希望としても伺っていないことを、こちらにしてもらえるかを尋ねる形で頼み、答えが、こちらがその頼みを"
-            "お受けするかどうかで決まる。こちらの申し出や、こちらが伺ったご希望・選んでいただくものについて、そうしてほしいと頼んだのは、お願いや"
+            "お受けするかどうかで決まる。こちらが、変更や取り消しなどがあるか無いかを伺っただけ（それがあるかという事実を伺った）なら、その変更などをご希望として伺ったのではない"
+            "＝その変更などをしてもらえるかを尋ねる形で頼んだのは、これに当たる（してもらえるかは、こちらの返事で初めて決まる）。してもらえるかを尋ねずに、そうしてほしいと"
+            "言い切って頼んだのは、これに当たらない。こちらの申し出や、こちらが伺ったご希望・選んでいただくものについて、そうしてほしいと頼んだのは、お願いや"
             "問いかけの言い方でも、これに当たらない）／お客様が、場合によって答えが変わると言った（予算が合えば・"
             "雨でなければ、などと言った）、または、いまの時点だけの答えで、この先は変わるかもしれないと言った／お客様が、これから先のことを、なりゆきの見込みとして言った（ご自分がこれからすることを、そうすると言ったのは、これに当たらない）／お客様が、答えそのものはまだ決めておらず、こちらに尋ねたことへの返事を聞いてから決めると言った／お客様が、ご自分の事情を言い（答えを添えていても）、そのうえでどうしたいかを言っていない（事情から答えの向きは分かっても）／お客様の"
             "言ったことからは、質問の聞いている時や範囲についての答え（選んだもの、または選ぶのをこちらに任せること）が決まらない（質問と違う時や範囲のことだけを言ったときも）／お客様が、ある答えに"
             "なっても困らないと言っただけで、そう望んでいる・そう決めたとは言っていない（選ぶのをこちらに任せた答えは、これに当たらない）")
-FIRM_YES = ("そのまま記録する：上のどれにも当たらない。丁寧な言い方・柔らかい言い方をしただけ、自分の望みを、迷わずに柔らかく言っただけ、理由を添えただけ、およその数で答えただけ、選べるもう一方を"
+FIRM_YES = ("そのまま記録する：記録する前に確かめる側（「記録する前に、その答えでよいかをお客様にもう一度確かめる」）に書いたどれにも当たらない。丁寧な言い方・柔らかい言い方をしただけ、自分の望みを、迷わずに柔らかく言っただけ、理由を添えただけ、およその数で答えただけ、選べるもう一方を"
             "打ち消しただけ、お客様の答え（選んだもの、または選ぶのをこちらに任せること）を、お願いや問いかけの言い方で言っただけ（お願いや問いかけの言い方の頼みが、"
             "これに当たるか、確かめる側に当たるかは、確かめる側の「決めるのをこちらの返事に預けた」に書いたとおり）、"
             "選ぶのをこちらに任せた答え（任せたことそのものを記録する。こちらがどれを選ぶかは、お客様に確かめることではない）なら、そのまま記録する")
@@ -577,7 +601,7 @@ ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電
                 # 範囲は流れの制御が言い直すものと同じ（11-08 の A-3＝お答え・ご説明も言い直す・伺い76＝待っていただく一言も言い直す＝Flow._wait_again）。
                 # ⛔ 72dbd454 まで「伺ったこと（質問・確かめの一言）」だけで、流れの制御が言い直すものより狭かった
                 REPEAT: "直前にこちらが言ったこと（伺ったこと・お答えしたこと・お待ちいただくようにお願いしたことなど）が聞こえなかった・聞き取れなかったので、"
-                        "もう一度言ってほしいと頼んだ（もう一度とは言わなくても、聞こえなかった・聞き取れなかったと言ったのも。こちらの名前・会社名や、"
+                        f"もう一度言ってほしいと頼んだ（もう一度とは言わなくても、聞こえなかった・聞き取れなかったと言ったのも。{ASK_BACK_SHORT}。こちらの名前・会社名や、"
                         "こちらが言ったことの意味など、ほかのことを尋ねたのではない。答えではない）",
                 # 残り（代わった人が話し始めた・決められない）は KIND_DESC のまま（1か所。⛔ 11-06 1時台に、ここを手で並べて「決められない」を落とした）
                 **{k: d for k, d in KIND_DESC.items() if k != HOLD}}
@@ -587,7 +611,8 @@ def answer_kinds(q) -> dict:
     """答えでない言葉の選べるもの（唯一の場所）：電話のやり取りを読む問い合わせは KIND_DESC＋決められない・答えの段の問い合わせは ANSWER_KINDS
     （迷っている＝HESITATING は、迷っているお客様に応じる質問だけ＝flowctl.hears_hesitation の1か所＝選ぶ助けを伝える業務の質問と、説明した内容のご承認の質問）。"""
     if talk_question(q):
-        return KIND_DESC | {UNDECIDED: TALK_UNDECIDED}
+        who = HANDOVER_WHO[question_kind(q)]
+        return KIND_DESC | {HANDOVER: KIND_DESC[HANDOVER] + HANDOVER_WHO_TEXT.format(who=who), UNDECIDED: TALK_UNDECIDED}
     kinds = ANSWER_KINDS if hears_hesitation(q) else {k: d for k, d in ANSWER_KINDS.items() if k != HESITATING}
     if offer := getattr(q, "taken_offer", ""):
         # 受けていただいた申し出から始まった質問（flowctl.Flow._taken_offer の1か所）だけ、その申し出の取り消し（flowctl.WITHDREW）。並びは「決められない」の前
@@ -757,6 +782,21 @@ def asks_about_line(q) -> str:
     return f"（この質問は、{about}を伺っています）\n" if about else ""
 
 
+def called_line(q) -> str:
+    """問い合わせの文の、はじめにお呼びした言葉の一行（唯一の場所＝prompt_parts の、目的のお客様の判定と尋ねているかの問い）。後任の方をお呼びしている場面だけ（Question.called）。
+    ⛔ 2026-10-30 G-59（3つの段の形の1回目）：考える Haiku は、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ（この行の、はじめにお呼びした方のことを、いまお呼びしている
+       方の事情と取り違えた）。同じ日の2回目：この行の「在籍していないと伺い」が残る間は、考える・考えない Haiku とも、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ
+       （流れの制御は、後任の方がいまは話せないと受け取り、繋がない）⇒ この行には事情を書かない"""
+    return f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
+
+
+def terms_line(q) -> str:
+    """項目ごとに答える質問ではない問い（尋ねているか）の、言葉の決まり（Question.terms＝後任の方の場面の flowctl.successor_terms）の行（唯一の場所＝prompt_parts）。無ければ ""
+    （文は前と同じ）。項目ごとに答える質問の言葉の決まりは facet_rules。L35・分身 AW"""
+    terms = () if getattr(q, "facets", None) else getattr(q, "terms", ())
+    return "言葉の決まり（説明の中の言葉）：\n" + "".join(f"- {t}\n" for t in terms) if terms else ""
+
+
 def prompt(q, text: str, asked: str | None = None, before: str | None = None) -> str:
     return "".join(prompt_parts(q, text, asked, before))
 
@@ -771,14 +811,9 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
     said = (f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else "") + (f"{PROMPTED}：「{q.prompted}」\n{prompted_note(q.prompted)}\n" if getattr(q, "prompted", "") else "")
     before = f"{BEFORE}：「{before}」\n" if before else f"{BEFORE}：{NO_BEFORE}\n" if q.facets else ""
     if q.facets:   # 項目ごとに答える質問：決まり・質問（はじめにお呼びした言葉）・項目は毎回同じ（まとめて送る前の部分）
-        # ⛔ 2026-10-30 G-59（3つの段の形の1回目）：考える Haiku は、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ（この行の、
-        #    はじめにお呼びした方のことを、いまお呼びしている方の事情と取り違えた）
-        # ⛔ 同じ日の2回目：この行の「在籍していないと伺い」が残る間は、考える・考えない Haiku とも、後任の方の「はい、そうです。」の事情を
-        #    「在籍していない」と読んだ（流れの制御は、後任の方がいまは話せないと受け取り、繋がない）⇒ この行には事情を書かない
-        called = f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
-        return facet_rules(q) + f"質問：「{q.text}」\n" + called + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
+        return facet_rules(q) + f"質問：「{q.text}」\n" + called_line(q) + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
     choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
-    head, tail = rules(q, asked) + items_text(q, asked) + f"質問：「{q.text}」\n" + asks_about_line(q), f"お客様の言葉：「{text}」\n"
+    head, tail = rules(q, asked) + items_text(q, asked) + f"質問：「{q.text}」\n" + asks_about_line(q) + called_line(q) + terms_line(q), f"お客様の言葉：「{text}」\n"
     if getattr(q, "named", False):
         return head + choices, before + said + tail
     return head, before + said + choices + tail
@@ -1475,7 +1510,9 @@ def jev_request(model: str, q, text: str, asked: str | None = None, before: str 
                                       "criteria": dict(f.choices)}
                               for f in q.facets}}
     return {"model": model, "state": scene(q, text, asked, before),
-            "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)}}
+            "questions": {"choice": {"type": "choice", "instructions": (JEV_ASK_REPLY if asked else JEV_ASK)
+                                     + ("言葉の決まり：" + "／".join(q.terms) if getattr(q, "terms", ()) else ""),   # 後任の方の場面の尋ねているか（terms_line と同じ1か所）
+                                     "criteria": jev_criteria(q, asked)}}
             | {m: {"type": "noul", "instructions": JEV_MARKS[m][0], "criteria": JEV_MARKS[m][1]} for m in answer_marks(q)}
             | {k: {"type": "choice", "instructions": JEV_ITEMS[k], "criteria": c} for k, c in answer_items(q, asked).items()}}
 

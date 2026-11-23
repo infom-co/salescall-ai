@@ -12,7 +12,7 @@ import time
 
 from common import base_parser, require_python, save_result, say
 from convo import answers
-from flowctl import (ABOUT, ABOUT_NO_SUCH, ABOUT_WRONG, ABSENT_WHY, ABSENT_WHY_NOT_SAID, CALLBACK_LABEL, END, END_HURRY, END_NONE, END_UNCLEAR, END_WHO, HEAR,
+from flowctl import (ABOUT, ABOUT_NO_SUCH, ABOUT_WRONG, ABSENT_WHY, ABSENT_WHY_NOT_SAID, ASKS_NO, ASKS_OTHER, ASKS_YES, CALLBACK_LABEL, END, END_HURRY, END_NONE, END_UNCLEAR, END_WHO, HEAR,
                      HEAR_LOST, HEAR_OK, OFFER, OFFER_NOT_SAID, PHONE, SPEAKER, UNDECIDED, WHO)
 from g53_meaning import spread_record
 from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, measured_judges
@@ -68,7 +68,11 @@ LINES = [
     ("どちらの岡田でしょうか？", F("同", "受", "無", "無")),              # お呼びした方を、ほかの人のこととして尋ねた
     # 試しの言葉（尋ねているかの「尋ねている」に、こちらが言ったことを聞き取れなかった・もう一度言ってほしいと言ったのも入れたとき＝まとめ役 CL-1 の頼み rv178/X の6回目 (2)(3)）：
     # 名乗りと呼ぶ一言を聞き取れなかった方。話している方の正解は「どういったご用件でしょうか？」と同じ形（前と同じ方・誰かは決められない）・こちらの声が届いていない様子
-    ("え？", F("同", "不", "無", "無") | {HEAR: {HEAR_LOST}}),
+    # 「え？」（言葉にしない短い声）は、聞き返しとも、驚き・戸惑いの声とも取れる（束 au3 の #6＝読み手2人とも「決められない」とも読んだ。言葉にしない短い声を聞き返しと決める
+    # お言葉は無い＝✅ 2026-11-06 日本時間4時11分28秒「言葉だけで決まらなければ、どちらの読みも正解」）＝聞こえ方は「届いていない様子」と「決められない」の境目（尋ねているかは
+    # ASKS_BORDERS の1か所）。説明の1か所 flowctl.ASK_BACK_SHORT の一文は今のまま（CL-1 が決めた）。2つの読みで動きは同じ・すぐあとに切れたときの切れ方が違う
+    # （rv198/AU/probe/au/tr_eh.txt）。分身 AV（CL-1 の読み rv195/rr_aur1.txt の (c)）。仮（束 av2）＝束 av2 の読み手2人とも正解の中（CL-1 の読み rv200/rr_av.txt＝分身 AW が仮を外した）
+    ("え？", F("同", "不", "無", "無") | {HEAR: {HEAR_LOST, UNDECIDED}}),
     ("すみません、聞こえなかったです", F("同", "不", "無", "無") | {HEAR: {HEAR_LOST}}),
     ("何とおっしゃいました？", F("同", "不", "無", "無") | {HEAR: {HEAR_LOST}}),
     # 試しの言葉（尋ねているかの「どの方をお呼びかを尋ねている」を分けたとき＝まとめ役 CL-1 の頼み rv178/X の続きの続き (3)）：どの方かを2つから選ぶように尋ねた・どちら様か
@@ -146,8 +150,8 @@ ASKING = {"岡田ですね。失礼ですが、どちら様でしょうか？", 
           "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？", "えっと、どちら様でしょうか？", "失礼ですが、どちら様でしょうか？",
           # 候補の行（LINES_ASKED）の読み手2人がそろって「尋ねている」（「はい、それで？」は1人が「決められない」も＝表の形に無い読み＝測りで数える）
           "失礼ですが、どういったご用件でしょうか？", "はい、それで？",
-          # 試しの言葉：こちらが言ったことを聞き取れなかった（「尋ねている」の説明に入れた＝まとめ役 CL-1 の頼み rv178/X の6回目 (2)(3)）
-          "え？", "すみません、聞こえなかったです", "何とおっしゃいました？"}
+          # 試しの言葉：こちらが言ったことを聞き取れなかった（「尋ねている」の説明に入れた＝まとめ役 CL-1 の頼み rv178/X の6回目 (2)(3)。「え？」は境目＝ASKS_BORDERS）
+          "すみません、聞こえなかったです", "何とおっしゃいました？"}
 # どの方をお呼びかを尋ねている言葉（flowctl.ASKS_WHO と読むべきもの。2026-11-20 に「尋ねている」から分けた＝まとめ役 CL-1 の頼み rv178/X の続きの続き (3)。帳面 0-3 のとおり
 # 「尋ねている」を正解に持っていた行を全部読み直し、どの方かを尋ねている言葉はこの1つだった（ほかは、どちら様か・ご用件か・用件を促した「はい、それで？」・代わりにご用件を伺う
 # 申し出＝言葉と説明の文から「尋ねている」のまま）。2つ目は足した試しの言葉）
@@ -155,18 +159,24 @@ ASKING_WHO = {"どちらの岡田でしょうか？", "営業部の岡田でし�
 # ほかのことを尋ねている言葉（「ほかのことを尋ねている」と読むべきもの。ASKING は「名乗り・用件・お呼びした方のことを尋ねている」と読むべきもの）
 ASKING_OTHER = {"この番号はどちらでお知りになりましたか？", "失礼ですが、御社はどちらにある会社なんですか？", "キャンセル料ってかかるんですか？",
                 "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？"}
-# 尋ねているかは、どちらと読んでもよい言葉：代わりにご用件を伺うという申し出（人が読んでも「ご用件をお聞かせください」と取れる。流れの制御は、
-# 「尋ねている」でも、問いの形の申し出として代わりの方の報告を止めない＝Flow._offer_while_asking）。2026-10-29 G-59facets_r1：Sonnet は「尋ねている」
-ASKS_EITHER = {"岡田はただいま外出しておりますので、私が代わりにご用件をお伺いします。"}
-# 尋ねているかは「ほかのことを尋ねている」と「尋ねていない」のどちらと読んでもよい言葉：申し出の形の問いかけ（候補 S1-14＝読み手2人とも両方を挙げた）
-ASKS_OTHER_EITHER = {"そうですね、戻りましたら折り返しさせましょうか？"}
+# 尋ねているかの正解が境目の言葉（言葉だけで決まる・場面で決まらない行の、唯一の表＝asks_truths。{言葉: 正しい読みの並び}。前の言葉で決まる電話を代わった方の行は
+# ASKS_HANDOVER_ROWS）。分身 AV が、前の ASKS_EITHER・ASKS_OTHER_EITHER（同じ問いに答える所が2つ）を1つにした：
+# - 代わりにご用件を伺うという申し出：尋ねている・尋ねていない（人が読んでも「ご用件をお聞かせください」と取れる。流れの制御は、「尋ねている」でも、問いの形の申し出として
+#   代わりの方の報告を止めない＝Flow._offer_while_asking。2026-10-29 G-59facets_r1：Sonnet は「尋ねている」）
+# - 申し出の形の問いかけ：ほかのことを尋ねている・尋ねていない（候補 S1-14＝読み手2人とも両方を挙げた）
+# - 「え？」（言葉にしない短い声）：尋ねている・決められない（束 au3 の #6＝読み手2人とも「決められない」とも読んだ・A は「驚き・戸惑いの声とも取れる」と書いた。言葉にしない
+#   短い声を聞き返しと決めるお言葉は無い＝✅ 2026-11-06 日本時間4時11分28秒＝境目。説明の1か所 flowctl.ASK_BACK_SHORT の一文は今のまま＝CL-1 が決めた。2つの読みで動きが違う
+#   ＝尋ねている：聞かれたことに合う録音で答える／決められない：確かめる一言＝rv198/AU/probe/au/tr_eh.txt。分身 AV（CL-1 の読み rv195/rr_aur1.txt の (c)）。仮（束 av2）＝束 av2 の読み手2人とも正解の中（CL-1 の読み rv200/rr_av.txt＝分身 AW が仮を外した））
+ASKS_BORDERS = {"岡田はただいま外出しておりますので、私が代わりにご用件をお伺いします。": (ASKS_YES, ASKS_NO),
+                "そうですね、戻りましたら折り返しさせましょうか？": (ASKS_OTHER, ASKS_NO),
+                "え？": (ASKS_YES, UNDECIDED)}
 
 
 def asks_truths(r: dict | str, only: bool = False) -> tuple[str, ...]:
     """行 r（表の行の場面の欄 case_row・記録の行。言葉だけを渡すと、その前の言葉の無い・後任の方の場面ではない・印の無い行）の「尋ねているか」の正しい読み（唯一の決まり＝
     測り run の asks_accept（asks_side）・asks_kind と、測りの数えが場面に渡す正しい読み g59_flow_check.calling_acts・場面を組む steps_before の前の言葉の読み）：
-    名乗り・用件を尋ねている（ASKING）・どの方をお呼びかを尋ねている（ASKING_WHO）・ほかのことを尋ねている（ASKING_OTHER）・どちらと読んでもよい
-    （ASKS_EITHER＝尋ねている・尋ねていない）・取り次ぎを待つ（ASKS_HOLD）・尋ねていないと代わった人が話し始めた（ASKS_HANDOVER_ROWS＝行で決まる）・尋ねていない。
+    名乗り・用件を尋ねている（ASKING）・どの方をお呼びかを尋ねている（ASKING_WHO）・ほかのことを尋ねている（ASKING_OTHER）・言葉で決まる境目（ASKS_BORDERS）・
+    取り次ぎを待つ（ASKS_HOLD）・尋ねていないと代わった人が話し始めた（ASKS_HANDOVER_ROWS＝行で決まる）・尋ねていない。
     聞こえ方だけを数える行（only）は正解を付けていない＝どれも。⛔ 2026-11-22 分身 AM の続き2 (1) まで、言葉だけを受け、取り次ぎを待つ・代わった人が話し始めた（判定の仕組みが
     どの問いにも添える選べるもの）を返さなかった（束 m の #4 を読み手2人がそろって「取り次ぎを待つ」と読んだ＝書き置き rv191/AM/notes.md の続き2）"""
     from flowctl import ASKS_NO, ASKS_OTHER, ASKS_WHO, ASKS_YES, HANDOVER, HOLD
@@ -178,10 +188,8 @@ def asks_truths(r: dict | str, only: bool = False) -> tuple[str, ...]:
         return (HOLD,)
     if not any(row_marks(r)) and (text, r["before"] or None, bool(r["successor"])) in ASKS_HANDOVER_ROWS:
         return ASKS_NO, HANDOVER   # 1つ目は前の読み（場面を組む steps_before は1つ目を渡す）
-    if text in ASKS_EITHER:
-        return ASKS_YES, ASKS_NO
-    if text in ASKS_OTHER_EITHER:
-        return ASKS_OTHER, ASKS_NO
+    if text in ASKS_BORDERS:
+        return ASKS_BORDERS[text]
     return (ASKS_YES,) if text in ASKING else (ASKS_WHO,) if text in ASKING_WHO else (ASKS_OTHER,) if text in ASKING_OTHER else (ASKS_NO,)
 
 
@@ -234,6 +242,10 @@ LINES_DEPARTED = [
 # 「公認は田中に…」）のあとの「お電話代わりました。田中です。」を、3.5 Flash Lite は「代わった人が話し始めた」と読み、田中様に後任の方をお呼びし直した
 TO_SUCCESSOR = "後任は田中になります。少々お待ちください。"
 DEPARTED_SAID = "岡田は先月退職いたしました。"   # 後任の方へ切り替えた言葉（本番では、後任の方の場面の言葉の前に必ずある＝Flow.judge_context）
+# 分身 AW（L35）：後任の方の場面の尋ねているかの判定に見せる文に、目的のお客様の判定と同じ1か所のはじめにお呼びした言葉と「お呼びした方」「いまお呼びしている方」の言葉の決まり
+# （flowctl.successor_terms）を足した＝この場面の行の全部（ほかの表の後任の方の場面の行も）の尋ねているかは仮（束 aw2）＝束 aw2 の読み手2人とも正解の中（尋ねているかも目的のお客様の
+# 判定の項目も。CL-1 の並べた表 rv201/aw2_out.txt）＝分身 AX が仮を外した。#8「後任はおりません。」の B の「不在」（お呼びした方の事情・電話に出られない理由）は1人だけ＝読み手の
+# 別の読みの欄（reader_alts）
 LINES_SUCCESSOR = [
     ("お電話代わりました。田中です。", TO_SUCCESSOR, False, F("違", "後", "無", "無")),
     # 前の言葉は聞き取りの誤り（「後任」が「公認」）：字のとおりなら後任の方とは言っていない（✅ 2026-10-29 ユーザー：「『お電話代わりました。田中です。』
@@ -366,7 +378,14 @@ ASKS_HANDOVER_ROWS = {
     ("はい、お電話代わりました。", "岡田は退職しておりますので、後任の者に代わります。少々お待ちください。", False),
     # 後任の方の場面（お呼びしているのは後任の方）：聞き違いの「公認は田中になります。」のあと（取り次いだ先がお呼びした後任の方か決まらない）・違うお名前を名乗った
     ("お電話代わりました。田中です。", f"{DEPARTED_SAID}／公認は田中になります。少々お待ちください。", True),
-    ("お電話代わりました。山本です。", f"{DEPARTED_SAID}／{TO_SUCCESSOR}", True)}
+    ("お電話代わりました。山本です。", f"{DEPARTED_SAID}／{TO_SUCCESSOR}", True),
+    # 後任の方の場面で、後任の方に取り次ぐと言われたあとに代わった方（束 au3 の #18＝読み手2人とも「代わった人が話し始めた」とも読み、2人とも、尋ねているかの判定に見せる文
+    # （本番の1か所 Flow.asks_context と読み手の束 g59_readers.packet は同じ文）に、「代わった人が話し始めた」の説明の「お呼びした方」が、はじめにお呼びした方か、いまお呼びしている
+    # 後任の方かが書いていないと書いた）。2つの読みで、流れの制御の動き・お客様に聞こえる言葉・記録・すぐあとに切れたときの切れ方が同じ（rv200/AV/probe/av/tr_t69.txt）＝境目
+    # （#14・#19 と同じ＝分身 AM の続き2 の (1)。CL-1 の読み rv195/rr_aur1.txt の (d)）。同じ理由（10-19）が当たる、後任の方のお名前を言われたあとにそのお名前で出た方も同じ
+    # （rv200/AV/probe/av/tr_t67.txt）。分身 AV。仮（束 av2）＝束 av2 の読み手2人とも正解の中（CL-1 の読み rv200/rr_av.txt＝分身 AW が仮を外した）
+    ("はい、お電話代わりました。", f"{DEPARTED_SAID}／後任の者に代わりますので、少々お待ちください。", True),
+    ("お電話代わりました。田中です。", f"{DEPARTED_SAID}／{TO_SUCCESSOR}", True)}
 
 
 def steps_before(before: str | None) -> list:
@@ -706,7 +725,7 @@ def candidates() -> list[dict]:
 # 2人がそろった読みはその読み（42行の全部の項目と、6行のそろった項目）・割れた項目は決まりで決めた（S1-13・S3-6＝もう在籍していない方の出られない理由は使わない＝言っていないも
 # 決められないも正解（11-19 日本時間21時台の決め）／S1-15＝ご事情を伺った一言への「はい、…」は伺ったとおり＝不在（meaning_judge.calling_rules）／S1-19＝「結構です。」は
 # 「はい」で伺ったとおりとは言っていない＝言っていない・電話を終える言葉は、断りとも読めて言葉から決まらない＝決められない・断ったの境目（10-17「『結構です。』だけでは判断
-# できない」・2人とも両方を挙げた）。尋ねているかは ASKING・ASKING_OTHER・ASKS_OTHER_EITHER（S1-14）の1か所。行の言葉・その前の言葉・確かめたあとか・フルネームの印は候補の
+# できない」・2人とも両方を挙げた）。尋ねているかは ASKING・ASKING_OTHER・ASKS_BORDERS（S1-14）の1か所。行の言葉・その前の言葉・確かめたあとか・フルネームの印は候補の
 # CANDIDATES の1か所（ここに書き写さない）。⏳ 読み手の気づき（ご事情を伺った一言への「いいえ」「本人はおります」に当たる事情が無い など）は rv178/S3/notes.md の 13
 LINES_ASKED = {
     "S1-1": {SPEAKER: {"前と同じ方"}, WHO: {"受付・取次ぎの方", "決められない"}, PHONE: {"何もない"}, ABOUT: {"不在"}, END: {"言っていない"}, HEAR: {"そういう様子は無い"}, OFFER: {"申し出は言っていない"}, ABSENT_WHY: {"理由は言っていない"}},

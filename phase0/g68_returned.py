@@ -14,13 +14,43 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import Counter
 
 from common import base_parser, require_python, save_result, say
 from meaning_judge import NoJudgment, add_judge_args, measured_judges
+from reader_alts import label, same   # 読み手の別の読みの欄の読み口（数えの割れ方だけ・答えを決めるのに使わない）
 
-from flowctl import RETURN_CHECKS, RETURN_MEANINGS as MEANINGS, RETURNED_OTHER as OTHER, RETURNED_SAME as SAME  # 説明の文の正本（G-68 で測った文）
+from flowctl import HANDOVER, RETURN_CHECKS, RETURN_MEANINGS as MEANINGS, RETURNED_OTHER as OTHER, RETURNED_SAME as SAME  # 説明の文の正本（G-68 で測った文）
 HOLD_TARGET, HOLD_OTHER = "岡田ですね。少々お待ちください。", "担当の者に代わりますので、少々お待ちください。"
 ANY = None  # どちらとも言えない（数えない）
+# 「別の方が出た」と「代わった人が話し始めた」の境目（説明の文の2つにどちらも当たる言葉：お呼びした方に取り次ぐと言われたあとに違う名前を名乗った＝「代わった方が誰かで答えが決まる」
+# とも「お呼びした方と違う名前を名乗った」とも読める・お呼びした方ではない担当の方に代わると言われたあとに出た方＝「お電話代わりました」と出た・電話を代わった別の人のあいさつ）。
+# 2つの読みで、流れの制御の動き（名乗りを省くか＝2つの判定がそろって「待たせた方が戻った」と読んだときだけ・お客様に聞こえる言葉・記録・すぐあとに切れたときの切れ方）が同じ
+# （rv200/AV/probe/av/tr_returned_before.txt＝26の言葉とも同じ）＝どちらの読みも正解（✅ 2026-11-06 日本時間4時11分28秒・帳面 0-3 の数えは流れの制御の動きで比べる）。
+# 分身 AV（帳面 1 の (6) の (i) の L33・分身 AU の書き置きの 6章の (7)）。⛔ それまでは「別の方が出た」だけを正しいと数えた（害の数には入らない）。仮（束 av3）＝束 av3 の読み手2人とも
+# 正解の中（CL-1 の読み rv200/rr_av.txt＝分身 AW が仮を外した）。束 av3 のあと、読み手2人とも「代わった人が話し始めた」とも読んだ「はい、お電話代わりました。」（前＝お呼びした方に
+# 取り次ぐと言われた）を足した（26の言葉の全部で2つの読みの動きが同じ＝rv200/AV/probe/av/tr_returned_before.txt・L33 と同じ＝CL-1 が決めた。分身 AW）。仮（束 aw3）＝束 aw3 の
+# 読み手2人とも正解の中（CL-1 の並べた表 rv201/aw3_AB.txt）＝分身 AX が仮を外した
+OTHER_OR_HANDOVER = (OTHER, HANDOVER)
+# 前の方（取り次ぎで待たせた方）が名乗っていないときの、新しい名乗り（お呼びした方ではない名前・お立場）：取り次ぎで待たせた方ご本人が戻って初めて名乗ったとも、別の方が出たとも読める
+# （束 av3 の読み手2人とも「待たせた方が戻った」とも読み、2人とも「待たせた方が戻った」の説明の「別の方に代わったと分かる言葉が無い」を、前の方が名乗っていないときの新しい名乗りが破るのかが
+# 分からないと書いた）。同じ方か別の方かを決めるお言葉は無い（10-29「いいえ、山田と申します。」は、お呼びした方ではない方かの話＝前と同じ方かの話ではない）＝✅ 2026-11-06 日本時間
+# 4時11分28秒「言葉だけで決まらなければ、どちらの読みも正解」＝境目（説明の文は今のまま・CL-1 の読み rv200/rr_av.txt の (2)＝CL-1 が決めた）。2つの読みで動きは違う（2つの判定が
+# そろって戻ったと読めば名乗りを省く・ほかは名乗り直す）。「お待たせいたしました。岡田と同じ課の者です。」は、読み手2人とも「代わった人が話し始めた」とも読んだ（上の境目と同じ・
+# 前は「別の方が出た」だけ）ので3つとも正解。正解に「待たせた方が戻った」が入った行は、害の数の分母（other_side）から外れる。分身 AW。仮（束 aw3）＝束 aw3 の
+# 読み手2人とも正解の中（CL-1 の並べた表 rv201/aw3_AB.txt。#5 の A の「決められない」は1人だけ＝もう読み手の別の読みの欄にある＝束 av3 の #14）＝分身 AX が仮を外した
+OTHER_HANDOVER_OR_SAME = (OTHER, HANDOVER, SAME)
+
+
+def accepted(want) -> tuple:
+    """表の行の正解 want（1つの名前・境目の並び・ANY）の、正しい読みの並び（唯一の読み口＝数え run・試験）。ANY は ()＝数えない。"""
+    return () if want is ANY else (want,) if isinstance(want, str) else tuple(want)
+
+
+def other_side(want) -> bool:
+    """表の行が、待たせた方ではない方の言葉か（害の数の分母＝名乗りを聞いていない方。唯一の決まり）：数える行で、正しい読みに「待たせた方が戻った」が無い。"""
+    return bool(accepted(want)) and SAME not in accepted(want)
+
 # (待たせた方の言葉, 戻ってきた方の言葉, 正解)
 CASES = [
     (HOLD_TARGET, "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。", SAME),
@@ -31,26 +61,26 @@ CASES = [
     (HOLD_TARGET, "お待たせいたしました。岡田は外出しておりまして、戻りは夕方になるとのことです。", SAME),
     (HOLD_OTHER, "お待たせいたしました。担当の者があいにく席を外しておりまして。", SAME),
     (HOLD_TARGET, "お待たせいたしました。岡田はおりませんので、私がご用件をお伺いしてもよろしいでしょうか。", SAME),
-    (HOLD_TARGET, "お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。", OTHER),
-    (HOLD_TARGET, "お電話代わりました、山田です。岡田は外出しておりまして。", OTHER),
-    (HOLD_TARGET, "はい、お電話代わりました。", OTHER),
+    (HOLD_TARGET, "お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。", OTHER_OR_HANDOVER),
+    (HOLD_TARGET, "お電話代わりました、山田です。岡田は外出しておりまして。", OTHER_OR_HANDOVER),
+    (HOLD_TARGET, "はい、お電話代わりました。", OTHER_OR_HANDOVER),
     (HOLD_TARGET, "お電話代わりました。岡田です。", OTHER),
-    (HOLD_TARGET, "お待たせいたしました。お電話代わりました、営業部の田中です。", OTHER),
-    (HOLD_TARGET, "もしもし、代わりました。同じ部署の佐々木ですが、岡田は今日お休みです。", OTHER),
+    (HOLD_TARGET, "お待たせいたしました。お電話代わりました、営業部の田中です。", OTHER_OR_HANDOVER),
+    (HOLD_TARGET, "もしもし、代わりました。同じ部署の佐々木ですが、岡田は今日お休みです。", OTHER_OR_HANDOVER),
     (HOLD_TARGET, "お待たせいたしました、岡田です。", OTHER),
-    (HOLD_OTHER, "お電話代わりました。担当の者ですが。", OTHER),
+    (HOLD_OTHER, "お電話代わりました。担当の者ですが。", OTHER_OR_HANDOVER),
     (HOLD_TARGET, "お待たせいたしました。", ANY),
     (HOLD_TARGET, "お待たせいたしました。岡田はおりませんので、代わりにお話をお聞きします。", ANY),
 ]
 # 戻ったかの線を決めるための、紛らわしい言葉（2026-10-31 の昼に足した案＝⏳ ご確認待ち。✅ ユーザー：「(c) …検査はOK」）：別の方が、代わったとは
 #    言わずに「お待たせいたしました」で話し始めて名乗る（害の側の線の確かめ）・戻った方が、確かめた結果を伝える
 NEW_CASES = [
-    (HOLD_OTHER, "お待たせいたしました。担当の佐藤でございます。", OTHER),
-    (HOLD_TARGET, "お待たせいたしました。営業部の田中と申します。岡田は本日おりません。", OTHER),
-    (HOLD_OTHER, "お待たせいたしました。担当の者ですが、どのようなご用件でしょうか。", OTHER),
-    (HOLD_TARGET, "お待たせしました。岡田の上司の村上ですが。", OTHER),
-    (HOLD_TARGET, "はい、お待たせしました。総務の木村です。", OTHER),
-    (HOLD_TARGET, "お待たせいたしました。岡田と同じ課の者です。", OTHER),
+    (HOLD_OTHER, "お待たせいたしました。担当の佐藤でございます。", OTHER_OR_HANDOVER),
+    (HOLD_TARGET, "お待たせいたしました。営業部の田中と申します。岡田は本日おりません。", OTHER_HANDOVER_OR_SAME),
+    (HOLD_OTHER, "お待たせいたしました。担当の者ですが、どのようなご用件でしょうか。", OTHER_OR_HANDOVER),
+    (HOLD_TARGET, "お待たせしました。岡田の上司の村上ですが。", OTHER_HANDOVER_OR_SAME),
+    (HOLD_TARGET, "はい、お待たせしました。総務の木村です。", OTHER_HANDOVER_OR_SAME),
+    (HOLD_TARGET, "お待たせいたしました。岡田と同じ課の者です。", OTHER_HANDOVER_OR_SAME),
     (HOLD_TARGET, "お待たせいたしました。確認しましたところ、岡田は本日出張でございます。", SAME),
     (HOLD_TARGET, "大変お待たせいたしました。岡田は本日、在宅勤務でして。", SAME),
 ]
@@ -121,16 +151,21 @@ async def run(args) -> dict:
             row["both_same"] = decided(f, got_of)   # 本番の流れの制御が、待たせた方が戻ったと決めたか（2つがそろったときだけ）
             rows.append(row)
             say(text[:40], {k: row.get(k) for k in judges}, "そろって戻った" if row["both_same"] else "")
-    harm = [r for r in rows if r["want"] == OTHER and r["both_same"]]
+    harm = [r for r in rows if other_side(r["want"]) and r["both_same"]]
     gain = [r for r in rows if r["want"] == SAME and r["both_same"]]
-    summary = {"別の方をそろって戻ったと読んだ（害）": f"{len(harm)}/{sum(1 for r in rows if r['want'] == OTHER)}",
+    summary = {"別の方をそろって戻ったと読んだ（害）": f"{len(harm)}/{sum(1 for r in rows if other_side(r['want']))}",
                "戻った方をそろって戻ったと読んだ（効き目）": f"{len(gain)}/{sum(1 for r in rows if r['want'] == SAME)}"}
-    summary |= {f"{k}・正しい（どちらとも言えない言葉を除く）": f"{sum(1 for r in rows if r['want'] and r.get(k) == r['want'])}/"
-                f"{sum(1 for r in rows if r['want'])}" for k in judges}
+    summary |= {f"{k}・正しい（どちらとも言えない言葉を除く）": f"{sum(1 for r in rows if r.get(k) in accepted(r['want']))}/"
+                f"{sum(1 for r in rows if accepted(r['want']))}" for k in judges}   # 境目の行（OTHER_OR_HANDOVER）は、どちらの読みも正しい
     new = [r for r in rows if r["new"]]
     if new:
         summary |= {"足した言葉の案・別の方をそろって戻ったと読んだ（害）":
-                    f"{sum(1 for r in new if r['want'] == OTHER and r['both_same'])}/{sum(1 for r in new if r['want'] == OTHER)}"}
+                    f"{sum(1 for r in new if other_side(r['want']) and r['both_same'])}/{sum(1 for r in new if other_side(r['want']))}"}
+    # 正しくない読みのうち、読み手の別の読み（reader_alts の1か所）と同じ値：分けて出すだけ（正解には数えない＝上の数えは同じ。分身 AV＝L6）
+    alts = Counter(f"{k}・{label(e)}" for r in rows for k in judges if r.get(k) and accepted(r["want"]) and r.get(k) not in accepted(r["want"])
+                   for e in same("G-68", (r["before"], r["text"]), {"answer": r.get(k)}))
+    if alts:
+        summary["正しくない読みのうち、読み手の別の読みと同じ値"] = dict(alts)
     say("数え：", json.dumps(summary, ensure_ascii=False))
     for r in harm:
         say("⛔ 害：", r["text"], {k: r.get(k) for k in judges})

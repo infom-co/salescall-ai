@@ -67,6 +67,13 @@ def ops(call: dict) -> list[dict]:
     return call["flow_log"]
 
 
+def undeclared(call: dict) -> list[str]:
+    """会話AIの報告が、宣言に無い項目名で差し戻された回の、その名前（唯一の読み＝数え summarize）。差し戻すかを決めるのは流れの制御の1か所（Flow._check_args）で、
+    差し戻す唯一の場所 Flow._reject が返事に残す印 undeclared を読むだけ（数えの側で名前を宣言と見比べ直さない）。本書 9-7「AIが報告の項目名を書き違える…宣言に無い
+    名前は差し戻す…⏳ このあとの試験で数える」。⚠️ 印を足す前（2026-11-23 分身 BA より前）の記録には印が無い＝数えは0（その記録の回は書き置き rv202/BA/notes.md）"""
+    return [e["reply"]["undeclared"] for e in ops(call) if e.get("reply", {}).get("undeclared")]
+
+
 def last_fact(call: dict, kind: str) -> dict:
     return (call.get("facts", {}).get(kind) or [{}])[-1]
 
@@ -237,6 +244,33 @@ def connect_reply(call: dict) -> dict:
                  and not str(x["reply"].get("question_id", "")).startswith("C")), {})
 
 
+def before_connect(call: dict) -> list[dict]:
+    """目的の人に繋がる前（繋いだ返事＝connect_reply より前）の操作の記録。繋がらなかった通話は全部。"""
+    log, con = ops(call), connect_reply(call)
+    return log[:next((k for k, x in enumerate(log) if x["reply"] is con), len(log))]
+
+
+# 目的のお客様を呼ぶ形の名乗りの録音の文（あいさつ・名乗り・呼ぶ一言＝instruction.Business.opening_parts の1か所）。録音の途中で止めた場面の、届いた文とまだの文
+TARGET_PARTS = TARGET_BUSINESS.opening_parts()
+
+
+def replayed_to_reception(line: str, parts: list[str], again: bool = False):
+    """お呼びする段で、受付の方が名乗りの録音の途中で話し始めた・録音のあとに聞き返した場面の確かめ（G-22・G-50 の目的のお客様を呼ぶ形＝本書 9-4 の目的のお客様の (2)(8)）：
+    聞かれたことに合う部分（parts）を録音で流し直し（名乗り・用件・呼ぶ一言は流れの制御が足す＝Flow.on_opening_cut・_op_replay_opening。もう一度は「失礼いたしました。」のあと、
+    言ったこと＝名乗りと呼ぶ一言。あいさつはお詫びの相づちと重ねない）、自分の声では話さず、聞いた方には確かめも質問も流さず、繋がるまで質問を流さず、取り次がれた岡田様には
+    あいさつ・名乗り・用件の全部を流してから質問へ。"""
+    head = "言ったことをもう一度" if again else {"intro": "名乗りと呼ぶ一言", "purpose": "用件と呼ぶ一言"}[parts[0]]
+
+    def check(c: dict) -> dict:
+        return {head: any(played_parts(x["reply"]) == parts and (not again or x["reply"].get("ack") == "shitsurei")
+                          for x in ops(c) if x["op"] == "replay_opening"),
+                "自分の言葉で話さない": own_words(c, line) == "",
+                "聞いた方には確かめも質問も流さない": not any(r in ("confirm_target", "call_target", "next") for r in replies_to(c, line)),
+                "繋がるまで質問を流さない": not any("question" in played_parts(x["reply"]) for x in before_connect(c)),
+                "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}
+    return check
+
+
 def got(call: dict, qid: str, want: str) -> bool:
     it = call["items"].get(qid, {})
     return it.get("state") in ("confirmed", "accepted") and want in ((it.get("condition") or "") + (it.get("value") or ""))
@@ -288,6 +322,15 @@ class Scene:
         own = "silence_s" in first or any(first.get("wav", "").endswith(f"_{n}.wav") for n in FIRST_WORDS)
         head = [] if own else [W("greet_company") if self.business.target is not None else W("hello")]
         return head + self.lines, {k: v + len(head) if k in INDEX_KW else v for k, v in self.kw.items()}
+
+
+# G-22（名乗りの録音の途中で話し始めた・録音のあとに聞き返した）の目的のお客様を呼ぶ形（2026-11-23 CL-1 が共通の決まり「同じ問いに答える所を2つ作らない」で決めた＝
+# 分身 BA の伺いの文 rv202/BA/ask_g22.md の (ア)。録音のあとの「どちら様」「ご用件」「代わる」は「目的の人_名前を確かめてから名乗りを聞かれる」「目的の人_用件を聞かれる」
+# 「目的の人_担当の者に取り次がれる」ほか）：(場面の名前の後ろ, 受付の方の台詞, 受付の方に流し直す部分, 録音の届いた文の数＝None は止めずに流し切った)。
+# 止める所は第一声の次の台詞の前（通話の試験への指定 barge_in＝G-50 と同じ渡し方。convo.run_call）
+G22_TARGET = (("録音の最初で話し始めた", "barge_who", ["intro", "target"], 0), ("録音のあいさつのあとで話し始めた", "barge_who", ["intro", "target"], 1),
+              ("録音の名乗りのあとで話し始めた", "barge_what", ["purpose", "target"], 2), ("録音のあとにもう一度と言われる", "again", ["intro", "target"], None))
+G22_TARGET_SCENES = tuple(f"目的の人_{label}" for label, *_ in G22_TARGET)
 
 
 SCENES = {
@@ -450,6 +493,11 @@ SCENES = {
         "名乗りと呼ぶ一言": any(played_parts(x["reply"]) == ["intro", "target"] for x in ops(c) if x["op"] == "replay_opening"),
         "聞いた方には確かめも用件も流さない": not any(r in ("confirm_target", "call_target", "next") for r in replies_to(c, "okada_whois_pause")),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}),
+    # 受付の方が名乗りの録音の途中で話し始めた（録音の最初・あいさつのあと・名乗りのあと）・録音のあとに「もう一度」（G22_TARGET）：言い終わってから、聞かれたことに合う
+    # 部分を録音で流し直し（まだ届いていない名乗りと呼ぶ一言はプログラムが足す）、取り次がれた岡田様には全部を流してから質問へ（本書 9-4 の目的のお客様の (2)(8)）
+    **{name: Scene(TARGET_BUSINESS, [W(line), W("hold_target"), T("taken_over_okada")] + FULL, replayed_to_reception(line, parts, again=cut is None),
+                   kw={} if cut is None else {"barge_in": (TARGET_PARTS[:cut], TARGET_PARTS[cut:])})
+       for name, (_, line, parts, cut) in zip(G22_TARGET_SCENES, G22_TARGET)},
     # 違うお名前の方が出て、お呼びした方の不在を伝える（✅ 2026-10-22 ユーザー：「違う名乗りの方が、岡田はいないと言っても、また、岡田様を
     # 呼ぶんですか？」）：お呼びし直さず・確かめず、戻る時刻を聞いて締める
     "目的の人_担当の別の方が不在を伝える": Scene(TARGET_BUSINESS, [W("transfer"), W("taken_over_absent"), W("back_5pm"), W("affirm")], lambda c: {
@@ -761,6 +809,77 @@ def answer_scenes() -> dict[str, "Scene"]:
 SCENES |= answer_scenes()
 
 
+# ── 条件を付けて受けた方（2026-11-23 分身 AW＝帳面 1 の (6) の (i) の L34・分身 AV の書き置き rv200/AV/notes.md の 3章）：担当者からのお電話のご案内の申し出（ご案内の方法を伺う最終目的の
+#    質問 E1＝測りの場面 W1@E1 の元の質問と同じ1か所 g73_system_words.wish_scenes。ご案内できる方法＝お電話・メール・LINE・ZOOM）に、こちらで応えられるご都合の条件を付けて受けた
+#    「来週の土曜日なら都合がつきます。」。✅ 2026-11-12 日本時間13時40分05秒の (2)（伺い直さず「ありがとうございます。」＋言い切り「それでは（条件、）（中身）…させていただきますね。」。
+#    条件の言葉は会話AIが答えの報告に添え、伺い直しの提案と同じ確かめを通す）・11-03 日本時間20時48分（業務に無い約束はしない）・G-54（判定が答えを読んで会話AIが報告しなければ1回促す）・
+#    本書 9-5 の (3) の下の行の 11-09 日本時間9時48分09秒からの段（条件は会話AIが書き、通話の事実 offer_terms に残して依頼者へ渡す）。相手役の声はまだ作っていない（流すまでは run の
+#    「相手役の声が確かめに通っていない」で動かさない）。⚠️ 申し出（W1）への「夜の七時以降に、もう一度かけてもらえますか。」の場面は作っていない（正解が3つの境目で、読みごとの動きと
+#    記録が割れる＝分身 AW の書き置きの 2章・3章）
+TERMS_SCENE = "条件を付けて受けた方"
+TERMS_QUESTION, TERMS_LINE, TERMS_WORD = "E1", "terms_saturday", "土曜日"
+
+
+def terms_business():
+    """条件を付けて受けた方の場面の業務：質問は測りの場面 W1@E1 の元の質問 E1（最終目的・ご案内の方法を伺う質問・業務の方法つき＝g73_system_words.wish_scenes の1か所）だけ。"""
+    from g53_meaning import question_map
+    from g73_system_words import wish_scenes
+    return dataclasses.replace(BUSINESS, questions=[wish_scenes(question_map())["W1@E1"][0]], info=[])
+
+
+def nudge_count(call: dict, wav_name: str) -> int:
+    """その台詞への、報告を促す知らせ（Flow.unreported_note＝convo の nudge のターン）の数（唯一の数え方＝nudged_once・申し出に時刻を付けてかけ直しを頼んだ方の場面 terms_seven_checks）。"""
+    return sum(1 for t in call["turns"] if isinstance(t.get("callee"), dict) and "nudge_of" in t["callee"] and _line_of(t).endswith(f"_{wav_name}.wav"))
+
+
+def nudged_once(call: dict, wav_name: str) -> bool:
+    """その台詞に会話AIが答えを報告しなかったときだけ、報告を促す知らせ（Flow.unreported_note＝convo の nudge のターン）が1回あった（G-54・唯一の数え方）：促しのターンは多くて1回・
+    その台詞のはじめのターンに受け付けた報告が無ければ、促しのターンがある。"""
+    plain_turns = [t for t in call["turns"] if isinstance(t.get("callee"), dict) and t["callee"].get("wav", "").endswith(f"_{wav_name}.wav")]
+    nudges = nudge_count(call, wav_name)
+    reported = any(e["name"] == "record_answer" and e["reply"] != "rejected" for t in plain_turns for e in t.get("tool_events") or [])
+    return nudges <= 1 and (reported or nudges == 1)
+
+
+def terms_checks(call: dict) -> dict:
+    """条件を付けて受けた方の場面の決まり（唯一の場所）：会話AIが答えの報告に条件を添えた（受け付けられた報告の terms に「土曜日」）・条件が通話の事実 offer_terms に残った・伺い直さずに
+    受けた（その台詞への返事に言い直しの確かめが無い）・約束しない・答えが取れた・報告しなければ1回促した（nudged_once）。"""
+    terms = [x["args"].get("terms") or "" for x in ops(call) if x["op"] == "record_answer" and x["args"].get("question_id") == TERMS_QUESTION
+             and x["reply"].get("result") != "rejected"]
+    kept = [e.get("terms") or "" for e in call["facts"].get("offer_terms") or [] if e.get("question") == TERMS_QUESTION]
+    return {"条件を答えの報告に添えた": any(TERMS_WORD in t for t in terms), "条件が通話の事実に残った": any(TERMS_WORD in t for t in kept),
+            "伺い直さずに受けた": "confirm_required" not in replies_to(call, TERMS_LINE), "約束しない": no_promise(call),
+            "答えが取れた": got(call, TERMS_QUESTION, "はい"), "報告しなければ1回促した": nudged_once(call, TERMS_LINE)}
+
+
+SCENES[TERMS_SCENE] = Scene(terms_business(), [W(TERMS_LINE)], terms_checks, "担当者からのお電話のご案内に、ご都合の条件を付けて受けた（伺い直さずに条件つきで言い切る）")
+
+
+# ── 申し出に時刻を付けてかけ直しを頼んだ方（2026-11-23 分身 AX＝帳面 1 の (6) の (i) の L34 の (b)・分身 AW の書き置きの 3章と 7章の (4)）：上の業務（E1）を言い切らずに断ったあとの、
+#    ご案内の方法の申し出（W1「それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！」）に「夜の七時以降に、もう一度かけてもらえますか。」。答えの段の正解は3つの読みの境目
+#    （あとでかけ直す・ほかの希望を言った・やはり担当者から詳しいご案内のお電話を差し上げてよろしいということ＝正解の表 W1@E1 の同じ言葉）で、読みごとに道と記録の項目が違う＝数えるのは
+#    どの読みでも成り立つ決まりだけ（分身 AW の書き置きの 7章の (4)）：「七時以降」が記録の値（かけ直しの時刻・申し出の条件・ほかのご希望の値）のどこかに残る（✅ 本書 9-3・11-04 日本時間
+#    20時27分の (2)・11-12 日本時間13時40分05秒の (2)・11-03 日本時間20時48分）・促しは多くて1回（G-54）・約束しない（確定でない約束をしない）。「あとでかけ直す」の読みは、かけ直しの日時の
+#    2択（平日と土日）へのお返事と言い直しの確かめへのお返事の台詞を足した（ほかの読みでは電話はその前に終わる＝台詞は流れない）。分身 AX の (1)（選び直しの条件）・(2)（ほかに言われたことの
+#    時刻を次の2択で使う）のあとで、どの読みでも成り立つ。相手役の声はまだ作っていない
+TERMS_SEVEN_SCENE = "申し出に時刻を付けてかけ直しを頼んだ方"
+TERMS_SEVEN_LINE, TERMS_SEVEN_TIME = "terms_seven", re.compile(r"(七|7|19)時以降")
+
+
+def terms_seven_checks(call: dict) -> dict:
+    """申し出に時刻を付けてかけ直しを頼んだ方の場面の決まり（唯一の場所。どの読みでも成り立つものだけ）：「七時以降」が記録の値（通話の事実のかけ直しの記録の時刻 callback の time・
+    申し出の条件 offer_terms の terms・ほかのご希望 other_wish の値）のどこかに残った・その台詞への促しは多くて1回（nudge_count）・約束しない。"""
+    facts = call["facts"]
+    kept = ([e.get("time") or "" for e in facts.get("callback") or []] + [e.get("terms") or "" for e in facts.get("offer_terms") or []]
+            + [e.get("value") or "" for e in facts.get("other_wish") or []])
+    return {"七時以降が記録の値に残った": any(TERMS_SEVEN_TIME.search(v) for v in kept), "促しは多くて1回": nudge_count(call, TERMS_SEVEN_LINE) <= 1,
+            "約束しない": no_promise(call)}
+
+
+SCENES[TERMS_SEVEN_SCENE] = Scene(terms_business(), [W("decline_call"), W(TERMS_SEVEN_LINE), W("weekday_please"), W(talk_name(YES_PLEASE))], terms_seven_checks,
+                                  "担当者からのお電話のご案内を言い切らずに断ったあとの、ご案内の方法の申し出に、時刻を付けてもう一度かけてほしいと頼んだ（正解の読みが3つ＝どの読みでも成り立つ決まりだけ）")
+
+
 def talk_notes() -> list[dict]:
     """別のお話の場面ごとに、本番の流れの制御（業務の Business.flow の1か所）が組み立てる会話AIへの知らせの文（流さない＝0円）：電話に出た方の第一声 →
     人の報告 → 名乗りとお支払いの質問 → お客様の別のお話 → 判定の読み（決められない・別のお話＝表の R1 の別のお話の行の正解）→ 報告の無いターンの返事の知らせ。"""
@@ -870,6 +989,10 @@ def summarize(rows: list[dict]) -> dict:
     s["測れなかった"] = [f"{r['scene']} {r.get('type')}：{r['unmeasured']}" for r in rows if r.get("unmeasured")]
     s["誤り・動かさなかった"] = [f"{r['scene']} {r.get('type')}：{r.get('skipped') or r.get('error', {}).get('message', '')[:60]}"
                            for r in rows if "error" in r or "skipped" in r]
+    called = [r for r in rows if "flow_log" in r]   # 通話の記録のある行（流した通話。測れなかった・外れた通話も、報告の差し戻しは数える）
+    names = [(r, n) for r in called for n in undeclared(r)]
+    s["宣言に無い名前の差し戻し"] = {"回": len(names), "通話": f"{len({id(r) for r, _ in names})}/{len(called)}",
+                              "どこ": [f"{r['scene']} {r.get('type')}：{n}" for r, n in names]}
     say("数え：", json.dumps(s, ensure_ascii=False))
     return s
 
