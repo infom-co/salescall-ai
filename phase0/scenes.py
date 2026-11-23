@@ -67,6 +67,13 @@ def ops(call: dict) -> list[dict]:
     return call["flow_log"]
 
 
+def undeclared(call: dict) -> list[str]:
+    """会話AIの報告が、宣言に無い項目名で差し戻された回の、その名前（唯一の読み＝数え summarize）。差し戻すかを決めるのは流れの制御の1か所（Flow._check_args）で、
+    差し戻す唯一の場所 Flow._reject が返事に残す印 undeclared を読むだけ（数えの側で名前を宣言と見比べ直さない）。本書 9-7「AIが報告の項目名を書き違える…宣言に無い
+    名前は差し戻す…⏳ このあとの試験で数える」。⚠️ 印を足す前（2026-11-23 分身 BA より前）の記録には印が無い＝数えは0（その記録の回は書き置き rv202/BA/notes.md）"""
+    return [e["reply"]["undeclared"] for e in ops(call) if e.get("reply", {}).get("undeclared")]
+
+
 def last_fact(call: dict, kind: str) -> dict:
     return (call.get("facts", {}).get(kind) or [{}])[-1]
 
@@ -941,6 +948,10 @@ def summarize(rows: list[dict]) -> dict:
     s["測れなかった"] = [f"{r['scene']} {r.get('type')}：{r['unmeasured']}" for r in rows if r.get("unmeasured")]
     s["誤り・動かさなかった"] = [f"{r['scene']} {r.get('type')}：{r.get('skipped') or r.get('error', {}).get('message', '')[:60]}"
                            for r in rows if "error" in r or "skipped" in r]
+    called = [r for r in rows if "flow_log" in r]   # 通話の記録のある行（流した通話。測れなかった・外れた通話も、報告の差し戻しは数える）
+    names = [(r, n) for r in called for n in undeclared(r)]
+    s["宣言に無い名前の差し戻し"] = {"回": len(names), "通話": f"{len({id(r) for r, _ in names})}/{len(called)}",
+                              "どこ": [f"{r['scene']} {r.get('type')}：{n}" for r, n in names]}
     say("数え：", json.dumps(s, ensure_ascii=False))
     return s
 

@@ -5,13 +5,13 @@
 """
 from __future__ import annotations
 
-from common import ApiKey, _LOADED_SECRETS, base_parser, read_env_file, require_python, save_result, say
+from common import ApiKey, _LOADED_SECRETS, base_parser, require_python, save_result, say, secret_pairs
 
 
 def main() -> None:
     require_python()
     args = base_parser(__doc__).parse_args()
-    pairs = read_env_file(args.env)
+    pairs, _ = secret_pairs(args.env, "キーの形（.env）", environ=False)   # 鍵を読む唯一の口（組み立てだけ＝--dry-run では読まずに止まる）
     rows = []
     for name, value in pairs:
         _LOADED_SECRETS.append(value)  # 念のため、すべての値を伏せる対象にする
