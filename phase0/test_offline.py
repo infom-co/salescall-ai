@@ -53739,8 +53739,10 @@ class AUHandoverNamedTest(unittest.TestCase):
         self.assertEqual(C.asks_truths({"text": "お電話代わりました。", "before": None, "successor": False}), (ASKS_NO, HANDOVER))
         # 戻ったか：お呼びした方が名乗った・お電話代わりました、は「別の方が出た」
         want = {t: w for _, t, w in R.CASES + R.NEW_CASES}
-        for t in ("お電話代わりました。岡田です。", "お待たせいたしました、岡田です。", "はい、お電話代わりました。"):
+        for t in ("お電話代わりました。岡田です。", "お待たせいたしました、岡田です。"):
             self.assertEqual(want[t], RETURNED_OTHER, t)
+        # 「はい、お電話代わりました。」は、束 av3 のあと「代わった人が話し始めた」との境目（分身 AW＝AWReaderBordersTest）
+        self.assertEqual(R.accepted(want["はい、お電話代わりました。"]), (RETURNED_OTHER, HANDOVER))
 
 
 class AUTwoReadsBordersTest(unittest.TestCase):
@@ -53927,12 +53929,11 @@ class AVReaderBordersTest(unittest.TestCase):
         from flowctl import NEAR, NEAR_NONE, NEAR_OFF, UNDECIDED, WISH_NONE
         for text in ("今のところ、ほかには無いです。", "大丈夫です、ほかに何もありません。"):
             it = self.it(text)
-            self.assertEqual(G.accept(it), [UNDECIDED], text)
-            self.assertEqual(set(G.near_truths(it)), {WISH_NONE, NEAR_NONE}, text)
+            # 分身 AW：束 av1 で読み手2人とも「無い」とも読んだ＝答えは「無い」と「決められない」の境目（AWReaderBordersTest）。決められないの読みの数えは今のまま
+            self.assertEqual(G.accept(it), [UNDECIDED, WISH_NONE], text)
+            self.assertEqual(set(G.near_truths(it)), {WISH_NONE, NEAR_NONE, NEAR_OFF}, text)
             for nv in (WISH_NONE, NEAR_NONE):
                 self.assertIsNone(self.miss(*self.reread(text, answer=UNDECIDED, **{NEAR: nv})), (text, nv))
-            # 字のとおり「無い」（申し出へのお断り）と受け取る読みは外れ
-            self.assertIsNotNone(self.miss(*self.reread(text, answer=WISH_NONE, **{NEAR: NEAR_OFF})), text)
             self.assertIn("分身 AV", G._label(it)["why"])
 
     def test_b2_the_end_of_various_things_is_a_border(self):
@@ -54007,9 +54008,13 @@ class AVReturnedBorderTest(unittest.TestCase):
 
     BORDER = ("お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。", "お電話代わりました、山田です。岡田は外出しておりまして。",
               "お待たせいたしました。お電話代わりました、営業部の田中です。", "もしもし、代わりました。同じ部署の佐々木ですが、岡田は今日お休みです。",
-              "お電話代わりました。担当の者ですが。", "お待たせいたしました。担当の佐藤でございます。", "お待たせいたしました。営業部の田中と申します。岡田は本日おりません。",
-              "お待たせいたしました。担当の者ですが、どのようなご用件でしょうか。", "お待たせしました。岡田の上司の村上ですが。", "はい、お待たせしました。総務の木村です。")
-    ONLY_OTHER = ("はい、お電話代わりました。", "お電話代わりました。岡田です。", "お待たせいたしました、岡田です。", "お待たせいたしました。岡田と同じ課の者です。")
+              "お電話代わりました。担当の者ですが。", "お待たせいたしました。担当の佐藤でございます。",
+              "お待たせいたしました。担当の者ですが、どのようなご用件でしょうか。", "はい、お電話代わりました。")
+    ONLY_OTHER = ("お電話代わりました。岡田です。", "お待たせいたしました、岡田です。")
+    # 分身 AW（束 av3 の読み手2人とも「待たせた方が戻った」とも読んだ＝前の方が名乗っていないときの新しい名乗り）：3つとも正解・害の数の分母から外れる（AWReaderBordersTest）。
+    # 「はい、お電話代わりました。」は、束 av3 のあと境目（BORDER）へ。「お待たせいたしました。岡田と同じ課の者です。」は3つとも
+    SAME_TOO = ("お待たせいたしました。営業部の田中と申します。岡田は本日おりません。", "お待たせしました。岡田の上司の村上ですが。", "はい、お待たせしました。総務の木村です。",
+                "お待たせいたしました。岡田と同じ課の者です。")
 
     def run_with(self, value):
         import asyncio
@@ -54027,14 +54032,16 @@ class AVReturnedBorderTest(unittest.TestCase):
             self.assertEqual(set(g68.accepted(want[t])), {RETURNED_OTHER, HANDOVER}, t)
         for t in self.ONLY_OTHER:
             self.assertEqual(g68.accepted(want[t]), (RETURNED_OTHER,), t)
+        for t in self.SAME_TOO:
+            self.assertEqual(set(g68.accepted(want[t])), {RETURNED_OTHER, HANDOVER, RETURNED_SAME}, t)
         others = sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if g68.other_side(w))
         self.assertEqual(others, len(self.BORDER) + len(self.ONLY_OTHER))
         counted = sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if g68.accepted(w))
         got = self.run_with(HANDOVER)
-        self.assertEqual(got["judge・正しい（どちらとも言えない言葉を除く）"], f"{len(self.BORDER)}/{counted}")
+        self.assertEqual(got["judge・正しい（どちらとも言えない言葉を除く）"], f"{len(self.BORDER) + len(self.SAME_TOO)}/{counted}")
         self.assertEqual(got["別の方をそろって戻ったと読んだ（害）"], f"0/{others}")
         got = self.run_with(RETURNED_OTHER)
-        self.assertEqual(got["judge・正しい（どちらとも言えない言葉を除く）"], f"{others}/{counted}")
+        self.assertEqual(got["judge・正しい（どちらとも言えない言葉を除く）"], f"{others + len(self.SAME_TOO)}/{counted}")
         got = self.run_with(RETURNED_SAME)
         self.assertEqual(got["別の方をそろって戻ったと読んだ（害）"], f"{others}/{others}")
 
@@ -54085,7 +54092,7 @@ class AVReaderAltsTest(unittest.TestCase):
             self.assertTrue(e["動き"] and e["出どころ"] and e["束"] and e["読み手"], e)
             self.assertNotIn(e["値"], self.truths(e), e)   # 正解の中に入った読みは欄に入れない（書き置きの 2章）
         tables = {e["表"] for e in got}
-        self.assertEqual(tables, {"G-53", "G-59", "G-63"})   # 戻ったか（G-68）は、まだ読み手の束を読んでいない（束 av3）
+        self.assertEqual(tables, {"G-53", "G-59", "G-63", "G-68"})   # 戻ったか（G-68）は束 av3 の #14 の A（分身 AW）
 
     def test_2_the_field_does_not_decide_answers(self):
         for name in ("flowctl.py", "meaning_judge.py", "convo.py", "instruction.py", "grounding.py"):
@@ -54135,3 +54142,82 @@ class AVReaderAltsTest(unittest.TestCase):
             s = AVReturnedBorderTest().run_with(HANDOVER)
         self.assertEqual(s["正しくない読みのうち、読み手の別の読みと同じ値"], {"judge・束 試し の A・answer＝代わった人が話し始めた（読んだ）": 1,
                                                                  "judge2・束 試し の A・answer＝代わった人が話し始めた（読んだ）": 1})
+
+
+class AWReaderBordersTest(unittest.TestCase):
+    """分身 AW（束 av1〜av3 の読み手2人がそろって正解の外を読んだ所＝CL-1 の読み rv200/rr_av.txt・並べた表 rv200/av1_out.txt・av3_AB.txt。CL-1 が書いてある決まりで決めた＝伺わない）：
+    (3)(a) 「今のところ、ほかには無いです。」「大丈夫です、ほかに何もありません。」（W1@E1）の答え＝「無い」と「決められない」の境目（束 au1 と束 av1 の2回とも、読み手2人が両方を読んだ＝
+        ✅ 2026-11-06 日本時間4時11分28秒「言葉だけで決まらなければ、どちらの読みも正解」）。答えを「無い」と読むと、いちばん近い答えは読まない（「答えの読みが決められないではない」も正解）
+    (4)(a) 待たせた方が戻ったか（G-68）の「はい、お電話代わりました。」「お待たせいたしました。岡田と同じ課の者です。」＝「別の方が出た」と「代わった人が話し始めた」の境目（L33 と同じ）
+    (4)(b) 前の方が名乗っていないときの新しい名乗り（「お待たせいたしました。営業部の田中と申します。…」「お待たせしました。岡田の上司の村上ですが。」「はい、お待たせしました。総務の木村です。」
+        「お待たせいたしました。岡田と同じ課の者です。」）＝「待たせた方が戻った」も正解（同じ方か別の方かを決めるお言葉は無い＝11-06 の決まり）。正解に「待たせた方が戻った」が入った行は、
+        害の数の分母（other_side）から外れる
+    仮を外す：束 av1 の #1・#4・束 av2 の3行・束 av3 の、2人とも正解の中だった行。1人だけの読み（av1 の #3 の A・#6 の A・av3 の #14 の A）は読み手の別の読みの欄（reader_alts）へ"""
+
+    E1 = ("W1", "W1@E1")
+    NONE_TWO = ("今のところ、ほかには無いです。", "大丈夫です、ほかに何もありません。")
+    SAME_TOO = ("お待たせいたしました。営業部の田中と申します。岡田は本日おりません。", "お待たせしました。岡田の上司の村上ですが。",
+                "はい、お待たせしました。総務の木村です。", "お待たせいたしました。岡田と同じ課の者です。")
+
+    def test_1_nothing_else_words_are_a_border_of_none_and_undecided(self):
+        import g53_meaning as G
+        from flowctl import NEAR, NEAR_NONE, NEAR_OFF, UNDECIDED, WISH_NONE
+        rb = AVReaderBordersTest()
+        for text in self.NONE_TWO:
+            it = rb.it(text)
+            self.assertEqual(set(G.accept(it)), {UNDECIDED, WISH_NONE}, text)
+            self.assertEqual(set(G.near_truths(it)), {WISH_NONE, NEAR_NONE, NEAR_OFF}, text)
+            # どちらの読みも、測りの数え（flow_miss）は外れにしない
+            self.assertIsNone(rb.miss(*rb.reread(text, answer=WISH_NONE, **{NEAR: NEAR_OFF})), text)
+            for nv in (WISH_NONE, NEAR_NONE):
+                self.assertIsNone(rb.miss(*rb.reread(text, answer=UNDECIDED, **{NEAR: nv})), (text, nv))
+            why = G._label(it)["why"]
+            self.assertIn("分身 AW", why)
+            self.assertNotIn("⏳ 仮（束 av1）", why)
+            self.assertTrue(why.endswith("⏳ 仮（束 aw1）"), why[-80:])
+
+    def test_2_the_av1_rows_both_readers_kept_are_no_longer_provisional(self):
+        import g53_meaning as G
+        rb = AVReaderBordersTest()
+        for text, f in (("んー、どっちがいいかな。", "query_why"), ("うーん、まあ、いろいろありますけど……。", "end_why")):
+            v = G._label(rb.it(text))[f]
+            self.assertNotIn("⏳ 仮", v, text)
+            self.assertIn("分身 AW", v, text)
+            self.assertIn("仮を外した", v, text)
+
+    def test_3_the_returned_borders(self):
+        import g68_returned as g68
+        from flowctl import HANDOVER, RETURNED_OTHER, RETURNED_SAME
+        want = {t: w for _, t, w in g68.CASES + g68.NEW_CASES}
+        self.assertEqual(set(g68.accepted(want["はい、お電話代わりました。"])), {RETURNED_OTHER, HANDOVER})
+        for t in self.SAME_TOO:
+            self.assertEqual(set(g68.accepted(want[t])), {RETURNED_OTHER, HANDOVER, RETURNED_SAME}, t)
+            self.assertFalse(g68.other_side(want[t]), t)   # 害の数の分母から外れる
+        for t in ("お電話代わりました。岡田です。", "お待たせいたしました、岡田です。"):   # お呼びした方が名乗った＝今のまま
+            self.assertEqual(g68.accepted(want[t]), (RETURNED_OTHER,), t)
+        # 測りの数え：境目の行は、どの読みも正しい。2つそろった「待たせた方が戻った」は、分母に残る行でだけ害
+        others = sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if g68.other_side(w))
+        counted = sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if g68.accepted(w))
+        same = sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if RETURNED_SAME in g68.accepted(w))
+        got = AVReturnedBorderTest().run_with(RETURNED_SAME)
+        self.assertEqual(got["別の方をそろって戻ったと読んだ（害）"], f"{others}/{others}")
+        self.assertEqual(got["judge・正しい（どちらとも言えない言葉を除く）"], f"{same}/{counted}")
+        src = (Path(g68.__file__).parent / "g68_returned.py").read_text(encoding="utf-8")
+        self.assertNotIn("⏳ 仮（束 av3）", src)
+        self.assertIn("⏳ 仮（束 aw3）", src)
+
+    def test_4_the_av2_rows_are_no_longer_provisional_from_av2(self):
+        import g59_calling_judge as g
+        self.assertNotIn("⏳ 仮（束 av2）", Path(g.__file__).read_text(encoding="utf-8"))
+
+    def test_5_one_reader_readings_go_to_the_field(self):
+        import g68_returned as g68
+        import reader_alts as RA
+        from flowctl import ANY, UNDECIDED, WAY_UNSAID
+        rb = AVReaderBordersTest()
+        got = {(e["値"], e["項目"]) for e in RA.of("G-53", rb.it("大丈夫です、ほかに何もありません。")) if e["束"] == "av1"}
+        self.assertIn((WAY_UNSAID, "answer"), got)
+        got = {(e["値"], e["項目"]) for e in RA.of("G-53", rb.it("特にないので、そのままで大丈夫です。")) if e["束"] == "av1"}
+        self.assertTrue({(ANY, "answer"), (UNDECIDED, "answer")} <= got, got)
+        b = next(b for b, t, _ in g68.CASES + g68.NEW_CASES if t == self.SAME_TOO[-1])
+        self.assertEqual([(e["束"], e["読み手"], e["値"]) for e in RA.of("G-68", (b, self.SAME_TOO[-1]))], [("av3", "A", UNDECIDED)])
