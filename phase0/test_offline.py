@@ -54875,3 +54875,46 @@ class AYReaderBordersTest(unittest.TestCase):
         rb = AVReaderBordersTest()
         got = {(e["束"], e["読み手"], e["項目"], e["値"]) for t in (self.TEXTS[3], self.TEXTS[5]) for e in RA.of("G-53", rb.it(t)) if e["束"] == "ax1"}
         self.assertEqual(got, {("ax1", "B", "end", "決められない"), ("ax1", "B", "query", "決められない")})
+
+
+class BDRemadeWishRowsTest(unittest.TestCase):
+    """分身 BD の (1)（帳面 1 の (1) の (f)・CL-1_OPEN の (B)(2) の残り・分身 AR の書き置き rv196/AR/notes.md の 6章の (1)。CL-1 が書いてある決まりで決めた＝伺わない）：
+    W1@E1 の試しの言葉（G-73）のうち、前の質問「それではほかにご希望などはございますでしょうか？」の言い方に合わせて作った3行を、今の本番の質問（ご案内の方法の申し出
+    「はい、それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！」）へのお返事として手で作り直した3行（review_words.REMADE_ROWS・組 W1）。場面は本番で判定に
+    渡る場面と同じ1か所（帳面 0-3）。前の3行は残す（G-73 の言葉を読む口は1か所・数えは行ごとに1回）。正解は答えを伏せた読み手の束 bd1 の読みが届くまで仮"""
+
+    OFFER = "それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！"
+    OLD = ("今のところ、ほかには無いです。", "大丈夫です、ほかに何もありません。", "うーん、まあ、いろいろありますけど……。")
+    NEW = ("いえ、そういうご案内は特に要らないです。", "大丈夫です、どれも特に要らないです。", "うーん、まあ、いろいろあるのは分かるんですけど……。")
+
+    def test_1_the_remade_rows_are_read_in_the_offer_scene(self):
+        import g53_meaning as G
+        import review_words as rw
+        from flowctl import END_NONE, MISGIVING_OFF, NEAR_NONE, NEAR_OFF, THINKING, UNDECIDED, WISH_NONE, near_choices
+        from meaning_judge import options
+        words, qs = rw.answer_words(), rw.questions()
+        rows = [it for it in words if it["text"] in self.NEW]
+        self.assertEqual([it["text"] for it in rows], list(self.NEW))
+        want = {self.NEW[0]: ({WISH_NONE}, {NEAR_OFF}, {END_NONE}), self.NEW[1]: ({WISH_NONE}, {NEAR_OFF}, {END_NONE}),
+                self.NEW[2]: ({UNDECIDED, THINKING}, {NEAR_OFF, NEAR_NONE, WISH_NONE}, {END_NONE, UNDECIDED})}
+        for it in rows:
+            with self.subTest(text=it["text"]):
+                self.assertEqual((it["set"], it["qid"], it.get("scene")), ("W1", "W1@E1", None))
+                q = qs[it["qid"]]
+                shown, asked, before = G.judge_inputs(it, q)
+                self.assertEqual((shown.id, shown.text, asked, before), ("W1", self.OFFER, None, None))
+                self.assertEqual((set(G.accept(it)), set(G.near_truths(it)), set(G.end_accept(it))), want[it["text"]])
+                self.assertLessEqual(set(G.accept(it)), {c for _, _, c in options(shown)})
+                self.assertLessEqual(set(G.near_truths(it)), set(near_choices(False, shown)))
+                self.assertEqual(it["label"]["misgiving"], [MISGIVING_OFF])
+                self.assertIn("⏳ 仮（束 bd1）", it["label"]["why"])
+                self.assertFalse(any(w.startswith((G.SCENE_MISSING, G.OTHER_ACT)) for w in G.step_wants(it, q, False)))
+
+    def test_2_the_old_rows_stay_once_and_nothing_is_counted_twice(self):
+        import g53_meaning as G
+        import review_words as rw
+        n = G.set_n()
+        keys = [(it["set"], it["qid"], it["text"]) for it in (*n, *rw.answer_words()) if it.get("qid") == "W1@E1"]
+        for t in (*self.OLD, *self.NEW):
+            self.assertEqual(keys.count(("W1", "W1@E1", t)), 1, t)
+        self.assertFalse(any(it["text"] in self.OLD for it in rw.answer_words()))
