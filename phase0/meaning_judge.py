@@ -782,6 +782,21 @@ def asks_about_line(q) -> str:
     return f"（この質問は、{about}を伺っています）\n" if about else ""
 
 
+def called_line(q) -> str:
+    """問い合わせの文の、はじめにお呼びした言葉の一行（唯一の場所＝prompt_parts の、目的のお客様の判定と尋ねているかの問い）。後任の方をお呼びしている場面だけ（Question.called）。
+    ⛔ 2026-10-30 G-59（3つの段の形の1回目）：考える Haiku は、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ（この行の、はじめにお呼びした方のことを、いまお呼びしている
+       方の事情と取り違えた）。同じ日の2回目：この行の「在籍していないと伺い」が残る間は、考える・考えない Haiku とも、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ
+       （流れの制御は、後任の方がいまは話せないと受け取り、繋がない）⇒ この行には事情を書かない"""
+    return f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
+
+
+def terms_line(q) -> str:
+    """項目ごとに答える質問ではない問い（尋ねているか）の、言葉の決まり（Question.terms＝後任の方の場面の flowctl.successor_terms）の行（唯一の場所＝prompt_parts）。無ければ ""
+    （文は前と同じ）。項目ごとに答える質問の言葉の決まりは facet_rules。L35・分身 AW"""
+    terms = () if getattr(q, "facets", None) else getattr(q, "terms", ())
+    return "言葉の決まり（説明の中の言葉）：\n" + "".join(f"- {t}\n" for t in terms) if terms else ""
+
+
 def prompt(q, text: str, asked: str | None = None, before: str | None = None) -> str:
     return "".join(prompt_parts(q, text, asked, before))
 
@@ -796,14 +811,9 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
     said = (f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else "") + (f"{PROMPTED}：「{q.prompted}」\n{prompted_note(q.prompted)}\n" if getattr(q, "prompted", "") else "")
     before = f"{BEFORE}：「{before}」\n" if before else f"{BEFORE}：{NO_BEFORE}\n" if q.facets else ""
     if q.facets:   # 項目ごとに答える質問：決まり・質問（はじめにお呼びした言葉）・項目は毎回同じ（まとめて送る前の部分）
-        # ⛔ 2026-10-30 G-59（3つの段の形の1回目）：考える Haiku は、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ（この行の、
-        #    はじめにお呼びした方のことを、いまお呼びしている方の事情と取り違えた）
-        # ⛔ 同じ日の2回目：この行の「在籍していないと伺い」が残る間は、考える・考えない Haiku とも、後任の方の「はい、そうです。」の事情を
-        #    「在籍していない」と読んだ（流れの制御は、後任の方がいまは話せないと受け取り、繋がない）⇒ この行には事情を書かない
-        called = f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
-        return facet_rules(q) + f"質問：「{q.text}」\n" + called + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
+        return facet_rules(q) + f"質問：「{q.text}」\n" + called_line(q) + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
     choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
-    head, tail = rules(q, asked) + items_text(q, asked) + f"質問：「{q.text}」\n" + asks_about_line(q), f"お客様の言葉：「{text}」\n"
+    head, tail = rules(q, asked) + items_text(q, asked) + f"質問：「{q.text}」\n" + asks_about_line(q) + called_line(q) + terms_line(q), f"お客様の言葉：「{text}」\n"
     if getattr(q, "named", False):
         return head + choices, before + said + tail
     return head, before + said + choices + tail
@@ -1500,7 +1510,9 @@ def jev_request(model: str, q, text: str, asked: str | None = None, before: str 
                                       "criteria": dict(f.choices)}
                               for f in q.facets}}
     return {"model": model, "state": scene(q, text, asked, before),
-            "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)}}
+            "questions": {"choice": {"type": "choice", "instructions": (JEV_ASK_REPLY if asked else JEV_ASK)
+                                     + ("言葉の決まり：" + "／".join(q.terms) if getattr(q, "terms", ()) else ""),   # 後任の方の場面の尋ねているか（terms_line と同じ1か所）
+                                     "criteria": jev_criteria(q, asked)}}
             | {m: {"type": "noul", "instructions": JEV_MARKS[m][0], "criteria": JEV_MARKS[m][1]} for m in answer_marks(q)}
             | {k: {"type": "choice", "instructions": JEV_ITEMS[k], "criteria": c} for k, c in answer_items(q, asked).items()}}
 

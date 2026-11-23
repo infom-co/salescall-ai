@@ -54250,3 +54250,51 @@ class AWAnyNoWishOnceTest(unittest.TestCase):
         plain = next(q for q in qm.values() if ANY in q.all_conditions and not getattr(q, "lists_ways", False) and not getattr(q, "maybe", ()))
         self.assertEqual(system_desc(plain, ANY), SYSTEM_DESC[ANY])
         self.assertIn("希望は無い", SYSTEM_DESC[ANY])
+
+
+class AWSuccessorAsksTermsTest(unittest.TestCase):
+    """分身 AW（L35＝分身 AV の書き置きの 6章の (1)・CL-1 の読み rv200/rr_av.txt。CL-1 が書いてある決まりで決めた＝伺わない）：後任の方をお呼びしている場面の、尋ねているかの判定に見せる文には、
+    目的のお客様の判定の文にある「はじめにお呼びした言葉」と「「お呼びした方」「ご本人」＝はじめにお呼びした前任の方。「いまお呼びしている方」＝…後任のご担当者様」の言葉の決まりが無かった
+    （答えを伏せた読み手4人＝束 au3 の2人・束 av2 の2人がそろって、ここが分からないと書いた）。帳面 0-3「判定（AI）への文も、初めて読む人がそのまま分かる言葉で書く」・(b)「場面だけの文は、
+    流れの制御の1か所で、その場面のときだけ作る」＝尋ねているかの問いにも、目的のお客様の判定と同じ1か所（flowctl.successor_terms・Question.called）を入れる（写さない）。ふつうの場面の
+    尋ねているかの文は変えない"""
+
+    SUCC = (("お電話代わりました。田中です。", "{d}／{t}"), ("はい、お電話代わりました。", "{d}／後任の者に代わりますので、少々お待ちください。"))
+
+    def rows(self):
+        import g59_calling_judge as g
+        for text, before in self.SUCC:
+            yield g.case_row(g.case_of(text, before.format(d=g.DEPARTED_SAID, t=g.TO_SUCCESSOR), successor=True))
+
+    def test_1_the_successor_asks_question_shows_the_same_words(self):
+        import g59_calling_judge as g
+        from flowctl import successor_terms
+        from meaning_judge import CALLED, jev_request, prompt
+        (term,) = successor_terms(True)
+        self.assertEqual(successor_terms(False), ())
+        for r in self.rows():
+            tq, aq = g.judge_questions(r)
+            self.assertIn(term, tq.terms)          # 目的のお客様の判定（前から）
+            self.assertEqual(aq.terms, (term,))    # 尋ねているか（同じ1か所）
+            self.assertEqual(aq.called, tq.called)
+            self.assertTrue(aq.called)
+            text = prompt(aq, r["text"], None, r["before"])
+            self.assertIn(f"{CALLED}：「{aq.called}」", text)
+            self.assertIn(term, text)
+            req = jev_request("x", aq, r["text"], None, r["before"])
+            self.assertEqual(req["state"][CALLED], aq.called)
+            self.assertIn(term, req["questions"]["choice"]["instructions"])
+
+    def test_2_the_plain_asks_question_is_unchanged(self):
+        import g59_calling_judge as g
+        from meaning_judge import CALLED, jev_request, prompt
+        for c in g.cases("x"):
+            r = g.case_row(c)
+            if r["successor"]:
+                continue
+            _, aq = g.judge_questions(r)
+            self.assertEqual((aq.terms, aq.called), ((), ""), r["text"])
+            self.assertNotIn(CALLED, prompt(aq, r["text"], None, r["before"]))
+            self.assertNotIn("いまお呼びしている方", prompt(aq, r["text"], None, r["before"]))
+            self.assertNotIn(CALLED, jev_request("x", aq, r["text"], None, r["before"])["state"])
+            break
