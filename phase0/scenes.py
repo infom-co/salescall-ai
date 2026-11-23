@@ -55,12 +55,19 @@ def plain(s: str) -> str:
     return _PUNCT.sub("", s or "").replace("エーアイ", "AI")
 
 
+# 会話AIの文字のうち、声の無い印（会話AIが声を出さなかったときに、文字だけで返すもの＝「<no speech>{pause}」（届くときは「<no 」「speech>{pause}」に分かれる）・
+# 「<no speech detected>」・「{pause}」）。言葉に数えない見分けの唯一の所（said も own_words も、この印を言葉にしない。「…」は句読点と同じく own_words が前から言葉にしない）。
+# ⛔ G-57 の1回目の (5)：声が0秒のターンを、AI自身の文字（この印）だけで話したと数えていた（said の声の長さで直した）。⛔ 2026-11-23 分身 BH まで、声の長さを見ない own_words
+# （会話AIの文字）と、声の長さはあるが別の耳の文字の無いターンの said は、この印を言葉と数えていた（帳面 1 の (6) の (i) の L50 の (a)・10-19「同じ理由が当たる所すべてに当てる」）
+NO_SPEECH = re.compile(r"<no speech[^>]*>|\{pause\}")
+
+
 def said(t: dict) -> str:
     """AIのそのターンの声の文字（別の耳の文字があればそれ。無ければAI自身の文字）。声の無いターンは空（⛔ 1回目：声が0秒なのに、AI自身の文字
-    「<no speech>{pause}」「…」を話したと数えていた）。"""
+    「<no speech>{pause}」「…」を話したと数えていた）。AI自身の文字の声の無い印（NO_SPEECH）は言葉にしない。"""
     if not t.get("audio_seconds") or t.get("muted"):
         return ""  # 呼んでいる段で、話させる返事の無いAIの声は、電話接続側が相手に流さない（Flow.speech_allowed）
-    return (t.get("ear") or t.get("intended") or "").strip()
+    return NO_SPEECH.sub("", t.get("ear") or t.get("intended") or "").strip()
 
 
 def ops(call: dict) -> list[dict]:
@@ -152,9 +159,10 @@ def played_ids(call: dict, since_opening: bool = False) -> list[str]:
 
 def own_words(call: dict, wav_name: str) -> str:
     """その台詞へのAIのターンで、AIが自分の声で話した言葉（会話AIの文字。録音は入らない）。⛔ G-57 tc18：声の長さが記録されないターンでも、
-    AIは「営業部部長の岡田様をお呼び…」と話していた（said は声の長さで見るので拾えなかった）＝会話AIの文字を見る。"""
-    return re.sub(r"[…・.。、\s]", "", "".join(e.get("text") or "" for t in turns_to(call, wav_name) if not t.get("muted")
-                                              for e in t.get("said_events") or []))
+    AIは「営業部部長の岡田様をお呼び…」と話していた（said は声の長さで見るので拾えなかった）＝会話AIの文字を見る。声の無い印（NO_SPEECH。分かれて届いた印も、
+    つないでから見る）は言葉にしない。"""
+    return re.sub(r"[…・.。、\s]", "", NO_SPEECH.sub("", "".join(e.get("text") or "" for t in turns_to(call, wav_name) if not t.get("muted")
+                                                                  for e in t.get("said_events") or [])))
 
 
 def full_opening(call: dict) -> bool:

@@ -55757,3 +55757,47 @@ class BHAskerLeftOnePlaceTest(unittest.TestCase):
         asked = row("G-57J11a_20261025_000826.json", 36)
         self.assertEqual(asked["scene"], "目的の人_名乗らない方")
         self.assertEqual(scenes.measures(asked, asked["scene"])["failed"], [self.NEVER])
+
+
+class BHNoSpeechMarkTest(unittest.TestCase):
+    """分身 BH（帳面 1 の (6) の (i) の L50 の (a)・分身 BG の書き置きの 6章の (2)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIが声を出さなかったときに文字だけで返す
+    声の無い印（「<no speech>{pause}」＝届くときは「<no 」「speech>{pause}」に分かれる・「<no speech detected>」・「{pause}」）を、会話AIが自分の声で話した言葉（scenes.own_words）
+    にも、声の文字（scenes.said）にも数えない（測りの記録 G-57 の1回目の (5)「声が0秒のターンを、AI自身の文字だけで話したと数えていた」と同じ理由＝10-19）。見分けは1か所
+    （scenes.NO_SPEECH）。"""
+
+    def call(self, *texts: str, line: str = "okada_whois_pause") -> dict:
+        return {"turns": [{"callee": {"wav": f"Puck_{line}.wav"}, "said_events": [{"text": x} for x in texts], "tool_events": []}], "flow_log": [],
+                "items": {}, "facts": {}}
+
+    def test_1_marks_are_not_words(self):
+        import scenes
+        for texts in (("<no ", "speech>{pause}"), ("<no speech>{pause}",), ("<no speech detected>",), ("{pause}",), ("<no ", "speech>{pause}", "…")):
+            self.assertEqual(scenes.own_words(self.call(*texts), "okada_whois_pause"), "", texts)
+        # 印と一緒に話した言葉・印でない山かっこ（会話AIが書いた文書の切れ端）は、今までどおり言葉
+        self.assertEqual(scenes.own_words(self.call("申し訳ございません。", "<no ", "speech>{pause}"), "okada_whois_pause"), "申し訳ございません")
+        self.assertEqual(scenes.own_words(self.call("申し訳ございません。</em>"), "okada_whois_pause"), "申し訳ございません</em>")
+        # 声の長さはあるが（0.2秒＝声の見分けでは声なし）、別の耳の文字の無いターン：AI自身の文字が印だけなら、声の文字は空
+        self.assertEqual(scenes.said({"audio_seconds": 0.2, "intended": "<no speech>{pause}"}), "")
+        self.assertEqual(scenes.said({"audio_seconds": 1.2, "intended": "申し訳ございません。<no speech>{pause}"}), "申し訳ございません。")
+        self.assertEqual(scenes.said({"audio_seconds": 1.2, "ear": "申し訳ございません。", "intended": "<no speech>{pause}"}), "申し訳ございません。")
+
+    def test_2_in_the_scene_checks(self):
+        """聞いた受付の方へのターンで、会話AIの文字が声の無い印だけなら「自分の言葉で話さない」は外れない（前は外れ）。既に流した記録で、取り次ぐと言った受付の方への
+        ターンの文字が印だけ（声 0.2秒・別の耳の文字なし）の通話は、「取り次ぎの間は話さない」の外れにならない（前は外れ）。"""
+        import copy
+        import scenes
+        name = "目的の人_名前を確かめてから名乗りを聞かれる"
+        self.assertNotIn("自分の言葉で話さない", scenes.measures(self.call("<no ", "speech>{pause}"), name)["failed"])
+        self.assertIn("自分の言葉で話さない", scenes.measures(self.call("アオバ物流の佐藤と申します。"), name)["failed"])
+        def row(f, i):
+            return json.load(open(f"results/{f}", encoding="utf-8"))["rows"][i]
+        r = row("G-57tc21_20261022_115539.json", 28)   # 「申し訳ございません。</em>」と、次の返事のあとの「<no speech>{pause}」
+        self.assertEqual((r["scene"], scenes.measures(r, name)["failed"]), (name, ["自分の言葉で話さない"]))
+        only = copy.deepcopy(r)   # 「申し訳ございません。</em>」が無ければ、印だけ＝外れない
+        for t in scenes.turns_to(only, "okada_whois_pause"):
+            t["said_events"] = [e for e in t.get("said_events") or [] if "申し訳" not in (e.get("text") or "")]
+        self.assertTrue(scenes.measures(only, name)["pass"], scenes.measures(only, name)["failed"])
+        away = row("G-57tc25_20261022_125303.json", 12)
+        self.assertEqual((away["scene"], away["turns"][0]["intended"], away["turns"][0].get("ear") or ""), ("目的の人_不在で別の方に代わる", "<no speech>{pause}", ""))
+        self.assertIn("取り次ぎの間は話さない", away["failed"])   # 記録の数え（前の数え）は外れ
+        self.assertNotIn("取り次ぎの間は話さない", scenes.measures(away, away["scene"])["failed"])
