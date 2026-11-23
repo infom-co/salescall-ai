@@ -54384,3 +54384,101 @@ class AWTermsSceneTest(unittest.TestCase):
         call = c.call()
         call["turns"] = call["turns"] + [{"callee": {"nudge_of": c.lines[1]}, "tool_events": []}] * 2
         self.assertFalse(scenes.nudged_once(call, scenes.TERMS_LINE))
+
+
+class AXWishRepickOfferTest(unittest.TestCase):
+    """分身 AX の (1)（分身 AW の書き置きの 6章の (1)(2)＝帳面 1 の (6) の (i) の L36。CL-1 が書いてある決まりで決めた＝伺わない）：ほかのご希望（W1）の選び直しで、元の質問の
+    申し出を受ける答えを選び直していただいた答えは、元の質問に直に「はい」をいただいたときと同じ1か所で受ける（条件を受け付けて通話の事実 offer_terms に残す・「ありがとうございます。」＋
+    言い切り）。✅ 選び直しは元の質問の答え（flowctl._wish_choices の注・本書 9-5 の (3) の下の W1 の段）・✅ 2026-11-12 日本時間13時40分05秒の (2)（申し出を、こちらで応えられる条件つきで
+    受けていただいたら伺い直さず、「ありがとうございます。」＋言い切り・条件の言葉は会話AIが答えの報告に添え、伺い直しの提案と同じ確かめを通す）・同じ (5)（申し出を受けていただいたお返事
+    には、必ず「ありがとうございます。」）・✅ 2026-11-17 日本時間2時14分44秒「伺い37はイでOK」・10-19（同じ理由が当たる場面すべてに当てる）。⛔ それまでは、条件を添えた報告を
+    「申し出を受けていただいた答えにだけ書きます」と差し戻し、外して報告し直すと「はい、お忙しいところ…」＝お礼も言い切りも流れず、条件はどの記録にも残らなかった（条件なしの選び直しも、
+    お礼と言い切りが無かった）"""
+
+    CALL = "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？"
+    PICK = "やはり担当者から詳しいご案内のお電話を差し上げてよろしいということ"
+
+    def offer(self):
+        """測りの場面 W1@E1 の元の質問と同じ形（ご案内の方法を伺う最終目的の申し出＝こちらがすることの言葉が「〜させていただきます」＝Question.offered）。"""
+        return AUWayOfferAnyNoneTest.of(self, do_words={"はい": "担当者から詳しいご案内のお電話をさせていただきます",
+                                                       "いいえ": "担当者から詳しいご案内のお電話は控えさせていただきます"})
+
+    def flow(self, *more, of=None):
+        from flowctl import Flow
+        return Flow([of or self.offer(), *more], play_recordings=True)
+
+    def pamphlet(self):
+        from flowctl import Question
+        return Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal=True, declines=("いいえ",), away=("いいえ",),
+                        meanings={"はい": "パンフレットを送ってよいということ", "いいえ": "パンフレットは送らなくてよいということ"},
+                        do_words={"はい": "パンフレットをお送りさせていただきます", "いいえ": "パンフレットの送付は控えさせていただきます"})
+
+    def direct(self, f, words, terms=None):
+        """元の質問 Q1 に直に「はい」（条件つき・条件なし）をいただいたときの返事（比べるもと）。"""
+        from meaning_judge import Reading
+        f.on_callee(); f.on_heard(words); f.on_check("judge", Reading("はい"))
+        if terms:
+            grounded(f, terms)
+        return f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", **({"terms": terms} if terms else {})})
+
+    def repick(self, f, first, pick, words, terms=None, which=False):
+        """元の質問 Q1 を言い切らずに断ったあとの W1 で、受ける答えを選び直していただいた（which＝「はい、お願いします。」で方法を並べて伺い直した W1 で）。"""
+        from flowctl import WAY_UNSAID
+        from meaning_judge import Reading
+        HedgedSalesTest.hedged(f, "Q1", "いいえ", first)
+        if which:
+            AmbiguousAnswerTest.say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+        f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(pick))
+        if terms:
+            grounded(f, terms)
+        return f.apply("record_answer", {"question_id": "W1", "condition_id": pick, **({"terms": terms} if terms else {})})
+
+    def test_1_terms_on_the_offer_form_repick_are_taken_like_the_direct_yes(self):
+        terms = "夜の七時以降に"
+        self.assertEqual((self.offer().offered, self.pamphlet().offered), ("はい", "はい"))
+        for which in (False, True):
+            f = self.flow()
+            r = self.repick(f, "うーん、お電話はちょっと…。", self.PICK, "夜の七時以降に、もう一度かけてもらえますか。", terms, which=which)
+            d = self.direct(self.flow(), "夜の七時以降ならお願いします。", terms)
+            self.assertEqual(r["result"], "end", (which, r))
+            self.assertEqual(heard_words(r), heard_words(d), which)
+            self.assertTrue(heard_words(r).startswith("ありがとうございます。夜の七時以降に、担当者から詳しいご案内のお電話をさせていただきますね。"), heard_words(r))
+            self.assertEqual([(e["question"], e["terms"]) for e in f.facts["offer_terms"]], [("Q1", terms)], which)
+            self.assertEqual((f.items["Q1"].state, f.items["Q1"].condition), ("accepted", "はい"))
+
+    def test_2_the_plain_repick_thanks_and_states_like_the_direct_yes(self):
+        f = self.flow()
+        r = self.repick(f, "うーん、お電話はちょっと…。", self.PICK, "やっぱりお電話でいいです。")
+        d = self.direct(self.flow(), "はい、お願いします。")
+        self.assertEqual(heard_words(r), heard_words(d))
+        self.assertEqual(heard_words(r), "ありがとうございます。担当者から詳しいご案内のお電話をさせていただきますね。お忙しいところお時間をいただきましてありがとうございました。"
+                                         "それでは失礼いたします。")
+        self.assertIsNone(f.facts.get("offer_terms"))
+
+    def test_3_a_business_offer_question_repick_too(self):
+        from flowctl import Question, callback_question
+        nxt = Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        pick = next(c for c in callback_question("other_wish", of=self.pamphlet()).conditions if c.startswith("やはり"))
+        for terms, more in ((None, ()), ("来週以降に", ()), (None, (nxt,)), ("来週以降に", (nxt,))):
+            f, g = self.flow(*more, of=self.pamphlet()), self.flow(*more, of=self.pamphlet())
+            r = self.repick(f, "うーん、パンフレットはちょっと…。", pick, "やっぱり送ってください。", terms)
+            d = self.direct(g, "はい、お願いします。", terms)
+            name = (terms, bool(more))
+            self.assertEqual(heard_words(r), heard_words(d), name)
+            self.assertTrue(heard_words(r).startswith("ありがとうございます。"), (name, heard_words(r)))
+            keep = lambda x: [{k: e[k] for k in ("question", "recall", "terms", "added", "topic")} for e in x.facts.get("offer_terms") or []]
+            self.assertEqual(keep(f), keep(g), name)   # 根拠の発話（turn・said）は、それぞれお客様が受けた言葉
+            self.assertEqual(bool(keep(f)), bool(terms), name)
+            if terms:
+                self.assertIn("来週以降に、パンフレットをお送りさせていただきますね。", heard_words(r), name)
+
+    def test_4_a_repick_that_is_not_an_offer_keeps_rejecting_terms(self):
+        """元の質問が申し出でない（ご連絡の方法を選んでいただく業務の質問の「どれも要らない」のあとの W1 で、選択肢を選び直した）：今のまま（条件は書かない）。"""
+        from flowctl import NONE, Question
+        q = Question("Q1", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("お電話", "メール"), final_goal=True)
+        f = self.flow(of=q)
+        AmbiguousAnswerTest.say(f, "どれもいらないです。", "record_answer", question_id="Q1", condition_id=NONE)
+        grounded(f, "来週以降に")
+        r = AmbiguousAnswerTest.say(f, "やっぱりメールで来週以降にお願いします。", "record_answer", question_id="W1", condition_id="メール", terms="来週以降に")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("申し出を受けていただいた答えにだけ書きます", r["message"])

@@ -8907,9 +8907,10 @@ class Flow:
         return [] if b is None else [(qid, it) for qid, it in self.items.items() if it.state in TAKEN and b.get(qid) != it.state]
 
     def _taken_now(self) -> list[str]:
-        """受けている報告で受けていただいた申し出・提案の質問（受け取った答え _received_now のうち _offer_taken。唯一の読み＝お礼の相づち _ack_choice・同じ発話の
-        うちの相づち _ack の same_turn・こちらがすることの言い切り _taken_plays）。"""
-        return [qid for qid, _ in self._received_now() if self._offer_taken(qid)]
+        """受けている報告で受けていただいた申し出・提案の質問（受け取った答え _received_now が受けた申し出＝_accepted_offer。唯一の読み＝お礼の相づち _ack_choice・同じ発話の
+        うちの相づち _ack の same_turn・こちらがすることの言い切り _taken_plays・条件つきの受けの言い切り _taken_on_terms・通話の事実に残す _proposal_taken）。ほかのご希望（W1）で
+        元の質問の申し出を受ける答えを選び直していただいたら、元の質問（元の質問の答えは、W1 を受けたあとに _wish_step が決め直す＝この報告の中）。"""
+        return [t for qid, it in self._received_now() if it.state in GOT and (t := self._accepted_offer(qid, it.condition)) is not None]
 
     def _thanks_barred(self, reply: dict | None = None) -> bool:
         """この報告で、お礼（「ありがとうございます。」）を返さない答えを受け取ったか（お断り・目的から遠ざかる向き＝turned_down・わからない・答えたくない＝_unknown_now。本書 9-7。
@@ -12648,6 +12649,9 @@ class Flow:
         self.taken_terms = None
         if not given:
             return None
+        # 受けた申し出の質問（_accepted_offer の1か所）：ほかのご希望（W1）で元の質問の申し出を受ける答えを選び直していただいたら、元の質問の申し出として受ける（分身 AX の (1)）
+        offer = self._accepted_offer(qid, cond)
+        qid, cond = (offer, self._offer_answer(offer)) if offer is not None else (qid, cond)
         q, it = self.questions[qid], self.items[qid]
         # 条件を受けられるのは、こちらがすることの言葉のある申し出だけ（提案の言葉の1か所 _proposal_of）。こちらがかけ直す申し出（C7・P1・H1・H3）は、伺い直しの
         # 申し出の中身（phrases.recall_do）を持っても、ご都合の条件は受けない＝かけ直しの時刻は時刻の質問 C1 が「はい」の言葉から読み直す（_offer_taken_time・
@@ -12692,7 +12696,8 @@ class Flow:
             return None
         _, qid, proposal = t
         q, it = self.questions[qid], self.items[qid]
-        if not self._offer_taken(qid):
+        # 受けていただいた：受け取った答えがその申し出を受けた（_taken_now＝W1 の選び直しで元の質問の申し出を受けたときも。元の質問の答えは、このあと _wish_step が決め直す）
+        if not (self._offer_taken(qid) or qid in self._taken_now()):
             return None
         self.taken_terms = None
         # 伺い直しに入れた条件（申し出・方法の提案の伺い直しを受けていただいたお返事）と合わせる（新しく言われたほうを使う）
@@ -12833,6 +12838,23 @@ class Flow:
             return self._wish_option(self.questions[q.of], means_in(it.offer_way)[0])
         return WAY_SWITCH.format(way=it.offer_way)
 
+    def _accepted_offer(self, qid: str, cond: str | None) -> str | None:
+        """質問 qid への答え cond が受けた申し出・提案の質問（無ければ None。唯一の決まり＝条件つきの受けの入口 _terms_reported・受けていただいた質問 _taken_now）：cond が qid の
+        受ける答え（_offer_answer）なら qid。ほかのご希望（W1）で、元の質問を考え直してその申し出の受ける答えを選び直した（wish_repick）なら、元の質問＝選び直しは元の質問の答え
+        （_wish_choices の注・本書 9-5 の (3) の下の W1 の段。元の質問に直に「はい」をいただいたときと同じ1か所で受ける＝条件は元の質問の通話の事実 offer_terms・お礼と言い切りは
+        元の質問の言葉）。✅ 2026-11-12 日本時間13時40分05秒の (2)(5)・2026-11-17 日本時間2時14分44秒「伺い37はイでOK」・10-19。⛔ 分身 AX の (1)（分身 AW の書き置きの 6章の (1)(2)）
+        まで、W1 の選び直しに添えた条件は「申し出を受けていただいた答えにだけ書きます」と差し戻し、選び直しの締めは「はい、お忙しいところ…」（お礼も言い切りも無かった）"""
+        if cond is None:
+            return None
+        if cond == self._offer_answer(qid):
+            return qid
+        q = self.questions[qid]
+        if q.callback == "other_wish" and (of := self.questions.get(q.of)) is not None:
+            accept = self._offer_answer(of.id)
+            if accept is not None and wish_repick(of, cond) == accept:
+                return of.id
+        return None
+
     def _offer_taken(self, qid: str) -> bool:
         """申し出・提案を受けていただいたか（受け取った答えが _offer_answer。唯一の決まり＝お礼の相づち _ack_choice・言い切り _taken_on_terms・伺い方を替える
         _line_how）。"""
@@ -12887,8 +12909,8 @@ class Flow:
         場所（次へ進む返事 _advance の頭。条件つきで受けていただいた言葉は、その前に _taken_on_terms が項目に合わせてある）。「はい」だけで受けていただいても残す。
         ⛔ 2026-11-12（961bd8d4 の報告の穴 (4)・まとめ役の (2)）：業務の申し出の質問は、お客様が条件を言い直したときだけ offer_terms に書き、伺い直しに入れた
         条件を「はい」だけで受けていただくと、依頼者へ渡らなかった"""
-        for qid, _ in self._received_now():
-            if self._offer_taken(qid) and any(self._proposal_terms(qid).values()):
+        for qid in self._taken_now():
+            if any(self._proposal_terms(qid).values()):
                 self._proposal_note(qid)
 
     def _way_switch(self, proc: dict, way: str) -> None:
