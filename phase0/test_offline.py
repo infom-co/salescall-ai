@@ -55104,3 +55104,155 @@ class BAUndeclaredNameCountTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             s = scenes.summarize([{"scene": "x", "type": "S2", "flow_log": f.log}])
         self.assertEqual(s["宣言に無い名前の差し戻し"]["回"], 1)
+
+
+class _BEBargeCall(_SceneCall):
+    """分身 BE：_SceneCall に、名乗りの録音の途中で止めた形（場面の通話の指定 barge_in＝convo.run_call が第一声の次の台詞の前に Flow.on_opening_cut へ渡す1か所と
+    同じ）と、お呼びする段の判定の読み（目的のお客様の判定と尋ねているか＝g59_flow_check.heard と同じ本番の入口 meaning_judge.read）を足したもの（流さない＝0円）。"""
+
+    def __init__(self, name: str):
+        import scenes
+        self.cut = scenes.SCENES[name].call()[1].get("barge_in")
+        super().__init__(name)
+
+    def played(self, r):
+        if self.cut is not None:   # 第一声のあとに流した名乗りの録音は、届いた文までで止まった（最後まで流れたとは数えない＝convo.run_call と同じ）
+            done, self.cut = self.cut[0], None
+            self.f.on_opening_cut(done)
+            return r
+        return super().played(r)
+
+    def calling(self, code: str, asks: str) -> str:
+        """お呼びする段の次の台詞を相手が話した：判定の2つの受け持ちとも、目的のお客様の判定の読み code（g59_flow_check の読みの字）と、尋ねているかの読み asks を届ける。"""
+        from flowctl import ASKS_CHECKS, JUDGMENTS
+        from g59_flow_check import facts
+        from meaning_judge import read
+        line = self.lines[self.i]
+        self.i += 1
+        self.turns.append({"callee": line, "tool_events": [], "audio_seconds": 0})
+        text = self.words(line)
+        f = self.f
+        f.on_callee(); f.on_heard(text)
+        f.on_check("ear", text)
+        r = read(f.judge_context()[0], json.dumps(facts(code), ensure_ascii=False))
+        said = read(f.asks_context()[0], json.dumps({"choice": asks}, ensure_ascii=False))
+        if r is None or said is None:   # 読めない返事を作っていたら止める（g59_flow_check.heard と同じ）
+            raise AssertionError((text, code, asks))
+        for k in ("judge", "judge2"):
+            f.on_check(k, r)
+        for a, j in zip(ASKS_CHECKS, JUDGMENTS):
+            if j in f.checks_used:
+                f.on_check(a, said)
+        f.on_decided()
+        return text
+
+
+class BEG22TargetScenesTest(unittest.TestCase):
+    """分身 BE（2026-11-23 CL-1 の決め＝分身 BA の伺いの文 rv202/BA/ask_g22.md の (ア)・共通の決まり「同じ問いに答える所を2つ作らない」）：G-22（名乗りの録音の途中で
+    話し始めた・録音のあとに聞き返した）の目的のお客様を呼ぶ形は、会話AIの通話の試験 G-57 の目的のお客様を呼ぶ形の場面の1か所（scenes.SCENES）で測る。録音のあとの
+    「どちら様」「ご用件」「代わる」は今の場面が測る。足した4つ（scenes.G22_TARGET_SCENES）：受付の方が録音の最初・あいさつのあと・名乗りのあとで話し始めた（録音の途中で
+    止める所は場面の通話の指定 Scene.kw の barge_in＝G-50 と同じ渡し方）・録音のあとに「もう一度」。相手役の台詞はもう声のそろっているもの（作る声0）。
+    数えるのは場面の決まりの1か所（scenes の数え）：本書 9-4 の目的のお客様の (2)（繋がるまで最初の質問を渡さない・取り次がれた方には全部流してから質問へ）・
+    (8)（聞かれたことに名乗り・用件で答える・もう一度は「失礼いたしました。」のあと言ったことをもう一度）・G-50 の数える所（聞かれたことに合う部分を流し直す・
+    自分では名乗らない・最初の質問の答えを受けて進む）。"""
+
+    LINES = {0: "barge_who", 1: "barge_who", 2: "barge_what", None: "again"}   # 止めた所（届いた文の数・None＝止めずに流し切った）→ 受付の方の台詞
+    PART = {0: "intro", 1: "intro", 2: "purpose", None: "all"}                 # 会話AIの正しい報告（G-50 の場面に合う部分）
+    HEARD = {0: ["intro", "target"], 1: ["intro", "target"], 2: ["purpose", "target"], None: ["intro", "target"]}   # 受付の方に聞こえる流し直し
+
+    def scenes(self):
+        import scenes
+        names = scenes.G22_TARGET_SCENES
+        self.assertEqual(len(names), 4)
+        return scenes, dict(zip((0, 1, 2, None), names))
+
+    def test_1_four_scenes_in_the_one_place_with_voices_ready(self):
+        from convo import callee_voice_for
+        from instruction import VOICE_TYPES
+        from make_callee_samples import missing_voices
+        scenes, by = self.scenes()
+        parts = scenes.TARGET_BUSINESS.opening_parts()
+        self.assertEqual(scenes.TARGET_PARTS, parts)
+        self.assertEqual(len(parts), 3)   # あいさつ・名乗り・呼ぶ一言（目的のお客様を呼ぶ形の名乗りの録音）
+        for cut, name in by.items():
+            sc = scenes.SCENES[name]
+            self.assertIs(sc.business, scenes.TARGET_BUSINESS, name)
+            lines, kw = sc.call()
+            uids = [x["wav"].removeprefix("Puck_").removesuffix(".wav") for x in lines]
+            self.assertEqual(uids, ["greet_company", self.LINES[cut], "hold_target", "taken_over_okada",
+                                    "yes_reserved", "datetime_pm", "affirm", "three_people", "affirm"], name)
+            self.assertEqual(lines[3].get("if_asked_target"), "Puck_affirm.wav", name)   # 岡田様ご本人（目的の人かを聞かれたら「はい、そうです。」＝scenes.T）
+            # 止める所は第一声の次の台詞の前（convo.run_call の i == 1）・届いた文とまだの文は名乗りの録音の文のまま（番号の指定ではないのでずらさない）
+            self.assertEqual(kw.get("barge_in"), None if cut is None else (parts[:cut], parts[cut:]), name)
+            for vt in VOICE_TYPES:   # 相手役の声は確かめに通ったものだけ（作る声0）＝流せる通話は 4 場面 × 声の型
+                self.assertEqual(missing_voices(lines, callee_voice_for(vt)), [], (name, vt))
+
+    def drive(self, cut, part=None):
+        """場面を本番の流れの制御に通す（会話AIの正しい報告と判定の正しい読み）。part＝受付の方の聞き返しへの会話AIの報告の部分（既定は正しい部分）。"""
+        from flowctl import ASKS_NO, ASKS_YES
+        from meaning_judge import Reading
+        _, by = self.scenes()
+        c = _BEBargeCall(by[cut])
+        c.calling("同受xx", ASKS_YES)   # 受付の方が、こちらの名乗り（どちら様）・用件（何でしょう）・もう一度を尋ねた
+        replay = c.report("replay_opening", {"part": part or self.PART[cut]})
+        c.calling("同受待x", ASKS_NO)   # 「岡田ですね。少々お待ちください。」＝取り次ぎを待つ
+        hold = c.report("report_party", {"party": "reception"})
+        c.calling("違本xx", ASKS_NO)    # 「お電話代わりました。岡田です。」＝前と違う方・ご本人
+        connect = c.report("report_party", {"party": "target"})
+        c.heard(Reading("はい"))
+        c.report("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        return c, replay, hold, connect
+
+    def test_2_the_flow_passes_every_rule_of_the_four_scenes(self):
+        import scenes
+        from phrases import ACK
+        _, by = self.scenes()
+        parts = scenes.TARGET_PARTS
+        for cut, name in by.items():
+            c, replay, hold, connect = self.drive(cut)
+            self.assertEqual((replay["result"], scenes.played_parts(replay)), ("replayed", self.HEARD[cut]), name)
+            self.assertEqual(heard_words(replay)[:len(ACK["shitsurei"])], "失礼いたしました。", name)   # 頭はお詫び（相手の話にかぶせた・聞き返させた）
+            self.assertTrue(heard_words(replay).endswith(parts[2]), name)                                # 呼ぶ一言で終える
+            self.assertEqual(hold["result"], "hold", name)
+            self.assertEqual(scenes.played_parts(connect)[:4], ["greeting", "intro", "purpose", "question"], name)   # 取り次がれた岡田様には全部流してから質問
+            m = scenes.measures(c.call(), name)
+            self.assertTrue(m["pass"], (name, m["checks"]))
+            want = {"名乗りと呼ぶ一言" if cut in (0, 1) else "用件と呼ぶ一言" if cut == 2 else "言ったことをもう一度", "自分の言葉で話さない",
+                    "聞いた方には確かめも質問も流さない", "繋がるまで質問を流さない", "取り次ぎの間は話さない", "代わった方に全部", "答えが取れた", "断らない"}
+            self.assertEqual(set(m["checks"]), want, name)
+
+    def test_3_wrong_shapes_are_counted_as_misses(self):
+        import copy
+        import scenes
+        _, by = self.scenes()
+        # (1) 聞かれたことに合わない部分：「どちら様」に用件（流れの制御が届いていない名乗りを足す＝名乗り・用件・呼ぶ一言）・「何でしょう」に最初から（名乗りと呼ぶ一言だけ＝用件が届かない）
+        for cut, part, rule in ((0, "purpose", "名乗りと呼ぶ一言"), (2, "all", "用件と呼ぶ一言")):
+            c, replay, _, _ = self.drive(cut, part=part)
+            self.assertNotEqual(scenes.played_parts(replay), self.HEARD[cut])
+            self.assertEqual(scenes.measures(c.call(), by[cut])["failed"], [rule], (cut, part))
+        c, _, _, _ = self.drive(None)
+        call = c.call()
+        name = by[None]
+        self.assertTrue(scenes.measures(call, name)["pass"])
+        # (2) もう一度のあと、頭のお詫びが無い
+        bad = copy.deepcopy(call)
+        next(x for x in bad["flow_log"] if x["op"] == "replay_opening")["reply"]["ack"] = "hai"
+        self.assertEqual(scenes.measures(bad, name)["failed"], ["言ったことをもう一度"])
+        # (3) 聞き返した受付の方へのターンで、会話AIが自分の声で名乗った
+        bad = copy.deepcopy(call)
+        bad["turns"][1]["said_events"] = [{"text": "アオバ物流の佐藤と申します。"}]
+        self.assertEqual(scenes.measures(bad, name)["failed"], ["自分の言葉で話さない"])
+        # (4) 繋がる前に質問を流した（取り次ぎを待つと言った受付の方に最初の質問）
+        bad = copy.deepcopy(call)
+        hold = next(x for x in bad["flow_log"] if x["reply"].get("result") == "hold")["reply"]
+        hold["play"] = (hold.get("play") or []) + [{"kind": "question", "id": "Q1", "text": "ご予約はされていますでしょうか？"}]
+        self.assertEqual(scenes.measures(bad, name)["failed"], ["繋がるまで質問を流さない"])
+        # (5) 取り次がれた岡田様に、あいさつと名乗りが流れず用件から（分身 BA の書き置きの 6章の (1) の形）
+        bad = copy.deepcopy(call)
+        con = scenes.connect_reply(bad)
+        con["play"] = [p for p in con["play"] if p.get("part") not in ("greeting", "intro")]
+        self.assertEqual(scenes.measures(bad, name)["failed"], ["代わった方に全部"])
+        # (6) 聞き返した方に確かめる一言を流した
+        bad = copy.deepcopy(call)
+        bad["turns"][1]["tool_events"][0]["reply"] = "confirm_target"
+        self.assertEqual(scenes.measures(bad, name)["failed"], ["聞いた方には確かめも質問も流さない"])
