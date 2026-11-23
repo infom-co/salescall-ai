@@ -55737,3 +55737,31 @@ class BFQuietNoteNoReaskTest(unittest.TestCase):
                         bad.append(c.lineno)
         self.assertEqual(bad, [])
         self.assertGreaterEqual(quiet, 14)
+
+
+class BFAskedNoteReadsAllTest(unittest.TestCase):
+    """分身 BF の (5)（帳面 1 の (6) の (i) の L46・分身 BD の書き置きの 6章の (2)。CL-1 が書いてある決まりで決めた＝伺わない・10-18「一本化の追究」）：会話AIに質問・言い直しを
+    伺わせる知らせを書く1か所（ask_note・next_note・again_note）が書いた文を、もう聞いた文を読む1か所（ASKED_NOTE＝Flow._ai_asked・_heard_last）が全部読む＝中に「」」のある文
+    （名前の入る言い直し「お名前の読みの方は「やまざき」様でよろしかったでしょうか？」）も。⛔ 直す前は「」」の手前で切れて読めず、その返事は、お客様に何も聞こえない返事と
+    数えた（黙ったときの見張りが付かなかった）"""
+    TEXTS = ("お名前の読みの方は「やまざき」様でよろしかったでしょうか？", "ご予約は「さくらコース」でよろしいでしょうか？", "ご予約はされていますでしょうか？")
+
+    def test_1_every_writer_is_read_whole(self):
+        from flowctl import ASKED_NOTE, again_note, ask_note, next_note
+        read = lambda m: "".join("".join(g) for g in ASKED_NOTE.findall(m))
+        for t in self.TEXTS:
+            for w in (lambda t: ask_note("N1", t), lambda t: next_note("N1", t), again_note):
+                with self.subTest(text=t, note=w(t)[:12]):
+                    self.assertEqual(read(f"前の知らせです。{w(t)}そのあとの知らせです。"), t)
+        self.assertEqual(read(ask_note("Q1", self.TEXTS[0]) + "。" + again_note(self.TEXTS[1])), self.TEXTS[0] + self.TEXTS[1])
+
+    def test_2_the_name_restatement_is_heard(self):
+        # 会話AIが話す通話で、名前の読みの言い直しの返事待ちに会話AIが別の報告をして差し戻された（again_note の入る知らせ）：言い直しを伺った返事と同じく黙ったときの見張り
+        from flowctl import Flow, Question, reading_question
+        f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")), reading_question("N1", "山崎", "やまざき"),
+                  Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))])
+        f.on_callee()
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual(r["say"], self.TEXTS[0])
+        x = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "明日"})
+        self.assertEqual((x["result"], f._ai_asked(x), x.get("silence_s")), ("rejected", self.TEXTS[0], r["silence_s"]))
