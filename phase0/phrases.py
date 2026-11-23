@@ -795,6 +795,9 @@ SENSE_ASK = "{said}とおっしゃったのは、{words}という意味合いで
 SENSE_ASK_NOW = "今おっしゃったのは、{words}という意味合いでしょうか？"
 SENSE_SAID_MAX = 15
 SENSE_NONE = "ほかにご希望は特に無い"
+# 申し出の形・並べて伺い直したほかのご希望（W1。方法が2つから＝flowctl._wish_lists）の「どちらでも」（方法はどれでもよい・任せる）の候補の言葉（flowctl._wish_senses）：ご連絡の方法の候補
+# 「（方法）で大丈夫」と同じ形で、10-17 のお言葉の「どちらでも」の答えの言い方（「どちらでも大丈夫です」は答え＝「どちらでも」）。分身 AX の (4)(b)
+SENSE_ANY = "どちらでも大丈夫"
 
 
 def sense_ask(said: str | None, words: str) -> str:

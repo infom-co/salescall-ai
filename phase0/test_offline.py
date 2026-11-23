@@ -54482,3 +54482,57 @@ class AXWishRepickOfferTest(unittest.TestCase):
         r = AmbiguousAnswerTest.say(f, "やっぱりメールで来週以降にお願いします。", "record_answer", question_id="W1", condition_id="メール", terms="来週以降に")
         self.assertEqual(r["result"], "rejected")
         self.assertIn("申し出を受けていただいた答えにだけ書きます", r["message"])
+
+
+class AXNearAnyTest(unittest.TestCase):
+    """分身 AX の (4)(b)（帳面 1 の (6) の (i) の L38。CL-1 が書いてある決まりで決めた＝伺わない）：いちばん近い答えの選べるもの（flowctl.near_choices）に、システムが答えの選べるものに足す
+    「どちらでも」（申し出の形・並べて伺い直したほかのご希望 W1 で方法が2つから＝lists_ways）も出し（near_options の1か所）、意味合いを尋ねる候補の言葉（phrases.SENSE_ANY「どちらでも大丈夫」＝
+    ご連絡の方法の候補「（方法）で大丈夫」と同じ形・10-17 のお言葉の「どちらでも」の答えの言い方）を同じ1か所（_wish_senses → sense_words・asks_sense）で持たせ、判定の組がそろって
+    いちばん近い答えと読めば、会話が繋がらないお返事の番（ひとこと応えて申し出を伺い直す）にせず意味合いを尋ね（_offer_unlinked が読む _near_now）、「はい」なら並べて伺ったあとの「どれでも」と
+    同じ1か所（Flow._wish_step）で受ける。✅ 2026-11-05 日本時間23時56分48秒「ア」・10-19・本書 9-3。⛔ それまでは、束 aw1 の #3・#4 で読み手2人がそろって「答えを「決められない」と
+    読んだときのいちばん近い答えは「どちらでも」だが選べるものに無い」と書いた＝申し出への「特にないので、そのままで大丈夫です。」に、どの読みでもひとこと応えて申し出を伺い直した"""
+
+    WORDS = "特にないので、そのままで大丈夫です。"
+    CALL = AUWayOfferAnyNoneTest.CALL
+
+    def w1(self, **kw):
+        from flowctl import JUDGMENTS, Flow, Question
+        f = Flow([AUWayOfferAnyNoneTest.of(self, **kw), Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True)
+        f.use_checks(*JUDGMENTS)   # 判定の組（いちばん近い答えは、この通話で使う判定がそろって読んだもの＝near_answer）
+        HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、お電話はちょっと…。")
+        return f
+
+    def test_1_the_near_choices_and_senses_have_any_where_the_answers_do(self):
+        from flowctl import ANY, ANY_LABEL, callback_question, near_choices, sense_words
+        from phrases import SENSE_ANY
+        q = AUWayOfferAnyNoneTest.of(self)
+        for which in (False, True):
+            w = callback_question("other_wish", of=q, which=which)
+            self.assertIn(ANY, w.all_conditions)
+            self.assertIn(ANY_LABEL, near_choices(False, w), which)
+            self.assertEqual(sense_words(w, ANY), SENSE_ANY, which)
+        self.assertEqual(SENSE_ANY, "どちらでも大丈夫")
+        # 「どちらでも」が答えの選べるものに無い形（申し出る方法が1つ・ほかのご希望を伺う形）は今のまま
+        for w in (callback_question("other_wish", of=AUWayOfferAnyNoneTest.of(self, offer_ways=("お電話", "メール"))),
+                  callback_question("other_wish", of=AUWayOfferAnyNoneTest.of(self, asks_way=False))):
+            self.assertNotIn(ANY, w.all_conditions)
+            self.assertNotIn(ANY_LABEL, near_choices(False, w))
+            self.assertIsNone(sense_words(w, ANY))
+
+    def test_2_an_agreed_near_any_asks_its_sense_and_yes_takes_the_first_way(self):
+        from flowctl import ANY, ANY_LABEL, CALLBACK_IDS
+        f = self.w1()
+        r = NearAnswerTest.said(None, f, self.WORDS, [NearAnswerTest.rd(ANY_LABEL), NearAnswerTest.rd(ANY_LABEL)])
+        self.assertEqual((r["result"], heard_words(r)), ("confirm_required", "はい、今おっしゃったのは、どちらでも大丈夫という意味合いでしょうか？"))
+        self.assertEqual((f.items["W1"].condition, f.awaiting_confirm), (ANY, "W1"))
+        r = AmbiguousAnswerTest.say(f, "はい、そうです。", "confirm_field", question_id="W1", result="affirmed")
+        # 並べて伺ったあと・申し出たあとの「どれでも」と同じ1か所（業務設定で最初に並ぶ方法でご案内して連絡先を伺う＝AUWayOfferAnyNoneTest.test_3 と同じ言葉）
+        self.assertEqual((r["question_id"], ARWayOfferWishSceneTest.heard(r)),
+                         (CALLBACK_IDS["email"], "承知しました。それではメールでご案内させていただきますね。恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"))
+
+    def test_3_other_near_readings_keep_the_unlinked_turn(self):
+        from flowctl import NEAR_NONE, WISH_NONE
+        for near in (WISH_NONE, NEAR_NONE):   # 「無い」は申し出の形では尋ねない（目的から遠ざかる向き＝分身 AU の L32）・どれにも近くない
+            f = self.w1()
+            r = NearAnswerTest.said(None, f, self.WORDS, [NearAnswerTest.rd(near), NearAnswerTest.rd(near)])
+            self.assertEqual(r["result"], "callee_asked", near)   # 会話AIがひとこと応えて申し出を伺い直す番（今のまま）

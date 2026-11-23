@@ -21,7 +21,7 @@ import functools
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, PAYDAY_FORM, PERIOD_FORM, PERIOD_NAMED, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
+from phrases import SENSE_ANY, SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, PAYDAY_FORM, PERIOD_FORM, PERIOD_NAMED, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_ALSO_IDS, APOLOGY_ALSO_TEXTS, APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
 from phrases import LISTED_ASK, LISTED_DIALED_ID, UNTIL_ASK, UNTIL_LEAN_ASK, brief_sorry_text, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
@@ -4133,10 +4133,19 @@ NEAR, NEAR_HEADING = "near", "どの答えもはっきり指していないと�
 NEAR_NONE, NEAR_OFF = "どの答えにも近くない", "答えの読みが決められないではない"
 
 
+def near_options(q: "Question") -> tuple:
+    """いちばん近い答え（NEAR）に出す答え（唯一の決まり＝読む質問か near_fits・選べるもの near_choices・読みを組み合わせる near_answer・尋ねられるか asks_sense）：質問の答え（q.conditions）と、
+    システムが答えの選べるものに足す「どちらでも」（ANY＝all_conditions に出る質問だけ。申し出の形・並べて伺い直したほかのご希望 W1 で方法が2つから＝lists_ways）。答えの選べるものに
+    出る答えは、いちばん近い答えにも出す（✅ 2026-11-05 日本時間23時56分48秒「ア」＝判定がいちばん近いと読んだ選択肢で尋ねる・10-19・本書 9-3）。⛔ 分身 AX の (4)(b)（帳面 1 の (6) の (i)
+    の L38）まで、質問の答えだけから作り、申し出への「特にないので、そのままで大丈夫です。」を答えの読み「決められない」としたときのいちばん近い答え「どちらでも」が選べず（束 aw1 の #3・#4 で
+    読み手2人がそろって書いた）、同じことを伺い直した"""
+    return (*q.conditions, *((ANY,) if ANY in q.all_conditions else ()))
+
+
 def near_fits(q: "Question") -> bool:
     """判定がいちばん近い答え（NEAR）を読む質問か（唯一の決まり＝meaning_judge.answer_items・near_choices）：言い直さない質問で、意味合いを尋ねる候補の言葉のある答えが
     1つ以上ある（asks_sense＝流れの制御が尋ねられる答えのある質問だけ。N1 のように候補の無い質問には出さない＝その判定の文は変わらない）。"""
-    return not restates(q) and any(asks_sense(q, c) for c in q.conditions)
+    return not restates(q) and any(asks_sense(q, c) for c in near_options(q))
 
 
 def near_choices(calling: bool, q: "Question | None" = None) -> dict:
@@ -4146,7 +4155,7 @@ def near_choices(calling: bool, q: "Question | None" = None) -> dict:
     if calling or q is None or not near_fits(q):
         return {}
     out = {label(c): (f"答えの選べるものは「{UNDECIDED}」（どの答えもはっきりとは指していない）が、言葉の意味がいちばん近い答えは"
-                      f"「{q.meanings.get(c) or label(c)}」") for c in q.conditions}
+                      f"「{q.meanings.get(c) or label(c)}」") for c in near_options(q)}
     out[NEAR_NONE] = f"答えの選べるものは「{UNDECIDED}」で、言葉の意味が、どの答えに近いとも言えない（どちらとも取れる・どの答えとも関わらないことを言った）"
     out[NEAR_OFF] = (f"答えの選べるものが「{UNDECIDED}」ではない（どれかの答えをはっきり指している・わからない・答えたくない・待つように言った・もう一度言ってほしい など、"
                      "ほかの選べるものに当たる）")
@@ -4161,7 +4170,7 @@ def near_answer(q: "Question", readings) -> str | None:
         return None
     names = {getattr(r, NEAR, None) for r in got}
     name = names.pop() if len(names) == 1 else None
-    return next((c for c in q.conditions if label(c) == name), None) if name else None
+    return next((c for c in near_options(q) if label(c) == name), None) if name else None
 
 
 # 迷っているお客様に応じる質問（hears_hesitation）への言葉で、迷っている点（決めかねているわけ）をもう言ったか（答えとは別の項目＝答えは「迷っている」のまま。読む質問は
@@ -6263,6 +6272,12 @@ def _wish_form(q: "Question", which: bool = False) -> str:
     return "which" if which else "offer" if way_offer(q) else "ask"
 
 
+def _wish_lists(of: "Question", which: bool = False) -> bool:
+    """元の質問 of の W1 が、選べるものに「どちらでも」を出す形か（唯一の決まり＝W1 の lists_ways・「無い」の説明の括弧 WISH_NONE_ANY・「どちらでも」の意味合いの候補 _wish_senses）：
+    申し出の形・並べて伺い直した形（_wish_form が ask でない）で、並べて伺える方法が2つから（wish_ways）。"""
+    return _wish_form(of, which) != "ask" and bool(wish_ways(of))
+
+
 # ほかのご希望（W1）の「無い」（WISH_NONE）の意味の言葉＝判定に見せる名前と説明（唯一の場所＝_wish_choices）。W1 の形（_wish_form）ごと：
 # ask＝ほかのご希望を伺う形（今までのまま）。offer・which＝申し出・並べた方法へのお断り（申し出のあとでは、お客様に伺っていない「ほかのご希望」を言わない＝前の質問の言い方のままだと、
 # 申し出への「とくに希望はないので、お任せします。」を、答えを伏せた読み手2人とも「ほかに希望は無い」の字に引かれうると書いた＝束 ar1 の #2・#19）。✅ 10-19（同じ理由が当たる場面すべてに）・
@@ -6290,6 +6305,10 @@ def _wish_senses(of: "Question", which: bool = False) -> dict:
         if words:
             out[_wish_pick_label(of, c)] = words
     out.update({wish_label(k): f"{WISH_MEANS[k][0]}で大丈夫" for k in WISH_MEANS if _wish_same_means(of, k, which) is None})
+    if _wish_lists(of, which):
+        # 「どちらでも」（方法はどれでもよい・任せる＝ご案内は受ける＝目的に進む向き）：ご連絡の方法と同じ形の候補（phrases.SENSE_ANY）。尋ねて「はい」なら、並べて伺ったあとの「どれでも」と
+        # 同じ1か所（Flow._wish_step）で受ける。分身 AX の (4)(b)（帳面 1 の (6) の (i) の L38）
+        out[ANY] = SENSE_ANY
     if _wish_form(of, which) == "ask":
         out[WISH_NONE] = SENSE_NONE
     return out
@@ -6305,7 +6324,7 @@ def sense_words(q: "Question", c: str) -> str | None:
 def asks_sense(q: "Question", c: str | None) -> bool:
     """言い直さない質問 q に、判定が選択肢 c と読んだ会話がつながらない答えをいただいたとき、聞き直さずに c で意味合いを尋ねるか（唯一の決まり＝流れの
     制御 Flow._check_again・測りの数え g53_meaning.flow_act）。✅ 2026-11-05 日本時間23時56分48秒 ユーザー「(1) 会話1：…候補の選び方：ア」"""
-    return not restates(q) and c in q.conditions and sense_words(q, c) is not None
+    return not restates(q) and c in near_options(q) and sense_words(q, c) is not None
 
 
 def wish_option(q: "Question", means: str, which: bool = False) -> str:
@@ -6338,8 +6357,7 @@ def _wish_choices(q: "Question", which: bool = False) -> tuple[tuple, dict]:
     conds = (*(_wish_pick_label(q, c) for c in picks), *means, *unsaid, WISH_OTHER, WISH_NONE)
     # 「無い」の意味の言葉は W1 の形ごと（WISH_NONE_MEANING の1か所）。「どちらでも」を出す形（申し出・並べて伺い直した形で方法が2つから＝lists_ways と同じ決まり）だけ、
     # 方法を任せた受けとの境目を括弧に名前で書く
-    form = _wish_form(q, which)
-    none = WISH_NONE_MEANING[form] + (WISH_NONE_ANY if form != "ask" and unsaid else "")
+    none = WISH_NONE_MEANING[_wish_form(q, which)] + (WISH_NONE_ANY if _wish_lists(q, which) else "")
     meanings = {**{_wish_pick_label(q, c): picked(c) for c in picks}, **means,
                 # 条件を付けて受けた言葉の境目（分身 AU＝束 ar1 の #3〜#7 で読み手2人とも「決められない」とも読んだ）：✅ 2026-11-12 日本時間13時40分05秒の (2)（申し出を、こちらで
                 # 応えられる条件＝ご都合の条件・申し出に含める中身・業務の方法つきで受けていただいたら伺い直さず受ける）・11-03 日本時間20時48分（業務に無い約束はしない＝こちらで約束
@@ -6510,7 +6528,7 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
                         recording=other_wish_recording_id(of, again, which), topic="ご案内の方法" if way_offer(of) or which else CALLBACK_TOPIC[role],
                         callback=role, declines=(WISH_NONE,),
                         firm_not_needed=True, of=of.id, senses=_wish_senses(of, which),
-                        lists_ways=_wish_form(of, which) != "ask" and way_any_line(of) is not None,
+                        lists_ways=_wish_lists(of, which),
                         # 戻るときは「前回お伺いした件で」を言い直さない（Question.plain＝B-5）
                         plain=(other_wish_recording_id(of), _wish_text(of)) if again else ())
     # nth＝この通話で同じ質問を伺う何回目か（0から）：2回目からの言い方を順に回す（phrases.CALLBACK_ASK_AGAIN。録音は callback_（役目）_2 から）
@@ -10220,7 +10238,7 @@ class Flow:
 
     def _near_now(self, q: "Question") -> str | None:
         """答えを当てている言葉（heard_check）を、この通話の判定の組がそろって「いちばん近い答え」（NEAR）と読み、その答えで意味合いを尋ねられる（asks_sense）なら、その答え
-        （唯一の読み口＝意味合いを尋ねる _check_again・ご承認の手順の決められない読みの道 _undecided_way）。無ければ None。"""
+        （唯一の読み口＝意味合いを尋ねる _check_again・ご承認の手順の決められない読みの道 _undecided_way・会話が繋がらないお返事か _offer_unlinked）。無ければ None。"""
         c = near_answer(q, [self.heard_check.get(k) for k in JUDGMENTS if k in self.checks_used])
         return c if asks_sense(q, c) else None
 
@@ -14625,6 +14643,12 @@ class Flow:
         # 申し出でない業務の質問（aside_fits）も同じ番・同じ伺い直しの1回（✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」＝_aside_again）。伺い直したあと
         # （Item.offer_again）も同じ番＝ひとことのあとは今の回数の決まり（_talk_again）。どの形かは _unlinked_kind の1か所
         if self._unlinked_kind(qid) is None:
+            return False
+        if self._near_now(self.questions[qid]) is not None:
+            # 判定の組がそろって、意味合いを尋ねられる答えをいちばん近いと読んだお返事は、会話が繋がらないお返事ではない（答えの話）＝意味合いを尋ねる1か所（_check_again）へ
+            # （ご承認の手順の段の決められない読みの道 _undecided_way と同じ読み口 _near_now）。✅ 2026-11-05 日本時間23時56分48秒「ア」（言い直さない質問は、判定がいちばん近いと読んだ
+            # 選択肢で、お客様の言葉で意味合いを尋ねる）・10-19。⛔ 分身 AX の (4)(b)（帳面 1 の (6) の (i) の L38）まで、申し出の形・並べて伺い直したほかのご希望（W1）は、そろって
+            # いちばん近い答えを読んでも、どの読みでもこの番（会話AIのひとこと＋申し出の伺い直し）にして、いちばん近い答えを使わなかった
             return False
         return {str(r) for r in readings if r is not None} == {UNDECIDED} and self._plain_reply(readings) and self._hesitation() is None
 
