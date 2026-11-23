@@ -55689,3 +55689,51 @@ class BFRecallAfterPurposeTest(unittest.TestCase):
         heard_asking(g, "失礼ですが、どちら様でしょうか？")
         r = g.apply("replay_opening", {"part": "intro"})
         self.assertFalse(heard_words(r).endswith(self.FULL), heard_words(r))
+
+
+class BFQuietNoteNoReaskTest(unittest.TestCase):
+    """分身 BF の (4)（帳面 1 の (6) の (i) の L45・分身 BD の書き置き rv202/BD/notes.md の 6章の (1)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIに「何も言わずに」（待つ・
+    報告し直す）と頼む知らせには、伺い直しを頼む文（「相手がまだ答えていなければ、「…」と、もう一度聞いてください。」＝again_note）を添えない（いま待っている文は書く）。
+    お客様に伺うことはプログラムが流す（本書 9-3）・黙ったときに何を流すかは黙ったときの表の1か所（QUIET_STEPS）。決める1か所は、いま求めていることの知らせ Flow._now の quiet"""
+
+    def flow(self):
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",)),
+                  Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        f.on_callee(); f.on_heard("来週の火曜日の午後で。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "来週の火曜日の午後"})
+        self.assertEqual(r["result"], "confirm_required")
+        return f, r["say"]
+
+    def test_1_the_silence_note_waits_without_asking_again(self):
+        from flowctl import again_note
+        f, say = self.flow()
+        x = f.on_silence()
+        self.assertEqual([p["text"] for p in x["play"]], ["もしもし？"])
+        self.assertIn("何も言わずに、お客様のお返事を待ちます。", x["message"])
+        self.assertIn(f"いまは Q1 の言い直し「{say}」への、相手の返事を待っています。", x["message"])   # いま待っている文は書く
+        self.assertNotIn("もう一度聞いてください", x["message"])
+        self.assertNotIn(again_note(say), x["message"])
+        # 「何も言わずに」と頼まない知らせ（いつもの報告の差し戻し）は今のまま、伺い直しを頼む（会話AIが話す通話で、伺わせた文を読む1か所＝分身 BD の (2)）
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"})
+        self.assertIn(again_note(say), r["message"])
+
+    def test_2_every_quiet_note_reads_now_quietly(self):
+        # 流れの制御の知らせのうち、文に「何も言わずに」「何も言わないで」のある式の中で、いま求めていることの知らせ（self._now）を読む所は、どれも quiet＝True・ほかは付けない
+        import ast
+        import flowctl
+        tree = ast.parse(open(flowctl.__file__, encoding="utf-8").read())
+        seen, bad, quiet = set(), [], 0
+        for n in ast.walk(tree):
+            if not isinstance(n, (ast.JoinedStr, ast.BinOp)):
+                continue
+            text = "".join(c.value for c in ast.walk(n) if isinstance(c, ast.Constant) and isinstance(c.value, str))
+            for c in ast.walk(n):
+                if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "_now" and id(c) not in seen:
+                    seen.add(id(c))
+                    q = any(k.arg == "quiet" and getattr(k.value, "value", None) is True for k in c.keywords)
+                    quiet += q
+                    if ("何も言わず" in text or "何も言わないで" in text) != q:
+                        bad.append(c.lineno)
+        self.assertEqual(bad, [])
+        self.assertGreaterEqual(quiet, 14)
