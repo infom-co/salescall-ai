@@ -55633,3 +55633,59 @@ class BFReaderBordersBd1Test(unittest.TestCase):
                 self.assertNotIn("⏳ 仮", why)
                 self.assertTrue(why.endswith("束 bd1 の読み手2人とも正解の中（仮を外した＝分身 BF）"), why[-80:])
         self.assertEqual([sorted(G.accept(rows[t])) for t in self.NEW], [["無い"], ["無い"], sorted(["決められない", "考えている途中"])])
+
+
+class BFRecallAfterPurposeTest(unittest.TestCase):
+    """分身 BF の (2)（帳面 1 の (6) の (i) の L43・担当 BB の報告 rv202/BB/report.md の 5章の (f)・会話 rv202/BB/out/s_recall.txt。CL-1 が書いてある決まりで決めた＝伺わない）：
+    お名前だけではどの方か分からない・「そういう者はおりませんが。」と言われて部署とフルネームでお呼びし直した（詳しい呼ぶ一言＝Flow._recall_full）あとに、受付の方から
+    用件を尋ねられたら、用件のあとに、その方が最後に聞いた詳しい呼ぶ一言を1回だけ添える（用件を2回目に聞かれたら添えない）。本書 9-4 の目的のお客様の (2)「用件を聞かれたら
+    用件を流してもう一度だけ呼ぶ」が細かい決まり・詳しい呼ぶ一言は「呼ぶ一言を使い切る前もあとも同じ1か所」（「担当者が不在」の行）＝(5)「呼ぶ一言は1人に2回まで」の上限の外。
+    決める1か所は Flow._call_after_answer（名乗り・用件で答えたあとのお呼びする段＝Flow._continue）"""
+    N = NoSuchPersonRecallTest
+    FULL = "営業部部長の「おかだたろう」様はいらっしゃいますでしょうか？"
+    PURPOSE = "失礼いたしました。ご予約の確認でお電話いたしました。"
+
+    def purpose(self, f, words="失礼ですが、どういったご用件でしょうか？"):
+        heard_asking(f, words)
+        r = f.apply("replay_opening", {"part": "purpose"})
+        f.on_played([p["text"] for p in (r or {}).get("play") or [] if p.get("text")])
+        return heard_words(r)
+
+    def recalled(self, how):
+        from end_words import _reading
+        from flowctl import ABOUT_NO_SUCH, END_WHO, JUDGMENTS, UNDECIDED
+        f = self.N().opened()
+        if how == "no_such":
+            r = self.N.say(f, "そういう者はおりませんが。", ABOUT_NO_SUCH)
+        elif how == "who_unclear":
+            f.on_callee(); f.on_heard("お名前だけではどの者か分かりかねますので、お繋ぎできかねます。")
+            for k in JUDGMENTS:
+                f.on_check(k, _reading(UNDECIDED, END_WHO))
+            f.on_decided()
+            r = f.apply("request_end", {"reason": "not_transferred"})
+            f.on_played([p["text"] for p in (r or {}).get("play") or [] if p.get("text")])
+        else:   # どちらの岡田でしょうか？（どの方かの答えの1か所 _asked_target も同じ詳しい呼ぶ一言）
+            heard_asking(f, "どちらの岡田でしょうか？")
+            r = f.apply("replay_opening", {"part": "target"})
+            f.on_played([p["text"] for p in (r or {}).get("play") or [] if p.get("text")])
+        self.assertTrue(heard_words(r).endswith(self.FULL), heard_words(r))
+        return f
+
+    def test_1_the_full_call_follows_the_purpose_once(self):
+        for how in ("no_such", "who_unclear", "which_one"):
+            with self.subTest(how=how):
+                f = self.recalled(how)
+                self.assertEqual(self.purpose(f), self.PURPOSE + self.FULL)
+                self.assertEqual(self.purpose(f, "それで、ご用件は何でしたっけ？"), self.PURPOSE)   # 用件を2回目に聞かれたら添えない
+                self.assertIsNone(f.end_reason)
+
+    def test_2_the_plain_call_stays_as_it_was(self):
+        # 詳しい呼ぶ一言を聞いていない方：今までどおり、用件のあとにいつもの呼ぶ一言を1回（呼ぶ一言は1人に2回まで）
+        f = self.N().opened()
+        self.assertEqual(self.purpose(f), self.PURPOSE + "部長の「おかだ」様はいらっしゃいますでしょうか？")
+        self.assertEqual(self.purpose(f, "それで、ご用件は何でしたっけ？"), self.PURPOSE)
+        # 名乗りだけで答えたとき（「失礼ですが、どちら様でしょうか？」）は今のまま：詳しい呼ぶ一言を添えない（お言葉の (2) は用件を聞かれたときの決まり＝控えの C13 と同じ）
+        g = self.recalled("no_such")
+        heard_asking(g, "失礼ですが、どちら様でしょうか？")
+        r = g.apply("replay_opening", {"part": "intro"})
+        self.assertFalse(heard_words(r).endswith(self.FULL), heard_words(r))

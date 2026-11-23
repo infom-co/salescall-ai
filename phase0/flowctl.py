@@ -7312,6 +7312,8 @@ class Flow:
         self.confirm_requested_at: int | None = None
         self.unavailable_asked = False  # 理由を言わずに取り次げないと言われ、ご事情かを伺った（_transfer_unclear。1通話1回）
         self.full_called = False        # お名前だけでは分からないと言われ、部署・フルネームでお呼びし直した（_who_unclear。1通話1回）
+        self.full_turn: int | None = None   # 部署・フルネームの入った呼ぶ一言を流したときの相手の発話の番号（_call_target の part target_full）
+        self.full_again = False         # 名乗り・用件で答えたあとに、その方が最後に聞いた詳しい呼ぶ一言をもう添えた（1通話1回＝_call_after_answer）
         self.hear_leans: set[int] = set()     # 確かでなかった判定が「こちらの声が届いていない様子」と読んだ発話の番号（on_unsure。Flow.cut）
         self.end_leans: dict[int, set] = {}   # 発話ごとの、確かでなかった判定の「電話を終える言葉か」の読み（on_unsure。決まらないときの場面＝_end_unsure）
         self.end_due: str | None = None       # あとから届いた判定が、電話を終える言葉と読んだ（その読み＝END_REASON の鍵。次の報告か、報告の無いターンのあとに締める＝_end_due_now）
@@ -13570,9 +13572,13 @@ class Flow:
         if self.phase == "calling":
             # 目的の人に繋がる前：名乗り・用件のあとに、もう一度だけ呼ぶ一言（DESIGN.md 4-3）。同じ方に3回目は呼ばない（同じお願いを繰り返さない）
             lead, renamed = [], False
-            called = self._calls_to_speaker() < 2
+            # 用件で答えたか＝流す録音に用件の部分（受付の方への一文の部分も）がある
+            told = {p.get("part") for p in play if p.get("kind") == "opening"}
+            part = self._call_after_answer("purpose" in told or (self.reception_part is not None and self.reception_part in told))
+            called = part is not None
             if called:
                 self.target_called.append(self.callee_turns)
+                self.full_again = self.full_again or part == "target_full"
                 # まだこちらの名乗りを聞いていない方（取り次がれて代わった方＝_new_ears）には、戻る一言（もう伺ったことへ戻るとき＝10-23）ではなく、あいさつ・
                 # 名乗りから（相手が替わったら短く名乗り直す＝本書 9-4。流す1か所 _reception_lead）。⛔ 2026-11-08 日本時間7時台（11-07 23時26分13秒のご質問の
                 # 見直しの B-9）：その方の世間話に応えたあと「話を戻させていただきますね。」＋お呼びするお願いを流していた
@@ -13583,8 +13589,8 @@ class Flow:
                     # 11-01「同じ長い文を2度言わない」・まとめ役 CL-1 の頼み rv178/X の5回目 (2)。⛔ 21015509 まで、名乗りで答えると名乗り・あいさつ・名乗り・呼ぶ一言と流した）
                     play, shown = kept, "".join(p.get("text", "") for p in kept)
                 renamed = bool(lead) and not play   # 返事があいさつ・名乗り（lead）から始まる：頭に相づちを流さない（代わった方への流し直しと同じ＝_ack_choice）
-                play += lead + back + [self._part_play("target")]
-                done = played_note(shown + "".join(p["text"] for p in lead + back) + self.target["target"])
+                play += lead + back + self._part_plays(part)
+                done = played_note(shown + "".join(p["text"] for p in lead + back) + self.target[part])
             # 戻る一言・あいさつから始まる：相づちを重ねない（その一言が相手の返事を受ける・あいさつの前に相づちは付けない＝_prepend_played の led と同じ）
             # 呼ぶ一言を流したら、そのあとはお取り次ぎを待つ（確かめる一言のあとに聞かれて答えたときも＝confirm_open は記録に残ったこの返事から決まる）
             then = self._calling_note() if called else self._now()
@@ -15048,10 +15054,26 @@ class Flow:
         「確かめは電話口の方ごとに1回（取り次がれて代わった方は、もう一度確かめてよい）」＝まとめ役 CL-1 の頼み rv178/X の続き (3)）。判定を使わない通話（会話AIの通話の
         試験）は区切りのまま。⛔ f323939c まで区切りのまま数え、受付の方と読んで「はい、」で待った同じ方に、次の言葉から呼ぶ一言を数え直した（S3-9 で「はい、」と待ったあとの
         「どちら様でしょうか？」に、名乗りと3回目の呼ぶ一言を流した）"""
+        return len(self._speaker_calls())
+
+    def _speaker_calls(self) -> list[int]:
+        """いま電話口にいる方に呼ぶ一言を流したときの相手の発話の番号（古い順。数える区切りは _calls_to_speaker の注のとおり＝唯一の区切り）。"""
         start = self.speaker_from
         while self.judging and (before := self.moved_after.get(start)) is not None and self._same_speaker_since(start):
             start = before
-        return sum(c >= start for c in self.target_called)
+        return [c for c in self.target_called if c >= start]
+
+    def _call_after_answer(self, purpose: bool) -> str | None:
+        """目的の人に繋がる前に、名乗り・用件で答えたあとに添える呼ぶ一言の名乗りの部分（唯一の決め＝_continue のお呼びする段。添えなければ None）：
+        - 用件で答えた（purpose）とき、その方が最後に聞いた呼ぶ一言が、部署・フルネームの入った詳しい呼ぶ一言（target_full＝_recall_full・_asked_target）⇒ その詳しい
+          呼ぶ一言を1回だけ（1通話1回・用件を2回目に聞かれたら添えない。名乗りだけで答えたときは今のまま＝お言葉の (2) は用件を聞かれたときの決まり）。詳しい呼ぶ一言は「呼ぶ一言を使い切る前もあとも同じ1か所」（本書 9-4 の「担当者が不在」の行）＝(5)「呼ぶ一言は1人に2回まで」の
+          上限の外で、(2)「用件を聞かれたら用件を流してもう一度だけ呼ぶ」が細かい決まり（帳面 1 の (6) の (i) の L43・CL-1 が決めた。⛔ 774939b7 まで、詳しい呼ぶ一言で
+          2回に数わり、そのあとの用件の問いには用件だけを答えた＝担当 BB の rv202/BB/out/s_recall.txt）
+        - ほかは、その方に呼ぶ一言が2回に届いていなければ、いつもの呼ぶ一言（target）・届いていれば None（同じお願いを繰り返さない＝(5)）"""
+        calls = self._speaker_calls()
+        if purpose and not self.full_again and self.full_turn is not None and calls and calls[-1] == self.full_turn:
+            return "target_full"
+        return "target" if len(calls) < 2 else None
 
     def _same_speaker_since(self, start: int) -> bool:
         """発話の番号 start からいまの言葉までに届いた判定の読み（遅れて届いた分も・いまの言葉は出揃っていれば）が、どれも前と同じ方か（same_speaker の1か所。_calls_to_speaker）。"""
@@ -15870,6 +15892,8 @@ class Flow:
         if part != "target" or self._calls_to_speaker() < 2:
             keys.append(part)
             self.target_called.append(self.callee_turns)
+            if part == "target_full":
+                self.full_turn = self.callee_turns   # その方が最後に聞いた呼ぶ一言が詳しい呼ぶ一言か（名乗り・用件で答えたあとに添える一言＝_call_after_answer）
         elif other and self._owner_due():
             # 携帯電話の番号で、呼ぶ一言をこの方に2回使い切ったあとも別の方だと言われ続けた（携帯電話はたいてい持ち主が出る＝番号が違っているかもしれない）：1回だけ
             # 「大変失礼いたしました。」＋「（お名前）様のお電話でお間違えないでしょうか？」（確かめる一言＝お返事は今の確かめの1か所：はい＝ご本人・番号違い＝判定の組の
