@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 
 import g59_calling_judge as g
+import reader_alts  # 読み手の別の読みの欄の読み口（数えの割れ方だけ・答えを決めるのに使わない）
 from flowctl import TARGET_IS_THERE, Limits, facts_reading
 
 RESULTS = Path(__file__).parent / "results"
@@ -397,7 +398,7 @@ def cascade(stages: list[str]) -> dict:
         if who not in RACE:
             raise SystemExit(f"組（meaning_judge.RACE）に入っていない判定の記録です：{who}")
         have.setdefault(who, {}).update({(key(r), r.get("rep", 0)): (r, c) for r in rows})
-    by, moved, only, late, rest, kinds, unbuilt = (collections.Counter() for _ in range(7))
+    by, moved, only, late, rest, kinds, unbuilt, alts = (collections.Counter() for _ in range(8))
     short, out, split = [], [], []
     for k, rep in sorted({kr for h in have.values() for kr in h}, key=str):
         acc, facts = table[k]
@@ -425,6 +426,9 @@ def cascade(stages: list[str]) -> dict:
                 if moves(kind):
                     moved[(part, who, sc)] += 1
                     kinds[(part, kind.split("：")[0])] += 1
+                    # 外れのうち、読み手の別の読み（reader_alts の1か所）と同じ値の読み：分けて出すだけ（正解には数えない＝上の数えは同じ。分身 AV＝L6）
+                    for e in reader_alts.same("G-59", sc_row, got if sfx == "" else {"asks": got}):
+                        alts[(part, reader_alts.label(e))] += 1
                     out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got, kind))
                 elif kind in UNCOUNTED:
                     unbuilt[(part, who, sc, kind)] += 1
@@ -447,7 +451,8 @@ def cascade(stages: list[str]) -> dict:
                 need = [names[w] for w in winners if w is not None and w not in known]
                 short.append((part, sc, sc_row["text"], sc_row["before"] or "", rep, need))
     return {"決めた判定": by, "動きが変わる外れ": moved, "項目だけの外れ": only, "2秒超": late, "記録の無い判定に回る": rest,
-            "記録が足りない": short, "待つ長さで変わる": split, "外れの行": out, "外れの種類": kinds, "比べられない": unbuilt}
+            "記録が足りない": short, "待つ長さで変わる": split, "外れの行": out, "外れの種類": kinds, "比べられない": unbuilt,
+            "動きが変わる外れのうち、読み手の別の読みと同じ値": alts}
 
 
 def show_cascade(got: dict) -> None:
@@ -455,6 +460,7 @@ def show_cascade(got: dict) -> None:
     print("決めた判定：", dict(got["決めた判定"]), f"｜決めた行 {n}")
     print("流れの制御の動きが変わる外れ：", dict(got["動きが変わる外れ"]) or 0, "｜項目だけの外れ：", dict(got["項目だけの外れ"]) or 0)
     print("動きが変わる外れの種類：", dict(got["外れの種類"]) or 0, "｜動きを比べられない行（数えない）：", dict(got["比べられない"]) or 0)
+    print("動きが変わる外れのうち、読み手の別の読みと同じ値：", dict(got["動きが変わる外れのうち、読み手の別の読みと同じ値"]) or 0)
     print("2秒超：", dict(got["2秒超"]) or 0)
     print("記録の無い判定に回る（どれで決まるか）：", dict(got["記録の無い判定に回る"]) or 0)
     print("記録が足りない（決まらない・流す判定）：", len(got["記録が足りない"]))
