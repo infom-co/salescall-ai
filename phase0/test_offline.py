@@ -54174,7 +54174,9 @@ class AWReaderBordersTest(unittest.TestCase):
             why = G._label(it)["why"]
             self.assertIn("分身 AW", why)
             self.assertNotIn("⏳ 仮（束 av1）", why)
-            self.assertTrue(why.endswith("⏳ 仮（束 aw1）"), why[-80:])
+            # 束 aw1 の読み手2人とも正解の中＝分身 AX が仮を外した（AXReaderBordersTest）
+            self.assertNotIn("⏳ 仮（束 aw1）", why)
+            self.assertIn("仮（束 aw1）", why)
 
     def test_2_the_av1_rows_both_readers_kept_are_no_longer_provisional(self):
         import g53_meaning as G
@@ -54204,7 +54206,8 @@ class AWReaderBordersTest(unittest.TestCase):
         self.assertEqual(got["judge・正しい（どちらとも言えない言葉を除く）"], f"{same}/{counted}")
         src = (Path(g68.__file__).parent / "g68_returned.py").read_text(encoding="utf-8")
         self.assertNotIn("⏳ 仮（束 av3）", src)
-        self.assertIn("⏳ 仮（束 aw3）", src)
+        self.assertNotIn("⏳ 仮（束 aw3）", src)   # 束 aw3 の読み手2人とも正解の中＝分身 AX が仮を外した（AXReaderBordersTest）
+        self.assertIn("仮（束 aw3）", src)
 
     def test_4_the_av2_rows_are_no_longer_provisional_from_av2(self):
         import g59_calling_judge as g
@@ -54218,7 +54221,9 @@ class AWReaderBordersTest(unittest.TestCase):
         got = {(e["値"], e["項目"]) for e in RA.of("G-53", rb.it("大丈夫です、ほかに何もありません。")) if e["束"] == "av1"}
         self.assertIn((WAY_UNSAID, "answer"), got)
         got = {(e["値"], e["項目"]) for e in RA.of("G-53", rb.it("特にないので、そのままで大丈夫です。")) if e["束"] == "av1"}
-        self.assertTrue({(ANY, "answer"), (UNDECIDED, "answer")} <= got, got)
+        self.assertIn((ANY, "answer"), got)
+        # 「決められない」は分身 AX の (4)(a) で正解になった（束 aw1 の #4）＝欄から外れた（AXReaderBordersTest）
+        self.assertNotIn((UNDECIDED, "answer"), got)
         b = next(b for b, t, _ in g68.CASES + g68.NEW_CASES if t == self.SAME_TOO[-1])
         self.assertEqual([(e["束"], e["読み手"], e["値"]) for e in RA.of("G-68", (b, self.SAME_TOO[-1]))], [("av3", "A", UNDECIDED)])
 
@@ -54600,3 +54605,50 @@ class AXLadderRestTest(unittest.TestCase):
         f, r = self.call()
         r = f.apply("replay_opening", {"part": "resume"})
         self.assertTrue(heard_words(r).endswith("お時間は午前と午後のどちらがよろしいでしょうか？"), heard_words(r))
+
+
+class AXReaderBordersTest(unittest.TestCase):
+    """分身 AX の (4)(a)(c)（束 aw1〜aw3 の読み手の結果＝CL-1 の並べた表 rv201/aw1_out.txt・aw2_out.txt・aw3_AB.txt。CL-1 が書いてある決まりで決めた＝伺わない）：
+    (a) 束 aw1 の #3「いえ、特に希望はないです。」・#4「特にないので、そのままで大丈夫です。」（W1@E1・申し出の形）：読み手2人とも答えを「無い」と「決められない」の両方に読んだ（#3 は束 av1 に
+        続いて2回目）＝境目（✅ 2026-11-06 日本時間4時11分28秒）。答えを「決められない」と読んだときのいちばん近い答えは、2人とも「無い」と「どの答えにも近くない」（2つの読みで流れの制御の
+        動きは同じ）・2人とも「どちらでも」が選べるものに無いと書いた（分身 AX の (4)(b) で選べるものに出した）＝3つとも正解（仮＝束 ax1）。束 av1 の #6 の A の「決められない」は正解の中＝
+        読み手の別の読みの欄から外れた
+    (c) 仮を外した（2人とも正解の中）：束 aw1 の #1・#2・#5・束 aw2 の10行（後任の方の場面）・束 aw3 の5行。束 aw2 の #8「後任はおりません。」の B の「不在」（お呼びした方の事情・電話に
+        出られない理由）は1人だけ＝読み手の別の読みの欄へ"""
+
+    def test_1_the_two_rows_are_borders(self):
+        import g53_meaning as G
+        from flowctl import ANY_LABEL, NEAR, NEAR_NONE, NEAR_OFF, UNDECIDED, WISH_NONE
+        rb = AVReaderBordersTest()
+        for text in ("いえ、特に希望はないです。", "特にないので、そのままで大丈夫です。"):
+            it = rb.it(text)
+            self.assertEqual(set(G.accept(it)), {WISH_NONE, UNDECIDED}, text)
+            self.assertEqual(set(G.near_truths(it)), {NEAR_OFF, WISH_NONE, NEAR_NONE, ANY_LABEL}, text)
+            # どの読みも、測りの数え（flow_miss）は外れにしない
+            self.assertIsNone(rb.miss(*rb.reread(text, answer=WISH_NONE, **{NEAR: NEAR_OFF})), text)
+            for nv in (WISH_NONE, NEAR_NONE, ANY_LABEL):
+                self.assertIsNone(rb.miss(*rb.reread(text, answer=UNDECIDED, **{NEAR: nv})), (text, nv))
+            why = G._label(it)["why"]
+            self.assertIn("分身 AX", why)
+            self.assertTrue(why.endswith("⏳ 仮（束 ax1）"), why[-80:])
+
+    def test_2_the_aw_rows_both_readers_kept_are_no_longer_provisional(self):
+        import g53_meaning as G
+        import g59_calling_judge as g59
+        import g68_returned as g68
+        rb = AVReaderBordersTest()
+        for text in ("今のところ、ほかには無いです。", "大丈夫です、ほかに何もありません。", "とくに希望はないので、お任せします。"):
+            why = G._label(rb.it(text))["why"]
+            self.assertNotIn("⏳ 仮", why, text)
+            self.assertIn("分身 AX", why, text)
+        for m in (g59, g68):
+            src = Path(m.__file__).read_text(encoding="utf-8")
+            self.assertNotIn("⏳ 仮（束 aw", src, m.__name__)
+            self.assertIn("分身 AX が仮を外した", src, m.__name__)
+
+    def test_3_one_reader_readings_go_to_the_field(self):
+        import g59_calling_judge as g59
+        import reader_alts as RA
+        row = g59.case_row(g59.case_of("後任はおりません。", "岡田は先月退職いたしました。", False, True))
+        got = {(e["束"], e["読み手"], e["項目"], e["値"]) for e in RA.of("G-59", row)}
+        self.assertEqual(got, {("aw2", "B", "absent_why", "不在"), ("aw2", "B", "target", "不在")})
