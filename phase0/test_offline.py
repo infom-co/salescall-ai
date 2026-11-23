@@ -55699,7 +55699,8 @@ class BGTargetCountsInOnePlaceTest(unittest.TestCase):
             return json.load(open(f"results/{f}", encoding="utf-8"))["rows"][i]
         sub = row("G-57J11a_20261025_000826.json", 63)
         self.assertEqual((sub["scene"], sub["facts"]["connect"][0]["who"]), ("目的の人_代わりの方（判断できる）", "substitute"))
-        self.assertEqual(scenes.connect_reply(sub), {})   # 繋いだ返事の見方（目的の人・後任の方・代わった方への流し直し）では見えない
+        # 2026-11-23 分身 BH：繋いだ返事も同じ1か所（scenes.connected_at）で読む＝代わりの方に繋いだ返事（お立場の質問 S1 への「判断できる」の報告。前は空）
+        self.assertEqual(scenes.connect_reply(sub)["question_id"], "Q1")
         m = scenes.measures(sub, sub["scene"])
         self.assertTrue(m["pass"], m["failed"])
         self.assertIn(self.FIRST, m["checks"])
@@ -55917,3 +55918,163 @@ class BFMidwayUnsaidFormTest(unittest.TestCase):
         _, back, _ = self.returns()
         self.assertEqual(back, ["それではもう一度確認させていただきますね。お支払いはカードと振込のどちらがよろしいでしょうか？",
                                 *[self.MIDWAY + "お支払いはカードと振込のどちらがよろしいでしょうか？"] * 2])
+
+
+class BHAskerLeftOnePlaceTest(unittest.TestCase):
+    """分身 BH（帳面 1 の (6) の (i) の L49・分身 BG の書き置き rv203/BG/notes.md の 6章の (1)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIの通話の試験 G-57 で、
+    名乗り・用件のほかのことを聞かれた4場面（目的の人_関係を聞かれる・番号の出どころを聞かれる（想定問答あり・なし）・会社の所在地を聞かれる）の「確かめない」（聞いた方へのターンで
+    確かめ・お呼びし直しを返さない＝次の質問は見ない）を、聞いた方の決まり（scenes.ASKER_LEFT）の1か所 scenes.asker_left で数える（共通の決まり「同じ問いに答える所を2つ作らない」）。
+    同じ名前「確かめない」だった「目的の人_名乗らない方」の数え（通話のどこでも確かめない）は、中身を言う名前に（帳面 0-3 の (12)「名前は中身の全部を言い表す」）。"""
+
+    OTHER = {"目的の人_関係を聞かれる": "relation_ask", "目的の人_番号の出どころを聞かれる_想定問答あり": "number_from",
+             "目的の人_番号の出どころを聞かれる": "number_from", "目的の人_会社の所在地を聞かれる": "where_company"}
+    ASKER = "聞いた方には確かめもお呼びし直しも質問も返さない"
+    NEVER = "通話のどこでも目的の人かを確かめない"
+    EMPTY = {"turns": [], "flow_log": [], "items": {}, "facts": {}}
+
+    def test_1_one_name_for_the_asker_and_a_full_name_for_the_whole_call(self):
+        import scenes
+        asked = ("目的の人_名前を確かめてから名乗りを聞かれる", "目的の人_用件を聞かれる", *scenes.G22_TARGET_SCENES, *self.OTHER)
+        for name in asked:
+            checks = scenes.measures(self.EMPTY, name)["checks"]
+            self.assertIn(self.ASKER, checks, name)
+        names = {k for name in scenes.SCENES for k in scenes.measures(self.EMPTY, name)["checks"]}
+        self.assertNotIn("確かめない", names)   # 前は2つの別の数え（聞いた方へのターンだけ・通話のどこでも）に同じ名前
+        self.assertIn(self.NEVER, scenes.measures(self.EMPTY, "目的の人_名乗らない方")["checks"])
+        self.assertEqual([n for n in scenes.SCENES if self.NEVER in scenes.measures(self.EMPTY, n)["checks"]], ["目的の人_名乗らない方"])
+
+    def test_2_replies_to_the_asker(self):
+        """聞いた方の台詞へのターンで、流れの制御が次の質問へ進む返事（繋いで用件と質問）を返した形も外れ（前は確かめとお呼びし直しだけを数えた）。確かめた形の外れの名前も同じ1つ。"""
+        import scenes
+        for name, line in self.OTHER.items():
+            for reply in ("next", "confirm_target", "call_target"):
+                with self.subTest(name=name, reply=reply):
+                    call = {**self.EMPTY, "turns": [{"callee": {"wav": f"Puck_{line}.wav"}, "tool_events": [{"name": "report_party", "args": {}, "reply": reply}]}]}
+                    m = scenes.measures(call, name)
+                    self.assertIn(self.ASKER, m["failed"])
+                    self.assertFalse({k for k in m["failed"] if "確かめ" in k} - {self.ASKER})
+
+    def test_3_records_already_run(self):
+        """既に流した記録（results）で：関係を聞かれた受付の方へのターンの返事を次の質問へ進む返事にした形は、聞いた方の決まりだけの外れ（前の数えは合格）。
+        名乗らない方の場面で岡田様かを確かめた通話の外れの名前は、中身を言う名前。"""
+        import copy
+        import scenes
+        def row(f, i):
+            return json.load(open(f"results/{f}", encoding="utf-8"))["rows"][i]
+        ok = row("G-57J11a_20261025_000826.json", 54)
+        self.assertEqual((ok["scene"], ok["pass"]), ("目的の人_関係を聞かれる", True))
+        self.assertTrue(scenes.measures(ok, ok["scene"])["pass"])
+        bad = copy.deepcopy(ok)   # 関係を聞いた受付の方を目的の人と報告して、繋いだ（用件と最初の質問を流した）
+        scenes.turns_to(bad, "relation_ask")[-1]["tool_events"].append({"name": "report_party", "args": {"party": "target"}, "reply": "next"})
+        self.assertEqual(scenes.measures(bad, bad["scene"])["failed"], [self.ASKER])
+        asked = row("G-57J11a_20261025_000826.json", 36)
+        self.assertEqual(asked["scene"], "目的の人_名乗らない方")
+        self.assertEqual(scenes.measures(asked, asked["scene"])["failed"], [self.NEVER])
+
+
+class BHNoSpeechMarkTest(unittest.TestCase):
+    """分身 BH（帳面 1 の (6) の (i) の L50 の (a)・分身 BG の書き置きの 6章の (2)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIが声を出さなかったときに文字だけで返す
+    声の無い印（「<no speech>{pause}」＝届くときは「<no 」「speech>{pause}」に分かれる・「<no speech detected>」・「{pause}」）を、会話AIが自分の声で話した言葉（scenes.own_words）
+    にも、声の文字（scenes.said）にも数えない（測りの記録 G-57 の1回目の (5)「声が0秒のターンを、AI自身の文字だけで話したと数えていた」と同じ理由＝10-19）。見分けは1か所
+    （scenes.NO_SPEECH）。"""
+
+    def call(self, *texts: str, line: str = "okada_whois_pause") -> dict:
+        return {"turns": [{"callee": {"wav": f"Puck_{line}.wav"}, "said_events": [{"text": x} for x in texts], "tool_events": []}], "flow_log": [],
+                "items": {}, "facts": {}}
+
+    def test_1_marks_are_not_words(self):
+        import scenes
+        for texts in (("<no ", "speech>{pause}"), ("<no speech>{pause}",), ("<no speech detected>",), ("{pause}",), ("<no ", "speech>{pause}", "…")):
+            self.assertEqual(scenes.own_words(self.call(*texts), "okada_whois_pause"), "", texts)
+        # 印と一緒に話した言葉・印でない山かっこ（会話AIが書いた文書の切れ端）は、今までどおり言葉
+        self.assertEqual(scenes.own_words(self.call("申し訳ございません。", "<no ", "speech>{pause}"), "okada_whois_pause"), "申し訳ございません")
+        self.assertEqual(scenes.own_words(self.call("申し訳ございません。</em>"), "okada_whois_pause"), "申し訳ございません</em>")
+        # 声の長さはあるが（0.2秒＝声の見分けでは声なし）、別の耳の文字の無いターン：AI自身の文字が印だけなら、声の文字は空
+        self.assertEqual(scenes.said({"audio_seconds": 0.2, "intended": "<no speech>{pause}"}), "")
+        self.assertEqual(scenes.said({"audio_seconds": 1.2, "intended": "申し訳ございません。<no speech>{pause}"}), "申し訳ございません。")
+        self.assertEqual(scenes.said({"audio_seconds": 1.2, "ear": "申し訳ございません。", "intended": "<no speech>{pause}"}), "申し訳ございません。")
+
+    def test_2_in_the_scene_checks(self):
+        """聞いた受付の方へのターンで、会話AIの文字が声の無い印だけなら「自分の言葉で話さない」は外れない（前は外れ）。既に流した記録で、取り次ぐと言った受付の方への
+        ターンの文字が印だけ（声 0.2秒・別の耳の文字なし）の通話は、「取り次ぎの間は話さない」の外れにならない（前は外れ）。"""
+        import copy
+        import scenes
+        name = "目的の人_名前を確かめてから名乗りを聞かれる"
+        self.assertNotIn("自分の言葉で話さない", scenes.measures(self.call("<no ", "speech>{pause}"), name)["failed"])
+        self.assertIn("自分の言葉で話さない", scenes.measures(self.call("アオバ物流の佐藤と申します。"), name)["failed"])
+        def row(f, i):
+            return json.load(open(f"results/{f}", encoding="utf-8"))["rows"][i]
+        r = row("G-57tc21_20261022_115539.json", 28)   # 「申し訳ございません。</em>」と、次の返事のあとの「<no speech>{pause}」
+        self.assertEqual((r["scene"], scenes.measures(r, name)["failed"]), (name, ["自分の言葉で話さない"]))
+        only = copy.deepcopy(r)   # 「申し訳ございません。</em>」が無ければ、印だけ＝外れない
+        for t in scenes.turns_to(only, "okada_whois_pause"):
+            t["said_events"] = [e for e in t.get("said_events") or [] if "申し訳" not in (e.get("text") or "")]
+        self.assertTrue(scenes.measures(only, name)["pass"], scenes.measures(only, name)["failed"])
+        away = row("G-57tc25_20261022_125303.json", 12)
+        self.assertEqual((away["scene"], away["turns"][0]["intended"], away["turns"][0].get("ear") or ""), ("目的の人_不在で別の方に代わる", "<no speech>{pause}", ""))
+        self.assertIn("取り次ぎの間は話さない", away["failed"])   # 記録の数え（前の数え）は外れ
+        self.assertNotIn("取り次ぎの間は話さない", scenes.measures(away, away["scene"])["failed"])
+
+
+class BHConnectedAtOnePlaceTest(unittest.TestCase):
+    """分身 BH（帳面 1 の (6) の (i) の L50 の (b)・分身 BG の書き置きの 6章の (4)。CL-1 が書いてある決まりで決めた＝伺わない）：会話AIの通話の試験 G-57 の、繋いだ所の読みを1か所
+    （scenes.connected_at）に。前は2か所＝繋いだ返事 scenes.connect_reply（目的の人・後任の方の報告と代わった方への流し直しだけ＝代わりの方に繋いだ返事を見ない。「代わった方に
+    全部」「用件を受付に流さない」などが読む）と、繋がる前の操作 scenes.before_connect（それか通話の事実 connect）。ほかに「繋がない」「用件より先へ進まない」は通話の事実を直に読んでいた。
+    繋いだ所は、流れの制御が繋いだ1か所（Flow._connect）の通話の事実 connect の発話で次へ進めた返事・事実の無い記録（2026-10-21 より前）は報告・流し直しで次へ進めた返事（お立場の
+    質問 S1 を伺った返事は繋いだ返事ではない）。"""
+
+    EMPTY = {"turns": [], "flow_log": [], "items": {}, "facts": {}}
+
+    def op(self, op, args, result, turns, qid=None, play=()):
+        return {"op": op, "args": args, "reply": {"result": result, "play": list(play), **({"question_id": qid} if qid else {})}, "callee_turns": turns}
+
+    def substitute(self, fact: bool = True) -> dict:
+        """受付の方が別の方に取り次ぎ、代わった方を代わりの方と読んでお立場を伺い（S1）、「判断できる」のお返事に最初の質問 Q1 を流した（繋いだ）通話。"""
+        q1 = {"kind": "question", "id": "Q1"}
+        log = [self.op("report_party", {"party": "reception"}, "hold", 1),
+               self.op("replay_opening", {"part": "handover"}, "next", 2, "S1", [{"kind": "recorded", "id": "callback_authority"}]),
+               self.op("record_answer", {"question_id": "S1", "condition_id": "判断できる"}, "next", 3, "Q1", [q1])]
+        return {**self.EMPTY, "flow_log": log, "facts": {"connect": [{"turn": 3, "who": "substitute"}]} if fact else {}}
+
+    def test_1_every_reader_reads_the_one_place(self):
+        import scenes
+        c = self.substitute()
+        self.assertIs(scenes.connect_reply(c), c["flow_log"][2]["reply"])   # 前は空（代わりの方に繋いだ返事を見ない）
+        self.assertEqual(scenes.before_connect(c), c["flow_log"][:2])
+        # お立場を伺っただけ（事実 connect が無い＝繋いでいない）：お立場の質問を伺った返事は繋いだ返事ではない（前の繋いだ返事の見方は繋いだと数えた）
+        no = self.substitute(fact=False)
+        self.assertEqual(scenes.connect_reply(no), {})
+        self.assertEqual(scenes.before_connect(no), no["flow_log"])
+        # 繋いだかを読む決まり（繋がない・用件より先へ進まない）も同じ1か所：事実の無い記録で、目的の人の報告に次へ進めた（繋いだ）なら外れ（前は事実だけを見て合格）
+        old = {**self.EMPTY, "flow_log": [self.op("report_party", {"party": "target"}, "next", 1, "Q1", [{"kind": "question", "id": "Q1"}])]}
+        for name, rule in (("目的の人_不在で別の方に代わる", "繋がない"), ("目的の人_代わりの方（判断できない）", "用件より先へ進まない")):
+            self.assertIn(rule, scenes.measures(old, name)["failed"], name)
+            self.assertNotIn(rule, scenes.measures(no, name)["failed"], name)
+            self.assertIn(rule, scenes.measures(c, name)["failed"], name)
+        self.assertEqual((scenes.connected_at(c), scenes.connected_at(no), scenes.connected_at(old)), (2, None, 0))
+
+    def test_2_records_already_run(self):
+        """既に流した G-57 の記録の全部の行で、繋いだ返事は繋がる前の操作のすぐ次（繋がなかった通話は、繋いだ返事が空で、繋がる前は全部）。代わりの方に繋いだ通話（G-57J11a の
+        63行）の繋いだ返事は「判断できる」の報告への返事・お立場を伺っただけで締めた通話（G-57J10b の 52行＝事実 connect なし）は繋いでいない。"""
+        import glob
+        import scenes
+        def row(f, i):
+            return json.load(open(f"results/{f}", encoding="utf-8"))["rows"][i]
+        sub = row("G-57J11a_20261025_000826.json", 63)
+        self.assertIs(scenes.connect_reply(sub), sub["flow_log"][4]["reply"])
+        self.assertEqual(sub["flow_log"][4]["args"]["condition_id"], "判断できる")
+        away = row("G-57J10b_20261024_224725.json", 52)
+        self.assertEqual((away["scene"], away.get("facts", {}).get("connect")), ("目的の人_不在で別の方に代わる", None))
+        self.assertEqual([x["reply"].get("question_id") for x in away["flow_log"] if x["op"] == "replay_opening"], ["S1"])
+        self.assertEqual((scenes.connect_reply(away), len(scenes.before_connect(away))), ({}, len(away["flow_log"])))
+        self.assertTrue(scenes.measures(away, away["scene"])["pass"])
+        n = 0
+        for f in sorted(x for x in glob.glob("results/G-57*.json") if "TALLY" not in x and not x.endswith("_partial.json")):
+            for r in json.load(open(f, encoding="utf-8")).get("rows", []):
+                if "flow_log" not in r or r.get("scene") not in scenes.SCENES:
+                    continue
+                n += 1
+                at, log = scenes.connected_at(r), r["flow_log"]
+                self.assertEqual(len(scenes.before_connect(r)), len(log) if at is None else at, (f, r["scene"]))
+                self.assertIs(scenes.connect_reply(r), log[at]["reply"]) if at is not None else self.assertEqual(scenes.connect_reply(r), {})
+        self.assertGreater(n, 3000)
