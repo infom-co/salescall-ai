@@ -4649,7 +4649,17 @@ def stops_connect(value) -> bool:
 INTERNAL_KEYS = {"ack", "ack_pause_s", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
                  "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s", "hold_wait_kept", "ahead_offer", "ahead_closed", "form_reason",
                  "started_over", "silence_s", "silence_scene", "hurried", "brief_sorry", "unheard", "transfer", "owner", "neither", "listed_no",
-                 "drop_short", "yes_ack", "aside_back"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
+                 "drop_short", "yes_ack", "aside_back", "undeclared"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
+
+
+class ArgsProblem(str):
+    """報告の項目の差し戻しの文（唯一の作り＝Flow._check_args）。undeclared＝宣言に無い項目名で差し戻したときの、その名前（差し戻す唯一の場所 Flow._reject が
+    返事の印 undeclared に写す）。文としてはふつうの文字（会話AIへの知らせの文は今のまま）。"""
+
+    def __new__(cls, text: str, undeclared: str | None = None):
+        obj = super().__new__(cls, text)
+        obj.undeclared = undeclared
+        return obj
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values())
            | set(CALLBACK_LABEL.values()) | set(OFFER_LABEL.values()) | {VALUE_CHOICE})
@@ -9751,12 +9761,14 @@ class Flow:
         """宣言（OP_ARGS）に合わない報告は、記録を書き換える前に、どこが違うかを言って差し戻す。合っていれば None。
         ⛔ 2026-10-13 G-26・G-28：AIが項目名を書き違えた報告（「与えの返事」）を、そのまま受け取っていた。返事の種類が無いので
            「相手が答えなかった」とされ、相手が「はい」と認めた値が「-」になった（4回。どれも黙って起きた）。
-           ⇒ 宣言に無い項目名・要る項目の抜け・選択肢に無い値・文字でない値は、すべて差し戻す。"""
+           ⇒ 宣言に無い項目名・要る項目の抜け・選択肢に無い値・文字でない値は、すべて差し戻す。
+        宣言に無い項目名で差し戻すときは、その名前を差し戻しの文に持たせる（ArgsProblem.undeclared。差し戻す唯一の場所 _reject が返事の印 undeclared に写す＝
+        会話AIの通話の試験 G-57 の数え scenes.undeclared が読む。本書 9-7「宣言に無い名前は差し戻す…⏳ このあとの試験で数える」）"""
         required, optional = OP_ARGS[name]
         usable = "・".join(ARG_LABEL[k] for k in required + optional)
         for k, v in args.items():
             if k not in required + optional:
-                return f"「{k}」という項目は、{name} にはありません（使える項目は {usable}）。"
+                return ArgsProblem(f"「{k}」という項目は、{name} にはありません（使える項目は {usable}）。", undeclared=k)
             if v is not None and not isinstance(v, str):
                 return f"「{ARG_LABEL[k]}」は、文字で入れてください。"
         for k in required:
@@ -20898,8 +20910,9 @@ class Flow:
         return fresh
 
     def _reject(self, why: str) -> dict:
-        """差し戻す唯一の場所。理由が何であっても、いま求めていること（_now）を必ず添える。"""
-        return {"result": "rejected", "message": f"{why}{self._now()}"}
+        """差し戻す唯一の場所。理由が何であっても、いま求めていること（_now）を必ず添える。宣言に無い項目名で差し戻すとき（_check_args の ArgsProblem）は、
+        その名前を返事の印 undeclared に残す（中で使うだけ＝会話AIへの返事には入れない。数え＝scenes.undeclared が読む）。"""
+        return {"result": "rejected", "message": f"{why}{self._now()}"} | ({"undeclared": why.undeclared} if getattr(why, "undeclared", None) else {})
 
     def _confirm_note(self) -> str:
         """確かめる一言・聞き返しへのお返事を待っているときに会話AIへ伝える、いま求めていること（唯一の文＝_now・確かめる一言を流す返事 _ask_target。

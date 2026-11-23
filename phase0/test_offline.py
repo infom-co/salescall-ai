@@ -55051,3 +55051,56 @@ for cmd in json.loads(sys.argv[1]):
                 if secret(got):
                     found.append((path.name, where(node), f"environ {got}"))
         self.assertEqual(sorted(set(found)), [("common.py", "secret_pairs", "environ None"), ("common.py", "secret_pairs", "read_env_file")])
+
+
+class BAUndeclaredNameCountTest(unittest.TestCase):
+    """分身 BA の (1)（本書 9-7 の表の行「AIが報告の項目名を書き違える…宣言に無い名前は差し戻す…⏳ このあとの試験で数える」・担当 Z の棚卸しの #96・担当 AZ の束 z6。
+    CL-1 が書いてある決まりで決めた＝伺わない）：会話AIの報告が宣言に無い項目名で差し戻された回を、会話AIの通話の試験 G-57 の数える1か所（scenes.summarize）で数える。
+    差し戻すかを決めるのは流れの制御の今の1か所（Flow._check_args＝宣言に無い名前を断る所）で、差し戻す唯一の場所（Flow._reject）が返事に印 undeclared（その名前）を
+    残す（中で使うだけの項目＝会話AIへの返事には入れない）。数えはその印を読むだけ（数えの側で名前を宣言と見比べ直さない＝同じ問いに答える所を2つ作らない）。
+    ⛔ それまでは差し戻しの返事に、会話AIへの知らせの文（「「与えの返事」という項目は、…にはありません」）しか無く、数えは差し戻しの理由を読めなかった"""
+
+    def call(self):
+        from flowctl import Flow
+        f = Flow(AIToJapaneseTest().business().questions)
+        f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
+        f.handle(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="15日の午後2時です。"))
+        f.on_callee()
+        return f
+
+    def test_1_the_one_place_leaves_the_mark(self):
+        f = self.call()
+        r = f.handle(fc("confirm_field", 質問="Q2", 与えの返事="合っている", 訂正された値="15日の午後2時"))   # G-28 で実際に届いた形
+        self.assertEqual(r["結果"], "差し戻し")
+        self.assertEqual(f.log[-1]["reply"].get("undeclared"), "与えの返事")
+        self.assertNotIn("undeclared", r)   # 会話AIへの返事には入れない（知らせの文は今のまま）
+        self.assertIn("「与えの返事」という項目は", r["次にすること"])
+        for bad in ({"質問": "Q2"}, {"質問": "Q2", "返事の種類": "合ってる"}, {"質問": "Q2", "返事の種類": 1}):   # ほかの差し戻し（項目の抜け・選択肢に無い値・文字でない値）は印を付けない
+            f = self.call()
+            r = f.handle(fc("confirm_field", **bad))
+            self.assertEqual(r["結果"], "差し戻し", bad)
+            self.assertNotIn("undeclared", f.log[-1]["reply"], bad)
+
+    def test_2_the_count_reads_only_the_mark(self):
+        import contextlib
+        import io
+        import scenes
+        name = next(iter(scenes.SCENES))
+        marked = {"op": "confirm_field", "args": {"question_id": "Q2", "与えの返事": "合っている"}, "reply": {"result": "rejected", "message": "x", "undeclared": "与えの返事"}}
+        unmarked = {"op": "confirm_field", "args": {"question_id": "Q2", "合い手の返事": "合っている"}, "reply": {"result": "rejected", "message": "x"}}
+        rows = [{"scene": name, "type": "S2", "flow_log": [marked, unmarked]}, {"scene": name, "type": "L4", "flow_log": [unmarked]},
+                {"scene": name, "type": "S4", "skipped": "声が無い"}]
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = scenes.summarize(rows)
+        self.assertEqual(s["宣言に無い名前の差し戻し"], {"回": 1, "通話": "1/2", "どこ": [f"{name} S2：与えの返事"]})   # 印の無い差し戻しは数えない（名前を見比べ直さない）
+
+    def test_3_a_real_call_record_is_counted(self):
+        import contextlib
+        import io
+        import scenes
+        f = self.call()
+        f.handle(fc("confirm_field", 質問="Q2", 与えの返事="合っている"))
+        f.handle(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            s = scenes.summarize([{"scene": "x", "type": "S2", "flow_log": f.log}])
+        self.assertEqual(s["宣言に無い名前の差し戻し"]["回"], 1)
