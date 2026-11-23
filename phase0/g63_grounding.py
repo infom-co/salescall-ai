@@ -19,6 +19,7 @@ import time
 
 from common import base_parser, drop_partial, require_python, save_partial, save_result, say
 from grounding import PASSES, make_reader, trusted
+from reader_alts import label, same   # 読み手の別の読みの欄の読み口（数えの割れ方だけ・答えを決めるのに使わない）
 
 OK, NG = "通す", "止める"
 # (お客様の言葉, こちらが返す文, 正解)
@@ -183,6 +184,10 @@ def overall(rows: list[dict]) -> dict:
         out[f"{name}・{kind}"] = {"正しい": f"{sum(g == r['want'] for r, g in got)}/{len(got)}",
                                  "止めるべきを通した": [r["draft"] for r, g in got if r["want"] == NG and g == OK],
                                  "通すべきを止めた": sum(r["want"] == OK and g == NG for r, g in got)}
+        # 正しくない読みのうち、読み手の別の読み（reader_alts の1か所）と同じ値：分けて出すだけ（正解には数えない＝上の数えは同じ。分身 AV＝L6）
+        alts = [label(e) for r, g in got if g != r["want"] for e in same("G-63", (r["said"], r["draft"]), {"choice": r["choice"]})]
+        if alts:
+            out[f"{name}・{kind}"]["正しくない読みのうち、読み手の別の読みと同じ値"] = alts
     return out
 
 

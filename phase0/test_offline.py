@@ -54037,3 +54037,101 @@ class AVReturnedBorderTest(unittest.TestCase):
         self.assertEqual(got["judge・正しい（どちらとも言えない言葉を除く）"], f"{others}/{counted}")
         got = self.run_with(RETURNED_SAME)
         self.assertEqual(got["別の方をそろって戻ったと読んだ（害）"], f"{others}/{others}")
+
+
+class AVReaderAltsTest(unittest.TestCase):
+    """分身 AV（帳面 1 の (6) の (i) の L6・担当 AK の棚卸しの P10 と束6。CL-1 が書いてある決まりで決めた＝伺わない）：読み手が挙げた正解の外の読み（1人だけの読み・決まりで決まる側を
+    正解にした行のもう一方・説明の文が引っ張りうると書いた読み）を、正解の表の行に持たせる欄を1つの形にし（reader_alts.json＋読み口 reader_alts.py の1か所）、測りの数えの1か所
+    （答えの段 g53_meaning.tally・お呼びする段 g59_tally.cascade・戻ったか g68_returned.run・中身の判定 g63_grounding.overall）が、判定の読みが正解の外で読み手の別の読みと同じなら
+    分けて出す（正解には数えない）。⛔ それまでは作業場所の写し rv178/X/probe/measure_rows.md だけにあった。欄は答えを決めるのに使わない"""
+
+    @staticmethod
+    def g53_rows():
+        import json
+        import g53_meaning as G
+        import review_words as rw
+        base = json.loads(open(Path(G.__file__).parent / "results/G-53d1base_20261107_020602.json", encoding="utf-8").read())["items"]
+        return G.with_new_rows(base) + rw.answer_words()
+
+    def truths(self, e):
+        """欄の行の、その項目の今の正解（行が無ければ止める）。"""
+        import reader_alts as RA
+        key = tuple(e["鍵"])
+        if e["表"] == "G-53":
+            import g53_meaning as G
+            it = next(it for it in self.g53_rows() if RA.key_of("G-53", it) == key)
+            return {"answer": G.accept, "end": G.end_accept, "firm": lambda x: (True, False) if G.either(x) else (not G.hedged(x),),
+                    "prompt_reply": G.prompt_truths, "hear": G.hear_truths, "query": G.query_truths, "near": G.near_truths}[e["項目"]](it)
+        if e["表"] == "G-59":
+            import g59_calling_judge as C
+            c = next(c for c in C.cases("x") if RA.key_of("G-59", C.case_row(c)) == key)
+            return C.asks_truths(C.case_row(c)) if e["項目"] == "asks" else tuple(c[5][e["項目"]])
+        if e["表"] == "G-63":
+            import g63_grounding as GR
+            biz, said, draft, want, _ = next(x for x in GR.all_cases() if (x[1], x[2]) == key)
+            return (e["値"],) if GR.decide(biz, said, draft, e["値"]) == want else ()
+        import g68_returned as R
+        return R.accepted(next(w for b, t, w in R.CASES + R.NEW_CASES if (b, t) == key))
+
+    def test_1_one_shape_and_every_value_is_outside_the_truth(self):
+        import json
+        import reader_alts as RA
+        got = json.loads(RA.PATH.read_text(encoding="utf-8"))["alts"]
+        self.assertGreaterEqual(len(got), 30)
+        for e in got:
+            self.assertEqual(tuple(e), RA.FIELDS, e)
+            self.assertIn(e["表"], RA.TABLES)
+            self.assertIn(e["種類"], (RA.READ, RA.PULLED))
+            self.assertTrue(e["動き"] and e["出どころ"] and e["束"] and e["読み手"], e)
+            self.assertNotIn(e["値"], self.truths(e), e)   # 正解の中に入った読みは欄に入れない（書き置きの 2章）
+        tables = {e["表"] for e in got}
+        self.assertEqual(tables, {"G-53", "G-59", "G-63"})   # 戻ったか（G-68）は、まだ読み手の束を読んでいない（束 av3）
+
+    def test_2_the_field_does_not_decide_answers(self):
+        for name in ("flowctl.py", "meaning_judge.py", "convo.py", "instruction.py", "grounding.py"):
+            self.assertNotIn("reader_alts", (Path(__file__).parent / name).read_text(encoding="utf-8"), name)
+        import inspect
+        import g59_tally
+        self.assertIn('reader_alts.same("G-59"', inspect.getsource(g59_tally.cascade))
+
+    def test_3_the_answer_tally_splits_out_the_reader_reading(self):
+        import copy
+        import g53_meaning as G
+        import reader_alts as RA
+        import review_words as rw
+        from meaning_judge import Reading
+        qm = G.question_map() | rw.questions()
+        it = {"set": "W1", "qid": "W1@E1", "text": "夜の七時以降に、もう一度かけてもらえますか。"}
+        r0 = G.label_readings(it, qm["W1@E1"], False)[0]
+        r = Reading("決められない", r0.firm)
+        for k, v in r0.__dict__.items():
+            setattr(r, k, copy.deepcopy(v))
+        rec = dict(it, truth="ほかの希望を言った")   # 記録の行の形（数えの群の名前に使う truth）
+        rec["X"], rec["X言い切り"] = str(r), r.firm
+        G.side_record(rec, "X", r)
+        got = G.tally([rec], ["X"], qm)["X"]["数え"]
+        self.assertEqual(got[G.ALT_SAME], {"束 au1 の A・answer＝決められない（読んだ）": 1})
+        with unittest.mock.patch.object(RA, "_all", lambda: {}):
+            plain = G.tally([rec], ["X"], qm)["X"]["数え"]
+        self.assertEqual(plain["流れの制御の動き"], got["流れの制御の動き"])   # 数えは今と同じ（割れ方の欄が増えるだけ）
+        self.assertNotIn(G.ALT_SAME, plain)
+
+    def test_4_the_other_tallies_read_the_same_place(self):
+        import g59_calling_judge as C
+        import g63_grounding as GR
+        import g68_returned as R
+        import reader_alts as RA
+        r = C.case_row(C.case_of("はい、それで？", "はい。／失礼ですが、どちら様でしょうか？", True))
+        self.assertEqual([e["値"] for e in RA.same("G-59", r, {"asks": "決められない"})], ["決められない"])
+        self.assertEqual(RA.same("G-59", r, {"asks": "尋ねている"}), [])
+        rows = [{"judge": "X", "set": "作った文", "said": "うちはオンラインしか無理なんですよ。", "draft": "オンラインで", "want": GR.NG, "choice": "事実を言っていない"}]
+        got = GR.overall(rows)["X・作った文"]
+        self.assertEqual(got["正しくない読みのうち、読み手の別の読みと同じ値"], ["束 g63c の C・choice＝事実を言っていない（読んだ）"])
+        # 戻ったか：欄に行が入れば同じ1か所で分けて出す（今は欄に G-68 の行が無い）
+        from flowctl import HANDOVER
+        b, t = R.CASES[11][:2]   # 「お電話代わりました。岡田です。」（正解は「別の方が出た」だけ）
+        fake = {("G-68", (b, t)): [dict(zip(RA.FIELDS, ("G-68", [b, t], "試し", "A", "answer", HANDOVER, RA.READ, "-", "-")))]}
+        with unittest.mock.patch.object(RA, "_all", lambda: fake):
+            s = AVReturnedBorderTest().run_with(HANDOVER)
+        self.assertEqual(s["正しくない読みのうち、読み手の別の読みと同じ値"], {"judge・束 試し の A・answer＝代わった人が話し始めた（読んだ）": 1,
+                                                                 "judge2・束 試し の A・answer＝代わった人が話し始めた（読んだ）": 1})

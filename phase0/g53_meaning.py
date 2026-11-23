@@ -31,6 +31,7 @@ from flowctl import (ABSENT_WHY, OFFER, ANY, END_DOUBT_WHY, before_words, CHOICE
                      WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading, WRONG, WRONG_NOT_SAID, LADDER_OTHER,
                      NEAR, MISGIVING, MISGIVING_OFF, HESITATING, UNTIL_WHY, CYCLE, UNTIL_LABEL, CYCLE_LABEL)
 from g48_meanings import QUESTIONS as G48
+import reader_alts  # 読み手の別の読みの欄の読み口（数えの割れ方だけ・答えを決めるのに使わない）
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, Reading, judge, judge_other
 
 JUDGES = JUDGE_MODELS + tuple(OTHER_JUDGES) + tuple(GROUPS)   # 組の名前は、本番と同じ組の流れ（JudgePanel）で1件ずつ判定する（run_group）
@@ -2282,6 +2283,14 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     return "推し量って確かめる（どの答えにも寄っていない言葉）" if pure else "違う答えで確かめる"
 
 
+ALT_SAME = "流れの制御の動きの外れのうち、読み手の別の読みと同じ値"   # 数えの欄の名前（読み手の別の読み＝reader_alts の1か所。分身 AV＝帳面 1 の (6) の (i) の L6）
+
+
+def alt_readings(it: dict, key: str) -> dict:
+    """記録した判定 key の読みを、読み手の別の読みの欄の項目の名前（答え answer・言い切り firm・答えとは別に読む項目の中の名前＝SIDE_SUFFIX）で並べたもの（reader_alts.same に渡す）。"""
+    return {"answer": it.get(key), "firm": it.get(f"{key}言い切り") is not False, **{k: it.get(f"{key}{sfx}") for k, sfx in SIDE_SUFFIX.items()}}
+
+
 def first(it: dict) -> bool:
     """1日の上限が少ないときに、先に判定させる答え：いまの判定（BASE）が言い直しへの返事を認めたと読み違えたもの。判定し直すときは、
     捨てる前の読み違えの印（前の読み違え）で見る。⛔ 2026-10-18：組の順で流し、上限で止まって、決め手の15個が2回とも後回しになった"""
@@ -2499,6 +2508,10 @@ def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
             if qmap and it["qid"] in qmap:
                 miss = flow_miss(it, qmap[it["qid"]], key)   # 答えと電話を終える読みの1つの動き（1行に1回だけ流れの制御に通す）
                 t["流れの制御の動き"][miss or "正しい動き"] += 1
+                if miss is not None and miss != "読み無し" and not miss.startswith("場面を組めない"):
+                    # 外れのうち、読み手の別の読み（reader_alts の1か所）と同じ値の読み：分けて出すだけ（正解には数えない＝上の数えは同じ）
+                    for e in reader_alts.same("G-53", it, alt_readings(it, key)):
+                        t[ALT_SAME][reader_alts.label(e)] += 1
                 if miss not in (None, "読み無し") and len(misses) < 80:
                     misses.append(f"{it['set']}・{it['qid']}「{it['text']}」正解={accept(it)}・{end_accept(it)} 判定={it[key]}・{it.get(f'{key}終わり')}＝{miss}")
                 if it.get(f"{key}終わり") is not None:   # 電話を終える言葉か（項目だけ。項目を足す前の記録は数えない）

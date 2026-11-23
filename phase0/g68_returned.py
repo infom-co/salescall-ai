@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import Counter
 
 from common import base_parser, require_python, save_result, say
 from meaning_judge import NoJudgment, add_judge_args, measured_judges
+from reader_alts import label, same   # 読み手の別の読みの欄の読み口（数えの割れ方だけ・答えを決めるのに使わない）
 
 from flowctl import HANDOVER, RETURN_CHECKS, RETURN_MEANINGS as MEANINGS, RETURNED_OTHER as OTHER, RETURNED_SAME as SAME  # 説明の文の正本（G-68 で測った文）
 HOLD_TARGET, HOLD_OTHER = "岡田ですね。少々お待ちください。", "担当の者に代わりますので、少々お待ちください。"
@@ -148,6 +150,11 @@ async def run(args) -> dict:
     if new:
         summary |= {"足した言葉の案・別の方をそろって戻ったと読んだ（害）":
                     f"{sum(1 for r in new if other_side(r['want']) and r['both_same'])}/{sum(1 for r in new if other_side(r['want']))}"}
+    # 正しくない読みのうち、読み手の別の読み（reader_alts の1か所）と同じ値：分けて出すだけ（正解には数えない＝上の数えは同じ。分身 AV＝L6）
+    alts = Counter(f"{k}・{label(e)}" for r in rows for k in judges if r.get(k) and accepted(r["want"]) and r.get(k) not in accepted(r["want"])
+                   for e in same("G-68", (r["before"], r["text"]), {"answer": r.get(k)}))
+    if alts:
+        summary["正しくない読みのうち、読み手の別の読みと同じ値"] = dict(alts)
     say("数え：", json.dumps(summary, ensure_ascii=False))
     for r in harm:
         say("⛔ 害：", r["text"], {k: r.get(k) for k in judges})
