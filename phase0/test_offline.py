@@ -55193,3 +55193,42 @@ class BDLadderRestReceiptTest(unittest.TestCase):
         plain = self.scene_c(None)
         self.assertEqual(plain, "ありがとうございます。2時と4時ではどちらがよろしいでしょうか？")
         self.assertEqual(self.scene_c("資料も送ってほしいです。"), plain)
+
+
+class BDCloseOfferEvidenceTest(unittest.TestCase):
+    """分身 BD の (6)（担当 BB の気づいたこと 1＝rv202/BB/out/s_n6.txt の (2)。CL-1 が書いてある決まりで決めた＝伺わない）：締める前の申し出 N6（と詳しい者からのお話 N4）を受けたか・
+    断ったか（通話の事実 close_offer・handoff の agreed）の根拠の発話（turn・said）は、その申し出へのお返事の発話（本書 9-5「各項目には、根拠になった発話（時刻つき）を保存する」・
+    11-1「拒否・同意の記録（根拠の発話）」）。書くのは申し出の通話の事実を書き足す1か所 Flow._handoff_fact（答えの根拠の読みは _evidence の1か所）。⛔ 直す前は、申し出を伺った時の
+    発話（N1 へのお返事・残りの質問のあとに伺ったときは、その前の言い直しへの「はい、お願いします。」）のままだった"""
+
+    def call(self, rest):
+        import dataclasses
+        import scenes
+        from flowctl import CALLBACK_IDS, CloseOffer, Question
+        n1, n6 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["close_offer"]
+        offer = CloseOffer("それでは改めて資料をお送りさせていただいてもよろしいでしょうか？", "資料のお送りのご希望", ("メール", "郵送"), do="改めて資料をお送りさせていただきます")
+        qs = [Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+              Question("Q2", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                       intro="こちらのプランは月額3,000円で初月は無料となっております。", final_goal=True, declines=("いいえ",))]
+        if rest:
+            qs.append(Question("Q3", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",)))
+        c = BDCall(dataclasses.replace(scenes.BUSINESS, questions=qs, info=[], close_offer=offer, handoff_ways=()))
+        c.hear("はい、届いています。", c.rd("はい")); c.report("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        c.hear("いいえ、ちょっと考えさせてください。", c.rd("いいえ")); c.report("record_answer", {"question_id": "Q2", "condition_id": "いいえ"})
+        c.hear("うーん、なんとなくですかね。", c.rd("unknown")); c.report("record_answer", {"question_id": n1, "condition_id": "unknown"})
+        if c.f.current == n1:
+            c.hear("うーん、特にこれというのは…。", c.rd("unknown")); c.report("record_answer", {"question_id": n1, "condition_id": "unknown"})
+        if rest:
+            c.hear("来週の火曜日の午後でお願いします。", c.rd("答えた"))
+            c.report("record_answer", {"question_id": "Q3", "condition_id": "答えた", "value": "来週の火曜日の午後"})
+            c.hear("はい、お願いします。", c.rd("affirmed")); c.report("confirm_field", {"question_id": "Q3", "result": "affirmed"})
+        self.assertEqual(c.f.current, n6)
+        c.hear("はい、お願いします。", c.rd("はい")); c.report("record_answer", {"question_id": n6, "condition_id": "はい"})
+        return c
+
+    def test_1_the_offer_answer_is_the_evidence(self):
+        for rest in (False, True):
+            with self.subTest(rest=rest):
+                c = self.call(rest)
+                (fact,) = c.f.facts["close_offer"]
+                self.assertEqual((fact["agreed"], fact["said"], fact["turn"]), (True, "はい、お願いします。", c.f.callee_turns))

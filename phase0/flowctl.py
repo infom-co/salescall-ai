@@ -19430,7 +19430,12 @@ class Flow:
         self._wish_contact(role, after=CALLBACK_IDS["handoff_way"] if CALLBACK_IDS["handoff_way"] in self.items else CALLBACK_IDS[h["kind"]], proc=h)
 
     def _handoff_fact(self, **extra) -> None:
-        """申し出の通話の事実（handoff・close_offer＝申し出の役目。この通話のこのご承認の1つ）を書き足す唯一の場所。"""
+        """申し出の通話の事実（handoff・close_offer＝申し出の役目。この通話のこのご承認の1つ）を書き足す唯一の場所。受けたか・断ったか（agreed）を書くときは、根拠の発話
+        （turn・said）も、その申し出（N4・N6）へのお返事の発話にする（答えの根拠を読む1か所 _evidence。本書 9-5「各項目には、根拠になった発話（時刻つき）を保存する」・
+        11-1「拒否・同意の記録（根拠の発話）」）。⛔ 分身 BD の (6)（担当 BB の気づいたこと 1）まで、申し出を伺った時の発話（N1 へのお返事・残りの質問のあとに伺ったときは
+        その前の確かめへのお返事）のままだった"""
+        if "agreed" in extra and (ev := self._evidence(CALLBACK_IDS[self.handoff["kind"]])) and ev.get("turn") is not None:
+            extra = {"turn": ev["turn"], "said": fact_said(ev.get("said")), **extra}
         for e in self.facts.get(self.handoff["kind"], []):
             if e.get("question") == self.handoff["q"]:
                 e.update(extra)
