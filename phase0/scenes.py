@@ -244,6 +244,33 @@ def connect_reply(call: dict) -> dict:
                  and not str(x["reply"].get("question_id", "")).startswith("C")), {})
 
 
+def before_connect(call: dict) -> list[dict]:
+    """目的の人に繋がる前（繋いだ返事＝connect_reply より前）の操作の記録。繋がらなかった通話は全部。"""
+    log, con = ops(call), connect_reply(call)
+    return log[:next((k for k, x in enumerate(log) if x["reply"] is con), len(log))]
+
+
+# 目的のお客様を呼ぶ形の名乗りの録音の文（あいさつ・名乗り・呼ぶ一言＝instruction.Business.opening_parts の1か所）。録音の途中で止めた場面の、届いた文とまだの文
+TARGET_PARTS = TARGET_BUSINESS.opening_parts()
+
+
+def replayed_to_reception(line: str, parts: list[str], again: bool = False):
+    """お呼びする段で、受付の方が名乗りの録音の途中で話し始めた・録音のあとに聞き返した場面の確かめ（G-22・G-50 の目的のお客様を呼ぶ形＝本書 9-4 の目的のお客様の (2)(8)）：
+    聞かれたことに合う部分（parts）を録音で流し直し（名乗り・用件・呼ぶ一言は流れの制御が足す＝Flow.on_opening_cut・_op_replay_opening。もう一度は「失礼いたしました。」のあと、
+    言ったこと＝名乗りと呼ぶ一言。あいさつはお詫びの相づちと重ねない）、自分の声では話さず、聞いた方には確かめも質問も流さず、繋がるまで質問を流さず、取り次がれた岡田様には
+    あいさつ・名乗り・用件の全部を流してから質問へ。"""
+    head = "言ったことをもう一度" if again else {"intro": "名乗りと呼ぶ一言", "purpose": "用件と呼ぶ一言"}[parts[0]]
+
+    def check(c: dict) -> dict:
+        return {head: any(played_parts(x["reply"]) == parts and (not again or x["reply"].get("ack") == "shitsurei")
+                          for x in ops(c) if x["op"] == "replay_opening"),
+                "自分の言葉で話さない": own_words(c, line) == "",
+                "聞いた方には確かめも質問も流さない": not any(r in ("confirm_target", "call_target", "next") for r in replies_to(c, line)),
+                "繋がるまで質問を流さない": not any("question" in played_parts(x["reply"]) for x in before_connect(c)),
+                "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}
+    return check
+
+
 def got(call: dict, qid: str, want: str) -> bool:
     it = call["items"].get(qid, {})
     return it.get("state") in ("confirmed", "accepted") and want in ((it.get("condition") or "") + (it.get("value") or ""))
@@ -295,6 +322,15 @@ class Scene:
         own = "silence_s" in first or any(first.get("wav", "").endswith(f"_{n}.wav") for n in FIRST_WORDS)
         head = [] if own else [W("greet_company") if self.business.target is not None else W("hello")]
         return head + self.lines, {k: v + len(head) if k in INDEX_KW else v for k, v in self.kw.items()}
+
+
+# G-22（名乗りの録音の途中で話し始めた・録音のあとに聞き返した）の目的のお客様を呼ぶ形（2026-11-23 CL-1 が共通の決まり「同じ問いに答える所を2つ作らない」で決めた＝
+# 分身 BA の伺いの文 rv202/BA/ask_g22.md の (ア)。録音のあとの「どちら様」「ご用件」「代わる」は「目的の人_名前を確かめてから名乗りを聞かれる」「目的の人_用件を聞かれる」
+# 「目的の人_担当の者に取り次がれる」ほか）：(場面の名前の後ろ, 受付の方の台詞, 受付の方に流し直す部分, 録音の届いた文の数＝None は止めずに流し切った)。
+# 止める所は第一声の次の台詞の前（通話の試験への指定 barge_in＝G-50 と同じ渡し方。convo.run_call）
+G22_TARGET = (("録音の最初で話し始めた", "barge_who", ["intro", "target"], 0), ("録音のあいさつのあとで話し始めた", "barge_who", ["intro", "target"], 1),
+              ("録音の名乗りのあとで話し始めた", "barge_what", ["purpose", "target"], 2), ("録音のあとにもう一度と言われる", "again", ["intro", "target"], None))
+G22_TARGET_SCENES = tuple(f"目的の人_{label}" for label, *_ in G22_TARGET)
 
 
 SCENES = {
@@ -457,6 +493,11 @@ SCENES = {
         "名乗りと呼ぶ一言": any(played_parts(x["reply"]) == ["intro", "target"] for x in ops(c) if x["op"] == "replay_opening"),
         "聞いた方には確かめも用件も流さない": not any(r in ("confirm_target", "call_target", "next") for r in replies_to(c, "okada_whois_pause")),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}),
+    # 受付の方が名乗りの録音の途中で話し始めた（録音の最初・あいさつのあと・名乗りのあと）・録音のあとに「もう一度」（G22_TARGET）：言い終わってから、聞かれたことに合う
+    # 部分を録音で流し直し（まだ届いていない名乗りと呼ぶ一言はプログラムが足す）、取り次がれた岡田様には全部を流してから質問へ（本書 9-4 の目的のお客様の (2)(8)）
+    **{name: Scene(TARGET_BUSINESS, [W(line), W("hold_target"), T("taken_over_okada")] + FULL, replayed_to_reception(line, parts, again=cut is None),
+                   kw={} if cut is None else {"barge_in": (TARGET_PARTS[:cut], TARGET_PARTS[cut:])})
+       for name, (_, line, parts, cut) in zip(G22_TARGET_SCENES, G22_TARGET)},
     # 違うお名前の方が出て、お呼びした方の不在を伝える（✅ 2026-10-22 ユーザー：「違う名乗りの方が、岡田はいないと言っても、また、岡田様を
     # 呼ぶんですか？」）：お呼びし直さず・確かめず、戻る時刻を聞いて締める
     "目的の人_担当の別の方が不在を伝える": Scene(TARGET_BUSINESS, [W("transfer"), W("taken_over_absent"), W("back_5pm"), W("affirm")], lambda c: {
